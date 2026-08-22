@@ -1,0 +1,76 @@
+name: Bug report
+description: Report reproducible behavior that appears incorrect.
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. Do not include credentials, private portfolio data, mailbox content, broker statements, or unsanitized logs.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Where did the problem occur?
+      options:
+        - Portfolio and transactions
+        - Research and evidence
+        - Chat and reasoning
+        - Knowledge graph
+        - Sources and connectors
+        - Watches and reminders
+        - Shadow and paper accounts
+        - Settings and setup
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and its impact.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: Describe the behavior you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest repeatable sequence, using synthetic or redacted data.
+      placeholder: |
+        1. Open ...
+        2. Configure ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: Prophet revision
+      description: Commit SHA or branch name, if known.
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, browser, Python version, and Node.js version as relevant.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized evidence
+      description: Add redacted screenshots, console output, or logs only when they contain no private data or secrets.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I searched existing issues for the same problem.
+          required: true
+        - label: I removed credentials and private financial, mailbox, and broker data.
+          required: true

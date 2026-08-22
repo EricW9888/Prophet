@@ -1,0 +1,12 @@
+title = "Prophet Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Typed Plaid settings fields are API schema declarations, not credentials."
+condition = "AND"
+targetRules = ["plaid-client-id", "plaid-secret-key"]
+regexTarget = "line"
+paths = ['''^backend/investos/schemas/integrations\.py$''']
+regexes = ['''^\s+plaid:\s+PlaidIntegrationSettings(?:Update)?(?:\s+\|\s+None\s+=\s+None)?\s*$''']

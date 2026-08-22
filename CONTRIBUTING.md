@@ -1,0 +1,59 @@
+# Contributing To Prophet
+
+Prophet is a source-available, All Rights Reserved personal project. Its original
+source code is owned solely by Eric Wang. Public visibility does not make it an
+open-source or community-maintained project.
+
+## Contribution Boundary
+
+Issues, bug reports, and suggestions are welcome. Do not submit source code or a
+pull request unless Eric Wang has agreed in writing to the contribution and
+ownership terms before submission. Unsolicited code may be closed without review
+so Prophet's ownership and source-availability boundary remain unambiguous.
+
+Never include credentials, private portfolio details, mailbox content, broker
+statements, or unsanitized logs in an issue or proposed change. Use the issue
+forms so reports include enough context to reproduce without exposing local data.
+
+An approved change should preserve Prophet's time-aware evidence model,
+accepted-state promotion policy, and separation between private runtime state
+and publishable code.
+
+## Maintainer Workflow
+
+The public repository is the canonical development repository. Ordinary work
+starts from a concrete GitHub Issue or an explicitly documented maintenance
+task, continues on a focused branch, and is merged through a pull request after
+review and required CI checks pass. The repository does not use a second active
+source tree or a public/private synchronization workflow.
+
+## Start Here
+
+1. Read `README.md`, `docs/architecture.md`, and `docs/limitations.md`.
+2. Search the existing issues before opening a new report or proposal.
+3. Follow the setup in `README.md` using the committed Poetry and npm lockfiles.
+4. Keep edits scoped to the behavior being changed.
+5. Add focused tests for behavioral changes and broader tests for shared policy
+   or cross-module contracts.
+
+## Engineering Rules
+
+- Route model calls through `backend/investos/core/llm.py`.
+- Never let raw model output promote accepted state without policy checks.
+- Preserve evidence lineage and event/public/ingest timestamps.
+- Use structured parsers and repo-native services before adding new machinery.
+- Keep credentials, portfolio data, mailbox content, backups, logs, and ignored
+  local agent or tool state out of commits and fixtures.
+- Use synthetic examples in public tests and documentation.
+- Do not add an internet-facing deployment path without a reviewed threat model
+  and authentication boundary.
+
+## Before Proposing An Approved Change
+
+Run the full verification block in `README.md`. For UI changes, also exercise
+the affected workflow in a real browser at desktop and mobile widths and check
+for horizontal overflow, inaccessible controls, and console errors.
+
+Describe the behavior changed, the verification performed, and any remaining
+external dependency or credential requirement. Do not describe incomplete work
+as complete.

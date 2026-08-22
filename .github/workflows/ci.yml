@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.14"]
+    env:
+      POSTGRES_USER: investos
+      POSTGRES_PASSWORD: investos
+      POSTGRES_DB: investos
+      RUNTIME_SETTINGS_PATH: /tmp/prophet-ci-runtime-settings.json
+      LLM_ALLOW_LOCAL_PROVIDER: "false"
+    services:
+      postgres:
+        image: postgres:16@sha256:e17e86066e5ef83e0952a9347f5c792b7ece00972e2aa787a6986f471b3dd3d5
+        env:
+          POSTGRES_USER: investos
+          POSTGRES_PASSWORD: investos
+          POSTGRES_DB: investos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U investos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Configure test database
+        shell: bash
+        run: echo "DATABASE_URL=postgresql+asyncpg://investos:${POSTGRES_PASSWORD}@127.0.0.1:5432/investos" >> "$GITHUB_ENV"
+
+      - name: Install isolated Poetry
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/poetry"
+          "$RUNNER_TEMP/poetry/bin/python" -m pip install --disable-pip-version-check poetry==2.3.2
+          echo "$RUNNER_TEMP/poetry/bin" >> "$GITHUB_PATH"
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: poetry install --with dev --no-interaction
+
+      - name: Validate migrations
+        working-directory: backend
+        run: |
+          poetry run alembic upgrade head
+          poetry run alembic check
+
+      - name: Run backend tests
+        working-directory: backend
+        run: |
+          poetry run coverage run --branch --source=investos -m pytest -q
+          poetry run coverage report --precision=1 --fail-under=40
+
+      - name: Check Python formatting and static failures
+        working-directory: backend
+        run: |
+          poetry run black --check investos tests ../scripts
+          poetry run isort --check-only investos tests ../scripts
+          poetry run flake8 investos tests ../scripts --select=E9,F63,F7,F82
+
+      - name: Audit backend security
+        working-directory: backend
+        run: |
+          poetry run bandit -q -r investos -ll
+          poetry run python ../scripts/audit_python_lock.py
+          poetry run python ../scripts/repository_policy_check.py
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20.9.0
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint and build frontend
+        working-directory: frontend
+        run: |
+          npm run lint
+          npm run build
+
+      - name: Audit frontend dependencies
+        working-directory: frontend
+        run: npm audit --audit-level=low

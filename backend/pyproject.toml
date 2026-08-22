@@ -1,0 +1,53 @@
+[project]
+name = "investos"
+version = "0.1.0"
+description = "Personal investment intelligence for research, portfolio context, verification, and simulation without real trading"
+authors = [{ name = "Eric Wang" }]
+readme = "README.md"
+requires-python = ">=3.11,<3.15"
+dynamic = ["dependencies"]
+
+[tool.poetry]
+packages = [{include = "investos"}]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.15"
+fastapi = "^0.139.2"
+uvicorn = "^0.29.0"
+sqlalchemy = {extras = ["asyncio"], version = "^2.0.29"}
+alembic = "^1.13.1"
+asyncpg = "^0.31.0"
+pydantic = {extras = ["email"], version = "^2.6.4"}
+pydantic-settings = "^2.14.2"
+httpx = "^0.28.1"
+apscheduler = "^3.10.4"
+python-multipart = "^0.0.32"
+greenlet = "^3.3.2"
+plaid-python = "^39.0.0"
+youtube-transcript-api = "^1.2.4"
+fastjsonschema = "^2.21.2"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^9.1.1"
+pytest-asyncio = "^1.4.0"
+black = "^26.5.1"
+isort = "^5.13.2"
+flake8 = "^7.0.0"
+bandit = "^1.9.4"
+pip-audit = "^2.10.0"
+coverage = "^7.15.3"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+
+[tool.isort]
+profile = "black"

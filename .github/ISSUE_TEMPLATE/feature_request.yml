@@ -1,0 +1,45 @@
+name: Improvement proposal
+description: Suggest a capability, workflow, or research-quality improvement.
+title: "[Proposal] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the underlying problem before prescribing an implementation. Prophet is a personal source-available project, so proposals may be accepted, revised, deferred, or declined.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: What is missing, unreliable, confusing, or unnecessarily difficult?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: What observable behavior would make this complete?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Why it matters
+      description: Explain the research, portfolio, correctness, safety, or usability impact.
+    validations:
+      required: true
+  - type: textarea
+    id: approach
+    attributes:
+      label: Possible approach
+      description: Optional implementation ideas, established patterns, references, or alternatives considered.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues for related work.
+          required: true
+        - label: This proposal contains no credentials or private portfolio, mailbox, or broker data.
+          required: true
