@@ -21,6 +21,7 @@ from investos.models.market_setup import MarketSetupSignal
 from investos.models.portfolio import Position
 from investos.models.quant import RegimeState
 from investos.models.source import Source
+from investos.services.canonical_state import CanonicalStateService
 from investos.services.corroboration import source_lineage_key
 from investos.services.graph_edge_state import GraphEdgeStateService
 from investos.services.knowledge_audit import KnowledgeAuditService
@@ -641,25 +642,16 @@ class PatternDiscoveryService:
         primary: dict[str, Any],
         first_raw_id: UUID,
     ) -> UnresolvedQuestion | None:
-        coverage = (
-            await self.session.execute(
-                select(CoverageMap)
-                .where(
-                    CoverageMap.subject_type == "entity",
-                    CoverageMap.subject_id == primary["entity_id"],
-                )
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        if coverage is None:
-            coverage = CoverageMap(
+        coverage = await CanonicalStateService(self.session).ensure_coverage_map(
+            subject_type="entity",
+            subject_id=primary["entity_id"],
+            create=lambda: CoverageMap(
                 subject_type="entity",
                 subject_id=primary["entity_id"],
                 evidence_class_coverage_json={},
                 overall_coverage_score=0.0,
-            )
-            self.session.add(coverage)
-            await self.session.flush()
+            ),
+        )
 
         question_text = self._clean_text(
             f"Test the provisional pattern '{hypothesis['label']}' across "
