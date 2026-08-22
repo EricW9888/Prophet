@@ -24,6 +24,7 @@ from investos.services.artifact_hygiene import (
     is_artifact_subject_name,
 )
 from investos.services.brokerage import BrokerageService
+from investos.services.canonical_state import CanonicalStateService
 from investos.services.database_backup import DatabaseBackupService
 from investos.services.entity_hygiene import EntityHygieneService
 from investos.services.fundamentals import FundamentalMetricService
@@ -742,15 +743,16 @@ class AutomationCoordinator:
         position = await session.get(Position, item.item_id)
         if position is None:
             return None
-        coverage = CoverageMap(
+        return await CanonicalStateService(session).ensure_coverage_map(
             subject_type="position",
             subject_id=position.id,
-            evidence_class_coverage_json={},
-            overall_coverage_score=0.0,
+            create=lambda: CoverageMap(
+                subject_type="position",
+                subject_id=position.id,
+                evidence_class_coverage_json={},
+                overall_coverage_score=0.0,
+            ),
         )
-        session.add(coverage)
-        await session.flush()
-        return coverage
 
     async def _default_position_research_question(self, session, position_id) -> str:
         position = await session.get(Position, position_id)

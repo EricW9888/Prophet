@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from uuid import UUID
 
 from sqlalchemy import desc, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.models.conclusion import ConclusionState
@@ -59,31 +61,49 @@ class CanonicalStateService:
         *,
         subject_type: str,
         subject_id: UUID,
-        create: callable,
+        create: Callable[[], ConclusionState],
     ) -> ConclusionState:
         state = await self.get_conclusion_state(
             subject_type=subject_type, subject_id=subject_id
         )
         if state is not None:
             return state
-        state = create()
-        self.session.add(state)
-        await self.session.flush()
-        return state
+        candidate = create()
+        try:
+            async with self.session.begin_nested():
+                self.session.add(candidate)
+                await self.session.flush()
+            return candidate
+        except IntegrityError:
+            state = await self.get_conclusion_state(
+                subject_type=subject_type, subject_id=subject_id
+            )
+            if state is None:
+                raise
+            return state
 
     async def ensure_coverage_map(
         self,
         *,
         subject_type: str,
         subject_id: UUID,
-        create: callable,
+        create: Callable[[], CoverageMap],
     ) -> CoverageMap:
         coverage = await self.get_coverage_map(
             subject_type=subject_type, subject_id=subject_id
         )
         if coverage is not None:
             return coverage
-        coverage = create()
-        self.session.add(coverage)
-        await self.session.flush()
-        return coverage
+        candidate = create()
+        try:
+            async with self.session.begin_nested():
+                self.session.add(candidate)
+                await self.session.flush()
+            return candidate
+        except IntegrityError:
+            coverage = await self.get_coverage_map(
+                subject_type=subject_type, subject_id=subject_id
+            )
+            if coverage is None:
+                raise
+            return coverage

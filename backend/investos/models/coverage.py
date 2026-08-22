@@ -2,7 +2,15 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import ARRAY, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import (
+    ARRAY,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,6 +21,13 @@ class CoverageMap(Base):
     """Tracks what the system knows and doesn't know about a subject."""
 
     __tablename__ = "coverage_maps"
+    __table_args__ = (
+        UniqueConstraint(
+            "subject_type",
+            "subject_id",
+            name="uq_coverage_maps_subject",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4

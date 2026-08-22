@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import ARRAY, DateTime, ForeignKey, Integer, String
+from sqlalchemy import ARRAY, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,6 +13,13 @@ class ConclusionState(Base):
     """THE CENTRAL BELIEF OBJECT for any subject."""
 
     __tablename__ = "conclusion_states"
+    __table_args__ = (
+        UniqueConstraint(
+            "subject_type",
+            "subject_id",
+            name="uq_conclusion_states_subject",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
