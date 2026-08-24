@@ -5,6 +5,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field
 
@@ -13,6 +14,10 @@ from investos.core.providers import (
     LLM_PROVIDER_CAPABILITIES,
     llm_provider_capability,
     selectable_llm_providers,
+)
+from investos.core.research_providers import (
+    RESEARCH_PROVIDER_CAPABILITIES,
+    configured_research_providers,
 )
 from investos.schemas.integrations import (
     GmailIntegrationSettings,
@@ -62,8 +67,10 @@ class LLMRuntimeSettings(BaseModel):
 
 
 class ResearchRuntimeSettings(BaseModel):
-    provider: str = "tavily"
+    provider_order: list[str] = Field(default_factory=lambda: ["searxng", "tavily"])
+    searxng_base_url: str = ""
     api_key: str | None = settings.TAVILY_API_KEY
+    tavily_monthly_credit_budget: int | None = None
 
 
 class PlaidRuntimeSettings(BaseModel):
@@ -312,8 +319,19 @@ class RuntimeSettingsStore:
                 status_message=llm_msg,
             ),
             research=ResearchIntegrationSettings(
-                provider=runtime.research.provider,
+                provider=(
+                    configured_research_providers(runtime.research)[0]
+                    if configured_research_providers(runtime.research)
+                    else runtime.research.provider_order[0]
+                ),
+                provider_order=runtime.research.provider_order,
+                available_providers=[
+                    capability.public_dict()
+                    for capability in RESEARCH_PROVIDER_CAPABILITIES.values()
+                ],
+                searxng_base_url=runtime.research.searxng_base_url,
                 api_key_set=bool(runtime.research.api_key),
+                tavily_monthly_credit_budget=runtime.research.tavily_monthly_credit_budget,
                 ready=research_ready,
                 status_message=research_msg,
             ),
@@ -344,18 +362,14 @@ class RuntimeSettingsStore:
                 "the provider."
             )
 
-        if runtime.research.provider != "tavily":
+        configured = configured_research_providers(runtime.research)
+        if not configured:
             research_ready = False
-            research_msg = f"Unknown research provider: {runtime.research.provider}."
-        elif not runtime.research.api_key:
-            research_ready = False
-            research_msg = "Research API key is missing."
+            research_msg = "Configure a SearXNG endpoint or Tavily API key."
         else:
             research_ready = True
-            research_msg = (
-                "Configured. Live availability is checked when Prophet runs "
-                "external research."
-            )
+            labels = [RESEARCH_PROVIDER_CAPABILITIES[item].label for item in configured]
+            research_msg = "Research discovery order: " + " then ".join(labels) + "."
         return llm_ready, llm_msg, research_ready, research_msg
 
     @classmethod
@@ -487,10 +501,28 @@ class RuntimeSettingsStore:
         update: ResearchIntegrationSettingsUpdate,
     ) -> ResearchRuntimeSettings:
         data = current.model_dump()
-        if update.provider is not None:
-            data["provider"] = update.provider.strip().lower()
+        if update.provider_order is not None:
+            data["provider_order"] = [
+                str(provider).strip().lower() for provider in update.provider_order
+            ]
+        elif update.provider is not None:
+            legacy_provider = update.provider.strip().lower()
+            data["provider_order"] = [
+                legacy_provider,
+                *[
+                    provider
+                    for provider in data.get("provider_order", [])
+                    if provider != legacy_provider
+                ],
+            ]
+        if update.searxng_base_url is not None:
+            data["searxng_base_url"] = update.searxng_base_url.strip().rstrip("/")
         if update.api_key is not None:
             data["api_key"] = update.api_key.strip() or current.api_key
+        if "tavily_monthly_credit_budget" in update.model_fields_set:
+            data["tavily_monthly_credit_budget"] = (
+                update.tavily_monthly_credit_budget or None
+            )
         return ResearchRuntimeSettings.model_validate(data)
 
     @staticmethod
@@ -533,8 +565,34 @@ class RuntimeSettingsStore:
             raise ValueError(f"A base URL is required for {capability.label}.")
         if capability.accepts_model and not runtime.llm.hosted_model.strip():
             raise ValueError(f"A model identifier is required for {capability.label}.")
-        if runtime.research.provider not in {"tavily"}:
-            raise ValueError("Research provider must be 'tavily'.")
+        provider_order = runtime.research.provider_order
+        if not provider_order or len(provider_order) != len(set(provider_order)):
+            raise ValueError("Research provider order must contain unique providers.")
+        unknown_research = [
+            provider
+            for provider in provider_order
+            if provider not in RESEARCH_PROVIDER_CAPABILITIES
+        ]
+        if unknown_research:
+            raise ValueError(
+                "Unknown research provider(s): " + ", ".join(unknown_research) + "."
+            )
+        if runtime.research.searxng_base_url:
+            parsed = urlsplit(runtime.research.searxng_base_url)
+            if (
+                parsed.scheme.casefold() not in {"http", "https"}
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+            ):
+                raise ValueError(
+                    "SearXNG base URL must be an HTTP(S) URL without embedded credentials."
+                )
+        if (
+            runtime.research.tavily_monthly_credit_budget is not None
+            and runtime.research.tavily_monthly_credit_budget <= 0
+        ):
+            raise ValueError("Tavily monthly credit budget must be positive.")
         if runtime.plaid.environment not in {"sandbox", "development", "production"}:
             raise ValueError(
                 "Plaid environment must be sandbox, development, or production."

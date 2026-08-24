@@ -135,9 +135,23 @@ class LLMIntegrationSettingsUpdate(BaseModel):
     api_key: str | None = None
 
 
+class ResearchProviderCapabilityResponse(BaseModel):
+    provider: str
+    label: str
+    requires_api_key: bool
+    requires_base_url: bool
+    is_metered: bool
+
+
 class ResearchIntegrationSettings(BaseModel):
     provider: str = "tavily"
+    provider_order: list[str] = Field(default_factory=lambda: ["searxng", "tavily"])
+    available_providers: list[ResearchProviderCapabilityResponse] = Field(
+        default_factory=list
+    )
+    searxng_base_url: str = ""
     api_key_set: bool = False
+    tavily_monthly_credit_budget: int | None = None
     ready: bool = False
     status_message: str | None = None
 
@@ -152,6 +166,8 @@ class ResearchUsageRequestEntry(BaseModel):
     result_count: int | None = None
     top_url: str | None = None
     request_id: str | None = None
+    estimated_credits: int | None = None
+    fallback_reason: str | None = None
     error: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     evidence_id: str | None = None
@@ -169,7 +185,10 @@ class ResearchUsageSnapshot(BaseModel):
 
 class ResearchIntegrationSettingsUpdate(BaseModel):
     provider: str | None = None
+    provider_order: list[str] | None = None
+    searxng_base_url: str | None = None
     api_key: str | None = None
+    tavily_monthly_credit_budget: int | None = None
 
 
 class PortfolioIntegrationSettings(BaseModel):

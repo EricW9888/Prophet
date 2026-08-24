@@ -404,26 +404,25 @@ class SetupService:
         cls, runtime: IntegrationSettingsResponse
     ) -> SetupStepResponse:
         research = runtime.research
-        provider_label = cls._research_provider_label(research.provider)
         if research.ready:
             status = "complete"
-            detail = research.status_message or f"{provider_label} is ready."
-            hint = "External research can fetch current sources; stored local evidence still remains the durable record."
-        elif research.provider == "tavily" and not research.api_key_set:
+            detail = research.status_message or "Research discovery is ready."
+            hint = "Search identifies candidate sources; Prophet fetches and stores the underlying page as dated evidence when possible."
+        elif not getattr(research, "searxng_base_url", "") and not research.api_key_set:
             status = "pending"
-            detail = "Tavily API key is missing."
-            hint = "Paste a Tavily key in Research settings so fresh search/current-event checks can run."
+            detail = "No web discovery provider is configured."
+            hint = "Add a SearXNG endpoint for free-first discovery, a Tavily key for fallback, or both."
         else:
-            status = "in_progress" if research.api_key_set else "pending"
+            status = "in_progress"
             detail = (
                 research.status_message
-                or f"{provider_label} readiness has not been confirmed."
+                or "Research-provider readiness has not been confirmed."
             )
-            hint = "Resolve the provider error or rate-limit state before relying on live web research."
+            hint = "Resolve the endpoint, provider, or rate-limit error before relying on live web research."
         return SetupStepResponse(
             id="research_provider",
-            label="Configure external research API",
-            description="Connect the web/search provider used for fresh source discovery.",
+            label="Configure research discovery",
+            description="Connect the web-search providers used to find current source pages.",
             status=status,
             status_label=cls._status_label(status),
             detail=detail,
@@ -434,8 +433,4 @@ class SetupService:
 
     @staticmethod
     def _provider_label(provider: str) -> str:
-        return provider.replace("_", " ").title()
-
-    @staticmethod
-    def _research_provider_label(provider: str) -> str:
         return provider.replace("_", " ").title()

@@ -1,6 +1,7 @@
 import hashlib
 import io
 import re
+from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Optional
 from urllib.parse import urljoin, urlsplit
@@ -21,6 +22,14 @@ from investos.services.corroboration import near_duplicate_signature
 from investos.workers.extraction import ExtractionWorker
 
 DEFAULT_SOURCE_NAME = "Manual Research Inbox"
+
+
+@dataclass(frozen=True)
+class FetchedUrlDocument:
+    url: str
+    canonical_url: str
+    title: str | None
+    content: str
 
 
 class IngestionService:
@@ -125,14 +134,11 @@ class IngestionService:
         source_id: Optional[UUID] = None,
         source_item_type: str = "web_research",
         author: Optional[str] = None,
+        metadata_json: Optional[dict] = None,
         process_now: bool = True,
     ) -> RawEvidence:
-        html = await self._fetch_url_text(url)
-
-        resolved_title = title or _extract_title(html) or url
-        text_content = _html_to_text(html)
-        if not text_content.strip():
-            raise ValueError("Fetched URL did not contain extractable text content.")
+        document = await self.fetch_url_document(url)
+        resolved_title = title or document.title or url
 
         source = await self._get_or_create_source(source_id)
         return await self.ingest_text(
@@ -143,13 +149,26 @@ class IngestionService:
                 url=url,
                 author=author,
                 metadata_json={
+                    **(metadata_json or {}),
                     "content_type": "text/html",
                     "fetched_url": url,
-                    "canonical_source_url": _extract_canonical_url(html, url),
+                    "canonical_source_url": document.canonical_url,
                 },
-                content=text_content[:20000],
+                content=document.content[:20000],
             ),
             process_now=process_now,
+        )
+
+    async def fetch_url_document(self, url: str) -> FetchedUrlDocument:
+        html = await self._fetch_url_text(url)
+        text_content = _html_to_text(html)
+        if not text_content.strip():
+            raise ValueError("Fetched URL did not contain extractable text content.")
+        return FetchedUrlDocument(
+            url=url,
+            canonical_url=_extract_canonical_url(html, url),
+            title=_extract_title(html),
+            content=text_content,
         )
 
     async def _fetch_url_text(self, url: str) -> str:

@@ -27,9 +27,12 @@ or corporate action will be available or normalized correctly; reconciliation
 against broker records remains important.
 
 Research discovery depends on external services, websites, and rate limits.
-Tavily is the currently integrated search provider, not a complete market-data
-or retrieval solution. Market prices and public web results may be delayed,
-revised, unavailable, or unsuitable for point-in-time backtesting.
+Prophet supports an explicitly configured SearXNG endpoint and Tavily fallback;
+it does not operate a search index or start SearXNG itself. Metasearch results
+can be incomplete or noisy, while direct source pages can block automated
+retrieval. Search is source discovery, not a complete market-data or retrieval
+solution. Market prices and public web results may be delayed, revised,
+unavailable, or unsuitable for point-in-time backtesting.
 
 YouTube ingestion uses available captions or an explicitly supplied transcript.
 Prophet does not currently transcribe arbitrary no-caption audio or interpret a

@@ -117,10 +117,17 @@ Prophet's implemented LLM provider registry currently contains:
   local-provider use with `LLM_ALLOW_LOCAL_PROVIDER=true`; Prophet never starts
   Ollama.
 
-Tavily is Prophet's external research/search provider, not an LLM provider. The
-settings UI stores configured secrets in an ignored mode-0600 sidecar and only
-returns key-presence flags. Environment-based deployments may instead set
-`NVIDIA_API_KEY` and `TAVILY_API_KEY`.
+External source discovery is separate from the LLM and from Prophet's stored
+retrieval system. Prophet can query an operator-supplied **SearXNG** endpoint
+first and use **Tavily** as a metered fallback. Search results identify candidate
+pages; Prophet attempts to fetch the underlying page through its outbound URL
+safety policy before creating evidence. Prophet neither installs nor starts
+SearXNG. Tavily is a search provider, not an LLM provider or RAG system.
+
+The settings UI stores configured secrets in an ignored mode-0600 sidecar and
+only returns key-presence flags. Environment-based deployments may instead set
+`NVIDIA_API_KEY` and `TAVILY_API_KEY`. SearXNG endpoint and provider order are
+runtime settings; an optional local Tavily credit budget can bound fallback use.
 
 ## Verification
 

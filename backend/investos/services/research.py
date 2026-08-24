@@ -14,6 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.config import settings
 from investos.core.llm import call_llm_json, compact_exception_message
+from investos.core.research_providers import (
+    RESEARCH_PROVIDER_CAPABILITIES,
+    ProviderSearchResponse,
+    configured_research_providers,
+    search_research_provider,
+)
+from investos.core.url_security import UnsafeUrlError, UrlFetchNetworkError
 from investos.models.coverage import CoverageMap, Resolution, UnresolvedQuestion
 from investos.models.entity import Entity, Security
 from investos.models.evidence import RawEvidence, SourceItem
@@ -75,6 +82,8 @@ class ResearchSearchResult:
     query: str
     results: list[dict[str, Any]] = field(default_factory=list)
     request_id: str | None = None
+    provider: str | None = None
+    provider_attempts: list[dict[str, Any]] = field(default_factory=list)
     variants_tried: list[str] = field(default_factory=list)
 
 
@@ -115,9 +124,13 @@ class ResearchService:
 
     @staticmethod
     def _usage_log_path() -> Path:
-        path = Path(settings.STORAGE_DIR) / "_system" / "tavily_requests.jsonl"
+        path = Path(settings.STORAGE_DIR) / "_system" / "research_requests.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
+
+    @staticmethod
+    def _legacy_usage_log_path() -> Path:
+        return Path(settings.STORAGE_DIR) / "_system" / "tavily_requests.jsonl"
 
     @classmethod
     def _append_usage_log(cls, entry: dict[str, Any]) -> None:
@@ -138,22 +151,22 @@ class ResearchService:
 
     @classmethod
     def recent_request_log(cls, limit: int = 40) -> list[dict[str, Any]]:
-        path = cls._usage_log_path()
-        if not path.exists():
-            return []
-        try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except Exception as exc:
-            import logging
+        lines: list[str] = []
+        for path in (cls._legacy_usage_log_path(), cls._usage_log_path()):
+            if not path.exists():
+                continue
+            try:
+                lines.extend(path.read_text(encoding="utf-8").splitlines())
+            except Exception as exc:
+                import logging
 
-            logging.getLogger(__name__).warning(
-                "Research usage log read failed: %s%s",
-                type(exc).__name__,
-                f": {str(exc)}" if str(exc).strip() else "",
-            )
-            return []
+                logging.getLogger(__name__).warning(
+                    "Research usage log read failed: %s%s",
+                    type(exc).__name__,
+                    f": {str(exc)}" if str(exc).strip() else "",
+                )
         entries: list[dict[str, Any]] = []
-        for line in lines[-limit:]:
+        for line in lines:
             line = line.strip()
             if not line:
                 continue
@@ -161,23 +174,48 @@ class ResearchService:
                 entries.append(json.loads(line))
             except json.JSONDecodeError:
                 continue
-        return list(reversed(entries))
+        entries.sort(key=lambda item: str(item.get("timestamp") or ""))
+        return list(reversed(entries[-limit:]))
+
+    @classmethod
+    def _tavily_credits_used_this_month(cls) -> int:
+        month_prefix = datetime.now(timezone.utc).strftime("%Y-%m")
+        return sum(
+            int(entry.get("estimated_credits") or 0)
+            for entry in cls.recent_request_log(limit=100_000)
+            if entry.get("provider") == "tavily"
+            and str(entry.get("timestamp") or "").startswith(month_prefix)
+        )
 
     @classmethod
     async def current_usage_snapshot(cls) -> dict[str, Any]:
         research = RuntimeSettingsStore.load().research
         recent_requests = cls.recent_request_log()
-        if not research.api_key:
+        configured = configured_research_providers(research)
+        provider_label = " then ".join(
+            RESEARCH_PROVIDER_CAPABILITIES[item].label for item in configured
+        )
+        if not configured:
             return {
-                "provider": research.provider,
+                "provider": "none",
                 "ready": False,
-                "status_message": "Research API key is missing.",
+                "status_message": "Configure a SearXNG endpoint or Tavily API key.",
                 "key": None,
                 "account": None,
                 "recent_requests": recent_requests,
             }
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        if not research.api_key:
+            return {
+                "provider": provider_label,
+                "ready": True,
+                "status_message": "SearXNG is configured; no metered fallback is enabled.",
+                "key": None,
+                "account": None,
+                "recent_requests": recent_requests,
+            }
+
+        async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
             try:
                 response = await client.get(
                     "https://api.tavily.com/usage",
@@ -185,7 +223,7 @@ class ResearchService:
                 )
                 if response.status_code == 429:
                     return {
-                        "provider": research.provider,
+                        "provider": provider_label,
                         "ready": True,
                         "status_message": "Tavily is configured, but the usage endpoint is temporarily rate-limited.",
                         "key": None,
@@ -195,7 +233,7 @@ class ResearchService:
                 response.raise_for_status()
                 data = response.json()
                 return {
-                    "provider": research.provider,
+                    "provider": provider_label,
                     "ready": True,
                     "status_message": "Tavily usage loaded.",
                     "key": data.get("key"),
@@ -203,9 +241,10 @@ class ResearchService:
                     "recent_requests": recent_requests,
                 }
             except Exception as exc:
+                free_provider_ready = "searxng" in configured
                 return {
-                    "provider": research.provider,
-                    "ready": False,
+                    "provider": provider_label,
+                    "ready": free_provider_ready,
                     "status_message": f"Unable to load Tavily usage: {exc}",
                     "key": None,
                     "account": None,
@@ -596,6 +635,144 @@ class ResearchService:
             process_after_ingest=process_after_ingest,
         )
 
+    async def _discover(
+        self,
+        *,
+        query: str,
+        title: str,
+        search_depth: str,
+        include_raw_content: bool,
+        metadata: dict[str, Any],
+        timeout_seconds: float,
+        provider_order: list[str] | None = None,
+        query_variants: list[str] | None = None,
+        initial_fallback_reason: str | None = None,
+    ) -> ResearchSearchResult:
+        research = RuntimeSettingsStore.load().research
+        configured = configured_research_providers(research)
+        if provider_order is not None:
+            configured = [item for item in provider_order if item in configured]
+        if not configured:
+            self._append_usage_log(
+                {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "query": query,
+                    "title": title,
+                    "search_depth": search_depth,
+                    "status": "not_configured",
+                    "metadata": metadata,
+                }
+            )
+            return ResearchSearchResult(
+                searched=False,
+                reason="research_provider_not_configured",
+                query=query,
+            )
+
+        query_variants = query_variants or self._search_query_variants(query)
+        variants_tried: list[str] = []
+        provider_attempts: list[dict[str, Any]] = []
+        last_response: ProviderSearchResponse | None = None
+        async with httpx.AsyncClient(
+            timeout=timeout_seconds, trust_env=False
+        ) as client:
+            fallback_reason = initial_fallback_reason
+            for provider in configured:
+                for candidate_query in query_variants:
+                    if candidate_query not in variants_tried:
+                        variants_tried.append(candidate_query)
+                    if provider == "tavily":
+                        estimated_credits = 2 if search_depth == "advanced" else 1
+                        budget = research.tavily_monthly_credit_budget
+                        if (
+                            budget is not None
+                            and self._tavily_credits_used_this_month()
+                            + estimated_credits
+                            > budget
+                        ):
+                            response = ProviderSearchResponse(
+                                provider="tavily",
+                                status="research_provider_budget_exhausted",
+                                query=candidate_query,
+                                estimated_credits=0,
+                            )
+                        else:
+                            response = await search_research_provider(
+                                provider=provider,
+                                client=client,
+                                query=candidate_query,
+                                search_depth=search_depth,
+                                include_raw_content=include_raw_content,
+                                tavily_api_key=research.api_key,
+                            )
+                    else:
+                        response = await search_research_provider(
+                            provider=provider,
+                            client=client,
+                            query=candidate_query,
+                            search_depth=search_depth,
+                            include_raw_content=include_raw_content,
+                            searxng_base_url=research.searxng_base_url,
+                        )
+
+                    last_response = response
+                    attempt = {
+                        "provider": provider,
+                        "query": candidate_query,
+                        "status": response.status,
+                        "result_count": len(response.results),
+                        "request_id": response.request_id,
+                        "estimated_credits": response.estimated_credits,
+                        "fallback_reason": fallback_reason,
+                    }
+                    provider_attempts.append(attempt)
+                    self._append_usage_log(
+                        {
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "provider": provider,
+                            "query": candidate_query,
+                            "input_query": query,
+                            "title": title,
+                            "search_depth": search_depth,
+                            "status": response.status,
+                            "result_count": len(response.results),
+                            "top_url": (
+                                response.results[0].get("url")
+                                if response.results
+                                else None
+                            ),
+                            "request_id": response.request_id,
+                            "estimated_credits": response.estimated_credits,
+                            "fallback_reason": fallback_reason,
+                            "error": response.error,
+                            "metadata": metadata,
+                        }
+                    )
+                    if response.status == "ok" and response.results:
+                        return ResearchSearchResult(
+                            searched=True,
+                            reason="ok",
+                            query=candidate_query,
+                            results=response.results,
+                            request_id=response.request_id,
+                            provider=provider,
+                            provider_attempts=provider_attempts,
+                            variants_tried=variants_tried,
+                        )
+                    if response.status != "no_result":
+                        break
+                fallback_reason = last_response.status if last_response else "no_result"
+
+        return ResearchSearchResult(
+            searched=True,
+            reason=(last_response.status if last_response else "no_result"),
+            query=(last_response.query if last_response else query),
+            request_id=(last_response.request_id if last_response else None),
+            provider=(last_response.provider if last_response else None),
+            provider_attempts=provider_attempts,
+            variants_tried=variants_tried,
+        )
+
     async def search(
         self,
         *,
@@ -653,162 +830,13 @@ class ResearchService:
                 query=query,
             )
 
-        research = RuntimeSettingsStore.load().research
-        if not research.api_key:
-            self._append_usage_log(
-                {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "provider": research.provider,
-                    "query": query,
-                    "title": title,
-                    "search_depth": search_depth,
-                    "status": "not_configured",
-                    "metadata": metadata,
-                }
-            )
-            return ResearchSearchResult(
-                searched=False,
-                reason="research_provider_not_configured",
-                query=query,
-            )
-
-        query_variants = self._search_query_variants(query)
-        last_result_state: (
-            tuple[str, dict[str, Any], list[dict[str, Any]], str] | None
-        ) = None
-        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-            for candidate_query in query_variants:
-                try:
-                    response = await client.post(
-                        "https://api.tavily.com/search",
-                        headers={"Authorization": f"Bearer {research.api_key}"},
-                        json={
-                            "query": candidate_query,
-                            "search_depth": search_depth,
-                            "include_raw_content": include_raw_content,
-                        },
-                    )
-                    if response.status_code == 429:
-                        self._append_usage_log(
-                            {
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
-                                "provider": research.provider,
-                                "query": candidate_query,
-                                "input_query": query,
-                                "title": title,
-                                "search_depth": search_depth,
-                                "status": "rate_limited",
-                                "metadata": metadata,
-                                "variants_tried": query_variants,
-                            }
-                        )
-                        return ResearchSearchResult(
-                            searched=True,
-                            reason="rate_limited",
-                            query=candidate_query,
-                            variants_tried=query_variants,
-                        )
-                    if response.status_code == 432:
-                        self._append_usage_log(
-                            {
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
-                                "provider": research.provider,
-                                "query": candidate_query,
-                                "input_query": query,
-                                "title": title,
-                                "search_depth": search_depth,
-                                "status": "research_provider_limit_exceeded",
-                                "metadata": metadata,
-                                "variants_tried": query_variants,
-                            }
-                        )
-                        return ResearchSearchResult(
-                            searched=True,
-                            reason="research_provider_limit_exceeded",
-                            query=candidate_query,
-                            variants_tried=query_variants,
-                        )
-                    response.raise_for_status()
-                    data = response.json()
-                except Exception as exc:
-                    self._append_usage_log(
-                        {
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                            "provider": research.provider,
-                            "query": candidate_query,
-                            "input_query": query,
-                            "title": title,
-                            "search_depth": search_depth,
-                            "status": "research_failed",
-                            "error": str(exc),
-                            "metadata": metadata,
-                            "variants_tried": query_variants,
-                        }
-                    )
-                    return ResearchSearchResult(
-                        searched=True,
-                        reason="research_failed",
-                        query=candidate_query,
-                        variants_tried=query_variants,
-                    )
-
-                results = data.get("results") or []
-                if not results:
-                    last_result_state = ("no_result", data, results, candidate_query)
-                    continue
-
-                self._append_usage_log(
-                    {
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "provider": research.provider,
-                        "query": candidate_query,
-                        "input_query": query,
-                        "title": title,
-                        "search_depth": search_depth,
-                        "status": "ok",
-                        "result_count": len(results),
-                        "top_url": results[0].get("url"),
-                        "request_id": data.get("request_id"),
-                        "metadata": metadata,
-                        "variants_tried": query_variants,
-                    }
-                )
-                return ResearchSearchResult(
-                    searched=True,
-                    reason="ok",
-                    query=candidate_query,
-                    results=results,
-                    request_id=data.get("request_id"),
-                    variants_tried=query_variants,
-                )
-
-        _status, data, results, failed_query = last_result_state or (
-            "no_result",
-            {},
-            [],
-            query,
-        )
-        self._append_usage_log(
-            {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "provider": research.provider,
-                "query": failed_query,
-                "input_query": query,
-                "title": title,
-                "search_depth": search_depth,
-                "status": "no_result",
-                "result_count": len(results),
-                "request_id": data.get("request_id"),
-                "metadata": metadata,
-                "variants_tried": query_variants,
-            }
-        )
-        return ResearchSearchResult(
-            searched=True,
-            reason="no_result",
-            query=failed_query,
-            request_id=data.get("request_id"),
-            variants_tried=query_variants,
+        return await self._discover(
+            query=query,
+            title=title,
+            search_depth=search_depth,
+            include_raw_content=include_raw_content,
+            metadata=metadata,
+            timeout_seconds=timeout_seconds,
         )
 
     async def _find_recent_duplicate_research(
@@ -947,24 +975,14 @@ class ResearchService:
             )
 
         research = RuntimeSettingsStore.load().research
-        if not research.api_key:
+        providers = configured_research_providers(research)
+        if not providers:
             self._log_research_action(
                 status="not_configured",
-                summary=f"External research blocked for {title}. Provider is not configured.",
+                summary=f"External research blocked for {title}. No discovery provider is configured.",
                 query=query,
                 title=title,
                 metadata_json=metadata_json,
-            )
-            self._append_usage_log(
-                {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "provider": research.provider,
-                    "query": query,
-                    "title": title,
-                    "search_depth": search_depth,
-                    "status": "not_configured",
-                    "metadata": metadata_json or {},
-                }
             )
             return ResearchRunResult(
                 started=False,
@@ -973,299 +991,224 @@ class ResearchService:
                 title=title,
             )
 
+        last_reason = "no_result"
+        fallback_reason: str | None = None
+        provider_attempts: list[dict[str, Any]] = []
         query_variants = self._search_query_variants(query)
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            try:
-                last_result_state: (
-                    tuple[str, dict[str, Any], list[dict[str, Any]], str] | None
-                ) = None
-                usable_result: dict[str, Any] | None = None
-                data: dict[str, Any] = {}
-                results: list[dict[str, Any]] = []
-                effective_query = query
-                for candidate_query in query_variants:
-                    response = await client.post(
-                        "https://api.tavily.com/search",
-                        headers={"Authorization": f"Bearer {research.api_key}"},
-                        json={
-                            "query": candidate_query,
-                            "search_depth": search_depth,
-                            "include_raw_content": True,
-                        },
-                    )
-                    if response.status_code == 432:
-                        return ResearchRunResult(
-                            started=False,
-                            reason="research_provider_limit_exceeded",
-                            query=candidate_query,
-                            title=title,
-                        )
-                    response.raise_for_status()
-                    data = response.json()
-                    results = data.get("results", [])
-                    effective_query = candidate_query
-                    if not results:
-                        last_result_state = (
-                            "no_result",
-                            data,
-                            results,
-                            candidate_query,
-                        )
-                        continue
-
-                    usable_result = next(
-                        (
-                            candidate
-                            for candidate in results
-                            if str(
-                                candidate.get("raw_content")
-                                or candidate.get("content")
-                                or ""
-                            ).strip()
-                        ),
-                        None,
-                    )
-                    if usable_result is None:
-                        last_result_state = (
-                            "empty_result",
-                            data,
-                            results,
-                            candidate_query,
-                        )
-                        continue
+        for provider in providers:
+            variant_offset = 0
+            while variant_offset < len(query_variants):
+                discovery = await self._discover(
+                    query=query,
+                    title=title,
+                    search_depth=search_depth,
+                    include_raw_content=True,
+                    metadata=metadata_json or {},
+                    timeout_seconds=30.0,
+                    provider_order=[provider],
+                    query_variants=query_variants[variant_offset:],
+                    initial_fallback_reason=fallback_reason,
+                )
+                provider_attempts.extend(discovery.provider_attempts)
+                variant_offset += max(len(discovery.variants_tried), 1)
+                last_reason = discovery.reason
+                if discovery.reason != "ok" or not discovery.results:
                     break
 
-                if usable_result is None:
-                    status, data, results, failed_query = last_result_state or (
-                        "no_result",
-                        {},
-                        [],
-                        query,
-                    )
-                    summary = (
-                        f"No research results for {title}."
-                        if status == "no_result"
-                        else f"Research returned no usable content for {title}."
-                    )
-                    self._log_research_action(
-                        status=status,
-                        summary=summary,
-                        query=failed_query,
+                for rank, candidate in enumerate(discovery.results[:5], start=1):
+                    source_url = str(candidate.get("url") or "").strip()
+                    duplicate = await self._find_recent_duplicate_research(
                         title=title,
-                        metadata_json=metadata_json,
+                        query=query,
+                        url=source_url,
                     )
+                    if duplicate is not None:
+                        self._log_research_action(
+                            status="duplicate_recent_research",
+                            summary=f"External research skipped for {title}. The discovered source was ingested recently.",
+                            query=discovery.query,
+                            title=title,
+                            metadata_json={
+                                **(metadata_json or {}),
+                                "discovery_provider": provider,
+                                "duplicate_evidence_id": str(duplicate.id),
+                                "duplicate_url": duplicate.url,
+                            },
+                        )
+                        return ResearchRunResult(
+                            started=False,
+                            reason="duplicate_recent_research",
+                            evidence_id=duplicate.id,
+                            query=discovery.query,
+                            title=title,
+                        )
+
+                    content_origin = "direct_page"
+                    fetch_error: str | None = None
+                    try:
+                        document = await self.ingestion.fetch_url_document(source_url)
+                        content = document.content
+                        canonical_source_url = document.canonical_url
+                    except (UnsafeUrlError, UrlFetchNetworkError, ValueError) as exc:
+                        fetch_error = f"{type(exc).__name__}: {exc}"
+                        raw_content = str(candidate.get("raw_content") or "").strip()
+                        if provider != "tavily" or not raw_content:
+                            continue
+                        content_origin = "provider_raw_content"
+                        content = raw_content
+                        canonical_source_url = source_url
+
+                    source_context = await self.source_learning.get_or_create_source_for_url(
+                        url=source_url,
+                        title=candidate.get("title") or title,
+                        preferred_type=source_item_type,
+                        description=f"Auto-discovered via {RESEARCH_PROVIDER_CAPABILITIES[provider].label}.",
+                    )
+                    evidence_metadata = {
+                        "content_type": (
+                            "text/html"
+                            if content_origin == "direct_page"
+                            else "text/plain"
+                        ),
+                        **(metadata_json or {}),
+                        "normalized_query": query,
+                        "effective_query": discovery.query,
+                        "search_title": title,
+                        "discovery_provider": provider,
+                        "discovery_request_id": discovery.request_id,
+                        "discovery_result_rank": rank,
+                        "content_origin": content_origin,
+                        "canonical_source_url": canonical_source_url,
+                        "direct_fetch_error": fetch_error,
+                        "provider_attempts": provider_attempts,
+                    }
+                    evidence = await self.ingestion.ingest_text(
+                        RawEvidenceCreate(
+                            title=title,
+                            source_id=source_context.source.id,
+                            source_item_type=source_context.inferred_type,
+                            url=source_url,
+                            metadata_json=evidence_metadata,
+                            content=content[:20000],
+                        ),
+                        process_now=False,
+                    )
+
+                    loop_detail = None
+                    processing_error: str | None = None
+                    if process_after_ingest:
+                        try:
+                            loop_detail = await ExtractionWorker(
+                                self.session
+                            ).process_evidence(evidence.id)
+                            await self.source_learning.learn_from_source(
+                                source_id=source_context.source.id,
+                                subject_name=(metadata_json or {}).get("subject_name"),
+                                subject_type=(metadata_json or {}).get("subject_type"),
+                            )
+                        except Exception as exc:
+                            processing_error = str(exc)
+
+                    status = "processed_with_errors" if processing_error else "ok"
                     self._append_usage_log(
                         {
                             "timestamp": datetime.now(timezone.utc).isoformat(),
-                            "provider": research.provider,
-                            "query": failed_query,
+                            "provider": provider,
+                            "query": discovery.query,
                             "input_query": query,
                             "title": title,
                             "search_depth": search_depth,
                             "status": status,
-                            "result_count": len(results),
-                            "top_url": results[0].get("url") if results else None,
-                            "request_id": data.get("request_id"),
-                            "metadata": metadata_json or {},
-                            "variants_tried": query_variants,
+                            "result_count": len(discovery.results),
+                            "top_url": source_url,
+                            "request_id": discovery.request_id,
+                            "metadata": evidence_metadata,
+                            "evidence_id": str(evidence.id),
+                            "processed": process_after_ingest,
+                            "processing_error": processing_error,
                         }
                     )
-                    return ResearchRunResult(
-                        started=False,
-                        reason=status,
-                        query=failed_query,
-                        title=title,
-                    )
-                content = str(
-                    usable_result.get("raw_content")
-                    or usable_result.get("content")
-                    or ""
-                ).strip()
-                duplicate = await self._find_recent_duplicate_research(
-                    title=title,
-                    query=query,
-                    url=usable_result.get("url"),
-                )
-                if duplicate is not None:
                     self._log_research_action(
-                        status="duplicate_recent_research",
-                        summary=f"External research skipped for {title}. Tavily returned a source already ingested recently.",
-                        query=effective_query,
+                        status=status,
+                        summary=(
+                            f"External research ingested from the source page for {title}"
+                            if content_origin == "direct_page"
+                            else f"External research ingested from Tavily's source extraction for {title}"
+                        ),
+                        query=discovery.query,
                         title=title,
                         metadata_json={
-                            **(metadata_json or {}),
-                            "duplicate_evidence_id": str(duplicate.id),
-                            "duplicate_url": duplicate.url,
-                            "source_url": usable_result.get("url"),
+                            **evidence_metadata,
+                            "evidence_id": str(evidence.id),
+                            "source_url": source_url,
+                            "processed": process_after_ingest,
+                            "processing_error": processing_error,
                         },
                     )
-                    self._append_usage_log(
-                        {
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                            "provider": research.provider,
-                            "query": effective_query,
-                            "input_query": query,
-                            "title": title,
-                            "search_depth": search_depth,
-                            "status": "duplicate_recent_research",
-                            "duplicate_evidence_id": str(duplicate.id),
-                            "duplicate_url": duplicate.url,
-                            "top_url": usable_result.get("url"),
-                            "metadata": metadata_json or {},
-                            "variants_tried": query_variants,
-                        }
-                    )
+                    await self.session.commit()
                     return ResearchRunResult(
-                        started=False,
-                        reason="duplicate_recent_research",
-                        evidence_id=duplicate.id,
-                        query=effective_query,
+                        started=True,
+                        reason=status,
+                        evidence_id=evidence.id,
+                        processed=process_after_ingest and processing_error is None,
+                        loop_detail=loop_detail,
+                        query=discovery.query,
                         title=title,
                     )
 
-                source_context = (
-                    await self.source_learning.get_or_create_source_for_url(
-                        url=usable_result.get("url"),
-                        title=usable_result.get("title") or title,
-                        preferred_type=source_item_type,
-                        description="Auto-discovered via external research.",
-                    )
-                )
-                evidence_metadata = {
-                    "content_type": "text/plain",
-                    **(metadata_json or {}),
-                    "normalized_query": query,
-                    "effective_query": effective_query,
-                    "search_title": title,
-                }
-                evidence = await self.ingestion.ingest_text(
-                    RawEvidenceCreate(
-                        title=title,
-                        source_id=source_context.source.id,
-                        source_item_type=source_context.inferred_type,
-                        url=usable_result.get("url"),
-                        metadata_json=evidence_metadata,
-                        content=content,
-                    ),
-                    process_now=False,
-                )
+                last_reason = "no_fetchable_source"
+            fallback_reason = last_reason
 
-                loop_detail = None
-                processing_error: str | None = None
-                if process_after_ingest:
-                    try:
-                        loop_detail = await ExtractionWorker(
-                            self.session
-                        ).process_evidence(evidence.id)
-                        await self.source_learning.learn_from_source(
-                            source_id=source_context.source.id,
-                            subject_name=(metadata_json or {}).get("subject_name"),
-                            subject_type=(metadata_json or {}).get("subject_type"),
-                        )
-                    except Exception as exc:
-                        processing_error = str(exc)
-
-                self._append_usage_log(
-                    {
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "provider": research.provider,
-                        "query": effective_query,
-                        "input_query": query,
-                        "title": title,
-                        "search_depth": search_depth,
-                        "status": "processed_with_errors" if processing_error else "ok",
-                        "result_count": len(results),
-                        "top_url": usable_result.get("url"),
-                        "request_id": data.get("request_id"),
-                        "metadata": evidence_metadata,
-                        "evidence_id": str(evidence.id),
-                        "processed": process_after_ingest,
-                        "processing_error": processing_error,
-                        "variants_tried": query_variants,
-                    }
-                )
-                self._log_research_action(
-                    status="processed_with_errors" if processing_error else "ok",
-                    summary=(
-                        f"External research ingested for {title}"
-                        + (
-                            " and pushed into the evidence loop with some downstream processing issues."
-                            if processing_error
-                            else (
-                                " and pushed into the evidence loop."
-                                if process_after_ingest
-                                else "."
-                            )
-                        )
-                    ),
-                    query=query,
-                    title=title,
-                    metadata_json={
-                        **evidence_metadata,
-                        "evidence_id": str(evidence.id),
-                        "source_url": usable_result.get("url"),
-                        "processed": process_after_ingest,
-                        "processing_error": processing_error,
-                    },
-                )
-                await self.session.commit()
-                return ResearchRunResult(
-                    started=True,
-                    reason="processed_with_errors" if processing_error else "ok",
-                    evidence_id=evidence.id,
-                    processed=process_after_ingest and processing_error is None,
-                    loop_detail=loop_detail,
-                    query=query,
-                    title=title,
-                )
-            except Exception as exc:
-                self._log_research_action(
-                    status="research_failed",
-                    summary=f"External research failed for {title}: {exc}",
-                    query=query,
-                    title=title,
-                    metadata_json=metadata_json,
-                )
-                self._append_usage_log(
-                    {
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "provider": research.provider,
-                        "query": query,
-                        "title": title,
-                        "search_depth": search_depth,
-                        "status": "research_failed",
-                        "error": str(exc),
-                        "metadata": metadata_json or {},
-                    }
-                )
-                return ResearchRunResult(
-                    started=False,
-                    reason="research_failed",
-                    query=query,
-                    title=title,
-                )
+        self._log_research_action(
+            status=last_reason,
+            summary=f"External research found no fetchable, attributable source for {title}.",
+            query=query,
+            title=title,
+            metadata_json=metadata_json,
+        )
+        return ResearchRunResult(
+            started=False,
+            reason=last_reason,
+            query=query,
+            title=title,
+        )
 
     @staticmethod
     async def verify_research_readiness() -> tuple[bool, str]:
         research = RuntimeSettingsStore.load().research
-        if not research.api_key:
-            return False, "Research API key is missing."
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            try:
-                response = await client.get(
-                    "https://api.tavily.com/usage",
-                    headers={"Authorization": f"Bearer {research.api_key}"},
-                )
-                if response.status_code == 200:
-                    return True, "Research connector (Tavily) is ready."
-                if response.status_code == 429:
-                    return (
-                        True,
-                        "Research connector is configured; Tavily usage checks are currently rate-limited.",
+        providers = configured_research_providers(research)
+        if not providers:
+            return False, "Configure a SearXNG endpoint or Tavily API key."
+
+        failures: list[str] = []
+        async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
+            for provider in providers:
+                try:
+                    if provider == "searxng":
+                        response = await client.get(
+                            f"{research.searxng_base_url.rstrip('/')}/config"
+                        )
+                        response.raise_for_status()
+                        return (
+                            True,
+                            "Research connector (SearXNG) is ready; Tavily remains fallback-only.",
+                        )
+
+                    response = await client.get(
+                        "https://api.tavily.com/usage",
+                        headers={"Authorization": f"Bearer {research.api_key}"},
                     )
-                return (
-                    False,
-                    f"Research error {response.status_code}: {response.text[:100]}",
-                )
-            except Exception as exc:
-                return False, f"Research connection failed: {str(exc)}"
+                    if response.status_code == 200:
+                        prefix = "SearXNG is unavailable; " if failures else ""
+                        return True, prefix + "research fallback (Tavily) is ready."
+                    if response.status_code == 429:
+                        return (
+                            True,
+                            "Tavily fallback is configured; its usage check is temporarily rate-limited.",
+                        )
+                    failures.append(f"Tavily returned HTTP {response.status_code}")
+                except Exception as exc:
+                    failures.append(
+                        f"{RESEARCH_PROVIDER_CAPABILITIES[provider].label}: {type(exc).__name__}"
+                    )
+        return False, "Research connection failed: " + "; ".join(failures)

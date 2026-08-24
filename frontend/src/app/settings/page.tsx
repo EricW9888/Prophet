@@ -762,16 +762,41 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <Field label="Research Search Provider">
+                  <Field label="First Discovery Provider">
                     <select
-                      value={settings.research.provider}
-                      onChange={e => updateSettings(c => ({ ...c, research: { ...c.research, provider: e.target.value }}))}
+                      value={settings.research.provider_order[0] ?? "searxng"}
+                      onChange={e => updateSettings(c => ({
+                        ...c,
+                        research: {
+                          ...c.research,
+                          provider_order: [
+                            e.target.value,
+                            ...c.research.provider_order.filter(provider => provider !== e.target.value),
+                          ],
+                        },
+                      }))}
                       className={inputClass}
                     >
-                      <option value="tavily">Tavily</option>
+                      {settings.research.available_providers.map(provider => (
+                        <option key={provider.provider} value={provider.provider}>
+                          {provider.label}{provider.is_metered ? " (metered)" : ""}
+                        </option>
+                      ))}
                     </select>
                   </Field>
-                  <Field label={`Tavily API Key ${settings.research.api_key_set ? "(set)" : ""}`}>
+                  <Field label="SearXNG Endpoint">
+                    <input
+                      type="url"
+                      value={settings.research.searxng_base_url}
+                      onChange={e => updateSettings(c => ({
+                        ...c,
+                        research: { ...c.research, searxng_base_url: e.target.value },
+                      }))}
+                      className={inputClass}
+                      placeholder="http://127.0.0.1:8080"
+                    />
+                  </Field>
+                  <Field label={`Tavily Fallback Key ${settings.research.api_key_set ? "(set)" : ""}`}>
                     <input
                       type="password"
                       value={researchApiKey}
@@ -784,7 +809,26 @@ export default function SettingsPage() {
                     />
                     <SecretStatus saved={settings.research.api_key_set} pending={Boolean(researchApiKey.trim())} />
                   </Field>
+                  <Field label="Tavily Monthly Credit Budget">
+                    <input
+                      type="number"
+                      min="1"
+                      value={settings.research.tavily_monthly_credit_budget ?? ""}
+                      onChange={e => updateSettings(c => ({
+                        ...c,
+                        research: {
+                          ...c.research,
+                          tavily_monthly_credit_budget: e.target.value ? Number(e.target.value) : null,
+                        },
+                      }))}
+                      className={inputClass}
+                      placeholder="Provider account limit"
+                    />
+                  </Field>
                 </div>
+                <p className="mt-5 text-sm text-gray-500">
+                  {settings.research.status_message}
+                </p>
               </section>
 
               <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-950">
@@ -1218,7 +1262,7 @@ function automationStatusView(job: AutomationJob) {
 function humanizeJobDetail(detail: string): string {
   const known: Record<string, string> = {
     no_open_questions: "No open research questions are ready for this job.",
-    research_provider_not_configured: "External research is waiting on provider configuration, usually a missing Tavily key.",
+    research_provider_not_configured: "External research is waiting for a SearXNG endpoint or Tavily fallback key.",
     no_investigating_questions_ready: "No investigating questions are ready to resolve.",
     no_relation_review_candidate: "No relation-review candidate currently needs graph linking.",
     no_pending_evidence: "No pending evidence is waiting for extraction.",

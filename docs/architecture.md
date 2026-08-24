@@ -77,9 +77,15 @@ feedback, ownership disclosures, market-setup signals, fundamental metrics,
 and YouTube transcript workflows. Market prices and benchmark context are
 handled separately by the market-data and risk services.
 
-Tavily is one external search connector; it is not Prophet's retrieval system.
-YouTube ingestion uses available captions or an explicitly supplied transcript.
-The current media boundary is documented in `limitations.md`.
+External web discovery runs through a provider registry. A configured SearXNG
+endpoint is the free-first path; configured Tavily is a metered fallback when
+the earlier provider fails or returns no usable candidates. A successful first
+provider stops the chain. Search snippets remain provisional: research ingestion
+fetches the underlying page through `core/url_security.py` when possible and
+records discovery provider, source URL, content origin, and fallback attempts.
+Neither search provider is Prophet's retrieval system. YouTube ingestion uses
+available captions or an explicitly supplied transcript. The current media
+boundary is documented in `limitations.md`.
 
 ## Durable State
 

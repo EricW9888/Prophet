@@ -400,7 +400,11 @@ async def test_research_usage_accepts_current_tavily_key_usage_object(monkeypatc
     monkeypatch.setattr(
         "investos.services.research.RuntimeSettingsStore.load",
         lambda: SimpleNamespace(
-            research=SimpleNamespace(provider="tavily", api_key="test-key")
+            research=SimpleNamespace(
+                provider_order=["searxng", "tavily"],
+                searxng_base_url="",
+                api_key="test-key",
+            )
         ),
     )
     monkeypatch.setattr(
