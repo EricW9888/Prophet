@@ -24,6 +24,8 @@ def _runtime(
         research=research
         or SimpleNamespace(
             provider="tavily",
+            provider_order=["searxng", "tavily"],
+            searxng_base_url="",
             api_key_set=True,
             ready=True,
             status_message="Research ready.",
@@ -84,14 +86,16 @@ def test_setup_llm_step_keeps_config_complete_during_provider_cooldown():
     assert "resume" in step.hint
 
 
-def test_setup_research_step_surfaces_missing_tavily_key():
+def test_setup_research_step_surfaces_missing_discovery_provider():
     step = SetupService._research_provider_step(
         _runtime(
             research=SimpleNamespace(
                 provider="tavily",
+                provider_order=["searxng", "tavily"],
+                searxng_base_url="",
                 api_key_set=False,
                 ready=False,
-                status_message="Research API key is missing.",
+                status_message="Configure a SearXNG endpoint or Tavily API key.",
             )
         )
     )
@@ -99,8 +103,8 @@ def test_setup_research_step_surfaces_missing_tavily_key():
     assert step.id == "research_provider"
     assert step.status == "pending"
     assert step.status_label == "Needs setup"
-    assert "Tavily API key" in step.detail
-    assert "fresh search" in step.hint
+    assert "No web discovery provider" in step.detail
+    assert "SearXNG endpoint" in step.hint
 
 
 def test_setup_research_step_allows_rate_limited_but_configured_provider():
@@ -108,6 +112,8 @@ def test_setup_research_step_allows_rate_limited_but_configured_provider():
         _runtime(
             research=SimpleNamespace(
                 provider="tavily",
+                provider_order=["searxng", "tavily"],
+                searxng_base_url="",
                 api_key_set=True,
                 ready=True,
                 status_message="Research connector is configured; Tavily usage checks are currently rate-limited.",
@@ -169,7 +175,7 @@ def test_configured_provider_status_does_not_require_network_probe():
     assert llm_ready is True
     assert research_ready is True
     assert "Live availability" in llm_message
-    assert "Live availability" in research_message
+    assert research_message == "Research discovery order: Tavily."
 
 
 def test_configured_provider_status_reports_missing_keys():
@@ -190,4 +196,4 @@ def test_configured_provider_status_reports_missing_keys():
     assert llm_ready is False
     assert research_ready is False
     assert llm_message == "LLM API key is missing."
-    assert research_message == "Research API key is missing."
+    assert research_message == "Configure a SearXNG endpoint or Tavily API key."

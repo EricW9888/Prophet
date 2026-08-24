@@ -58,10 +58,14 @@ key, model, or base URL, and this adapter is non-streaming. Ollama supports a
 configurable local model/base URL and streaming, but remains unavailable unless
 the operator explicitly enables local-provider use. Prophet never starts it.
 
-Tavily is the separate external research/search provider, not an LLM provider.
-Connector secrets can be supplied through Settings or environment variables
-such as `NVIDIA_API_KEY` and `TAVILY_API_KEY`. Responses expose key-presence and
-readiness flags, never secret values.
+External source discovery uses an ordered provider registry: an explicitly
+configured SearXNG endpoint can run first, with Tavily as the optional metered
+fallback. Search candidates are not the retrieval store or an LLM result;
+research ingestion attempts to fetch the underlying source page before creating
+evidence. Prophet does not install or start SearXNG. Connector secrets can be
+supplied through Settings or environment variables such as `NVIDIA_API_KEY` and
+`TAVILY_API_KEY`. Responses expose key-presence and readiness flags, never secret
+values.
 
 ## Tests and Checks
 

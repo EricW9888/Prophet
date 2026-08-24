@@ -993,8 +993,18 @@ export type IntegrationSettings = {
     status_message?: string | null;
   };
   research: {
-    provider: "tavily" | string;
+    provider: string;
+    provider_order: string[];
+    available_providers: Array<{
+      provider: string;
+      label: string;
+      requires_api_key: boolean;
+      requires_base_url: boolean;
+      is_metered: boolean;
+    }>;
+    searxng_base_url: string;
     api_key_set: boolean;
+    tavily_monthly_credit_budget?: number | null;
     ready: boolean;
     status_message?: string | null;
   };
