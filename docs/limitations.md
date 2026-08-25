@@ -34,11 +34,17 @@ retrieval. Search is source discovery, not a complete market-data or retrieval
 solution. Market prices and public web results may be delayed, revised,
 unavailable, or unsuitable for point-in-time backtesting.
 
-Opportunity discovery currently inspects an operator-selected security universe
+Opportunity discovery currently inspects an operator-approved security universe
 in bounded batches. Its run history records inspected subjects, skips, failures,
 provider attempts, and estimated metered credits; it does not establish that the
 whole investable market was searched. Candidates remain provisional until a
 person reviews them or explicitly starts a paper-only shadow experiment.
+The universe can be built additively from manual entries, holdings/watchlists,
+active equity securities with entity research profiles, and each stored
+benchmark's latest constituent snapshot. Import previews expose eligible,
+already-present, missing, and skipped counts. Imports do not remove, re-enable,
+or reprioritize existing members, and they are not a claim of complete exchange
+or global-market coverage.
 Each new discovery observation fixes its expected relative direction, horizon,
 evidence packet, and evaluation policy before the outcome is known. Later
 evaluation uses stored adjusted daily closes, the configured broad-market

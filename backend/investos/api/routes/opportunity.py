@@ -9,6 +9,9 @@ from investos.schemas.opportunity import (
     OpportunityCandidateReview,
     OpportunityDiscoveryRunResponse,
     OpportunityShadowTestRequest,
+    OpportunityUniverseImportPreview,
+    OpportunityUniverseImportRequest,
+    OpportunityUniverseImportResult,
     OpportunityUniverseMemberCreate,
     OpportunityUniverseMemberResponse,
     OpportunityUniverseMemberUpdate,
@@ -27,6 +30,32 @@ async def list_opportunity_universe(
     session: AsyncSession = Depends(get_session),
 ):
     return await OpportunityDiscoveryService(session).list_universe()
+
+
+@router.get(
+    "/universe/import-preview",
+    response_model=OpportunityUniverseImportPreview,
+)
+async def preview_opportunity_universe_import(
+    session: AsyncSession = Depends(get_session),
+):
+    return await OpportunityDiscoveryService(session).preview_universe_import()
+
+
+@router.post(
+    "/universe/import",
+    response_model=OpportunityUniverseImportResult,
+)
+async def import_opportunity_universe(
+    payload: OpportunityUniverseImportRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        return await OpportunityDiscoveryService(session).import_universe(
+            payload.sources
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post(

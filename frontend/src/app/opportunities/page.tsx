@@ -8,6 +8,7 @@ import {
   ChevronDown,
   CircleDot,
   Clock3,
+  Database,
   Eye,
   FlaskConical,
   LoaderCircle,
@@ -29,6 +30,9 @@ import {
   IntegrationSettings,
   OpportunityCandidate,
   OpportunityDiscoveryRun,
+  OpportunityUniverseImportPreview,
+  OpportunityUniverseImportResult,
+  OpportunityUniverseImportSource,
   OpportunityUniverseMember,
 } from "@/lib/api";
 
@@ -111,6 +115,8 @@ export default function OpportunitiesPage() {
   const [filter, setFilter] = useState<CandidateFilter>("all");
   const [candidates, setCandidates] = useState<OpportunityCandidate[]>([]);
   const [universe, setUniverse] = useState<OpportunityUniverseMember[]>([]);
+  const [importPreview, setImportPreview] = useState<OpportunityUniverseImportPreview | null>(null);
+  const [importPreviewError, setImportPreviewError] = useState<string | null>(null);
   const [runs, setRuns] = useState<OpportunityDiscoveryRun[]>([]);
   const [settings, setSettings] = useState<IntegrationSettings | null>(null);
   const [automation, setAutomation] = useState<AutomationStatus | null>(null);
@@ -129,15 +135,26 @@ export default function OpportunitiesPage() {
 
   const loadState = useCallback(async () => {
     try {
-      const [candidateData, universeData, runData, settingsData, automationData] = await Promise.all([
+      const importRequest = apiFetch<OpportunityUniverseImportPreview>(
+        "/opportunities/universe/import-preview",
+      )
+        .then((data) => ({ data, error: null }))
+        .catch((err: unknown) => ({
+          data: null,
+          error: err instanceof Error ? err.message : "Import preview is unavailable.",
+        }));
+      const [candidateData, universeData, importResult, runData, settingsData, automationData] = await Promise.all([
         apiFetch<OpportunityCandidate[]>("/opportunities/candidates?limit=500"),
         apiFetch<OpportunityUniverseMember[]>("/opportunities/universe"),
+        importRequest,
         apiFetch<OpportunityDiscoveryRun[]>("/opportunities/runs?limit=50"),
         apiFetch<IntegrationSettings>("/integrations/settings"),
         apiFetch<AutomationStatus>("/automation/status"),
       ]);
       setCandidates(candidateData);
       setUniverse(universeData);
+      setImportPreview(importResult.data);
+      setImportPreviewError(importResult.error);
       setRuns(runData);
       setSettings(settingsData);
       setAutomation(automationData);
@@ -325,6 +342,27 @@ export default function OpportunitiesPage() {
       setNotice(`${member.ticker} removed from the discovery universe.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to remove universe member.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function importUniverseSource(source: OpportunityUniverseImportSource) {
+    setBusy(`import-${source}`);
+    setError(null);
+    try {
+      const result = await apiFetch<OpportunityUniverseImportResult>(
+        "/opportunities/universe/import",
+        { method: "POST", body: JSON.stringify({ sources: [source] }) },
+      );
+      await loadState();
+      setNotice(
+        result.imported_count
+          ? `${result.imported_count} eligible securities added. Existing priorities and paused states were preserved.`
+          : "No missing eligible securities. Provenance is already current.",
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to import universe source.");
     } finally {
       setBusy(null);
     }
@@ -581,6 +619,64 @@ export default function OpportunitiesPage() {
         {!loading && tab === "universe" ? (
           <div className="grid gap-8 py-6 lg:grid-cols-[minmax(320px,0.45fr)_minmax(0,1fr)]">
             <div className="space-y-6">
+              <section className="border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-950">
+                <div className="flex items-center gap-2"><Database className="h-4 w-4" /><h2 className="text-sm font-semibold">Build from Prophet</h2></div>
+                <p className="mt-2 text-xs leading-5 text-gray-500">
+                  Preview eligible active equities and ETFs from durable Prophet state, then import one source at a time. Imports are additive and never remove, re-enable, or reprioritize existing members.
+                </p>
+                <div className="mt-4 divide-y divide-gray-200 dark:divide-gray-800">
+                  {importPreview?.source_summaries.map((source) => (
+                    <div key={source.source_type} className="py-3 first:pt-0 last:pb-0">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium">{source.label}</p>
+                          <p className="mt-1 text-xs text-gray-500">
+                            {source.eligible_count} eligible · {source.existing_count} present · {source.missing_count} missing
+                            {source.skipped_count ? ` · ${source.skipped_count} skipped` : ""}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void importUniverseSource(source.source_type)}
+                          disabled={!source.missing_count || busy === `import-${source.source_type}`}
+                          title={`Import missing securities from ${source.label}`}
+                          className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-gray-300 px-3 text-xs font-medium hover:border-gray-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-700"
+                        >
+                          {busy === `import-${source.source_type}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                          Import {source.missing_count}
+                        </button>
+                      </div>
+                      <details className="mt-2 text-xs">
+                        <summary className="cursor-pointer select-none text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">
+                          Review eligible securities
+                        </summary>
+                        <div className="mt-2 max-h-48 overflow-y-auto border-l border-gray-200 pl-3 dark:border-gray-800">
+                          {importPreview.candidates
+                            .filter((candidate) => candidate.origins.some((origin) => origin.source_type === source.source_type))
+                            .map((candidate) => (
+                              <div key={`${source.source_type}-${candidate.security_id}`} className="flex items-baseline justify-between gap-3 py-1.5">
+                                <p className="min-w-0 truncate">
+                                  <span className="font-semibold text-gray-800 dark:text-gray-200">{candidate.ticker}</span>
+                                  <span className="ml-2 text-gray-500">{candidate.entity_name}</span>
+                                </p>
+                                <span className="shrink-0 text-gray-400">
+                                  {candidate.status === "present" ? "Present" : "Will add"}
+                                </span>
+                              </div>
+                            ))}
+                          {!source.eligible_count ? <p className="py-2 text-gray-500">No eligible stored securities.</p> : null}
+                        </div>
+                      </details>
+                    </div>
+                  ))}
+                  {!importPreview && !importPreviewError ? <p className="py-3 text-xs text-gray-500">Loading import preview...</p> : null}
+                  {importPreviewError ? <p className="py-3 text-xs text-red-600 dark:text-red-400">Import preview unavailable: {importPreviewError}</p> : null}
+                </div>
+                <p className="mt-4 border-t border-gray-200 pt-3 text-xs leading-5 text-gray-500 dark:border-gray-800">
+                  Tracked positions include holdings, watchlists, and considering lists. Research catalog entries require an entity profile. Benchmark imports use only each benchmark&apos;s latest stored constituent snapshot.
+                </p>
+              </section>
+
               <form onSubmit={addUniverseMember} className="border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-950">
                 <div className="flex items-center gap-2"><Plus className="h-4 w-4" /><h2 className="text-sm font-semibold">Add security</h2></div>
                 <div className="mt-4 grid gap-3">
@@ -621,6 +717,9 @@ export default function OpportunitiesPage() {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2"><p className="font-semibold text-blue-700 dark:text-blue-300">{member.ticker}</p><span className="truncate text-sm text-gray-500">{member.entity_name}</span></div>
                       <p className="mt-1 text-xs text-gray-400">Last inspected: {formatDate(member.last_inspected_at)} · Next: {formatDate(member.next_inspection_at)}</p>
+                      <p className="mt-1 truncate text-xs text-gray-500" title={member.origins.map((origin) => origin.label).join(", ")}>
+                        Sources: {member.origins.length ? member.origins.map((origin) => origin.label).join(" · ") : displayValue(member.source)}
+                      </p>
                     </div>
                     <label className="text-xs font-medium text-gray-500">Priority<input type="number" min="0" max="1" step="0.05" defaultValue={member.priority} onBlur={(event) => { const value = Number(event.target.value); if (value !== member.priority) void updateUniverseMember(member, { priority: value }); }} className={`${fieldClass} mt-1`} /></label>
                     <div className="flex items-center justify-end gap-2">

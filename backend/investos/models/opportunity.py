@@ -18,7 +18,7 @@ from .base import Base, utcnow
 
 
 class OpportunityUniverseMember(Base):
-    """An operator-selected security that discovery may inspect without owning."""
+    """An operator-approved security that discovery may inspect without owning."""
 
     __tablename__ = "opportunity_universe_members"
     __table_args__ = (
