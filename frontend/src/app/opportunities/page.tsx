@@ -90,9 +90,9 @@ function EvidenceItem({ item, index }: { item: Record<string, unknown>; index: n
   const timestamp = item.public_time ?? item.captured_at ?? item.created_at;
 
   return (
-    <li className="border-l-2 border-gray-200 pl-3 dark:border-gray-700">
+    <li className="min-w-0 border-l-2 border-gray-200 pl-3 dark:border-gray-700">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{title}</p>
+        <p className="min-w-0 break-words text-sm font-medium text-gray-900 dark:text-gray-100">{title}</p>
         {url ? (
           <a
             href={url}
@@ -104,7 +104,7 @@ function EvidenceItem({ item, index }: { item: Record<string, unknown>; index: n
           </a>
         ) : null}
       </div>
-      {detail ? <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{displayValue(detail)}</p> : null}
+      {detail ? <p className="mt-1 break-words text-sm text-gray-600 dark:text-gray-300">{displayValue(detail)}</p> : null}
       {timestamp ? <p className="mt-1 text-xs text-gray-400">{formatDate(String(timestamp))}</p> : null}
     </li>
   );
@@ -369,19 +369,19 @@ export default function OpportunitiesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-950 dark:bg-[#0a0a0a] dark:text-gray-100">
+    <div className="min-h-screen min-w-0 overflow-x-clip bg-gray-50 text-gray-950 dark:bg-[#0a0a0a] dark:text-gray-100">
       <AppNav active="opportunities" />
       {error ? <FloatingNotice tone="error" message={error} onDismiss={() => setError(null)} /> : null}
       {!error && notice ? <FloatingNotice tone="success" message={notice} onDismiss={() => setNotice(null)} /> : null}
 
-      <main className="mx-auto w-full max-w-[1440px] px-4 py-7 sm:px-6 lg:px-8">
+      <main className="mx-auto min-w-0 w-full max-w-[1440px] px-4 py-7 sm:px-6 lg:px-8">
         <header className="flex flex-col gap-4 border-b border-gray-200 pb-5 dark:border-gray-800 lg:flex-row lg:items-end lg:justify-between">
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase text-gray-500">
               <Search className="h-4 w-4" /> Discovery
             </div>
-            <h1 className="mt-2 text-3xl font-semibold">Opportunity Queue</h1>
-            <p className="mt-2 max-w-3xl text-sm text-gray-500 dark:text-gray-400">
+            <h1 className="mt-2 break-words text-2xl font-semibold sm:text-3xl">Opportunity Queue</h1>
+            <p className="mt-2 max-w-3xl break-words text-sm text-gray-500 dark:text-gray-400">
               Prophet scans only the investable universe you define, under explicit time and provider budgets. Candidates remain provisional until you monitor, reject, expire, or test them in Shadow Lab.
             </p>
           </div>
@@ -414,7 +414,7 @@ export default function OpportunitiesPage() {
           ].map(([label, value]) => (
             <div key={label} className="bg-gray-50 px-4 py-4 dark:bg-[#0a0a0a]">
               <p className="text-xs font-semibold uppercase text-gray-400">{label}</p>
-              <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">{value}</p>
+              <p className="mt-1 break-words text-sm font-semibold text-gray-900 dark:text-gray-100">{value}</p>
             </div>
           ))}
         </section>
@@ -445,9 +445,9 @@ export default function OpportunitiesPage() {
         ) : null}
 
         {!loading && tab === "queue" ? (
-          <div className="grid min-h-[620px] grid-cols-1 gap-6 py-6 xl:grid-cols-[380px_minmax(0,1fr)]">
-            <aside className="border-r-0 border-gray-200 xl:border-r xl:pr-6 dark:border-gray-800">
-              <div className="flex gap-1 overflow-x-auto pb-3" aria-label="Candidate status filters">
+          <div className="grid min-h-[620px] min-w-0 grid-cols-1 gap-6 py-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+            <aside className="min-w-0 border-r-0 border-gray-200 xl:border-r xl:pr-6 dark:border-gray-800">
+              <div className="flex max-w-full gap-1 overflow-x-auto pb-3" aria-label="Candidate status filters">
                 {candidateFilters.map((item) => {
                   const count = candidates.filter((candidate) => item.value === "all" || candidate.status === item.value).length;
                   return (
@@ -471,10 +471,10 @@ export default function OpportunitiesPage() {
               </div>
               <div className="space-y-2">
                 {filteredCandidates.length === 0 ? (
-                  <div className="border border-dashed border-gray-300 px-4 py-8 text-center dark:border-gray-700">
+                  <div className="min-w-0 border border-dashed border-gray-300 px-4 py-8 text-center dark:border-gray-700">
                     <CircleDot className="mx-auto h-5 w-5 text-gray-400" />
                     <p className="mt-2 text-sm font-medium">No candidates in this state</p>
-                    <p className="mt-1 text-xs text-gray-500">Run discovery after adding securities to the universe.</p>
+                    <p className="mt-1 break-words text-xs text-gray-500">Run discovery after adding securities to the universe.</p>
                   </div>
                 ) : (
                   filteredCandidates.map((candidate) => (
@@ -487,10 +487,10 @@ export default function OpportunitiesPage() {
                       }}
                       className={`w-full border p-4 text-left transition ${selectedId === candidate.id ? "border-gray-900 bg-white dark:border-gray-100 dark:bg-gray-950" : "border-gray-200 bg-transparent hover:border-gray-400 dark:border-gray-800 dark:hover:border-gray-600"}`}
                     >
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">{candidate.ticker}</p>
-                          <p className="mt-1 line-clamp-2 text-sm font-medium">{candidate.title}</p>
+                          <p className="mt-1 line-clamp-2 break-words text-sm font-medium">{candidate.title}</p>
                         </div>
                         <span className="shrink-0 text-sm font-semibold tabular-nums">{Math.round(candidate.priority_score * 100)}</span>
                       </div>
@@ -500,7 +500,7 @@ export default function OpportunitiesPage() {
                         </span>
                         {candidate.signal_stage ? <span className="text-xs text-gray-400">{displayValue(candidate.signal_stage)}</span> : null}
                       </div>
-                      <p className="mt-3 line-clamp-2 text-xs leading-5 text-gray-500 dark:text-gray-400">{candidate.why_now}</p>
+                      <p className="mt-3 line-clamp-2 break-words text-xs leading-5 text-gray-500 dark:text-gray-400">{candidate.why_now}</p>
                     </button>
                   ))
                 )}
@@ -511,16 +511,16 @@ export default function OpportunitiesPage() {
               {!selected ? (
                 <div className="flex min-h-64 items-center justify-center border border-dashed border-gray-300 text-sm text-gray-500 dark:border-gray-700">Select a candidate to inspect its evidence and thesis.</div>
               ) : (
-                <div className="space-y-6">
+                <div className="min-w-0 space-y-6">
                   <header className="border-b border-gray-200 pb-5 dark:border-gray-800">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
+                      <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-semibold text-blue-700 dark:text-blue-300">{selected.ticker}</span>
                           <span className={`rounded border px-2 py-0.5 text-xs font-medium ${statusTone(selected.status)}`}>{displayValue(selected.status)}</span>
                           {selected.signal_stage ? <span className="text-xs text-gray-500">Stage: {displayValue(selected.signal_stage)}</span> : null}
                         </div>
-                        <h2 className="mt-2 text-2xl font-semibold">{selected.title}</h2>
+                        <h2 className="mt-2 break-words text-xl font-semibold sm:text-2xl">{selected.title}</h2>
                         <p className="mt-2 text-xs text-gray-400">Captured {formatDate(selected.captured_at)} · expires {formatDate(selected.expires_at)}</p>
                       </div>
                       <div className="shrink-0 text-left sm:text-right">
@@ -531,21 +531,21 @@ export default function OpportunitiesPage() {
                   </header>
 
                   <div className="grid gap-6 lg:grid-cols-2">
-                    <section>
+                    <section className="min-w-0">
                       <h3 className="text-xs font-semibold uppercase text-gray-400">Why now</h3>
-                      <p className="mt-2 text-sm leading-6 text-gray-700 dark:text-gray-200">{selected.why_now}</p>
+                      <p className="mt-2 break-words text-sm leading-6 text-gray-700 dark:text-gray-200">{selected.why_now}</p>
                     </section>
-                    <section>
+                    <section className="min-w-0">
                       <h3 className="text-xs font-semibold uppercase text-gray-400">Investable thesis</h3>
-                      <p className="mt-2 text-sm leading-6 text-gray-700 dark:text-gray-200">{selected.investable_thesis}</p>
+                      <p className="mt-2 break-words text-sm leading-6 text-gray-700 dark:text-gray-200">{selected.investable_thesis}</p>
                     </section>
-                    <section>
+                    <section className="min-w-0">
                       <h3 className="text-xs font-semibold uppercase text-gray-400">Portfolio transmission</h3>
-                      <p className="mt-2 text-sm leading-6 text-gray-700 dark:text-gray-200">{selected.portfolio_transmission}</p>
+                      <p className="mt-2 break-words text-sm leading-6 text-gray-700 dark:text-gray-200">{selected.portfolio_transmission}</p>
                     </section>
-                    <section>
+                    <section className="min-w-0">
                       <h3 className="text-xs font-semibold uppercase text-gray-400">Expected edge</h3>
-                      <p className="mt-2 text-sm leading-6 text-gray-700 dark:text-gray-200">{selected.expected_edge}</p>
+                      <p className="mt-2 break-words text-sm leading-6 text-gray-700 dark:text-gray-200">{selected.expected_edge}</p>
                     </section>
                   </div>
 
@@ -558,7 +558,7 @@ export default function OpportunitiesPage() {
                   <OutcomeSection observations={selected.observations} ticker={selected.ticker} />
 
                   <section>
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                       <h3 className="text-xs font-semibold uppercase text-gray-400">Evidence snapshot</h3>
                       <span className="text-xs text-gray-400">{selected.evidence_snapshot.length} items · {selected.evidence_refs.length} refs</span>
                     </div>
@@ -627,10 +627,10 @@ export default function OpportunitiesPage() {
                 <div className="mt-4 divide-y divide-gray-200 dark:divide-gray-800">
                   {importPreview?.source_summaries.map((source) => (
                     <div key={source.source_type} className="py-3 first:pt-0 last:pb-0">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
                           <p className="text-sm font-medium">{source.label}</p>
-                          <p className="mt-1 text-xs text-gray-500">
+                          <p className="mt-1 break-words text-xs text-gray-500">
                             {source.eligible_count} eligible · {source.existing_count} present · {source.missing_count} missing
                             {source.skipped_count ? ` · ${source.skipped_count} skipped` : ""}
                           </p>
@@ -692,7 +692,7 @@ export default function OpportunitiesPage() {
                   <div className="flex items-center gap-2"><Settings2 className="h-4 w-4" /><h2 className="text-sm font-semibold">Discovery controls</h2></div>
                   <p className="mt-2 text-xs leading-5 text-gray-500">These limits apply to scheduled scans and are recorded on each run. Manual scans use the same per-run limits.</p>
                   <label className="mt-4 flex items-center justify-between gap-4 text-sm"><span>Scheduled discovery</span><input type="checkbox" checked={settings.opportunity_discovery.enabled} onChange={(event) => updateDiscoverySettings("enabled", event.target.checked)} className="h-4 w-4 accent-gray-900" /></label>
-                  <div className="mt-4 grid grid-cols-2 gap-3">
+                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <NumberSetting label="Cadence (hours)" value={settings.opportunity_discovery.interval_seconds / 3600} min={1} max={168} onChange={(value) => updateDiscoverySettings("interval_seconds", Math.round(value * 3600))} />
                     <NumberSetting label="Subjects / run" value={settings.opportunity_discovery.max_subjects_per_run} min={1} max={100} onChange={(value) => updateDiscoverySettings("max_subjects_per_run", value)} />
                     <NumberSetting label="Revisit (hours)" value={settings.opportunity_discovery.revisit_hours} min={1} max={8760} onChange={(value) => updateDiscoverySettings("revisit_hours", value)} />
@@ -707,8 +707,8 @@ export default function OpportunitiesPage() {
             </div>
 
             <section>
-              <div className="flex items-end justify-between gap-4 border-b border-gray-200 pb-3 dark:border-gray-800">
-                <div><h2 className="text-lg font-semibold">Investable universe</h2><p className="mt-1 text-sm text-gray-500">This list is the explicit boundary of discovery coverage.</p></div>
+              <div className="flex flex-wrap items-end justify-between gap-4 border-b border-gray-200 pb-3 dark:border-gray-800">
+                <div className="min-w-0"><h2 className="text-lg font-semibold">Investable universe</h2><p className="mt-1 break-words text-sm text-gray-500">This list is the explicit boundary of discovery coverage.</p></div>
                 <span className="text-xs text-gray-400">{dueCount} due</span>
               </div>
               <div className="divide-y divide-gray-200 dark:divide-gray-800">
@@ -777,7 +777,7 @@ function ListSection({ title, items, tone }: { title: string; items: string[]; t
   return (
     <section>
       <h3 className={`text-xs font-semibold uppercase ${tone === "warning" ? "text-amber-600 dark:text-amber-400" : "text-gray-400"}`}>{title}</h3>
-      {items.length ? <ul className="mt-3 space-y-2 text-sm text-gray-700 dark:text-gray-200">{items.map((item, index) => <li key={`${item}-${index}`} className="flex gap-2">{tone === "warning" ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" /> : <CircleDot className="mt-1 h-3 w-3 shrink-0 text-gray-400" />}<span>{item}</span></li>)}</ul> : <p className="mt-3 text-sm text-gray-400">None recorded.</p>}
+      {items.length ? <ul className="mt-3 space-y-2 text-sm text-gray-700 dark:text-gray-200">{items.map((item, index) => <li key={`${item}-${index}`} className="flex min-w-0 gap-2">{tone === "warning" ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" /> : <CircleDot className="mt-1 h-3 w-3 shrink-0 text-gray-400" />}<span className="min-w-0 break-words">{item}</span></li>)}</ul> : <p className="mt-3 text-sm text-gray-400">None recorded.</p>}
     </section>
   );
 }
