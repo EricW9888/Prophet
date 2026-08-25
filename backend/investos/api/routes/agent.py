@@ -27,7 +27,7 @@ router = APIRouter(prefix="/agent", tags=["agent"])
 
 def _job_response(tracker: LiveJobTracker, job_id: UUID) -> AgentTurnJobResponse:
     record = tracker.get(job_id)
-    if record is None:
+    if record is None or record.job_kind != "agent_turn":
         raise HTTPException(status_code=404, detail="job_not_found")
     result = AgentTurnResponse.model_validate(record.result) if record.result else None
     return AgentTurnJobResponse(
@@ -107,7 +107,9 @@ async def list_agent_turn_jobs(
     tracker: LiveJobTracker = request.app.state.live_jobs
     jobs = [
         _job_response(tracker, record.id)
-        for record in tracker.list_jobs(status=status, limit=limit)
+        for record in tracker.list_jobs(
+            status=status, job_kind="agent_turn", limit=limit
+        )
     ]
     return AgentTurnJobListResponse(jobs=jobs)
 

@@ -165,6 +165,29 @@ class MediaIngestionCapabilityResponse(BaseModel):
     capabilities: list[MediaIngestionCapability] = Field(default_factory=list)
 
 
+class YouTubeIngestionRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=2048)
+    title: Optional[str] = Field(default=None, max_length=500)
+
+
+class MediaIngestionJobEventResponse(BaseModel):
+    phase: str
+    message: str
+    created_at: datetime
+    detail: Optional[dict] = None
+
+
+class MediaIngestionJobResponse(BaseModel):
+    job_id: UUID
+    status: str
+    request_url: str
+    created_at: datetime
+    updated_at: datetime
+    events: list[MediaIngestionJobEventResponse] = Field(default_factory=list)
+    result: Optional[dict] = None
+    error: Optional[str] = None
+
+
 class SourceFeedbackCreate(BaseModel):
     evidence_id: UUID
     rating: str

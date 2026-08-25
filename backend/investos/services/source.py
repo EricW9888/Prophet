@@ -1860,7 +1860,13 @@ class SourceService:
             }
         if (
             trigger == "manual_youtube_ingest"
-            or item_type in {"video_transcript", "manual_transcript", "video_notes"}
+            or item_type
+            in {
+                "video_transcript",
+                "video_audio_transcript",
+                "manual_transcript",
+                "video_notes",
+            }
             or source_type in {"video", "youtube"}
             or str(metadata.get("media_source_type") or "").strip().lower()
             in {"video", "youtube"}
@@ -1883,6 +1889,9 @@ class SourceService:
                     video_ref
                     or "User supplied notes from a video Prophet could not extract automatically."
                 )
+            elif item_type == "video_audio_transcript":
+                label = "Local YouTube audio transcript"
+                detail = video_ref or "Local speech-to-text transcript only."
             else:
                 label = "YouTube transcript ingest"
                 detail = video_ref or "Transcript text only."

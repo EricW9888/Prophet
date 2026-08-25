@@ -134,6 +134,15 @@ only returns key-presence flags. Environment-based deployments may instead set
 `NVIDIA_API_KEY` and `TAVILY_API_KEY`. SearXNG endpoint and provider order are
 runtime settings; an optional local Tavily credit budget can bound fallback use.
 
+YouTube ingestion uses an individual video's existing captions first. For a
+video without captions, an optional free local fallback can use separately
+installed `yt-dlp`, `ffmpeg`, and the OpenAI Whisper CLI. It is disabled by
+default and must be enabled with `YOUTUBE_LOCAL_TRANSCRIPTION_ENABLED=true`.
+Downloads stay in bounded temporary workspaces and raw media is removed after
+transcript extraction. This path transcribes speech; it does not inspect charts,
+slides, expressions, or other video frames. See `.env.example` for its operator
+settings.
+
 ## Verification
 
 <details>

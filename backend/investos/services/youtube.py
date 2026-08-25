@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import re
-import shutil
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, Awaitable, Callable
 from urllib.parse import parse_qs, urlparse
 
 from sqlalchemy import select
@@ -18,16 +19,34 @@ from youtube_transcript_api import (
 from investos.models.source import Source
 from investos.schemas.evidence import RawEvidenceCreate
 from investos.services.ingestion import IngestionService
-from investos.services.media_workspace import MediaIngestionPolicy
+from investos.services.media_workspace import MediaIngestionPolicy, media_temp_workspace
+from investos.services.youtube_transcription import (
+    LocalTranscriptionError,
+    LocalYouTubeTranscriber,
+)
+
+ProgressCallback = Callable[[str, str, dict[str, Any] | None], Awaitable[None]]
 
 
 class YouTubeService:
-    def __init__(self, session: AsyncSession):
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        audio_transcriber: LocalYouTubeTranscriber | None = None,
+        media_policy: MediaIngestionPolicy | None = None,
+    ):
         self.session = session
         self.ingestion = IngestionService(session)
+        self.audio_transcriber = audio_transcriber or LocalYouTubeTranscriber()
+        self.media_policy = media_policy or MediaIngestionPolicy.from_settings()
 
     async def ingest_video(
-        self, url: str, *, title: str | None = None
+        self,
+        url: str,
+        *,
+        title: str | None = None,
+        progress_callback: ProgressCallback | None = None,
     ) -> dict[str, Any]:
         url_kind = self._classify_url(url)
         video_id = url_kind.get("video_id")
@@ -49,21 +68,93 @@ class YouTubeService:
                 "url_kind": url_kind.get("kind", "invalid"),
             }
 
+        await self._report(
+            progress_callback,
+            "captions",
+            "Checking for an existing YouTube caption transcript.",
+            None,
+        )
+        ingest_mode = "caption_transcript"
+        source_item_type = "video_transcript"
+        metadata: dict[str, Any] = {
+            "video_id": video_id,
+            "content_type": "text/plain",
+            "trigger": "manual_youtube_ingest",
+            "ingest_mode": ingest_mode,
+        }
+        public_time = None
         try:
-            transcript_list = YouTubeTranscriptApi().fetch(video_id)
+            transcript_list = await asyncio.to_thread(
+                YouTubeTranscriptApi().fetch, video_id
+            )
             full_text = " ".join([item.text for item in transcript_list])
         except (NoTranscriptFound, TranscriptsDisabled):
-            return {
-                "ok": False,
-                "error": (
-                    "No transcript is available for this video. Paste a manual transcript, "
-                    "notes, or use a future audio/video transcription connector before treating "
-                    "it as evidence."
-                ),
-                "url_kind": "video",
-                "video_id": video_id,
-                "ingest_mode": "transcript_only",
-            }
+            readiness = self.audio_transcriber.readiness()
+            if not readiness["available"]:
+                reason = (
+                    "Local audio transcription is disabled."
+                    if not readiness["enabled"]
+                    else "Local audio transcription is missing: "
+                    + ", ".join(readiness["missing"])
+                    + "."
+                )
+                return {
+                    "ok": False,
+                    "error": (
+                        "No YouTube caption transcript is available. "
+                        f"{reason} Paste a manual transcript or configure the optional local fallback."
+                    ),
+                    "url_kind": "video",
+                    "video_id": video_id,
+                    "ingest_mode": "caption_unavailable",
+                }
+            await self._report(
+                progress_callback,
+                "audio_download",
+                "Captions are unavailable; downloading bounded audio into a temporary workspace.",
+                {"video_id": video_id},
+            )
+            try:
+                with media_temp_workspace(self.media_policy) as workspace:
+                    await self._report(
+                        progress_callback,
+                        "transcription",
+                        f"Running local speech-to-text with model {readiness['model']}.",
+                        None,
+                    )
+                    transcript = await self.audio_transcriber.transcribe(
+                        url=url,
+                        video_id=video_id,
+                        workspace=workspace,
+                        media_policy=self.media_policy,
+                    )
+            except LocalTranscriptionError as exc:
+                return {
+                    "ok": False,
+                    "error": str(exc),
+                    "url_kind": "video",
+                    "video_id": video_id,
+                    "ingest_mode": "local_audio_transcription",
+                }
+            full_text = transcript.text
+            ingest_mode = "local_audio_transcription"
+            source_item_type = "video_audio_transcript"
+            metadata.update(
+                {
+                    "ingest_mode": ingest_mode,
+                    "transcriber": "openai_whisper_cli",
+                    "transcription_model": transcript.model,
+                    "transcript_language": transcript.language,
+                    "transcript_segments": transcript.segments,
+                    "video_metadata": transcript.video_metadata,
+                    "raw_media_persisted": False,
+                }
+            )
+            public_time = self._public_time_from_metadata(transcript.video_metadata)
+            if not title:
+                title = (
+                    str(transcript.video_metadata.get("title") or "").strip() or None
+                )
         except VideoUnavailable:
             return {
                 "ok": False,
@@ -74,19 +165,21 @@ class YouTubeService:
         except Exception as exc:
             return {"ok": False, "error": f"Could not retrieve transcript: {exc}"}
 
+        await self._report(
+            progress_callback,
+            "evidence",
+            "Saving the transcript as dated source evidence.",
+            {"ingest_mode": ingest_mode},
+        )
         source = await self._get_or_create_youtube_source()
         evidence = await self.ingestion.ingest_text(
             RawEvidenceCreate(
                 title=title or f"YouTube Video: {video_id}",
                 source_id=source.id,
-                source_item_type="video_transcript",
+                source_item_type=source_item_type,
                 url=url,
-                metadata_json={
-                    "video_id": video_id,
-                    "content_type": "text/plain",
-                    "trigger": "manual_youtube_ingest",
-                    "ingest_mode": "transcript_only",
-                },
+                public_time=public_time,
+                metadata_json=metadata,
                 content=full_text,
             ),
             process_now=True,
@@ -97,7 +190,7 @@ class YouTubeService:
             "evidence_id": str(evidence.id),
             "transcript_length": len(full_text),
             "video_id": video_id,
-            "ingest_mode": "transcript_only",
+            "ingest_mode": ingest_mode,
         }
 
     @classmethod
@@ -105,24 +198,19 @@ class YouTubeService:
         transcript_available = (
             importlib.util.find_spec("youtube_transcript_api") is not None
         )
-        ytdlp_available = (
-            importlib.util.find_spec("yt_dlp") is not None
-            or shutil.which("yt-dlp") is not None
-            or shutil.which("youtube-dl") is not None
-        )
-        # No speech-to-text or visual/OCR provider is wired into Prophet yet.
-        # Keep this explicit so "video ingestion" cannot be confused with
-        # caption-transcript ingestion.
-        audio_transcription_available = False
+        transcriber = LocalYouTubeTranscriber()
+        transcription_readiness = transcriber.readiness()
+        ytdlp_available = bool(transcription_readiness["downloader_path"])
         frame_ocr_available = False
         media_policy = MediaIngestionPolicy.from_settings()
         return {
             "can_extract_without_transcript": bool(
-                ytdlp_available and audio_transcription_available
+                transcription_readiness["available"]
             ),
             "current_best_path": (
-                "Track the channel as a source, ingest individual video URLs when captions exist, "
-                "or paste manual transcript/notes for no-caption videos."
+                "Ingest an individual video URL. Prophet uses captions first and can fall back to explicitly enabled local audio transcription when all required tools are ready."
+                if transcription_readiness["available"]
+                else "Ingest individual videos when captions exist, paste manual transcript/notes, or explicitly configure the free local audio fallback for no-caption videos."
             ),
             "capabilities": [
                 {
@@ -144,18 +232,26 @@ class YouTubeService:
                 {
                     "key": "channel_video_enumeration",
                     "label": "Channel video enumeration",
-                    "status": "available" if ytdlp_available else "not_configured",
+                    "status": "unsupported",
                     "detail": (
-                        "A downloader/enumerator is available, but Prophet still needs review policy before background channel crawling."
+                        "yt-dlp is installed, but Prophet does not yet enumerate or crawl channel uploads."
                         if ytdlp_available
-                        else "yt-dlp/youtube-dl is not installed, so Prophet cannot enumerate channel videos automatically."
+                        else "Prophet does not yet enumerate or crawl channel uploads; yt-dlp is also not installed."
                     ),
                 },
                 {
                     "key": "audio_transcription",
                     "label": "No-transcript audio transcription",
-                    "status": "not_configured",
-                    "detail": "No speech-to-text provider is configured, so no-caption videos are not automatically extractable.",
+                    "status": (
+                        "available"
+                        if transcription_readiness["available"]
+                        else (
+                            "disabled"
+                            if not transcription_readiness["enabled"]
+                            else "not_configured"
+                        )
+                    ),
+                    "detail": cls._audio_capability_detail(transcription_readiness),
                 },
                 {
                     "key": "frame_or_slide_ocr",
@@ -221,9 +317,48 @@ class YouTubeService:
         source = Source(
             name=source_name,
             source_type="youtube",
-            description="Transcript text from YouTube videos. This connector does not inspect frames, slides, or audio tone.",
+            description="Caption or optional local speech-to-text transcripts from YouTube videos. This connector does not inspect frames, slides, or audio tone.",
             is_trusted=True,
         )
         self.session.add(source)
         await self.session.flush()
         return source
+
+    @staticmethod
+    async def _report(
+        callback: ProgressCallback | None,
+        phase: str,
+        message: str,
+        detail: dict[str, Any] | None,
+    ) -> None:
+        if callback is not None:
+            await callback(phase, message, detail)
+
+    @staticmethod
+    def _audio_capability_detail(readiness: dict[str, Any]) -> str:
+        if readiness["available"]:
+            return (
+                "Captionless videos can use installed yt-dlp, ffmpeg, and the OpenAI Whisper CLI "
+                f"with model {readiness['model']}; raw media is deleted after transcript extraction."
+            )
+        if not readiness["enabled"]:
+            return (
+                "Disabled by operator policy. Set YOUTUBE_LOCAL_TRANSCRIPTION_ENABLED=true only "
+                "after installing yt-dlp, ffmpeg, and the OpenAI Whisper CLI."
+            )
+        missing = ", ".join(readiness["missing"]) or "required local tools"
+        return f"Enabled but not ready; missing: {missing}."
+
+    @staticmethod
+    def _public_time_from_metadata(metadata: dict[str, Any]) -> datetime | None:
+        raw_timestamp = metadata.get("release_timestamp") or metadata.get("timestamp")
+        try:
+            if raw_timestamp is not None:
+                return datetime.fromtimestamp(float(raw_timestamp), tz=UTC)
+        except (OSError, TypeError, ValueError):
+            pass
+        upload_date = str(metadata.get("upload_date") or "").strip()
+        try:
+            return datetime.strptime(upload_date, "%Y%m%d").replace(tzinfo=UTC)
+        except ValueError:
+            return None

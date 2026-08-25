@@ -1,9 +1,10 @@
+import asyncio
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from investos.db import get_session
+from investos.db import async_session_maker, get_session
 from investos.schemas.source import (
     FundamentalMetricCreate,
     FundamentalMetricResponse,
@@ -16,6 +17,7 @@ from investos.schemas.source import (
     MarketSetupSignalCreate,
     MarketSetupSignalResponse,
     MediaIngestionCapabilityResponse,
+    MediaIngestionJobResponse,
     OwnershipDisclosureCreate,
     SourceClaimAssessmentCreate,
     SourceClaimAssessmentResponse,
@@ -30,15 +32,43 @@ from investos.schemas.source import (
     SourceFeedbackResponse,
     SourceResponse,
     SourceUpdate,
+    YouTubeIngestionRequest,
 )
 from investos.services.fundamentals import FundamentalMetricService
 from investos.services.investment_object_backfill import InvestmentObjectBackfillService
+from investos.services.live_jobs import LiveJobTracker
 from investos.services.market_setup import MarketSetupSignalService
 from investos.services.ownership_signals import OwnershipSignalService
 from investos.services.source import SourceService
 from investos.services.youtube import YouTubeService
 
 router = APIRouter(prefix="/sources", tags=["sources"])
+
+
+def _media_job_response(
+    tracker: LiveJobTracker, job_id: UUID
+) -> MediaIngestionJobResponse:
+    record = tracker.get(job_id)
+    if record is None or record.job_kind != "youtube_ingestion":
+        raise HTTPException(status_code=404, detail="job_not_found")
+    return MediaIngestionJobResponse(
+        job_id=record.id,
+        status=record.status,
+        request_url=record.request_message,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+        events=[
+            {
+                "phase": event.phase,
+                "message": event.message,
+                "created_at": event.created_at,
+                "detail": event.detail,
+            }
+            for event in record.events
+        ],
+        result=record.result,
+        error=record.error,
+    )
 
 
 @router.get("/", response_model=list[SourceResponse])
@@ -73,6 +103,76 @@ async def list_source_notes(
 @router.get("/youtube/capabilities", response_model=MediaIngestionCapabilityResponse)
 async def get_youtube_capabilities():
     return YouTubeService.media_capabilities()
+
+
+@router.post(
+    "/youtube/ingest-jobs",
+    response_model=MediaIngestionJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def create_youtube_ingestion_job(
+    payload: YouTubeIngestionRequest,
+    request: Request,
+):
+    tracker: LiveJobTracker = request.app.state.live_jobs
+    record = tracker.create_job(
+        request_message=payload.url,
+        session_id=None,
+        job_kind="youtube_ingestion",
+        queued_message="Queued for YouTube transcript ingestion.",
+    )
+
+    async def run_job() -> None:
+        async with async_session_maker() as session:
+            service = YouTubeService(session)
+
+            async def progress(
+                phase: str, message: str, detail: dict | None = None
+            ) -> None:
+                tracker.add_event(
+                    record.id, phase=phase, message=message, detail=detail
+                )
+
+            try:
+                result = await service.ingest_video(
+                    payload.url,
+                    title=payload.title,
+                    progress_callback=progress,
+                )
+                tracker.complete(
+                    record.id,
+                    result=result,
+                    message="YouTube transcript ingestion finished.",
+                )
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                tracker.fail(record.id, error=str(exc))
+
+    task = asyncio.create_task(run_job())
+    tracker.mark_running(
+        record.id,
+        task=task,
+        message="Prophet started YouTube transcript ingestion.",
+    )
+    return _media_job_response(tracker, record.id)
+
+
+@router.get("/youtube/ingest-jobs/{job_id}", response_model=MediaIngestionJobResponse)
+async def get_youtube_ingestion_job(job_id: UUID, request: Request):
+    tracker: LiveJobTracker = request.app.state.live_jobs
+    return _media_job_response(tracker, job_id)
+
+
+@router.post("/youtube/ingest-jobs/{job_id}/cancel")
+async def cancel_youtube_ingestion_job(job_id: UUID, request: Request):
+    tracker: LiveJobTracker = request.app.state.live_jobs
+    record = tracker.get(job_id)
+    if record is None or record.job_kind != "youtube_ingestion":
+        raise HTTPException(status_code=404, detail="job_not_found")
+    if not tracker.cancel_job(job_id):
+        raise HTTPException(status_code=404, detail="job_not_found_or_not_cancellable")
+    return {"ok": True, "detail": "Video ingestion cancellation signal sent."}
 
 
 @router.get("/evidence/{evidence_id}", response_model=SourceEvidenceDetail)

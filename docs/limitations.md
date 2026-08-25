@@ -52,9 +52,14 @@ benchmark, and cash as controls. This measures one return outcome; it does not
 prove that the causal thesis was correct, that the trade was executable, or that
 the historical price provider will never revise its data.
 
-YouTube ingestion uses available captions or an explicitly supplied transcript.
-Prophet does not currently transcribe arbitrary no-caption audio or interpret a
-complete video from frames alone.
+YouTube ingestion uses available captions first. An operator may explicitly
+enable a free local fallback backed by separately installed `yt-dlp`, `ffmpeg`,
+and the OpenAI Whisper CLI for an individual no-caption video. Tool availability,
+model download, source access, duration, size, timeout, language, and speech
+quality can all prevent or degrade extraction. Audio transcription does not
+interpret charts, slides, expressions, product demonstrations, or other frames,
+so Prophet must not treat it as a complete understanding of the video. Channel
+tracking does not imply that every channel upload was enumerated or ingested.
 
 ## Analytical Reliability
 

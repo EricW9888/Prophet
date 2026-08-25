@@ -7,6 +7,7 @@ import {
   API_BASE,
   apiFetch,
   MediaIngestionCapabilityResponse,
+  MediaIngestionJob,
   OwnershipDisclosureCreate,
   SourceEvidenceDetail,
   SourceEvidenceSummary,
@@ -79,6 +80,9 @@ export default function SourcesWorkspace() {
   const [notes, setNotes] = useState<SourceEvidenceSummary[]>([]);
   const [aliases, setAliases] = useState<SubjectAliasRecord[]>([]);
   const [mediaCapabilities, setMediaCapabilities] = useState<MediaIngestionCapabilityResponse | null>(null);
+  const [mediaUrl, setMediaUrl] = useState("");
+  const [mediaTitle, setMediaTitle] = useState("");
+  const [mediaJob, setMediaJob] = useState<MediaIngestionJob | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -143,6 +147,32 @@ export default function SourcesWorkspace() {
     return () => window.clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    if (!mediaJob || !["queued", "running"].includes(mediaJob.status)) return;
+    const interval = window.setInterval(() => {
+      void apiFetch<MediaIngestionJob>(`/sources/youtube/ingest-jobs/${mediaJob.job_id}`)
+        .then((job) => {
+          setMediaJob(job);
+          if (job.status === "completed") {
+            if (job.result?.ok) {
+              setMediaUrl("");
+              setMediaTitle("");
+              setError(null);
+              void loadWorkspace(false);
+            } else {
+              setError(job.result?.error || "YouTube ingestion did not produce evidence.");
+            }
+          } else if (job.status === "error") {
+            setError(job.error || "YouTube ingestion failed.");
+          }
+        })
+        .catch((err) => {
+          setError(err instanceof Error ? err.message : "Unable to refresh video ingestion status.");
+        });
+    }, 1200);
+    return () => window.clearInterval(interval);
+  }, [mediaJob]);
+
   async function createSource(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -170,6 +200,35 @@ export default function SourcesWorkspace() {
       setError(err instanceof Error ? err.message : "Unable to create source.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function startMediaIngestion(e: React.FormEvent) {
+    e.preventDefault();
+    if (!mediaUrl.trim() || (mediaJob && ["queued", "running"].includes(mediaJob.status))) return;
+    setError(null);
+    try {
+      const job = await apiFetch<MediaIngestionJob>("/sources/youtube/ingest-jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: mediaUrl.trim(),
+          title: mediaTitle.trim() || null,
+        }),
+      });
+      setMediaJob(job);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to start YouTube ingestion.");
+    }
+  }
+
+  async function cancelMediaIngestion() {
+    if (!mediaJob || !["queued", "running"].includes(mediaJob.status)) return;
+    try {
+      await apiFetch(`/sources/youtube/ingest-jobs/${mediaJob.job_id}/cancel`, { method: "POST" });
+      setMediaJob((current) => (current ? { ...current, status: "cancelled" } : current));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to cancel YouTube ingestion.");
     }
   }
 
@@ -432,7 +491,17 @@ export default function SourcesWorkspace() {
               saving={saving}
               onSubmit={createSource}
             />
-            <MediaCapabilityPanel capabilities={mediaCapabilities} onManualTranscript={prefillManualTranscript} />
+            <MediaCapabilityPanel
+              capabilities={mediaCapabilities}
+              mediaUrl={mediaUrl}
+              mediaTitle={mediaTitle}
+              mediaJob={mediaJob}
+              onMediaUrlChange={setMediaUrl}
+              onMediaTitleChange={setMediaTitle}
+              onSubmit={startMediaIngestion}
+              onCancel={() => void cancelMediaIngestion()}
+              onManualTranscript={prefillManualTranscript}
+            />
           </div>
           <div className="space-y-4">
             <AddDisclosurePanel
@@ -979,12 +1048,28 @@ function AddSourcePanel({
 
 function MediaCapabilityPanel({
   capabilities,
+  mediaUrl,
+  mediaTitle,
+  mediaJob,
+  onMediaUrlChange,
+  onMediaTitleChange,
+  onSubmit,
+  onCancel,
   onManualTranscript,
 }: {
   capabilities: MediaIngestionCapabilityResponse | null;
+  mediaUrl: string;
+  mediaTitle: string;
+  mediaJob: MediaIngestionJob | null;
+  onMediaUrlChange: (value: string) => void;
+  onMediaTitleChange: (value: string) => void;
+  onSubmit: (event: React.FormEvent) => Promise<void>;
+  onCancel: () => void;
   onManualTranscript: () => void;
 }) {
   const capabilityRows = capabilities?.capabilities ?? [];
+  const jobActive = Boolean(mediaJob && ["queued", "running"].includes(mediaJob.status));
+  const latestEvent = mediaJob?.events[mediaJob.events.length - 1];
   return (
     <section className="rounded-lg border border-sky-200 bg-white p-4 dark:border-sky-900 dark:bg-gray-950">
       <div className="flex items-start justify-between gap-3">
@@ -1005,6 +1090,62 @@ function MediaCapabilityPanel({
           <Video className="h-4 w-4" />
         </div>
       </div>
+      <form onSubmit={onSubmit} className="mt-4 space-y-2 rounded-lg border border-sky-100 bg-sky-50/60 p-3 dark:border-sky-950 dark:bg-sky-950/20">
+        <label className="block text-xs font-semibold uppercase tracking-wider text-sky-800 dark:text-sky-200" htmlFor="youtube-video-url">
+          Individual video
+        </label>
+        <input
+          id="youtube-video-url"
+          type="url"
+          required
+          value={mediaUrl}
+          onChange={(event) => onMediaUrlChange(event.target.value)}
+          placeholder="https://www.youtube.com/watch?v=..."
+          className={inputClass}
+        />
+        <input
+          value={mediaTitle}
+          onChange={(event) => onMediaTitleChange(event.target.value)}
+          placeholder="Optional research title"
+          aria-label="Optional research title"
+          className={inputClass}
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            disabled={!mediaUrl.trim() || jobActive}
+            className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            <Video className="h-4 w-4" />
+            {jobActive ? "Processing video..." : "Ingest transcript"}
+          </button>
+          {jobActive ? (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="min-h-10 rounded-lg border border-sky-200 px-3 py-2 text-sm font-medium text-sky-700 dark:border-sky-900 dark:text-sky-300"
+            >
+              Cancel
+            </button>
+          ) : null}
+        </div>
+        {mediaJob ? (
+          <div className="flex items-start justify-between gap-3 rounded-lg border border-sky-100 bg-white px-3 py-2 text-xs dark:border-sky-950 dark:bg-gray-950">
+            <div className="min-w-0">
+              <p className="font-medium text-gray-700 dark:text-gray-200">{latestEvent?.message || "Video ingestion queued."}</p>
+              {mediaJob.result?.ok ? (
+                <p className="mt-1 text-emerald-700 dark:text-emerald-300">
+                  Saved {mediaJob.result.transcript_length?.toLocaleString() ?? 0} transcript characters via {mediaJob.result.ingest_mode?.replaceAll("_", " ")}.
+                </p>
+              ) : mediaJob.result?.error ? (
+                <p className="mt-1 text-rose-700 dark:text-rose-300">{mediaJob.result.error}</p>
+              ) : null}
+            </div>
+            <StatusPill tone={mediaJob.result?.ok ? "good" : mediaJob.result?.ok === false || mediaJob.status === "error" ? "bad" : "info"}>
+              {mediaJob.status}
+            </StatusPill>
+          </div>
+        ) : null}
+      </form>
       {capabilities ? (
         <>
           <div className="mt-4 space-y-2">
@@ -1021,17 +1162,15 @@ function MediaCapabilityPanel({
           <p className="mt-3 rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-800 dark:border-sky-950 dark:bg-sky-950/30 dark:text-sky-200">
             {capabilities.current_best_path}
           </p>
-          {!capabilities.can_extract_without_transcript ? (
-            <button
-              type="button"
-              onClick={onManualTranscript}
-              className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-200 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-50 dark:border-sky-900 dark:text-sky-300 dark:hover:bg-sky-950/30"
-              title="Prepare a note that stores user-supplied transcript text or detailed notes from a YouTube video."
-            >
-              <FileText className="h-4 w-4" />
-              Add manual transcript
-            </button>
-          ) : null}
+          <button
+            type="button"
+            onClick={onManualTranscript}
+            className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-200 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-50 dark:border-sky-900 dark:text-sky-300 dark:hover:bg-sky-950/30"
+            title="Prepare a note that stores user-supplied transcript text or detailed notes from a YouTube video."
+          >
+            <FileText className="h-4 w-4" />
+            Add manual transcript
+          </button>
         </>
       ) : (
         <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Loading media ingestion status...</p>
