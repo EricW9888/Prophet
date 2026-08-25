@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 from sqlalchemy import func, select, text
 
 from investos.config import settings
+from investos.core.research_providers import configured_research_providers
 from investos.db import async_session_maker
 from investos.models.catalog import SourceClaimRecord
 from investos.models.conclusion import ConclusionState
@@ -334,7 +335,13 @@ async def main() -> None:
     print(f"runtime_settings_path: {settings.RUNTIME_SETTINGS_PATH}")
     print(f"runtime_llm_provider: {runtime.llm.provider}")
     print(f"runtime_llm_key_set: {bool(runtime.llm.api_key)}")
-    print(f"runtime_research_provider: {runtime.research.provider}")
+    print(
+        "runtime_research_provider_order: " + ",".join(runtime.research.provider_order)
+    )
+    print(
+        "runtime_research_configured_providers: "
+        + ",".join(configured_research_providers(runtime.research))
+    )
     print(f"runtime_research_key_set: {bool(runtime.research.api_key)}")
     print(f"runtime_gmail_enabled: {runtime.gmail.enabled}")
     print(

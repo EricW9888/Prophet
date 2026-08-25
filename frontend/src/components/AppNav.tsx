@@ -13,6 +13,7 @@ const navItems = [
   { href: "/sources", label: "Sources", key: "sources" },
   { href: "/activity", label: "Activity", key: "activity" },
   { href: "/risk", label: "Risk", key: "risk" },
+  { href: "/opportunities", label: "Ideas", key: "opportunities" },
   { href: "/verification", label: "Review", key: "review" },
   { href: "/shadow", label: "Experiments", key: "experiments" },
   { href: "/settings", label: "Settings", key: "settings" },

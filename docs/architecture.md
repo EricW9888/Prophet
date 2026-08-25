@@ -187,6 +187,9 @@ workflows:
   metrics, and media capabilities.
 - **Risk and Review:** concentration, attribution, benchmarks, verification, and
   review queues.
+- **Ideas:** operator-bounded opportunity discovery, candidate review,
+  assumption and evidence inspection, coverage telemetry, and paper-only
+  handoff to Shadow Lab.
 - **Experiments:** shadow theses, paper accounts, orders, fills, checkpoints,
   outcomes, and learning state.
 - **Settings:** connector configuration, provider readiness, setup state, and
@@ -201,7 +204,9 @@ in `frontend/src/components/AppNav.tsx`.
 provider and integration settings are layered by
 `services/runtime_settings.py`. The default local settings file and its secret
 sidecar live under the ignored `data/` directory. API responses expose readiness
-and key-presence flags, not secret values.
+and key-presence flags, not secret values. Opportunity-discovery cadence,
+per-run breadth, revisit timing, and candidate lifetime are runtime controls;
+each discovery run stores the limits it actually used.
 
 The checked-in `.env.example` contains placeholders only. Runtime settings,
 portfolio data, evidence, media workspaces, databases, backups, logs, and local

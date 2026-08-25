@@ -2,8 +2,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from investos.schemas.integrations import OpportunityDiscoveryIntegrationSettingsUpdate
 from investos.services.runtime_settings import (
     LLMRuntimeSettings,
+    OpportunityDiscoveryRuntimeSettings,
     RuntimeSettings,
     RuntimeSettingsStore,
 )
@@ -154,6 +156,51 @@ def test_runtime_validation_rejects_local_provider_without_policy_opt_in(monkeyp
     )
 
     with pytest.raises(ValueError, match="disabled by policy"):
+        RuntimeSettingsStore._validate(runtime)
+
+
+def test_opportunity_discovery_runtime_update_is_partial_and_bounded():
+    current = OpportunityDiscoveryRuntimeSettings(
+        enabled=True,
+        interval_seconds=21600,
+        max_subjects_per_run=4,
+        revisit_hours=24,
+        candidate_ttl_days=14,
+    )
+
+    updated = RuntimeSettingsStore._update_opportunity_discovery(
+        current,
+        OpportunityDiscoveryIntegrationSettingsUpdate(
+            enabled=False,
+            max_subjects_per_run=12,
+            candidate_ttl_days=30,
+        ),
+    )
+
+    assert updated.enabled is False
+    assert updated.interval_seconds == 21600
+    assert updated.max_subjects_per_run == 12
+    assert updated.revisit_hours == 24
+    assert updated.candidate_ttl_days == 30
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("interval_seconds", 299),
+        ("max_subjects_per_run", 101),
+        ("revisit_hours", 0),
+        ("candidate_ttl_days", 366),
+    ],
+)
+def test_opportunity_discovery_runtime_validation_rejects_unsafe_limits(
+    field,
+    value,
+):
+    runtime = RuntimeSettings()
+    setattr(runtime.opportunity_discovery, field, value)
+
+    with pytest.raises(ValueError, match="Opportunity"):
         RuntimeSettingsStore._validate(runtime)
 
 

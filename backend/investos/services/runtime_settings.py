@@ -28,6 +28,8 @@ from investos.schemas.integrations import (
     LLMIntegrationSettingsUpdate,
     MarketDataIntegrationSettings,
     MarketDataIntegrationSettingsUpdate,
+    OpportunityDiscoveryIntegrationSettings,
+    OpportunityDiscoveryIntegrationSettingsUpdate,
     PaperTradingIntegrationSettings,
     PaperTradingIntegrationSettingsUpdate,
     PlaidIntegrationSettings,
@@ -73,6 +75,14 @@ class ResearchRuntimeSettings(BaseModel):
     tavily_monthly_credit_budget: int | None = None
 
 
+class OpportunityDiscoveryRuntimeSettings(BaseModel):
+    enabled: bool = settings.OPPORTUNITY_DISCOVERY_ENABLED
+    interval_seconds: int = settings.OPPORTUNITY_DISCOVERY_INTERVAL_SECONDS
+    max_subjects_per_run: int = settings.OPPORTUNITY_DISCOVERY_MAX_SUBJECTS_PER_RUN
+    revisit_hours: int = settings.OPPORTUNITY_DISCOVERY_REVISIT_HOURS
+    candidate_ttl_days: int = settings.OPPORTUNITY_DISCOVERY_CANDIDATE_TTL_DAYS
+
+
 class PlaidRuntimeSettings(BaseModel):
     enabled: bool = False
     environment: str = settings.PLAID_ENV
@@ -93,6 +103,9 @@ class RuntimeSettings(BaseModel):
     plaid: PlaidRuntimeSettings = Field(default_factory=PlaidRuntimeSettings)
     llm: LLMRuntimeSettings = Field(default_factory=LLMRuntimeSettings)
     research: ResearchRuntimeSettings = Field(default_factory=ResearchRuntimeSettings)
+    opportunity_discovery: OpportunityDiscoveryRuntimeSettings = Field(
+        default_factory=OpportunityDiscoveryRuntimeSettings
+    )
     portfolio: PortfolioIntegrationSettings = Field(
         default_factory=PortfolioIntegrationSettings
     )
@@ -335,6 +348,13 @@ class RuntimeSettingsStore:
                 ready=research_ready,
                 status_message=research_msg,
             ),
+            opportunity_discovery=OpportunityDiscoveryIntegrationSettings(
+                enabled=runtime.opportunity_discovery.enabled,
+                interval_seconds=runtime.opportunity_discovery.interval_seconds,
+                max_subjects_per_run=runtime.opportunity_discovery.max_subjects_per_run,
+                revisit_hours=runtime.opportunity_discovery.revisit_hours,
+                candidate_ttl_days=runtime.opportunity_discovery.candidate_ttl_days,
+            ),
             portfolio=PortfolioIntegrationSettings(
                 default_benchmark_ticker=runtime.portfolio.default_benchmark_ticker,
                 remaining_buying_power=runtime.portfolio.remaining_buying_power,
@@ -393,6 +413,11 @@ class RuntimeSettingsStore:
             runtime.llm = cls._update_llm(runtime.llm, payload.llm)
         if payload.research is not None:
             runtime.research = cls._update_research(runtime.research, payload.research)
+        if payload.opportunity_discovery is not None:
+            runtime.opportunity_discovery = cls._update_opportunity_discovery(
+                runtime.opportunity_discovery,
+                payload.opportunity_discovery,
+            )
         if payload.portfolio is not None:
             runtime.portfolio = cls._update_portfolio(
                 runtime.portfolio, payload.portfolio
@@ -540,6 +565,24 @@ class RuntimeSettingsStore:
         return PortfolioIntegrationSettings.model_validate(data)
 
     @staticmethod
+    def _update_opportunity_discovery(
+        current: OpportunityDiscoveryRuntimeSettings,
+        update: OpportunityDiscoveryIntegrationSettingsUpdate,
+    ) -> OpportunityDiscoveryRuntimeSettings:
+        data = current.model_dump()
+        for field in (
+            "enabled",
+            "interval_seconds",
+            "max_subjects_per_run",
+            "revisit_hours",
+            "candidate_ttl_days",
+        ):
+            value = getattr(update, field)
+            if value is not None:
+                data[field] = value
+        return OpportunityDiscoveryRuntimeSettings.model_validate(data)
+
+    @staticmethod
     def _validate(runtime: RuntimeSettings) -> None:
         market_data = runtime.market_data
         if market_data.refresh_interval_seconds <= 0:
@@ -593,6 +636,23 @@ class RuntimeSettingsStore:
             and runtime.research.tavily_monthly_credit_budget <= 0
         ):
             raise ValueError("Tavily monthly credit budget must be positive.")
+        opportunity = runtime.opportunity_discovery
+        if not 300 <= opportunity.interval_seconds <= 604800:
+            raise ValueError(
+                "Opportunity discovery interval must be between 5 minutes and 7 days."
+            )
+        if not 1 <= opportunity.max_subjects_per_run <= 100:
+            raise ValueError(
+                "Opportunity discovery subjects per run must be between 1 and 100."
+            )
+        if not 1 <= opportunity.revisit_hours <= 8760:
+            raise ValueError(
+                "Opportunity discovery revisit interval must be between 1 hour and 1 year."
+            )
+        if not 1 <= opportunity.candidate_ttl_days <= 365:
+            raise ValueError(
+                "Opportunity candidate lifetime must be between 1 and 365 days."
+            )
         if runtime.plaid.environment not in {"sandbox", "development", "production"}:
             raise ValueError(
                 "Plaid environment must be sandbox, development, or production."
