@@ -9,7 +9,7 @@ import pytest
 from investos.schemas.lesson import LessonResponse
 from investos.schemas.shadow import ShadowExperimentCreate
 from investos.services.operating_loop import OperatingLoopService
-from investos.services.shadow import ShadowService
+from investos.services.shadow import SHADOW_DISCOVERY_SCHEMA, ShadowService
 
 
 def test_shadow_default_window_is_time_evolving():
@@ -258,6 +258,7 @@ async def test_operating_loop_wakes_active_subject_experiment(monkeypatch):
 
 
 def test_shadow_discovery_priority_and_labels_are_advisory_when_contract_is_complete():
+    assert "horizon_days" in SHADOW_DISCOVERY_SCHEMA["required"]
     profile = ShadowService._normalize_discovery_profile(
         {
             "should_launch": True,
@@ -270,6 +271,7 @@ def test_shadow_discovery_priority_and_labels_are_advisory_when_contract_is_comp
             "investable_thesis": "HBM/NAND evidence could justify testing a staged MEMB/MEMA spread without changing the real book.",
             "portfolio_transmission": "The portfolio has direct memory-cycle exposure through MEMB and MEMA.",
             "expected_edge": "The shadow can compare staged confirmation against static real-book concentration.",
+            "expected_relative_direction": "outperform",
             "leading_indicators": ["Official memory demand evidence improved."],
             "lagging_confirmations": [
                 "Reported margins have not yet confirmed the demand change."
@@ -284,6 +286,7 @@ def test_shadow_discovery_priority_and_labels_are_advisory_when_contract_is_comp
             "policy": "Paper-trade a custom memory spread only when official evidence confirms the setup.",
             "operator_prompt": "Review official guidance, price reaction, and estimate revisions at every checkpoint.",
             "horizon": "event_driven_until_next_memory_print",
+            "horizon_days": 45,
             "no_launch_reason": "",
         }
     )
@@ -294,6 +297,7 @@ def test_shadow_discovery_priority_and_labels_are_advisory_when_contract_is_comp
     assert reason is None
     assert profile["opportunity_type"] == "custom_memory_spread"
     assert profile["horizon"] == "event_driven_until_next_memory_print"
+    assert profile["horizon_days"] == 45
 
 
 def test_shadow_discovery_requires_falsifiable_investment_contract():
@@ -309,6 +313,7 @@ def test_shadow_discovery_requires_falsifiable_investment_contract():
             "investable_thesis": "HBM pricing strength may spill into memory-equipment and NAND sentiment.",
             "portfolio_transmission": "Portfolio has direct MEMB/MEMA memory exposure and adjacent AI infrastructure names.",
             "expected_edge": "The shadow can test earlier sizing changes before the accepted thesis reaches high confidence.",
+            "expected_relative_direction": "outperform",
             "leading_indicators": ["Demand signal improved."],
             "lagging_confirmations": ["Earnings and margins have not confirmed."],
             "evidence_refs": ["setup:memory-demand"],
@@ -321,6 +326,7 @@ def test_shadow_discovery_requires_falsifiable_investment_contract():
             "policy": "Paper-trade a staged memory-cycle confirmation policy.",
             "operator_prompt": "Increase only after official evidence; trim if guidance contradicts the setup.",
             "horizon": "medium_term",
+            "horizon_days": 30,
             "no_launch_reason": "",
         }
     )
@@ -344,6 +350,7 @@ def test_shadow_discovery_accepts_specific_paper_trade_opportunity():
             "investable_thesis": "Official HBM/NAND guidance could confirm whether memory-cycle strength is broad enough to justify more exposure.",
             "portfolio_transmission": "MEMB and MEMA carry direct memory-cycle exposure, while AI infrastructure holdings provide read-through.",
             "expected_edge": "A shadow can test adding only after confirmation versus holding the current concentrated real book unchanged.",
+            "expected_relative_direction": "outperform",
             "leading_indicators": [
                 "Official demand commentary improved before reported revenue and margins."
             ],
@@ -369,6 +376,7 @@ def test_shadow_discovery_accepts_specific_paper_trade_opportunity():
             "policy": "Paper-trade a confirmation-gated memory exposure policy against the real portfolio baseline.",
             "operator_prompt": "At each checkpoint, compare official guidance, price reaction, and estimate revisions before changing memory exposure.",
             "horizon": "medium_term",
+            "horizon_days": 30,
             "no_launch_reason": "",
         }
     )
@@ -395,6 +403,7 @@ def test_shadow_discovery_rejects_unknown_or_market_only_evidence_refs():
             "investable_thesis": "Test whether the leading change becomes a durable earnings revision.",
             "portfolio_transmission": "The tracked position is directly exposed.",
             "expected_edge": "Act only if the source-backed signal precedes consensus revisions.",
+            "expected_relative_direction": "outperform",
             "leading_indicators": ["A point-in-time signal changed."],
             "lagging_confirmations": ["Reported earnings have not confirmed."],
             "evidence_refs": ["market:XYZ:2026-07-10"],
@@ -405,6 +414,7 @@ def test_shadow_discovery_rejects_unknown_or_market_only_evidence_refs():
             "policy": "Paper-trade only while the point-in-time evidence remains valid.",
             "operator_prompt": "Recheck evidence, pricing, and invalidation at every checkpoint.",
             "horizon": "adaptive",
+            "horizon_days": 14,
             "no_launch_reason": "",
         }
     )
@@ -440,6 +450,7 @@ def test_shadow_discovery_rejects_invented_notional_above_snapshot():
             "investable_thesis": "Test a reduction without changing the real book.",
             "portfolio_transmission": "Convert $1.5M to cash.",
             "expected_edge": "Reduce drawdown.",
+            "expected_relative_direction": "underperform",
             "leading_indicators": ["Risk increased."],
             "lagging_confirmations": ["Reported results have not confirmed."],
             "evidence_refs": ["fundamental:risk"],
@@ -450,6 +461,7 @@ def test_shadow_discovery_rejects_invented_notional_above_snapshot():
             "policy": "Paper-trade a partial reduction.",
             "operator_prompt": "Review at the next checkpoint.",
             "horizon": "adaptive",
+            "horizon_days": 14,
             "no_launch_reason": "",
         }
     )
@@ -468,6 +480,7 @@ def test_shadow_report_preserves_discovery_profile_without_name_error():
     discovery_profile = {
         "investable_thesis": "Test whether concentration controls improve the real-book outcome.",
         "expected_edge": "Reduce avoidable drawdown without losing the core thesis.",
+        "expected_relative_direction": "underperform",
     }
     experiment = SimpleNamespace(
         policy_description="Cap concentrated positions when source-backed risk rises.",
@@ -844,10 +857,12 @@ async def test_manual_paper_account_is_created_without_autonomous_queue(monkeypa
             name="Manual account",
             policy_description="User-directed paper account.",
             auto_run=False,
+            discovery_profile={"horizon_days": 45},
         )
     )
 
     assert experiment.run_status == "manual"
+    assert experiment.end_point - experiment.start_point == timedelta(days=45)
     assert (
         experiment.initial_portfolio_state_json["experiment_context"]["execution_mode"]
         == "manual"

@@ -517,6 +517,8 @@ export default function OpportunitiesPage() {
                     <ListSection title="Uncertainties" items={selected.uncertainties} tone="warning" />
                   </div>
 
+                  <OutcomeSection observations={selected.observations} ticker={selected.ticker} />
+
                   <section>
                     <div className="flex items-center justify-between gap-3">
                       <h3 className="text-xs font-semibold uppercase text-gray-400">Evidence snapshot</h3>
@@ -695,4 +697,103 @@ function RunMetric({ label, value }: { label: string; value: string }) {
 
 function RunDetail({ title, items }: { title: string; items: Array<{ label: string; detail: string }> }) {
   return <section><h3 className="text-xs font-semibold uppercase text-gray-400">{title}</h3>{items.length ? <ul className="mt-2 space-y-2">{items.map((item, index) => <li key={`${item.label}-${index}`}><p className="text-xs font-medium">{item.label}</p><p className="mt-0.5 break-words text-xs leading-5 text-gray-500">{item.detail}</p></li>)}</ul> : <p className="mt-2 text-xs text-gray-400">None recorded.</p>}</section>;
+}
+
+function OutcomeSection({
+  observations,
+  ticker,
+}: {
+  observations: OpportunityCandidate["observations"];
+  ticker: string;
+}) {
+  const observation = observations[0] ?? null;
+  if (!observation) {
+    return (
+      <section className="border-b border-gray-200 pb-6 dark:border-gray-800">
+        <h3 className="text-xs font-semibold uppercase text-gray-400">Point-in-time outcome</h3>
+        <p className="mt-2 text-sm text-gray-500">
+          No immutable discovery observation exists for this legacy candidate. Prophet will not infer a historical direction after seeing the result.
+        </p>
+      </section>
+    );
+  }
+
+  const evaluated = observation.status === "evaluated";
+  const resultTone =
+    observation.result_label === "supported"
+      ? "text-emerald-700 dark:text-emerald-300"
+      : observation.result_label === "challenged"
+        ? "text-red-700 dark:text-red-300"
+        : "text-gray-600 dark:text-gray-300";
+
+  return (
+    <section className="border-b border-gray-200 pb-6 dark:border-gray-800">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-xs font-semibold uppercase text-gray-400">Point-in-time outcome</h3>
+          <p className="mt-2 text-sm font-medium">
+            Expected {ticker} to {displayValue(observation.expected_relative_direction)} {observation.benchmark_ticker}
+          </p>
+          <p className="mt-1 text-xs text-gray-500">
+            {observation.horizon_days}-day calibration window · due {formatDate(observation.due_at)}
+          </p>
+        </div>
+        <p className={`text-sm font-semibold ${resultTone}`}>
+          {evaluated ? displayValue(observation.result_label) : "Awaiting settled outcome"}
+        </p>
+      </div>
+
+      {evaluated ? (
+        <div className="mt-4 grid grid-cols-2 gap-px bg-gray-200 sm:grid-cols-4 dark:bg-gray-800">
+          <OutcomeMetric label={ticker} value={formatPct(observation.candidate_return_pct)} />
+          <OutcomeMetric label={`${observation.benchmark_ticker} control`} value={formatPct(observation.benchmark_return_pct)} />
+          <OutcomeMetric label="Excess return" value={formatPct(observation.excess_return_pct)} />
+          <OutcomeMetric label="Cash control" value={formatPct(observation.cash_return_pct)} />
+        </div>
+      ) : (
+        <p className="mt-4 text-sm text-gray-500">
+          {observation.candidate_start_time
+            ? `Baseline anchored after capture at ${formatDate(observation.candidate_start_time)}.`
+            : "The first eligible shared settled close has not been anchored yet."}
+        </p>
+      )}
+
+      <p className="mt-3 text-xs leading-5 text-gray-500">
+        Uses stored adjusted closes from {displayValue(observation.market_data_provider)}. The baseline is the first shared close after capture; the outcome is the first shared close on or after the fixed due date. Current-day and future-dated prices are ineligible.
+      </p>
+      {observation.last_error ? (
+        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+          Data status: {displayValue(observation.last_error)}
+        </p>
+      ) : null}
+      {observations.length > 1 ? (
+        <div className="mt-4 border-t border-gray-200 pt-3 dark:border-gray-800">
+          <p className="text-[10px] font-semibold uppercase text-gray-400">Prior frozen observations</p>
+          <div className="mt-2 divide-y divide-gray-200 dark:divide-gray-800">
+            {observations.slice(1).map((item) => (
+              <div key={item.id} className="grid gap-1 py-2 text-xs sm:grid-cols-[1fr_auto_auto] sm:items-center sm:gap-4">
+                <span className="text-gray-500">Captured {formatDate(item.captured_at)}</span>
+                <span>{displayValue(item.result_label ?? item.status)}</span>
+                <span className="tabular-nums text-gray-500">{formatPct(item.excess_return_pct)} excess</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function OutcomeMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-gray-50 px-3 py-3 dark:bg-[#0a0a0a]">
+      <p className="text-[10px] font-semibold uppercase text-gray-400">{label}</p>
+      <p className="mt-1 text-sm font-semibold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function formatPct(value?: number | null): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "Not available";
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 }

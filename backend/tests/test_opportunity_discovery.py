@@ -14,6 +14,7 @@ from investos.db import async_session_maker, engine
 from investos.models.entity import Entity, Security
 from investos.models.opportunity import (
     OpportunityCandidate,
+    OpportunityCandidateObservation,
     OpportunityDiscoveryRun,
     OpportunityUniverseMember,
 )
@@ -91,6 +92,12 @@ async def test_migrated_schema_owns_opportunity_uniqueness() -> None:
         },
         "opportunity_candidates": {
             "uq_opportunity_candidates_fingerprint": ("fingerprint",)
+        },
+        "opportunity_candidate_observations": {
+            "uq_opportunity_candidate_observations_candidate_run": (
+                "candidate_id",
+                "run_id",
+            )
         },
     }
 
@@ -308,6 +315,7 @@ async def test_candidate_assumptions_are_separate_and_candidate_is_deduplicated(
         "investable_thesis": "The change may alter normalized earnings.",
         "portfolio_transmission": "Cash could be tested without changing a real holding.",
         "expected_edge": "The leading indicator may precede consensus revisions.",
+        "expected_relative_direction": "outperform",
         "falsification_tests": ["The indicator reverses."],
         "assumptions": ["The source measurement is comparable over time."],
         "uncertainties": ["Consensus may already reflect the change."],
@@ -317,6 +325,7 @@ async def test_candidate_assumptions_are_separate_and_candidate_is_deduplicated(
         "policy": "Observe in a paper account only.",
         "operator_prompt": "Re-check the indicator before any paper action.",
         "horizon": "adaptive",
+        "horizon_days": 14,
     }
     try:
         async with async_session_maker() as session:
@@ -371,6 +380,25 @@ async def test_candidate_assumptions_are_separate_and_candidate_is_deduplicated(
             assert second.assumptions_json == profile["assumptions"]
             assert second.uncertainties_json == profile["uncertainties"]
             assert second.evidence_snapshot_json == profile["evidence_snapshot"]
+            observations = list(
+                (
+                    await session.execute(
+                        select(OpportunityCandidateObservation)
+                        .where(
+                            OpportunityCandidateObservation.candidate_id == second.id
+                        )
+                        .order_by(OpportunityCandidateObservation.captured_at)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert [observation.run_id for observation in observations] == run_ids
+            assert all(
+                observation.profile_snapshot_json["investable_thesis"]
+                == profile["investable_thesis"]
+                for observation in observations
+            )
     finally:
         await _cleanup_catalog(
             entity_id=entity.id,
@@ -378,6 +406,145 @@ async def test_candidate_assumptions_are_separate_and_candidate_is_deduplicated(
             member_id=member.id,
             run_ids=run_ids,
         )
+
+
+async def test_point_in_time_outcome_uses_fixed_shared_closes_and_controls(
+    monkeypatch,
+) -> None:
+    entity, security, member = await _seed_universe_member()
+    run_id = None
+    captured_at = datetime(2026, 1, 5, 16, tzinfo=UTC)
+    profile = {
+        "name": "Point-in-time outcome",
+        "family_key": f"outcome-{uuid4()}",
+        "priority_score": 0.8,
+        "signal_stage": "early",
+        "why_now": "A dated source changed.",
+        "investable_thesis": "The security should outperform the benchmark.",
+        "portfolio_transmission": "Observe relative return without a real trade.",
+        "expected_edge": "The source change may precede market expectations.",
+        "expected_relative_direction": "outperform",
+        "falsification_tests": ["Relative return remains negative."],
+        "assumptions": ["Adjusted daily closes are comparable."],
+        "uncertainties": ["Provider history can be revised."],
+        "evidence_refs": ["evidence:dated"],
+        "evidence_snapshot": [{"ref": "evidence:dated", "public_time": "2026-01-05"}],
+        "policy": "Observe only.",
+        "operator_prompt": "Keep the point-in-time boundary fixed.",
+        "horizon": "short_term",
+        "horizon_days": 7,
+    }
+
+    try:
+        async with async_session_maker() as session:
+            run = OpportunityDiscoveryRun(
+                status="completed",
+                captured_at=captured_at,
+                started_at=captured_at,
+                completed_at=captured_at,
+                heartbeat_at=captured_at,
+            )
+            session.add(run)
+            await session.flush()
+            run_id = run.id
+            service = OpportunityDiscoveryService(session)
+            candidate = await service._upsert_candidate(
+                run=run,
+                security=await session.get(Security, security.id),
+                entity=await session.get(Entity, entity.id),
+                profile=profile,
+            )
+            await session.flush()
+            observation = (
+                await session.execute(
+                    select(OpportunityCandidateObservation).where(
+                        OpportunityCandidateObservation.candidate_id == candidate.id
+                    )
+                )
+            ).scalar_one()
+
+            async def chart(ticker, **_kwargs):
+                prices = (
+                    [100.0, 100.0, 120.0, 30.0, 999.0]
+                    if ticker == security.ticker
+                    else [100.0, 100.0, 105.0, 106.0, 107.0]
+                )
+                dates = [5, 6, 12, 13, 14]
+                return {
+                    "series": [],
+                    "adjusted_series": [
+                        (datetime(2026, 1, day, 21, tzinfo=UTC), price)
+                        for day, price in zip(dates, prices)
+                    ],
+                }
+
+            monkeypatch.setattr(service.market_data, "fetch_chart_series", chart)
+
+            pending = await service._evaluate_observation(
+                observation,
+                as_of=datetime(2026, 1, 10, 12, tzinfo=UTC),
+            )
+            assert pending == "pending"
+            assert observation.candidate_start_time.date().isoformat() == "2026-01-06"
+            assert observation.candidate_start_price == pytest.approx(100.0)
+            assert observation.candidate_end_price is None
+
+            evaluated = await service._evaluate_observation(
+                observation,
+                as_of=datetime(2026, 1, 14, 12, tzinfo=UTC),
+            )
+            assert evaluated == "evaluated"
+            assert observation.candidate_end_time.date().isoformat() == "2026-01-12"
+            assert observation.candidate_end_price == pytest.approx(120.0)
+            assert observation.candidate_return_pct == pytest.approx(20.0)
+            assert observation.benchmark_return_pct == pytest.approx(5.0)
+            assert observation.excess_return_pct == pytest.approx(15.0)
+            assert observation.cash_return_pct == 0.0
+            assert observation.result_label == "supported"
+            assert observation.evaluation_policy_json["market_control"]
+            assert observation.evaluation_policy_json["cash_control_return_pct"] == 0.0
+    finally:
+        await _cleanup_catalog(
+            entity_id=entity.id,
+            security_id=security.id,
+            member_id=member.id,
+            run_ids=[run_id] if run_id else None,
+        )
+
+
+async def test_outcome_direction_control_can_support_or_challenge_either_side() -> None:
+    label = OpportunityDiscoveryService._outcome_label
+
+    assert label(expected_direction="outperform", excess_return_pct=1.0) == "supported"
+    assert (
+        label(expected_direction="outperform", excess_return_pct=-1.0) == "challenged"
+    )
+    assert (
+        label(expected_direction="underperform", excess_return_pct=-1.0) == "supported"
+    )
+    assert (
+        label(expected_direction="underperform", excess_return_pct=1.0) == "challenged"
+    )
+    assert (
+        label(expected_direction="unscored", excess_return_pct=1.0)
+        == "direction_unrecorded"
+    )
+
+
+async def test_settled_price_filter_rejects_current_and_future_dates() -> None:
+    as_of = datetime(2026, 1, 14, 12, tzinfo=UTC)
+    prices = OpportunityDiscoveryService._settled_prices(
+        {
+            "adjusted_series": [
+                (datetime(2026, 1, 13, 21, tzinfo=UTC), 100.0),
+                (datetime(2026, 1, 14, 21, tzinfo=UTC), 200.0),
+                (datetime(2026, 1, 15, 21, tzinfo=UTC), 300.0),
+            ]
+        },
+        as_of=as_of,
+    )
+
+    assert [value.isoformat() for value in prices] == ["2026-01-13"]
 
 
 async def test_shadow_discovery_requires_known_non_market_evidence() -> None:
@@ -391,6 +558,7 @@ async def test_shadow_discovery_requires_known_non_market_evidence() -> None:
         "investable_thesis": "Test thesis",
         "portfolio_transmission": "Paper-only route",
         "expected_edge": "Potential expectation lag",
+        "expected_relative_direction": "outperform",
         "policy": "Paper only",
         "operator_prompt": "Re-check evidence",
         "leading_indicators": ["Indicator"],
@@ -438,6 +606,7 @@ async def test_shadow_handoff_does_not_create_a_real_position() -> None:
                 "investable_thesis": "A falsifiable paper hypothesis.",
                 "portfolio_transmission": "Use only the simulated account.",
                 "expected_edge": "Potential delayed expectation response.",
+                "expected_relative_direction": "outperform",
                 "falsification_tests": ["Source signal reverses."],
                 "assumptions": [],
                 "uncertainties": ["Price may already reflect it."],
@@ -448,6 +617,7 @@ async def test_shadow_handoff_does_not_create_a_real_position() -> None:
                 "policy": "Paper account only.",
                 "operator_prompt": "Do not affect the real portfolio.",
                 "horizon": "adaptive",
+                "horizon_days": 14,
                 "trigger_reason": "Test handoff",
             }
             candidate = await OpportunityDiscoveryService(session)._upsert_candidate(

@@ -190,7 +190,7 @@ class MarketDataService:
 
         result = (payload.get("chart") or {}).get("result") or []
         if not result:
-            return {"current_price": None, "series": []}
+            return {"current_price": None, "series": [], "adjusted_series": []}
 
         chart = result[0]
         meta = chart.get("meta") or {}
@@ -198,9 +198,17 @@ class MarketDataService:
         closes = (((chart.get("indicators") or {}).get("quote") or [{}])[0]).get(
             "close"
         ) or []
+        adjusted_closes = (
+            ((chart.get("indicators") or {}).get("adjclose") or [{}])[0]
+        ).get("adjclose") or []
         series = [
             (datetime.fromtimestamp(timestamp, tz=UTC), float(close))
             for timestamp, close in zip(timestamps, closes)
+            if close is not None
+        ]
+        adjusted_series = [
+            (datetime.fromtimestamp(timestamp, tz=UTC), float(close))
+            for timestamp, close in zip(timestamps, adjusted_closes)
             if close is not None
         ]
         current_price = meta.get("regularMarketPrice")
@@ -209,6 +217,7 @@ class MarketDataService:
         return {
             "current_price": None if current_price is None else float(current_price),
             "series": series,
+            "adjusted_series": adjusted_series,
         }
 
     async def fetch_signal_snapshot(

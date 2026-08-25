@@ -146,3 +146,74 @@ class OpportunityCandidate(Base):
         DateTime(timezone=True), default=utcnow, index=True
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class OpportunityCandidateObservation(Base):
+    """Immutable discovery-time hypothesis with a later point-in-time outcome."""
+
+    __tablename__ = "opportunity_candidate_observations"
+    __table_args__ = (
+        UniqueConstraint(
+            "candidate_id",
+            "run_id",
+            name="uq_opportunity_candidate_observations_candidate_run",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    candidate_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("opportunity_candidates.id", ondelete="CASCADE"), index=True
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("opportunity_discovery_runs.id"), index=True
+    )
+    security_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("securities.id"), index=True
+    )
+    ticker: Mapped[str] = mapped_column(String, index=True)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    horizon_label: Mapped[str] = mapped_column(String)
+    horizon_days: Mapped[int] = mapped_column(Integer)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    expected_relative_direction: Mapped[str] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, default="pending", index=True)
+    profile_snapshot_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    evidence_refs_json: Mapped[list] = mapped_column(JSONB, default=list)
+    evidence_snapshot_json: Mapped[list] = mapped_column(JSONB, default=list)
+    benchmark_ticker: Mapped[str] = mapped_column(String)
+    market_data_provider: Mapped[str] = mapped_column(String)
+    candidate_start_time: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    candidate_start_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    benchmark_start_time: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    benchmark_start_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    evaluated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    candidate_end_time: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    candidate_end_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    benchmark_end_time: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    benchmark_end_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    candidate_return_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    benchmark_return_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    excess_return_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    cash_return_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    result_label: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_attempt_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_error: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    evaluation_policy_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )

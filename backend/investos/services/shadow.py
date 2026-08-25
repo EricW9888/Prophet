@@ -174,6 +174,10 @@ SHADOW_DISCOVERY_SCHEMA = {
         "investable_thesis": {"type": "string"},
         "portfolio_transmission": {"type": "string"},
         "expected_edge": {"type": "string"},
+        "expected_relative_direction": {
+            "type": "string",
+            "enum": ["outperform", "underperform"],
+        },
         "leading_indicators": {"type": "array", "items": {"type": "string"}},
         "lagging_confirmations": {"type": "array", "items": {"type": "string"}},
         "evidence_refs": {"type": "array", "items": {"type": "string"}},
@@ -185,6 +189,7 @@ SHADOW_DISCOVERY_SCHEMA = {
         "policy": {"type": "string"},
         "operator_prompt": {"type": "string"},
         "horizon": {"type": "string"},
+        "horizon_days": {"type": "integer", "minimum": 1, "maximum": 1825},
         "no_launch_reason": {"type": "string"},
     },
     "required": [
@@ -200,6 +205,7 @@ SHADOW_DISCOVERY_SCHEMA = {
         "investable_thesis",
         "portfolio_transmission",
         "expected_edge",
+        "expected_relative_direction",
         "leading_indicators",
         "lagging_confirmations",
         "evidence_refs",
@@ -211,6 +217,7 @@ SHADOW_DISCOVERY_SCHEMA = {
         "policy",
         "operator_prompt",
         "horizon",
+        "horizon_days",
         "no_launch_reason",
     ],
 }
@@ -263,9 +270,14 @@ class ShadowService:
             )
         now = datetime.now(UTC)
         start_point = payload.start_point or now
-        end_point = payload.end_point or self._default_end_point(
-            start_point=start_point,
-            horizon_label=payload.horizon_label,
+        profile_horizon_days = self._profile_horizon_days(payload.discovery_profile)
+        end_point = payload.end_point or (
+            start_point + timedelta(days=profile_horizon_days)
+            if profile_horizon_days is not None
+            else self._default_end_point(
+                start_point=start_point,
+                horizon_label=payload.horizon_label,
+            )
         )
         if payload.auto_run and end_point <= start_point:
             raise ValueError(
@@ -714,7 +726,8 @@ class ShadowService:
             "Use priority_score for supervision and sorting, not as a substitute for the explicit evidence/falsifier/risk-control contract. "
             "family_key must be a concise, stable, open-ended label for the underlying hypothesis family rather than a one-off headline; family_description should state the reusable mechanism. "
             "Prior shadow learning is hypothesis context, not fresh evidence. Use provisional or mixed lessons to design checks, never to justify a launch by themselves. "
-            "opportunity_type, signal_stage, priced_in_assessment, and horizon are open labels; choose natural descriptions for the actual setup instead of forcing preset buckets. "
+            "State whether the named security is expected to outperform or underperform the configured benchmark, and provide an exact horizon_days before outcomes are known. "
+            "opportunity_type, signal_stage, priced_in_assessment, and horizon remain open labels; choose natural descriptions for the actual setup instead of forcing preset buckets. "
             "The policy should define the paper-trading behavior; operator_prompt should define checkpoint behavior, sizing discipline, monitoring, and exit/adjustment triggers."
         )
 
@@ -1172,6 +1185,11 @@ class ShadowService:
             "investable_thesis": thesis,
             "portfolio_transmission": transmission,
             "expected_edge": expected_edge,
+            "expected_relative_direction": str(
+                result.get("expected_relative_direction") or "unscored"
+            )
+            .strip()
+            .lower(),
             "leading_indicators": ShadowService._clean_string_list(
                 result.get("leading_indicators")
             ),
@@ -1197,6 +1215,17 @@ class ShadowService:
             "policy": policy,
             "operator_prompt": operator_prompt,
             "horizon": str(result.get("horizon") or "adaptive"),
+            "horizon_days": int(
+                ShadowService._bounded_float(
+                    (
+                        result.get("horizon_days")
+                        if result.get("horizon_days") is not None
+                        else ShadowService._horizon_days(result.get("horizon"))
+                    ),
+                    1.0,
+                    1825.0,
+                )
+            ),
             "no_launch_reason": no_launch_reason,
         }
         profile["trigger_reason"] = ShadowService._discovery_trigger_reason(profile)
@@ -1219,6 +1248,7 @@ class ShadowService:
             "investable_thesis",
             "portfolio_transmission",
             "expected_edge",
+            "expected_relative_direction",
             "policy",
             "operator_prompt",
         ]
@@ -1230,6 +1260,11 @@ class ShadowService:
                 False,
                 f"missing_required_shadow_discovery_fields:{','.join(missing_text)}",
             )
+        if profile.get("expected_relative_direction") not in {
+            "outperform",
+            "underperform",
+        }:
+            return False, "invalid_expected_relative_direction"
         required_lists = [
             "leading_indicators",
             "lagging_confirmations",
@@ -2083,6 +2118,16 @@ class ShadowService:
             "long_term": settings.SHADOW_HORIZON_LONG_DAYS,
         }
         return max(1, int(configured.get(normalized, configured["adaptive"])))
+
+    @staticmethod
+    def _profile_horizon_days(profile: dict[str, Any] | None) -> int | None:
+        if not profile or profile.get("horizon_days") is None:
+            return None
+        try:
+            value = int(profile["horizon_days"])
+        except (TypeError, ValueError):
+            return None
+        return max(1, min(value, 1825))
 
     @classmethod
     def _default_end_point(

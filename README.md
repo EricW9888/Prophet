@@ -30,6 +30,7 @@ exposed.
 - Runs bounded research, verification, monitoring, reminders, integrity review,
   and source-learning workflows in the background.
 - Surveys an operator-defined investable universe for provisional opportunities,
+  then evaluates immutable discovery-time hypotheses against dated market and cash controls,
   exposing coverage, assumptions, evidence, skips, failures, and provider cost.
 - Tests ideas through shadow experiments and paper accounts, then records
   outcomes and lessons without sending real orders.

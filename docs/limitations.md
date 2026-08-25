@@ -39,6 +39,12 @@ in bounded batches. Its run history records inspected subjects, skips, failures,
 provider attempts, and estimated metered credits; it does not establish that the
 whole investable market was searched. Candidates remain provisional until a
 person reviews them or explicitly starts a paper-only shadow experiment.
+Each new discovery observation fixes its expected relative direction, horizon,
+evidence packet, and evaluation policy before the outcome is known. Later
+evaluation uses stored adjusted daily closes, the configured broad-market
+benchmark, and cash as controls. This measures one return outcome; it does not
+prove that the causal thesis was correct, that the trade was executable, or that
+the historical price provider will never revise its data.
 
 YouTube ingestion uses available captions or an explicitly supplied transcript.
 Prophet does not currently transcribe arbitrary no-caption audio or interpret a

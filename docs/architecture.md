@@ -107,8 +107,9 @@ The main state groups are:
 - **Monitoring and learning:** `ActiveWatcher`, decisions, verification runs,
   lessons, historical episodes, and source outcomes.
 - **Opportunity discovery:** operator-selected universe members, resumable
-  coverage/cost runs, and reviewable source-linked candidates whose assumptions
-  remain separate from evidence.
+  coverage/cost runs, reviewable source-linked candidates whose assumptions
+  remain separate from evidence, and immutable discovery observations evaluated
+  later against dated benchmark and cash controls.
 - **Simulation:** shadow experiments, account events, orders, fills, evidence
   wake-ups, results, and experiment-family learning state.
 

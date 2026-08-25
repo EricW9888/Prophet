@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import UTC, datetime, timedelta
+from collections import defaultdict
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -15,6 +16,7 @@ from investos.core.llm import call_llm_json
 from investos.models.entity import Entity, Security
 from investos.models.opportunity import (
     OpportunityCandidate,
+    OpportunityCandidateObservation,
     OpportunityDiscoveryRun,
     OpportunityUniverseMember,
 )
@@ -25,6 +27,7 @@ from investos.schemas.opportunity import (
     OpportunityUniverseMemberUpdate,
 )
 from investos.schemas.shadow import ShadowExperimentCreate
+from investos.services.market_data import MarketDataService
 from investos.services.research import ResearchService
 from investos.services.runtime_settings import RuntimeSettingsStore
 from investos.services.security_catalog import SecurityCatalogService
@@ -56,7 +59,9 @@ class OpportunityDiscoveryService:
 
     def __init__(self, session: AsyncSession):
         self.session = session
-        self.runtime = RuntimeSettingsStore.load().opportunity_discovery
+        self.runtime_settings = RuntimeSettingsStore.load()
+        self.runtime = self.runtime_settings.opportunity_discovery
+        self.market_data = MarketDataService(session)
 
     async def list_universe(self) -> list[dict[str, Any]]:
         rows = (
@@ -148,6 +153,14 @@ class OpportunityDiscoveryService:
             }
 
         try:
+            outcome_summary = await self.evaluate_due_outcomes(
+                now=run.captured_at,
+                limit=self.runtime.max_subjects_per_run,
+            )
+            run.limits_json = {
+                **(run.limits_json or {}),
+                "outcome_evaluation": outcome_summary,
+            }
             members = await self._run_members(run)
             for member, security, entity in members:
                 await self._inspect_member(
@@ -210,7 +223,16 @@ class OpportunityDiscoveryService:
             .scalars()
             .all()
         )
-        return [self._serialize_candidate(row) for row in rows]
+        observations = await self._observations_by_candidate(
+            [candidate.id for candidate in rows]
+        )
+        return [
+            self._serialize_candidate(
+                candidate,
+                observations=observations.get(candidate.id, []),
+            )
+            for candidate in rows
+        ]
 
     async def review_candidate(
         self,
@@ -228,7 +250,8 @@ class OpportunityDiscoveryService:
         candidate.review_reason = self._clean_text(payload.reason, limit=1200) or None
         await self.session.commit()
         await self.session.refresh(candidate)
-        return self._serialize_candidate(candidate)
+        observations = await self._candidate_observations(candidate.id)
+        return self._serialize_candidate(candidate, observations=observations)
 
     async def shadow_test_candidate(
         self,
@@ -243,7 +266,11 @@ class OpportunityDiscoveryService:
                 "Rejected or expired candidates cannot start a shadow test."
             )
         if candidate.shadow_experiment_id is not None:
-            return self._serialize_candidate(candidate), candidate.shadow_experiment_id
+            observations = await self._candidate_observations(candidate.id)
+            return (
+                self._serialize_candidate(candidate, observations=observations),
+                candidate.shadow_experiment_id,
+            )
 
         profile = dict(candidate.discovery_profile_json or {})
         experiment = await ShadowService(self.session).create_experiment(
@@ -274,7 +301,242 @@ class OpportunityDiscoveryService:
         candidate.status = "shadow_tested"
         await self.session.commit()
         await self.session.refresh(candidate)
-        return self._serialize_candidate(candidate), experiment.id
+        observations = await self._candidate_observations(candidate.id)
+        return (
+            self._serialize_candidate(candidate, observations=observations),
+            experiment.id,
+        )
+
+    async def evaluate_due_outcomes(
+        self,
+        *,
+        now: datetime | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Anchor and evaluate immutable candidate observations without look-ahead."""
+
+        as_of = now or datetime.now(UTC)
+        if as_of.tzinfo is None:
+            as_of = as_of.replace(tzinfo=UTC)
+        batch_limit = max(
+            1,
+            min(int(limit or self.runtime.max_subjects_per_run), 100),
+        )
+        if not self.runtime_settings.market_data.enabled:
+            return {
+                "attempted": 0,
+                "baselined": 0,
+                "evaluated": 0,
+                "pending": 0,
+                "unavailable": 0,
+                "failed": 0,
+                "detail": "market_data_disabled",
+            }
+        if self.runtime_settings.market_data.provider != "yahoo_finance":
+            return {
+                "attempted": 0,
+                "baselined": 0,
+                "evaluated": 0,
+                "pending": 0,
+                "unavailable": 0,
+                "failed": 0,
+                "detail": "unsupported_market_data_provider",
+            }
+
+        observations = list(
+            (
+                await self.session.execute(
+                    select(OpportunityCandidateObservation)
+                    .where(OpportunityCandidateObservation.status == "pending")
+                    .order_by(
+                        OpportunityCandidateObservation.last_attempt_at.asc().nullsfirst(),
+                        OpportunityCandidateObservation.due_at.asc(),
+                        OpportunityCandidateObservation.captured_at.asc(),
+                    )
+                    .limit(batch_limit)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        summary: dict[str, Any] = {
+            "attempted": len(observations),
+            "baselined": 0,
+            "evaluated": 0,
+            "pending": 0,
+            "unavailable": 0,
+            "failed": 0,
+            "as_of": as_of.isoformat(),
+            "settled_price_cutoff": as_of.date().isoformat(),
+        }
+        for observation in observations:
+            had_baseline = observation.candidate_start_price is not None
+            try:
+                state = await self._evaluate_observation(
+                    observation,
+                    as_of=as_of,
+                )
+                if not had_baseline and observation.candidate_start_price is not None:
+                    summary["baselined"] += 1
+                if state == "evaluated":
+                    summary["evaluated"] += 1
+                elif state == "pending":
+                    summary["pending"] += 1
+                elif state == "unavailable":
+                    summary["unavailable"] += 1
+                else:
+                    summary["failed"] += 1
+            except Exception as exc:
+                observation.attempt_count = int(observation.attempt_count or 0) + 1
+                observation.last_attempt_at = as_of
+                observation.last_error = f"{type(exc).__name__}: {str(exc)[:700]}"
+                summary["failed"] += 1
+        await self.session.commit()
+        return summary
+
+    async def _evaluate_observation(
+        self,
+        observation: OpportunityCandidateObservation,
+        *,
+        as_of: datetime,
+    ) -> str:
+        observation.attempt_count = int(observation.attempt_count or 0) + 1
+        observation.last_attempt_at = as_of
+        settled_cutoff = datetime(as_of.year, as_of.month, as_of.day, tzinfo=UTC)
+        if settled_cutoff <= observation.captured_at:
+            observation.last_error = None
+            return "pending"
+
+        period_start = observation.captured_at - timedelta(days=7)
+        tickers = {observation.ticker, observation.benchmark_ticker}
+        charts: dict[str, dict[str, object]] = {}
+        for ticker in sorted(tickers):
+            charts[ticker] = await self.market_data.fetch_chart_series(
+                ticker,
+                period_start=period_start,
+                period_end=settled_cutoff,
+            )
+        candidate_prices = self._settled_prices(
+            charts.get(observation.ticker) or {},
+            as_of=as_of,
+        )
+        benchmark_prices = self._settled_prices(
+            charts.get(observation.benchmark_ticker) or {},
+            as_of=as_of,
+        )
+        shared_dates = sorted(set(candidate_prices) & set(benchmark_prices))
+        baseline_date = next(
+            (
+                price_date
+                for price_date in shared_dates
+                if price_date > observation.captured_at.date()
+            ),
+            None,
+        )
+        if observation.candidate_start_price is None:
+            if baseline_date is None:
+                observation.last_error = "no_shared_settled_baseline_close"
+                return "unavailable"
+            candidate_time, candidate_price = candidate_prices[baseline_date]
+            benchmark_time, benchmark_price = benchmark_prices[baseline_date]
+            observation.candidate_start_time = candidate_time
+            observation.candidate_start_price = candidate_price
+            observation.benchmark_start_time = benchmark_time
+            observation.benchmark_start_price = benchmark_price
+
+        observation.evaluation_policy_json = {
+            **(observation.evaluation_policy_json or {}),
+            "data_fetched_at": as_of.isoformat(),
+            "settled_price_cutoff": as_of.date().isoformat(),
+            "market_control": observation.benchmark_ticker,
+            "cash_control_return_pct": 0.0,
+            "provider_revision_risk": (
+                "Historical provider data can be corrected after this snapshot; "
+                "stored prices are not rewritten automatically."
+            ),
+        }
+        if as_of < observation.due_at:
+            observation.last_error = None
+            return "pending"
+
+        end_date = next(
+            (
+                price_date
+                for price_date in shared_dates
+                if price_date >= observation.due_at.date()
+                and observation.candidate_start_time is not None
+                and price_date > observation.candidate_start_time.date()
+            ),
+            None,
+        )
+        if end_date is None:
+            observation.last_error = "no_shared_settled_outcome_close_yet"
+            return "unavailable"
+
+        candidate_end_time, candidate_end_price = candidate_prices[end_date]
+        benchmark_end_time, benchmark_end_price = benchmark_prices[end_date]
+        candidate_start_price = float(observation.candidate_start_price or 0.0)
+        benchmark_start_price = float(observation.benchmark_start_price or 0.0)
+        if candidate_start_price <= 0 or benchmark_start_price <= 0:
+            observation.last_error = "non_positive_baseline_price"
+            return "unavailable"
+
+        candidate_return = ((candidate_end_price / candidate_start_price) - 1.0) * 100
+        benchmark_return = ((benchmark_end_price / benchmark_start_price) - 1.0) * 100
+        excess_return = candidate_return - benchmark_return
+        observation.candidate_end_time = candidate_end_time
+        observation.candidate_end_price = candidate_end_price
+        observation.benchmark_end_time = benchmark_end_time
+        observation.benchmark_end_price = benchmark_end_price
+        observation.candidate_return_pct = candidate_return
+        observation.benchmark_return_pct = benchmark_return
+        observation.excess_return_pct = excess_return
+        observation.cash_return_pct = 0.0
+        observation.result_label = self._outcome_label(
+            expected_direction=observation.expected_relative_direction,
+            excess_return_pct=excess_return,
+        )
+        observation.evaluated_at = as_of
+        observation.status = "evaluated"
+        observation.last_error = None
+        return "evaluated"
+
+    @staticmethod
+    def _settled_prices(
+        chart: dict[str, object],
+        *,
+        as_of: datetime,
+    ) -> dict[date, tuple[datetime, float]]:
+        source = list(chart.get("adjusted_series") or [])
+        prices: dict[date, tuple[datetime, float]] = {}
+        for timestamp, raw_price in source:
+            if not isinstance(timestamp, datetime) or timestamp.date() >= as_of.date():
+                continue
+            try:
+                price = float(raw_price)
+            except (TypeError, ValueError):
+                continue
+            if price <= 0:
+                continue
+            prices[timestamp.date()] = (timestamp, price)
+        return prices
+
+    @staticmethod
+    def _outcome_label(
+        *,
+        expected_direction: str,
+        excess_return_pct: float,
+    ) -> str:
+        if expected_direction not in {"outperform", "underperform"}:
+            return "direction_unrecorded"
+        if excess_return_pct == 0:
+            return "inconclusive"
+        supported = (
+            excess_return_pct > 0
+            if expected_direction == "outperform"
+            else excess_return_pct < 0
+        )
+        return "supported" if supported else "challenged"
 
     async def expire_candidates(self) -> int:
         result = await self.session.execute(
@@ -646,7 +908,116 @@ class OpportunityDiscoveryService:
             if candidate.status == "expired":
                 candidate.status = "new"
         await self.session.flush()
+        await self._record_candidate_observation(
+            candidate=candidate,
+            run=run,
+            profile=profile,
+        )
         return candidate
+
+    async def _record_candidate_observation(
+        self,
+        *,
+        candidate: OpportunityCandidate,
+        run: OpportunityDiscoveryRun,
+        profile: dict[str, Any],
+    ) -> None:
+        horizon_label = (
+            self._clean_text(profile.get("horizon"), limit=120) or "adaptive"
+        )
+        horizon_days = ShadowService._profile_horizon_days(profile)
+        if horizon_days is None:
+            horizon_days = ShadowService._horizon_days(horizon_label)
+        benchmark_ticker = (
+            self.runtime_settings.portfolio.default_benchmark_ticker.strip().upper()
+        )
+        await self.session.execute(
+            pg_insert(OpportunityCandidateObservation)
+            .values(
+                candidate_id=candidate.id,
+                run_id=run.id,
+                security_id=candidate.security_id,
+                ticker=candidate.ticker,
+                captured_at=run.captured_at,
+                horizon_label=horizon_label,
+                horizon_days=horizon_days,
+                due_at=run.captured_at + timedelta(days=horizon_days),
+                expected_relative_direction=self._clean_text(
+                    profile.get("expected_relative_direction"),
+                    limit=40,
+                ).lower()
+                or "unscored",
+                status="pending",
+                profile_snapshot_json=dict(profile),
+                evidence_refs_json=list(profile.get("evidence_refs") or []),
+                evidence_snapshot_json=list(profile.get("evidence_snapshot") or []),
+                benchmark_ticker=benchmark_ticker,
+                market_data_provider=self.runtime_settings.market_data.provider,
+                evaluation_policy_json={
+                    "baseline": (
+                        "first shared adjusted daily close strictly after the "
+                        "candidate capture date"
+                    ),
+                    "outcome": (
+                        "first shared adjusted daily close on or after the fixed "
+                        "due date"
+                    ),
+                    "look_ahead_guard": (
+                        "only price dates strictly before the evaluator UTC date "
+                        "are eligible"
+                    ),
+                    "market_control": benchmark_ticker,
+                    "cash_control_return_pct": 0.0,
+                },
+            )
+            .on_conflict_do_nothing(
+                constraint="uq_opportunity_candidate_observations_candidate_run"
+            )
+        )
+
+    async def _candidate_observations(
+        self,
+        candidate_id: UUID,
+        *,
+        limit: int = 12,
+    ) -> list[OpportunityCandidateObservation]:
+        return list(
+            (
+                await self.session.execute(
+                    select(OpportunityCandidateObservation)
+                    .where(OpportunityCandidateObservation.candidate_id == candidate_id)
+                    .order_by(OpportunityCandidateObservation.captured_at.desc())
+                    .limit(max(1, min(limit, 50)))
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    async def _observations_by_candidate(
+        self,
+        candidate_ids: list[UUID],
+    ) -> dict[UUID, list[OpportunityCandidateObservation]]:
+        if not candidate_ids:
+            return {}
+        rows = list(
+            (
+                await self.session.execute(
+                    select(OpportunityCandidateObservation)
+                    .where(
+                        OpportunityCandidateObservation.candidate_id.in_(candidate_ids)
+                    )
+                    .order_by(OpportunityCandidateObservation.captured_at.desc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+        grouped: dict[UUID, list[OpportunityCandidateObservation]] = defaultdict(list)
+        for observation in rows:
+            if len(grouped[observation.candidate_id]) < 12:
+                grouped[observation.candidate_id].append(observation)
+        return dict(grouped)
 
     async def _refresh_provider_telemetry(
         self,
@@ -731,7 +1102,11 @@ class OpportunityDiscoveryService:
         }
 
     @staticmethod
-    def _serialize_candidate(candidate: OpportunityCandidate) -> dict[str, Any]:
+    def _serialize_candidate(
+        candidate: OpportunityCandidate,
+        *,
+        observations: list[OpportunityCandidateObservation] | None = None,
+    ) -> dict[str, Any]:
         return {
             "id": candidate.id,
             "run_id": candidate.run_id,
@@ -759,6 +1134,48 @@ class OpportunityDiscoveryService:
             "first_seen_at": candidate.first_seen_at,
             "last_seen_at": candidate.last_seen_at,
             "expires_at": candidate.expires_at,
+            "observations": [
+                OpportunityDiscoveryService._serialize_observation(observation)
+                for observation in observations or []
+            ],
+        }
+
+    @staticmethod
+    def _serialize_observation(
+        observation: OpportunityCandidateObservation,
+    ) -> dict[str, Any]:
+        return {
+            "id": observation.id,
+            "run_id": observation.run_id,
+            "captured_at": observation.captured_at,
+            "horizon_label": observation.horizon_label,
+            "horizon_days": observation.horizon_days,
+            "due_at": observation.due_at,
+            "expected_relative_direction": observation.expected_relative_direction,
+            "status": observation.status,
+            "profile_snapshot": dict(observation.profile_snapshot_json or {}),
+            "evidence_refs": list(observation.evidence_refs_json or []),
+            "evidence_snapshot": list(observation.evidence_snapshot_json or []),
+            "benchmark_ticker": observation.benchmark_ticker,
+            "market_data_provider": observation.market_data_provider,
+            "candidate_start_time": observation.candidate_start_time,
+            "candidate_start_price": observation.candidate_start_price,
+            "benchmark_start_time": observation.benchmark_start_time,
+            "benchmark_start_price": observation.benchmark_start_price,
+            "evaluated_at": observation.evaluated_at,
+            "candidate_end_time": observation.candidate_end_time,
+            "candidate_end_price": observation.candidate_end_price,
+            "benchmark_end_time": observation.benchmark_end_time,
+            "benchmark_end_price": observation.benchmark_end_price,
+            "candidate_return_pct": observation.candidate_return_pct,
+            "benchmark_return_pct": observation.benchmark_return_pct,
+            "excess_return_pct": observation.excess_return_pct,
+            "cash_return_pct": observation.cash_return_pct,
+            "result_label": observation.result_label,
+            "attempt_count": observation.attempt_count,
+            "last_attempt_at": observation.last_attempt_at,
+            "last_error": observation.last_error,
+            "evaluation_policy": dict(observation.evaluation_policy_json or {}),
         }
 
     @staticmethod
