@@ -33,6 +33,11 @@ from .knowledge_mutation import KnowledgeMutation
 from .lesson import Lesson, LessonObservation
 from .market_calendar import MarketCalendar
 from .market_setup import MarketSetupSignal
+from .opportunity import (
+    OpportunityCandidate,
+    OpportunityDiscoveryRun,
+    OpportunityUniverseMember,
+)
 from .override import ManualOverride
 from .portfolio import Lot, Position, Transaction
 from .profile import Profile, ProfileDelta, ProfileSnapshot
@@ -105,6 +110,9 @@ __all__ = [
     "MarketSetupSignal",
     "MarketCalendar",
     "ManualOverride",
+    "OpportunityCandidate",
+    "OpportunityDiscoveryRun",
+    "OpportunityUniverseMember",
     "Position",
     "Lot",
     "Transaction",

@@ -1,0 +1,480 @@
+from __future__ import annotations
+
+import asyncio
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from uuid import uuid4
+
+import pytest
+import sqlalchemy as sa
+from sqlalchemy import delete, func, select
+
+import investos.services.opportunity as opportunity_module
+from investos.db import async_session_maker, engine
+from investos.models.entity import Entity, Security
+from investos.models.opportunity import (
+    OpportunityCandidate,
+    OpportunityDiscoveryRun,
+    OpportunityUniverseMember,
+)
+from investos.models.portfolio import Position
+from investos.models.shadow import ExperimentFamilyState, ShadowExperiment
+from investos.schemas.opportunity import OpportunityShadowTestRequest
+from investos.services.opportunity import OpportunityDiscoveryService
+from investos.services.shadow import SHADOW_DISCOVERY_SCHEMA, ShadowService
+
+pytestmark = pytest.mark.asyncio(loop_scope="session")
+
+
+async def _seed_universe_member() -> tuple[Entity, Security, OpportunityUniverseMember]:
+    suffix = uuid4().hex[:8].upper()
+    async with async_session_maker() as session:
+        entity = Entity(name=f"Opportunity Test {suffix}", entity_type="company")
+        session.add(entity)
+        await session.flush()
+        security = Security(
+            entity_id=entity.id,
+            ticker=f"O{suffix[:6]}",
+            asset_class="equity",
+            instrument_type="common_stock",
+        )
+        session.add(security)
+        await session.flush()
+        member = OpportunityUniverseMember(
+            security_id=security.id,
+            entity_id=entity.id,
+            priority=1.0,
+            source="test",
+            metadata_json={},
+        )
+        session.add(member)
+        await session.commit()
+        return entity, security, member
+
+
+async def _cleanup_catalog(
+    *,
+    entity_id,
+    security_id,
+    member_id,
+    run_ids: list | None = None,
+) -> None:
+    async with async_session_maker() as session:
+        if run_ids:
+            await session.execute(
+                delete(OpportunityCandidate).where(
+                    OpportunityCandidate.run_id.in_(run_ids)
+                )
+            )
+            await session.execute(
+                delete(OpportunityDiscoveryRun).where(
+                    OpportunityDiscoveryRun.id.in_(run_ids)
+                )
+            )
+        await session.execute(
+            delete(OpportunityUniverseMember).where(
+                OpportunityUniverseMember.id == member_id
+            )
+        )
+        await session.execute(delete(Security).where(Security.id == security_id))
+        await session.execute(delete(Entity).where(Entity.id == entity_id))
+        await session.commit()
+
+
+async def test_migrated_schema_owns_opportunity_uniqueness() -> None:
+    expected = {
+        "opportunity_universe_members": {
+            "uq_opportunity_universe_members_security": ("security_id",)
+        },
+        "opportunity_discovery_runs": {
+            "uq_opportunity_discovery_runs_active_key": ("active_key",)
+        },
+        "opportunity_candidates": {
+            "uq_opportunity_candidates_fingerprint": ("fingerprint",)
+        },
+    }
+
+    def inspect_constraints(connection):
+        inspector = sa.inspect(connection)
+        return {
+            table_name: {
+                constraint["name"]: tuple(constraint["column_names"])
+                for constraint in inspector.get_unique_constraints(table_name)
+            }
+            for table_name in expected
+        }
+
+    async with engine.connect() as connection:
+        actual = await connection.run_sync(inspect_constraints)
+
+    for table_name, constraints in expected.items():
+        for name, columns in constraints.items():
+            assert actual[table_name].get(name) == columns
+
+
+async def test_discovery_context_includes_unowned_security_without_fake_position() -> (
+    None
+):
+    entity, security, member = await _seed_universe_member()
+    try:
+        async with async_session_maker() as session:
+            context = await ShadowService(session).build_discovery_context(
+                captured_at=datetime.now(UTC),
+                additional_security_ids=[security.id],
+            )
+            candidate = next(
+                item
+                for item in context["candidates"]
+                if item["security_id"] == str(security.id)
+            )
+            position_count = await session.scalar(
+                select(func.count())
+                .select_from(Position)
+                .where(Position.security_id == security.id)
+            )
+
+        assert candidate["position_id"] is None
+        assert candidate["list_type"] == "opportunity_universe"
+        assert context["portfolio"]["opportunity_universe_subject_count"] >= 1
+        assert position_count == 0
+    finally:
+        await _cleanup_catalog(
+            entity_id=entity.id,
+            security_id=security.id,
+            member_id=member.id,
+        )
+
+
+async def test_research_query_falls_back_when_model_drops_the_subject(
+    monkeypatch,
+) -> None:
+    async def drifting_query(**_kwargs):
+        return {
+            "query": "latest semiconductor industry update",
+            "research_goal": "Find a material change.",
+        }
+
+    monkeypatch.setattr(opportunity_module, "call_llm_json", drifting_query)
+    service = OpportunityDiscoveryService(None)
+    query, goal = await service._research_query(
+        security=Security(ticker="SNDK"),
+        entity=Entity(name="Sandisk Corporation", entity_type="company"),
+    )
+
+    assert query == '"Sandisk Corporation" SNDK latest material investor update'
+    assert goal == "Find a material change."
+
+
+async def test_provider_capacity_skip_keeps_universe_member_due(monkeypatch) -> None:
+    entity, security, member = await _seed_universe_member()
+    run_id = None
+
+    async def research_query(self, **_kwargs):
+        return "test query", "test goal"
+
+    async def skipped_research(self, **_kwargs):
+        return SimpleNamespace(reason="research_provider_budget_exhausted")
+
+    async def no_telemetry(self, _run):
+        return None
+
+    monkeypatch.setattr(OpportunityDiscoveryService, "_research_query", research_query)
+    monkeypatch.setattr(
+        opportunity_module.ResearchService,
+        "run_ad_hoc_request",
+        skipped_research,
+    )
+    monkeypatch.setattr(
+        OpportunityDiscoveryService,
+        "_refresh_provider_telemetry",
+        no_telemetry,
+    )
+
+    try:
+        async with async_session_maker() as session:
+            run = OpportunityDiscoveryRun(
+                status="running",
+                captured_at=datetime.now(UTC),
+                started_at=datetime.now(UTC),
+                heartbeat_at=datetime.now(UTC),
+                remaining_member_ids_json=[str(member.id)],
+            )
+            session.add(run)
+            await session.flush()
+            run_id = run.id
+            await OpportunityDiscoveryService(session)._inspect_member(
+                run=run,
+                member=await session.get(OpportunityUniverseMember, member.id),
+                security=await session.get(Security, security.id),
+                entity=await session.get(Entity, entity.id),
+            )
+
+            refreshed = await session.get(OpportunityUniverseMember, member.id)
+            assert run.skipped_count == 1
+            assert run.inspected_count == 0
+            assert refreshed.last_inspected_at is None
+            assert refreshed.next_inspection_at is None
+    finally:
+        await _cleanup_catalog(
+            entity_id=entity.id,
+            security_id=security.id,
+            member_id=member.id,
+            run_ids=[run_id] if run_id else None,
+        )
+
+
+async def test_active_run_claim_is_database_deduplicated_and_resumable() -> None:
+    active_key = f"opportunity-test-{uuid4()}"
+    now = datetime.now(UTC)
+
+    async def acquire():
+        async with async_session_maker() as session:
+            service = OpportunityDiscoveryService(session)
+            service.ACTIVE_KEY = active_key
+            run, acquired = await service._acquire_run(now=now)
+            return run.id, acquired
+
+    first, second = await asyncio.gather(acquire(), acquire())
+    run_ids = {first[0], second[0]}
+    try:
+        assert len(run_ids) == 1
+        assert sorted([first[1], second[1]]) == [False, True]
+
+        async with async_session_maker() as session:
+            run = await session.get(OpportunityDiscoveryRun, next(iter(run_ids)))
+            assert run is not None
+            run.heartbeat_at = now - timedelta(hours=1)
+            await session.commit()
+
+        async with async_session_maker() as session:
+            service = OpportunityDiscoveryService(session)
+            service.ACTIVE_KEY = active_key
+            resumed, acquired = await service._acquire_run(now=now + timedelta(hours=1))
+            assert resumed.id in run_ids
+            assert acquired is True
+    finally:
+        async with async_session_maker() as session:
+            await session.execute(
+                delete(OpportunityDiscoveryRun).where(
+                    OpportunityDiscoveryRun.id.in_(run_ids)
+                )
+            )
+            await session.commit()
+
+
+async def test_candidate_assumptions_are_separate_and_candidate_is_deduplicated() -> (
+    None
+):
+    entity, security, member = await _seed_universe_member()
+    run_ids = []
+    profile = {
+        "name": "Test opportunity",
+        "family_key": "test-mechanism",
+        "priority_score": 0.82,
+        "signal_stage": "early",
+        "why_now": "A dated leading indicator changed.",
+        "investable_thesis": "The change may alter normalized earnings.",
+        "portfolio_transmission": "Cash could be tested without changing a real holding.",
+        "expected_edge": "The leading indicator may precede consensus revisions.",
+        "falsification_tests": ["The indicator reverses."],
+        "assumptions": ["The source measurement is comparable over time."],
+        "uncertainties": ["Consensus may already reflect the change."],
+        "evidence_refs": ["evidence:test"],
+        "evidence_snapshot": [{"ref": "evidence:test", "ticker": security.ticker}],
+        "priced_in_assessment": "uncertain",
+        "policy": "Observe in a paper account only.",
+        "operator_prompt": "Re-check the indicator before any paper action.",
+        "horizon": "adaptive",
+    }
+    try:
+        async with async_session_maker() as session:
+            first_run = OpportunityDiscoveryRun(
+                status="completed",
+                captured_at=datetime.now(UTC),
+                started_at=datetime.now(UTC),
+                completed_at=datetime.now(UTC),
+                heartbeat_at=datetime.now(UTC),
+            )
+            session.add(first_run)
+            await session.flush()
+            service = OpportunityDiscoveryService(session)
+            first = await service._upsert_candidate(
+                run=first_run,
+                security=await session.get(Security, security.id),
+                entity=await session.get(Entity, entity.id),
+                profile=profile,
+            )
+            await session.commit()
+            run_ids.append(first_run.id)
+            first_id = first.id
+
+        async with async_session_maker() as session:
+            second_run = OpportunityDiscoveryRun(
+                status="completed",
+                captured_at=datetime.now(UTC),
+                started_at=datetime.now(UTC),
+                completed_at=datetime.now(UTC),
+                heartbeat_at=datetime.now(UTC),
+            )
+            session.add(second_run)
+            await session.flush()
+            service = OpportunityDiscoveryService(session)
+            second = await service._upsert_candidate(
+                run=second_run,
+                security=await session.get(Security, security.id),
+                entity=await session.get(Entity, entity.id),
+                profile=profile,
+            )
+            await session.commit()
+            run_ids.append(second_run.id)
+
+            assert second.id == first_id
+            assert second.assumptions_json == profile["assumptions"]
+            assert second.uncertainties_json == profile["uncertainties"]
+            assert second.evidence_snapshot_json == profile["evidence_snapshot"]
+    finally:
+        await _cleanup_catalog(
+            entity_id=entity.id,
+            security_id=security.id,
+            member_id=member.id,
+            run_ids=run_ids,
+        )
+
+
+async def test_shadow_discovery_requires_known_non_market_evidence() -> None:
+    assert "assumptions" in SHADOW_DISCOVERY_SCHEMA["required"]
+    profile = {
+        "should_launch": True,
+        "name": "Evidence boundary",
+        "signal_stage": "early",
+        "why_now": "A source-backed change occurred.",
+        "priced_in_assessment": "uncertain",
+        "investable_thesis": "Test thesis",
+        "portfolio_transmission": "Paper-only route",
+        "expected_edge": "Potential expectation lag",
+        "policy": "Paper only",
+        "operator_prompt": "Re-check evidence",
+        "leading_indicators": ["Indicator"],
+        "lagging_confirmations": ["Later earnings"],
+        "evidence_refs": ["market:ONLY"],
+        "evidence_to_check": ["Official source"],
+        "falsification_tests": ["Indicator reverses"],
+        "risk_controls": ["No real trade"],
+        "assumptions": [],
+        "uncertainties": ["Pricing"],
+    }
+    actionable, reason = ShadowService._discovery_profile_is_actionable(
+        profile,
+        available_evidence_refs={"market:ONLY"},
+        portfolio_value=10_000,
+    )
+    assert actionable is False
+    assert (
+        reason == "shadow_discovery_requires_source_backed_evidence_beyond_market_tape"
+    )
+
+
+async def test_shadow_handoff_does_not_create_a_real_position() -> None:
+    entity, security, member = await _seed_universe_member()
+    run_ids = []
+    experiment_id = None
+    family_id = None
+    try:
+        async with async_session_maker() as session:
+            run = OpportunityDiscoveryRun(
+                status="completed",
+                captured_at=datetime.now(UTC),
+                started_at=datetime.now(UTC),
+                completed_at=datetime.now(UTC),
+                heartbeat_at=datetime.now(UTC),
+            )
+            session.add(run)
+            await session.flush()
+            profile = {
+                "name": "Paper-only handoff",
+                "family_key": f"paper-only-{uuid4()}",
+                "priority_score": 0.8,
+                "signal_stage": "early",
+                "why_now": "Source-backed test",
+                "investable_thesis": "A falsifiable paper hypothesis.",
+                "portfolio_transmission": "Use only the simulated account.",
+                "expected_edge": "Potential delayed expectation response.",
+                "falsification_tests": ["Source signal reverses."],
+                "assumptions": [],
+                "uncertainties": ["Price may already reflect it."],
+                "evidence_refs": ["evidence:test"],
+                "evidence_snapshot": [
+                    {"ref": "evidence:test", "ticker": security.ticker}
+                ],
+                "policy": "Paper account only.",
+                "operator_prompt": "Do not affect the real portfolio.",
+                "horizon": "adaptive",
+                "trigger_reason": "Test handoff",
+            }
+            candidate = await OpportunityDiscoveryService(session)._upsert_candidate(
+                run=run,
+                security=await session.get(Security, security.id),
+                entity=await session.get(Entity, entity.id),
+                profile=profile,
+            )
+            await session.commit()
+            run_ids.append(run.id)
+
+            serialized, experiment_id = await OpportunityDiscoveryService(
+                session
+            ).shadow_test_candidate(
+                candidate.id,
+                OpportunityShadowTestRequest(
+                    account_basis="cash_only",
+                    starting_cash=1_000,
+                ),
+            )
+            experiment = await session.get(ShadowExperiment, experiment_id)
+            family_id = experiment.family_id
+            position_count = await session.scalar(
+                select(func.count())
+                .select_from(Position)
+                .where(Position.security_id == security.id)
+            )
+
+            assert serialized["status"] == "shadow_tested"
+            assert position_count == 0
+            assert experiment.initial_portfolio_state_json["experiment_context"][
+                "subject_refs"
+            ] == [
+                {
+                    "subject_type": "entity",
+                    "subject_id": str(entity.id),
+                    "security_id": str(security.id),
+                }
+            ]
+    finally:
+        async with async_session_maker() as session:
+            if run_ids:
+                await session.execute(
+                    delete(OpportunityCandidate).where(
+                        OpportunityCandidate.run_id.in_(run_ids)
+                    )
+                )
+            if experiment_id is not None:
+                await session.execute(
+                    delete(ShadowExperiment).where(ShadowExperiment.id == experiment_id)
+                )
+            if family_id is not None:
+                await session.execute(
+                    delete(ExperimentFamilyState).where(
+                        ExperimentFamilyState.id == family_id
+                    )
+                )
+            if run_ids:
+                await session.execute(
+                    delete(OpportunityDiscoveryRun).where(
+                        OpportunityDiscoveryRun.id.in_(run_ids)
+                    )
+                )
+            await session.commit()
+        await _cleanup_catalog(
+            entity_id=entity.id,
+            security_id=security.id,
+            member_id=member.id,
+        )

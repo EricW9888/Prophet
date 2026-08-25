@@ -14,6 +14,7 @@ from .ingestion import router as ingestion_router
 from .integrations import router as integrations_router
 from .integrity import router as integrity_router
 from .lesson import router as lesson_router
+from .opportunity import router as opportunity_router
 from .portfolio import router as portfolio_router
 from .profile import router as profile_router
 from .pruning import router as pruning_router
@@ -47,6 +48,7 @@ api_router.include_router(agent_router)
 api_router.include_router(reasoning_router)
 api_router.include_router(review_router)
 api_router.include_router(lesson_router)
+api_router.include_router(opportunity_router)
 api_router.include_router(graph_router)
 api_router.include_router(pruning_router, prefix="/pruning", tags=["pruning"])
 api_router.include_router(discoveries_router)
