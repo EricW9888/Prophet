@@ -20,7 +20,7 @@ from investos.models.reasoning import ReasoningRun
 from investos.services.canonical_state import CanonicalStateService
 from investos.services.graph_edge_state import GraphEdgeStateService
 
-pytestmark = pytest.mark.asyncio(loop_scope="module")
+pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 EXPECTED_CONSTRAINTS = {
     "conclusion_states": {

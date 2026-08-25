@@ -33,6 +33,7 @@ from investos.services.investment_object_backfill import InvestmentObjectBackfil
 from investos.services.market_data import MarketDataService
 from investos.services.market_setup import MarketSetupSignalService
 from investos.services.media_workspace import MediaIngestionPolicy
+from investos.services.opportunity import OpportunityDiscoveryService
 from investos.services.pattern_discovery import PatternDiscoveryService
 from investos.services.relation_review import RelationReviewService
 from investos.services.research import ResearchService
@@ -104,6 +105,12 @@ class AutomationCoordinator:
             settings.PATTERN_DISCOVERY_ENABLED,
         )
         self._register_job("shadow_discovery", self._run_shadow_discovery, 21600, True)
+        self._register_job(
+            "opportunity_discovery",
+            self._run_opportunity_discovery,
+            settings.OPPORTUNITY_DISCOVERY_INTERVAL_SECONDS,
+            settings.OPPORTUNITY_DISCOVERY_ENABLED,
+        )
         self._register_job(
             "watcher_loop",
             self._run_watcher_loop,
@@ -208,6 +215,7 @@ class AutomationCoordinator:
             "agent_reflection": self._run_agent_reflection,
             "shadow_refresh": self._run_shadow_refresh,
             "shadow_discovery": self._run_shadow_discovery,
+            "opportunity_discovery": self._run_opportunity_discovery,
             "gmail_sync": self._run_gmail_sync,
             "brokerage_reconcile": self._run_brokerage_reconcile,
             "strategist_cycle": self._run_strategist_cycle,
@@ -1783,6 +1791,35 @@ class AutomationCoordinator:
                     job_name="shadow_discovery",
                     status="error",
                     summary=f"Shadow discovery failed: {exc}",
+                )
+
+    async def _run_opportunity_discovery(self) -> None:
+        telemetry = self.telemetry["opportunity_discovery"]
+        telemetry.last_run_at = datetime.now(UTC)
+        async with async_session_maker() as session:
+            try:
+                result = await OpportunityDiscoveryService(session).run_discovery()
+                telemetry.last_status = self._result_telemetry_status(result)
+                telemetry.detail = str(
+                    result.get("detail") or "opportunity_discovery_complete"
+                )
+                self._log_job_action(
+                    job_name="opportunity_discovery",
+                    status=str(result.get("status") or "ok"),
+                    summary=(
+                        "Opportunity discovery inspected "
+                        f"{result.get('inspected_count', 0)} of "
+                        f"{result.get('universe_size', 0)} configured subjects."
+                    ),
+                    metadata=result,
+                )
+            except Exception as exc:
+                telemetry.last_status = "error"
+                telemetry.detail = str(exc)
+                self._log_job_action(
+                    job_name="opportunity_discovery",
+                    status="error",
+                    summary=f"Opportunity discovery failed: {exc}",
                 )
 
     async def _run_watcher_loop(self) -> None:

@@ -106,6 +106,9 @@ The main state groups are:
   `ConclusionRevision` records.
 - **Monitoring and learning:** `ActiveWatcher`, decisions, verification runs,
   lessons, historical episodes, and source outcomes.
+- **Opportunity discovery:** operator-selected universe members, resumable
+  coverage/cost runs, and reviewable source-linked candidates whose assumptions
+  remain separate from evidence.
 - **Simulation:** shadow experiments, account events, orders, fills, evidence
   wake-ups, results, and experiment-family learning state.
 
@@ -161,6 +164,7 @@ enabled and their intervals. The implemented jobs cover:
 - market prices, risk, fundamental freshness, and historical reindexing;
 - Gmail sync and optional brokerage reconciliation;
 - reflection, strategist, pattern-discovery, and watcher cycles;
+- bounded opportunity-universe research and candidate evaluation;
 - shadow discovery, paper-account refresh, and evidence wake-ups;
 - database backup and job telemetry.
 

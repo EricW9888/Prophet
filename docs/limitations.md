@@ -34,6 +34,12 @@ retrieval. Search is source discovery, not a complete market-data or retrieval
 solution. Market prices and public web results may be delayed, revised,
 unavailable, or unsuitable for point-in-time backtesting.
 
+Opportunity discovery currently inspects an operator-selected security universe
+in bounded batches. Its run history records inspected subjects, skips, failures,
+provider attempts, and estimated metered credits; it does not establish that the
+whole investable market was searched. Candidates remain provisional until a
+person reviews them or explicitly starts a paper-only shadow experiment.
+
 YouTube ingestion uses available captions or an explicitly supplied transcript.
 Prophet does not currently transcribe arbitrary no-caption audio or interpret a
 complete video from frames alone.

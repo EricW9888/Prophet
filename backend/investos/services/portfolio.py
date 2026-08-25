@@ -34,6 +34,7 @@ from investos.schemas.portfolio import (
 )
 from investos.services.canonical_state import CanonicalStateService
 from investos.services.runtime_settings import RuntimeSettingsStore
+from investos.services.security_catalog import SecurityCatalogService
 from investos.services.transaction_provenance import transaction_source_summary
 
 IMPORT_NORMALIZATION_SCHEMA: dict[str, Any] = {
@@ -1494,40 +1495,10 @@ class PortfolioService:
         ticker: str,
         entity_name: str | None = None,
     ) -> Security:
-        normalized_ticker = ticker.strip().upper()
-        stmt = (
-            select(Security)
-            .where(Security.ticker == normalized_ticker)
-            .options(selectinload(Security.entity))
+        return await SecurityCatalogService(self.session).resolve_or_create_equity(
+            ticker=ticker,
+            entity_name=entity_name,
         )
-        security = (await self.session.execute(stmt)).scalar_one_or_none()
-        if security is not None:
-            if (
-                entity_name
-                and security.entity is not None
-                and security.entity.name.strip().upper() == normalized_ticker
-            ):
-                security.entity.name = entity_name.strip()
-                await self.session.flush()
-            return security
-
-        entity = Entity(
-            name=(entity_name or normalized_ticker).strip() or normalized_ticker,
-            entity_type="company",
-        )
-        self.session.add(entity)
-        await self.session.flush()
-
-        security = Security(
-            entity_id=entity.id,
-            ticker=normalized_ticker,
-            asset_class="equity",
-            instrument_type="common_stock",
-        )
-        self.session.add(security)
-        await self.session.flush()
-        await self.session.refresh(security, ["entity"])
-        return security
 
     def _resync_position_from_lots(self, position: Position, lots: list[Lot]) -> None:
         """Recompute quantity and avg cost basis from the position's open lots.

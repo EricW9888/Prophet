@@ -180,6 +180,7 @@ SHADOW_DISCOVERY_SCHEMA = {
         "evidence_to_check": {"type": "array", "items": {"type": "string"}},
         "falsification_tests": {"type": "array", "items": {"type": "string"}},
         "risk_controls": {"type": "array", "items": {"type": "string"}},
+        "assumptions": {"type": "array", "items": {"type": "string"}},
         "uncertainties": {"type": "array", "items": {"type": "string"}},
         "policy": {"type": "string"},
         "operator_prompt": {"type": "string"},
@@ -205,6 +206,7 @@ SHADOW_DISCOVERY_SCHEMA = {
         "evidence_to_check",
         "falsification_tests",
         "risk_controls",
+        "assumptions",
         "uncertainties",
         "policy",
         "operator_prompt",
@@ -573,42 +575,8 @@ class ShadowService:
             return 0
 
         try:
-            discovery_result = await call_llm_json(
-                system_prompt=self._shadow_discovery_prompt(),
-                user_prompt=json.dumps(
-                    {
-                        "point_in_time_opportunity_packet": discovery_context,
-                        "instruction": (
-                            "Identify at most one paper-trading opportunity or risk-control experiment. "
-                            "Use only information whose evidence_ref is present in this packet."
-                        ),
-                    },
-                    ensure_ascii=True,
-                    default=str,
-                ),
-                schema=SHADOW_DISCOVERY_SCHEMA,
-            )
-
-            discovery_profile = self._normalize_discovery_profile(discovery_result)
-            discovery_profile["captured_at"] = captured_at.isoformat()
-            discovery_profile["portfolio_snapshot"] = discovery_context["portfolio"]
-            evidence_registry = {
-                str(item["ref"]): item
-                for item in discovery_context["evidence_registry"]
-                if item.get("ref")
-            }
-            discovery_profile["evidence_snapshot"] = [
-                evidence_registry[ref]
-                for ref in discovery_profile.get("evidence_refs") or []
-                if ref in evidence_registry
-            ]
-            is_actionable, skip_reason = self._discovery_profile_is_actionable(
-                discovery_profile,
-                available_evidence_refs=set(evidence_registry),
-                portfolio_value=(
-                    float(discovery_context["portfolio"]["total_market_value"])
-                    + float(discovery_context["portfolio"]["remaining_buying_power"])
-                ),
+            discovery_profile, is_actionable, skip_reason = (
+                await self.evaluate_discovery_context(discovery_context)
             )
             if is_actionable:
                 family_state = await self._get_or_create_family_state(
@@ -652,6 +620,59 @@ class ShadowService:
             raise
 
         return 0
+
+    async def evaluate_discovery_context(
+        self,
+        discovery_context: dict[str, Any],
+    ) -> tuple[dict[str, Any], bool, str | None]:
+        """Evaluate a dated packet without mutating accepted or portfolio state."""
+
+        discovery_result = await call_llm_json(
+            system_prompt=self._shadow_discovery_prompt(),
+            user_prompt=json.dumps(
+                {
+                    "point_in_time_opportunity_packet": discovery_context,
+                    "instruction": (
+                        "Identify at most one paper-trading opportunity or risk-control experiment. "
+                        "Use only information whose evidence_ref is present in this packet."
+                    ),
+                },
+                ensure_ascii=True,
+                default=str,
+            ),
+            schema=SHADOW_DISCOVERY_SCHEMA,
+        )
+        profile = self._normalize_discovery_profile(discovery_result)
+        captured_at = str(discovery_context.get("captured_at") or "")
+        profile["captured_at"] = captured_at
+        profile["portfolio_snapshot"] = discovery_context.get("portfolio") or {}
+        evidence_registry = {
+            str(item["ref"]): item
+            for item in discovery_context.get("evidence_registry") or []
+            if item.get("ref")
+        }
+        profile["evidence_snapshot"] = [
+            evidence_registry[ref]
+            for ref in profile.get("evidence_refs") or []
+            if ref in evidence_registry
+        ]
+        actionable, reason = self._discovery_profile_is_actionable(
+            profile,
+            available_evidence_refs=set(evidence_registry),
+            portfolio_value=(
+                float(
+                    (discovery_context.get("portfolio") or {}).get("total_market_value")
+                    or 0.0
+                )
+                + float(
+                    (discovery_context.get("portfolio") or {}).get(
+                        "remaining_buying_power"
+                    )
+                    or 0.0
+                )
+            ),
+        )
+        return profile, actionable, reason
 
     @classmethod
     def _discovery_subject_refs(
@@ -697,8 +718,11 @@ class ShadowService:
             "The policy should define the paper-trading behavior; operator_prompt should define checkpoint behavior, sizing discipline, monitoring, and exit/adjustment triggers."
         )
 
-    async def _build_discovery_context(
-        self, *, captured_at: datetime
+    async def build_discovery_context(
+        self,
+        *,
+        captured_at: datetime,
+        additional_security_ids: list[UUID] | None = None,
     ) -> dict[str, Any]:
         rows = (
             await self.session.execute(
@@ -710,13 +734,36 @@ class ShadowService:
                 .limit(14)
             )
         ).all()
+        subject_rows: list[tuple[Position | None, Security, Entity]] = list(rows)
+        present_security_ids = {security.id for _, security, _ in rows}
+        requested_security_ids = (
+            set(additional_security_ids or []) - present_security_ids
+        )
+        if requested_security_ids:
+            external_rows = (
+                await self.session.execute(
+                    select(Security, Entity)
+                    .join(Entity, Security.entity_id == Entity.id)
+                    .where(
+                        Security.id.in_(requested_security_ids),
+                        Security.is_active.is_(True),
+                    )
+                    .order_by(Security.ticker)
+                )
+            ).all()
+            subject_rows.extend(
+                (None, security, entity) for security, entity in external_rows
+            )
+
         holdings = [
             position for position, _, _ in rows if position.list_type == "holding"
         ]
         total_market_value = sum(
             float(position.market_value or 0.0) for position in holdings
         )
-        tickers = [security.ticker for _, security, _ in rows if security.ticker]
+        tickers = [
+            security.ticker for _, security, _ in subject_rows if security.ticker
+        ]
         runtime = RuntimeSettingsStore.load()
         tape_by_ticker = (
             await MarketDataService(self.session).fetch_signal_snapshots(tickers)
@@ -729,18 +776,18 @@ class ShadowService:
         evidence_registry: list[dict[str, Any]] = []
         candidates: list[dict[str, Any]] = []
 
-        for position, security, entity in rows:
+        for position, security, entity in subject_rows:
             conclusion = await self._position_or_entity_conclusion(
                 position=position, entity_id=entity.id
             )
             metrics = await metric_service.relevant_metrics(
-                subject_type="position",
-                subject_id=position.id,
+                subject_type="position" if position is not None else "entity",
+                subject_id=position.id if position is not None else entity.id,
                 limit=4,
             )
             setups = await setup_service.relevant_signals(
-                subject_type="position",
-                subject_id=position.id,
+                subject_type="position" if position is not None else "entity",
+                subject_id=position.id if position is not None else entity.id,
                 limit=4,
             )
             metrics = [
@@ -777,22 +824,32 @@ class ShadowService:
                     self._registry_entry(item, ticker=security.ticker)
                 )
 
-            market_value = float(position.market_value or 0.0)
+            market_value = float(position.market_value or 0.0) if position else 0.0
             candidates.append(
                 {
-                    "position_id": str(position.id),
+                    "position_id": str(position.id) if position is not None else None,
                     "entity_id": str(entity.id),
                     "security_id": str(security.id),
                     "ticker": security.ticker,
                     "entity_name": entity.name,
-                    "list_type": position.list_type,
+                    "list_type": (
+                        position.list_type
+                        if position is not None
+                        else "opportunity_universe"
+                    ),
                     "sector": entity.sector,
                     "industry": entity.industry,
                     "market_value": market_value,
                     "weight_pct": (
                         round((market_value / total_market_value) * 100.0, 2)
-                        if position.list_type == "holding" and total_market_value > 0
-                        else float(position.weight_pct or 0.0)
+                        if position is not None
+                        and position.list_type == "holding"
+                        and total_market_value > 0
+                        else (
+                            float(position.weight_pct or 0.0)
+                            if position is not None
+                            else 0.0
+                        )
                     ),
                     "stance": conclusion.current_stance if conclusion else "no_view",
                     "confidence_band": (
@@ -824,7 +881,9 @@ class ShadowService:
             "captured_at": captured_at.isoformat(),
             "portfolio": {
                 "holding_count": len(holdings),
-                "tracked_count": len(rows),
+                "tracked_count": len(subject_rows),
+                "portfolio_subject_count": len(rows),
+                "opportunity_universe_subject_count": len(subject_rows) - len(rows),
                 "total_market_value": round(total_market_value, 2),
                 "remaining_buying_power": round(buying_power, 2),
                 "pct_capital_deployed": (
@@ -848,6 +907,11 @@ class ShadowService:
             "evidence_registry": list(deduped_registry.values()),
             "available_evidence_refs": sorted(deduped_registry),
         }
+
+    async def _build_discovery_context(
+        self, *, captured_at: datetime
+    ) -> dict[str, Any]:
+        return await self.build_discovery_context(captured_at=captured_at)
 
     async def _shadow_learning_context(
         self,
@@ -935,13 +999,13 @@ class ShadowService:
     async def _position_or_entity_conclusion(
         self,
         *,
-        position: Position,
+        position: Position | None,
         entity_id: UUID,
     ) -> ConclusionState | None:
-        for subject_type, subject_id in (
-            ("position", position.id),
-            ("entity", entity_id),
-        ):
+        subjects = [("entity", entity_id)]
+        if position is not None:
+            subjects.insert(0, ("position", position.id))
+        for subject_type, subject_id in subjects:
             conclusion = (
                 await self.session.execute(
                     select(ConclusionState)
@@ -1126,6 +1190,7 @@ class ShadowService:
             "risk_controls": ShadowService._clean_string_list(
                 result.get("risk_controls")
             ),
+            "assumptions": ShadowService._clean_string_list(result.get("assumptions")),
             "uncertainties": ShadowService._clean_string_list(
                 result.get("uncertainties")
             ),
