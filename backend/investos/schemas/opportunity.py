@@ -53,6 +53,40 @@ class OpportunityDiscoveryRunResponse(BaseModel):
     detail: str | None
 
 
+class OpportunityCandidateObservationResponse(BaseModel):
+    id: UUID
+    run_id: UUID
+    captured_at: datetime
+    horizon_label: str
+    horizon_days: int
+    due_at: datetime
+    expected_relative_direction: str
+    status: str
+    profile_snapshot: dict
+    evidence_refs: list[str]
+    evidence_snapshot: list[dict]
+    benchmark_ticker: str
+    market_data_provider: str
+    candidate_start_time: datetime | None
+    candidate_start_price: float | None
+    benchmark_start_time: datetime | None
+    benchmark_start_price: float | None
+    evaluated_at: datetime | None
+    candidate_end_time: datetime | None
+    candidate_end_price: float | None
+    benchmark_end_time: datetime | None
+    benchmark_end_price: float | None
+    candidate_return_pct: float | None
+    benchmark_return_pct: float | None
+    excess_return_pct: float | None
+    cash_return_pct: float
+    result_label: str | None
+    attempt_count: int
+    last_attempt_at: datetime | None
+    last_error: str | None
+    evaluation_policy: dict
+
+
 class OpportunityCandidateResponse(BaseModel):
     id: UUID
     run_id: UUID
@@ -80,6 +114,9 @@ class OpportunityCandidateResponse(BaseModel):
     first_seen_at: datetime
     last_seen_at: datetime
     expires_at: datetime
+    observations: list[OpportunityCandidateObservationResponse] = Field(
+        default_factory=list
+    )
 
 
 class OpportunityCandidateReview(BaseModel):

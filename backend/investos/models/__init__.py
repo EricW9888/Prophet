@@ -35,6 +35,7 @@ from .market_calendar import MarketCalendar
 from .market_setup import MarketSetupSignal
 from .opportunity import (
     OpportunityCandidate,
+    OpportunityCandidateObservation,
     OpportunityDiscoveryRun,
     OpportunityUniverseMember,
 )
@@ -111,6 +112,7 @@ __all__ = [
     "MarketCalendar",
     "ManualOverride",
     "OpportunityCandidate",
+    "OpportunityCandidateObservation",
     "OpportunityDiscoveryRun",
     "OpportunityUniverseMember",
     "Position",

@@ -492,6 +492,41 @@ export type OpportunityCandidate = {
   first_seen_at: string;
   last_seen_at: string;
   expires_at: string;
+  observations: OpportunityCandidateObservation[];
+};
+
+export type OpportunityCandidateObservation = {
+  id: string;
+  run_id: string;
+  captured_at: string;
+  horizon_label: string;
+  horizon_days: number;
+  due_at: string;
+  expected_relative_direction: "outperform" | "underperform" | "unscored" | string;
+  status: "pending" | "evaluated" | string;
+  profile_snapshot: Record<string, unknown>;
+  evidence_refs: string[];
+  evidence_snapshot: Array<Record<string, unknown>>;
+  benchmark_ticker: string;
+  market_data_provider: string;
+  candidate_start_time?: string | null;
+  candidate_start_price?: number | null;
+  benchmark_start_time?: string | null;
+  benchmark_start_price?: number | null;
+  evaluated_at?: string | null;
+  candidate_end_time?: string | null;
+  candidate_end_price?: number | null;
+  benchmark_end_time?: string | null;
+  benchmark_end_price?: number | null;
+  candidate_return_pct?: number | null;
+  benchmark_return_pct?: number | null;
+  excess_return_pct?: number | null;
+  cash_return_pct: number;
+  result_label?: "supported" | "challenged" | "inconclusive" | "direction_unrecorded" | string | null;
+  attempt_count: number;
+  last_attempt_at?: string | null;
+  last_error?: string | null;
+  evaluation_policy: Record<string, unknown>;
 };
 
 export type ShadowExperiment = {
