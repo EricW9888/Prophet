@@ -191,6 +191,22 @@ class ResearchIntegrationSettingsUpdate(BaseModel):
     tavily_monthly_credit_budget: int | None = None
 
 
+class OpportunityDiscoveryIntegrationSettings(BaseModel):
+    enabled: bool = True
+    interval_seconds: int = Field(default=21600, ge=300, le=604800)
+    max_subjects_per_run: int = Field(default=4, ge=1, le=100)
+    revisit_hours: int = Field(default=24, ge=1, le=8760)
+    candidate_ttl_days: int = Field(default=14, ge=1, le=365)
+
+
+class OpportunityDiscoveryIntegrationSettingsUpdate(BaseModel):
+    enabled: bool | None = None
+    interval_seconds: int | None = Field(default=None, ge=300, le=604800)
+    max_subjects_per_run: int | None = Field(default=None, ge=1, le=100)
+    revisit_hours: int | None = Field(default=None, ge=1, le=8760)
+    candidate_ttl_days: int | None = Field(default=None, ge=1, le=365)
+
+
 class PortfolioIntegrationSettings(BaseModel):
     default_benchmark_ticker: str = "SPY"
     remaining_buying_power: float = 0.0
@@ -208,6 +224,7 @@ class IntegrationSettingsResponse(BaseModel):
     plaid: PlaidIntegrationSettings
     llm: LLMIntegrationSettings
     research: ResearchIntegrationSettings
+    opportunity_discovery: OpportunityDiscoveryIntegrationSettings
     portfolio: PortfolioIntegrationSettings
 
 
@@ -218,4 +235,5 @@ class IntegrationSettingsUpdate(BaseModel):
     plaid: PlaidIntegrationSettingsUpdate | None = None
     llm: LLMIntegrationSettingsUpdate | None = None
     research: ResearchIntegrationSettingsUpdate | None = None
+    opportunity_discovery: OpportunityDiscoveryIntegrationSettingsUpdate | None = None
     portfolio: PortfolioIntegrationSettingsUpdate | None = None

@@ -429,6 +429,71 @@ export type AutomationStatus = {
   }>;
 };
 
+export type OpportunityUniverseMember = {
+  id: string;
+  security_id: string;
+  entity_id: string;
+  ticker: string;
+  entity_name: string;
+  enabled: boolean;
+  priority: number;
+  source: string;
+  last_inspected_at?: string | null;
+  next_inspection_at?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OpportunityDiscoveryRun = {
+  id: string;
+  status: string;
+  captured_at: string;
+  started_at: string;
+  completed_at?: string | null;
+  universe_size: number;
+  planned_count: number;
+  inspected_count: number;
+  skipped_count: number;
+  failed_count: number;
+  estimated_credits: number;
+  remaining_member_ids: string[];
+  inspected_member_ids: string[];
+  skipped: Array<Record<string, unknown>>;
+  failures: Array<Record<string, unknown>>;
+  provider_attempts: Array<Record<string, unknown>>;
+  limits: Record<string, unknown>;
+  detail?: string | null;
+};
+
+export type OpportunityCandidate = {
+  id: string;
+  run_id: string;
+  entity_id: string;
+  security_id: string;
+  shadow_experiment_id?: string | null;
+  ticker: string;
+  status: "new" | "monitoring" | "rejected" | "expired" | "shadow_tested" | string;
+  title: string;
+  family_key?: string | null;
+  priority_score: number;
+  signal_stage?: string | null;
+  why_now: string;
+  investable_thesis: string;
+  portfolio_transmission: string;
+  expected_edge: string;
+  falsification_tests: string[];
+  assumptions: string[];
+  uncertainties: string[];
+  evidence_refs: string[];
+  evidence_snapshot: Array<Record<string, unknown>>;
+  ranking: Record<string, unknown>;
+  review_reason?: string | null;
+  captured_at: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  expires_at: string;
+};
+
 export type ShadowExperiment = {
   id: string;
   name: string;
@@ -1007,6 +1072,13 @@ export type IntegrationSettings = {
     tavily_monthly_credit_budget?: number | null;
     ready: boolean;
     status_message?: string | null;
+  };
+  opportunity_discovery: {
+    enabled: boolean;
+    interval_seconds: number;
+    max_subjects_per_run: number;
+    revisit_hours: number;
+    candidate_ttl_days: number;
   };
   portfolio: {
     default_benchmark_ticker: string;
@@ -1665,14 +1737,18 @@ export type VerificationResult = {
   verified_at: string;
 };
 
-export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+export async function apiFetch<T>(
+  path: string,
+  init?: RequestInit,
+  timeoutMs: number = API_TIMEOUT_MS,
+): Promise<T> {
   const url = `${API_BASE}${path}`;
   const fallbackBase = alternateLoopbackBase(API_BASE);
   const fallbackUrl = fallbackBase ? `${fallbackBase}${path}` : null;
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(new DOMException("Request timed out", "AbortError")),
-    API_TIMEOUT_MS,
+    timeoutMs,
   );
   try {
     if (init?.signal) {
@@ -1718,11 +1794,14 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
       throw new Error(errorDetail || `Request failed with status ${response.status}`);
     }
 
+    if (response.status === 204) {
+      return undefined as T;
+    }
     return response.json() as Promise<T>;
   } catch (err) {
     if (err instanceof Error) {
       if (err.name === "AbortError") {
-        throw new Error(`Request timeout: Prophet did not respond within ${Math.round(API_TIMEOUT_MS / 1000)}s for ${path}.`);
+        throw new Error(`Request timeout: Prophet did not respond within ${Math.round(timeoutMs / 1000)}s for ${path}.`);
       }
       // Handle the generic "Failed to fetch" browser error for clarity
       if (err.message.toLocaleLowerCase().includes("failed to fetch")) {

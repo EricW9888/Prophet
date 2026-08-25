@@ -56,6 +56,14 @@ signals, and inferred relationships are investigation aids. They are not
 predictions or independent proof. Material decisions require inspection of the
 underlying dated sources and contrary evidence.
 
+Opportunity discovery covers only the operator-defined investable universe and
+the subjects reached within each bounded run. A candidate rank is a provisional
+comparison among inspected subjects, not proof that Prophet surveyed the whole
+market or found the best available investment. Provider limits, stale sources,
+failed fetches, model omissions, and the configured revisit interval can all
+leave relevant opportunities unseen. The Ideas workspace exposes those coverage
+limits and keeps assumptions separate from source-backed evidence.
+
 Prophet does not expose a provider's hidden chain-of-thought. It stores concise
 reasoning summaries, assumptions, evidence references, challenges, and action
 traces that can be inspected without presenting private model reasoning as an

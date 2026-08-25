@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -70,6 +71,36 @@ def test_start_schedules_sequential_calibration_catchup_jobs():
         coordinator._schedule_startup_sequence.call_args.kwargs["delay_seconds"]
         == settings.AUTOMATION_STARTUP_CATCHUP_DELAY_SECONDS
     )
+
+
+def test_runtime_sync_applies_live_opportunity_discovery_controls(monkeypatch):
+    runtime = SimpleNamespace(
+        market_data=SimpleNamespace(
+            enabled=True,
+            refresh_interval_seconds=60,
+        ),
+        gmail=SimpleNamespace(enabled=False),
+        plaid=SimpleNamespace(enabled=False, access_token=None),
+        opportunity_discovery=SimpleNamespace(
+            enabled=False,
+            interval_seconds=43200,
+        ),
+    )
+    monkeypatch.setattr(
+        "investos.services.automation.RuntimeSettingsStore.load",
+        lambda: runtime,
+    )
+    coordinator = AutomationCoordinator()
+    coordinator._sync_job = Mock()
+
+    coordinator.sync_runtime_jobs()
+
+    opportunity_call = next(
+        call
+        for call in coordinator._sync_job.call_args_list
+        if call.args[0] == "opportunity_discovery"
+    )
+    assert opportunity_call.args[2:] == (43200, False)
 
 
 @pytest.mark.asyncio

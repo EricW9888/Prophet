@@ -26,6 +26,7 @@ from investos.schemas.opportunity import (
 )
 from investos.schemas.shadow import ShadowExperimentCreate
 from investos.services.research import ResearchService
+from investos.services.runtime_settings import RuntimeSettingsStore
 from investos.services.security_catalog import SecurityCatalogService
 from investos.services.shadow import ShadowService
 
@@ -55,6 +56,7 @@ class OpportunityDiscoveryService:
 
     def __init__(self, session: AsyncSession):
         self.session = session
+        self.runtime = RuntimeSettingsStore.load().opportunity_discovery
 
     async def list_universe(self) -> list[dict[str, Any]]:
         rows = (
@@ -313,9 +315,9 @@ class OpportunityDiscoveryService:
                 heartbeat_at=now,
                 universe_size=universe_size,
                 limits_json={
-                    "max_subjects": settings.OPPORTUNITY_DISCOVERY_MAX_SUBJECTS_PER_RUN,
-                    "revisit_hours": settings.OPPORTUNITY_DISCOVERY_REVISIT_HOURS,
-                    "candidate_ttl_days": settings.OPPORTUNITY_DISCOVERY_CANDIDATE_TTL_DAYS,
+                    "max_subjects": self.runtime.max_subjects_per_run,
+                    "revisit_hours": self.runtime.revisit_hours,
+                    "candidate_ttl_days": self.runtime.candidate_ttl_days,
                 },
             )
             .on_conflict_do_nothing(index_elements=["active_key"])
@@ -401,7 +403,7 @@ class OpportunityDiscoveryService:
                     OpportunityUniverseMember.last_inspected_at.asc().nullsfirst(),
                     Security.ticker,
                 )
-                .limit(settings.OPPORTUNITY_DISCOVERY_MAX_SUBJECTS_PER_RUN)
+                .limit(self.runtime.max_subjects_per_run)
             )
         ).all()
         run.planned_count = len(rows)
@@ -469,7 +471,7 @@ class OpportunityDiscoveryService:
             if inspected:
                 member.last_inspected_at = datetime.now(UTC)
                 member.next_inspection_at = member.last_inspected_at + timedelta(
-                    hours=settings.OPPORTUNITY_DISCOVERY_REVISIT_HOURS
+                    hours=self.runtime.revisit_hours
                 )
             run.remaining_member_ids_json = [
                 value
@@ -628,8 +630,7 @@ class OpportunityDiscoveryService:
             "discovery_profile_json": profile,
             "captured_at": run.captured_at,
             "last_seen_at": now,
-            "expires_at": now
-            + timedelta(days=settings.OPPORTUNITY_DISCOVERY_CANDIDATE_TTL_DAYS),
+            "expires_at": now + timedelta(days=self.runtime.candidate_ttl_days),
         }
         if candidate is None:
             candidate = OpportunityCandidate(

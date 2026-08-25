@@ -349,6 +349,12 @@ class AutomationCoordinator:
             21600,
             bool(runtime.plaid.enabled and runtime.plaid.access_token),
         )
+        self._sync_job(
+            "opportunity_discovery",
+            self._run_opportunity_discovery,
+            runtime.opportunity_discovery.interval_seconds,
+            runtime.opportunity_discovery.enabled,
+        )
 
     def _sync_job(
         self,

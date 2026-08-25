@@ -262,6 +262,38 @@ async def test_active_run_claim_is_database_deduplicated_and_resumable() -> None
             await session.commit()
 
 
+async def test_discovery_run_persists_the_runtime_limits_it_used() -> None:
+    active_key = f"opportunity-limits-{uuid4()}"
+    run_id = None
+    try:
+        async with async_session_maker() as session:
+            service = OpportunityDiscoveryService(session)
+            service.ACTIVE_KEY = active_key
+            service.runtime = SimpleNamespace(
+                max_subjects_per_run=7,
+                revisit_hours=36,
+                candidate_ttl_days=21,
+            )
+            run, acquired = await service._acquire_run(now=datetime.now(UTC))
+            run_id = run.id
+
+            assert acquired is True
+            assert run.limits_json == {
+                "max_subjects": 7,
+                "revisit_hours": 36,
+                "candidate_ttl_days": 21,
+            }
+    finally:
+        if run_id is not None:
+            async with async_session_maker() as session:
+                await session.execute(
+                    delete(OpportunityDiscoveryRun).where(
+                        OpportunityDiscoveryRun.id == run_id
+                    )
+                )
+                await session.commit()
+
+
 async def test_candidate_assumptions_are_separate_and_candidate_is_deduplicated() -> (
     None
 ):
@@ -298,6 +330,7 @@ async def test_candidate_assumptions_are_separate_and_candidate_is_deduplicated(
             session.add(first_run)
             await session.flush()
             service = OpportunityDiscoveryService(session)
+            service.runtime.candidate_ttl_days = 3
             first = await service._upsert_candidate(
                 run=first_run,
                 security=await session.get(Security, security.id),
@@ -307,6 +340,11 @@ async def test_candidate_assumptions_are_separate_and_candidate_is_deduplicated(
             await session.commit()
             run_ids.append(first_run.id)
             first_id = first.id
+            assert (
+                timedelta(days=2, hours=23)
+                < (first.expires_at - first.last_seen_at)
+                < timedelta(days=3, minutes=1)
+            )
 
         async with async_session_maker() as session:
             second_run = OpportunityDiscoveryRun(
@@ -319,6 +357,7 @@ async def test_candidate_assumptions_are_separate_and_candidate_is_deduplicated(
             session.add(second_run)
             await session.flush()
             service = OpportunityDiscoveryService(session)
+            service.runtime.candidate_ttl_days = 3
             second = await service._upsert_candidate(
                 run=second_run,
                 security=await session.get(Security, security.id),
