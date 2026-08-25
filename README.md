@@ -62,7 +62,7 @@ Requirements:
 - Python 3.11-3.14
 - [Poetry](https://python-poetry.org/docs/#installation) 2.3.2, installed in
   its own environment (prefer `pipx install poetry==2.3.2`)
-- Node.js 20.9 or newer and npm
+- Node.js 24 LTS and npm
 - Docker with Compose
 
 ```bash
