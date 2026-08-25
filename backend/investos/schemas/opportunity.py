@@ -17,6 +17,14 @@ class OpportunityUniverseMemberUpdate(BaseModel):
     enabled: bool | None = None
 
 
+class OpportunityUniverseOrigin(BaseModel):
+    source_type: str
+    source_id: str
+    label: str
+    observed_at: str
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
 class OpportunityUniverseMemberResponse(BaseModel):
     id: UUID
     security_id: UUID
@@ -26,10 +34,60 @@ class OpportunityUniverseMemberResponse(BaseModel):
     enabled: bool
     priority: float
     source: str
+    origins: list[OpportunityUniverseOrigin] = Field(default_factory=list)
     last_inspected_at: datetime | None
     next_inspection_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+OpportunityUniverseImportSource = Literal[
+    "tracked_positions",
+    "researched_catalog",
+    "benchmark_constituents",
+]
+
+
+class OpportunityUniverseImportRequest(BaseModel):
+    sources: list[OpportunityUniverseImportSource] = Field(
+        min_length=1,
+        max_length=3,
+    )
+
+
+class OpportunityUniverseImportSourceSummary(BaseModel):
+    source_type: OpportunityUniverseImportSource
+    label: str
+    eligible_count: int
+    missing_count: int
+    existing_count: int
+    skipped_count: int
+
+
+class OpportunityUniverseImportCandidate(BaseModel):
+    security_id: UUID
+    entity_id: UUID
+    ticker: str
+    entity_name: str
+    asset_class: str
+    instrument_type: str
+    status: Literal["missing", "present"]
+    origins: list[OpportunityUniverseOrigin]
+
+
+class OpportunityUniverseImportPreview(BaseModel):
+    captured_at: datetime
+    source_summaries: list[OpportunityUniverseImportSourceSummary]
+    candidates: list[OpportunityUniverseImportCandidate]
+    skipped: list[dict]
+
+
+class OpportunityUniverseImportResult(BaseModel):
+    imported_count: int
+    existing_count: int
+    provenance_updated_count: int
+    member_ids: list[UUID]
+    preview: OpportunityUniverseImportPreview
 
 
 class OpportunityDiscoveryRunResponse(BaseModel):

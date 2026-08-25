@@ -11,6 +11,7 @@ from sqlalchemy import delete, func, select
 
 import investos.services.opportunity as opportunity_module
 from investos.db import async_session_maker, engine
+from investos.models.benchmark import Benchmark, BenchmarkConstituent
 from investos.models.entity import Entity, Security
 from investos.models.opportunity import (
     OpportunityCandidate,
@@ -19,6 +20,7 @@ from investos.models.opportunity import (
     OpportunityUniverseMember,
 )
 from investos.models.portfolio import Position
+from investos.models.profile import Profile
 from investos.models.shadow import ExperimentFamilyState, ShadowExperiment
 from investos.schemas.opportunity import OpportunityShadowTestRequest
 from investos.services.opportunity import OpportunityDiscoveryService
@@ -150,6 +152,265 @@ async def test_discovery_context_includes_unowned_security_without_fake_position
             security_id=security.id,
             member_id=member.id,
         )
+
+
+async def test_universe_import_is_additive_deduplicated_and_source_backed(
+    monkeypatch,
+) -> None:
+    created: dict[str, list] = {
+        "entities": [],
+        "securities": [],
+        "positions": [],
+        "profiles": [],
+        "constituents": [],
+        "benchmarks": [],
+        "members": [],
+    }
+    suffix = uuid4().hex[:6].upper()
+    observed_at = datetime(2026, 2, 1, tzinfo=UTC)
+    try:
+        async with async_session_maker() as session:
+            entities = [
+                Entity(name=f"Universe Import {suffix} {index}", entity_type="company")
+                for index in range(4)
+            ]
+            session.add_all(entities)
+            await session.flush()
+            created["entities"] = [entity.id for entity in entities]
+            securities = [
+                Security(
+                    entity_id=entity.id,
+                    ticker=f"U{suffix}{index}",
+                    asset_class="equity",
+                    instrument_type="common_stock",
+                    is_active=index != 3,
+                )
+                for index, entity in enumerate(entities)
+            ]
+            session.add_all(securities)
+            await session.flush()
+            created["securities"] = [security.id for security in securities]
+
+            positions = [
+                Position(
+                    security_id=securities[0].id,
+                    direction="long",
+                    list_type="holding",
+                    added_at=observed_at,
+                ),
+                Position(
+                    security_id=securities[3].id,
+                    direction="long",
+                    list_type="watchlist",
+                    added_at=observed_at,
+                ),
+            ]
+            session.add_all(positions)
+            profiles = [
+                Profile(
+                    subject_type="entity",
+                    subject_id=entities[0].id,
+                    executive_summary="An older research profile.",
+                    version=1,
+                    updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+                ),
+                Profile(
+                    subject_type="entity",
+                    subject_id=entities[0].id,
+                    executive_summary="The latest source-backed research profile.",
+                    version=2,
+                    updated_at=observed_at,
+                ),
+                Profile(
+                    subject_type="entity",
+                    subject_id=entities[1].id,
+                    executive_summary="A source-backed research profile.",
+                    updated_at=observed_at,
+                ),
+            ]
+            session.add_all(profiles)
+            benchmark = Benchmark(
+                name=f"Universe Test {suffix}",
+                ticker=f"B{suffix}",
+                benchmark_type="custom",
+            )
+            session.add(benchmark)
+            await session.flush()
+            constituents = [
+                BenchmarkConstituent(
+                    benchmark_id=benchmark.id,
+                    security_id=securities[1].id,
+                    weight_pct=100.0,
+                    as_of_date=datetime(2026, 1, 1, tzinfo=UTC),
+                ),
+                BenchmarkConstituent(
+                    benchmark_id=benchmark.id,
+                    security_id=securities[2].id,
+                    weight_pct=100.0,
+                    as_of_date=observed_at,
+                ),
+            ]
+            session.add_all(constituents)
+            existing = OpportunityUniverseMember(
+                security_id=securities[0].id,
+                entity_id=entities[0].id,
+                enabled=False,
+                priority=0.87,
+                source="manual",
+                metadata_json={
+                    "origins": [
+                        {
+                            "source_type": "manual",
+                            "source_id": "operator-existing",
+                            "label": "Existing operator choice",
+                            "observed_at": observed_at.isoformat(),
+                            "metadata": {},
+                        }
+                    ]
+                },
+            )
+            session.add(existing)
+            await session.commit()
+            created["positions"] = [position.id for position in positions]
+            created["profiles"] = [profile.id for profile in profiles]
+            created["benchmarks"] = [benchmark.id]
+            created["constituents"] = [row.id for row in constituents]
+            created["members"] = [existing.id]
+
+        async with async_session_maker() as session:
+            service = OpportunityDiscoveryService(session)
+            preview = await service.preview_universe_import()
+            candidates = {item["ticker"]: item for item in preview["candidates"]}
+            summaries = {
+                item["source_type"]: item for item in preview["source_summaries"]
+            }
+
+            fixture_tickers = {
+                securities[0].ticker,
+                securities[1].ticker,
+                securities[2].ticker,
+            }
+            assert fixture_tickers <= set(candidates)
+            assert candidates[securities[0].ticker]["status"] == "present"
+            assert {
+                origin["source_type"]
+                for origin in candidates[securities[0].ticker]["origins"]
+            } == {"tracked_positions", "researched_catalog"}
+            assert [
+                origin["source_id"]
+                for origin in candidates[securities[0].ticker]["origins"]
+                if origin["source_type"] == "researched_catalog"
+            ] == [str(profiles[1].id)]
+            assert {
+                origin["source_type"]
+                for origin in candidates[securities[1].ticker]["origins"]
+            } == {"researched_catalog"}
+            assert {
+                origin["source_type"]
+                for origin in candidates[securities[2].ticker]["origins"]
+            } == {"benchmark_constituents"}
+            assert summaries["tracked_positions"]["eligible_count"] >= 1
+            assert summaries["tracked_positions"]["existing_count"] >= 1
+            assert summaries["tracked_positions"]["skipped_count"] >= 1
+            assert summaries["researched_catalog"]["eligible_count"] >= 2
+            assert summaries["benchmark_constituents"]["eligible_count"] >= 1
+            assert any(
+                item["ticker"] == securities[3].ticker
+                and item["reason"] == "inactive_or_delisted_security"
+                for item in preview["skipped"]
+            )
+            with pytest.raises(ValueError, match="Select at least one"):
+                await service.preview_universe_import([])
+
+            fixture_preview = {
+                **preview,
+                "candidates": [
+                    item
+                    for item in preview["candidates"]
+                    if item["ticker"] in fixture_tickers
+                ],
+                "skipped": [
+                    item
+                    for item in preview["skipped"]
+                    if item.get("ticker") == securities[3].ticker
+                ],
+            }
+
+            async def fixture_import_preview(_sources):
+                return fixture_preview
+
+            monkeypatch.setattr(
+                service, "preview_universe_import", fixture_import_preview
+            )
+
+            first = await service.import_universe(
+                [
+                    "tracked_positions",
+                    "researched_catalog",
+                    "benchmark_constituents",
+                ]
+            )
+            assert first["imported_count"] == 2
+            assert first["existing_count"] == 1
+            created["members"].extend(
+                member_id
+                for member_id in first["member_ids"]
+                if member_id not in created["members"]
+            )
+
+            existing_after = await session.get(OpportunityUniverseMember, existing.id)
+            assert existing_after.enabled is False
+            assert float(existing_after.priority) == pytest.approx(0.87)
+            assert {
+                origin["source_type"]
+                for origin in existing_after.metadata_json["origins"]
+            } == {"manual", "tracked_positions", "researched_catalog"}
+
+            second = await service.import_universe(
+                [
+                    "tracked_positions",
+                    "researched_catalog",
+                    "benchmark_constituents",
+                ]
+            )
+            assert second["imported_count"] == 0
+            assert second["existing_count"] == 3
+            assert second["provenance_updated_count"] == 0
+    finally:
+        async with async_session_maker() as session:
+            if created["members"]:
+                await session.execute(
+                    delete(OpportunityUniverseMember).where(
+                        OpportunityUniverseMember.id.in_(created["members"])
+                    )
+                )
+            if created["constituents"]:
+                await session.execute(
+                    delete(BenchmarkConstituent).where(
+                        BenchmarkConstituent.id.in_(created["constituents"])
+                    )
+                )
+            if created["benchmarks"]:
+                await session.execute(
+                    delete(Benchmark).where(Benchmark.id.in_(created["benchmarks"]))
+                )
+            if created["positions"]:
+                await session.execute(
+                    delete(Position).where(Position.id.in_(created["positions"]))
+                )
+            if created["profiles"]:
+                await session.execute(
+                    delete(Profile).where(Profile.id.in_(created["profiles"]))
+                )
+            if created["securities"]:
+                await session.execute(
+                    delete(Security).where(Security.id.in_(created["securities"]))
+                )
+            if created["entities"]:
+                await session.execute(
+                    delete(Entity).where(Entity.id.in_(created["entities"]))
+                )
+            await session.commit()
 
 
 async def test_research_query_falls_back_when_model_drops_the_subject(

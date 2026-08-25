@@ -29,7 +29,9 @@ exposed.
   historical analogies, contradictions, and portfolio-level transmission paths.
 - Runs bounded research, verification, monitoring, reminders, integrity review,
   and source-learning workflows in the background.
-- Surveys an operator-defined investable universe for provisional opportunities,
+- Surveys an operator-defined investable universe assembled manually or from
+  tracked positions, researched entities, and latest stored benchmark snapshots,
+  for provisional opportunities,
   then evaluates immutable discovery-time hypotheses against dated market and cash controls,
   exposing coverage, assumptions, evidence, skips, failures, and provider cost.
 - Tests ideas through shadow experiments and paper accounts, then records

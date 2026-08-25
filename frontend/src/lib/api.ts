@@ -438,10 +438,55 @@ export type OpportunityUniverseMember = {
   enabled: boolean;
   priority: number;
   source: string;
+  origins: OpportunityUniverseOrigin[];
   last_inspected_at?: string | null;
   next_inspection_at?: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type OpportunityUniverseOrigin = {
+  source_type: string;
+  source_id: string;
+  label: string;
+  observed_at: string;
+  metadata: Record<string, unknown>;
+};
+
+export type OpportunityUniverseImportSource =
+  | "tracked_positions"
+  | "researched_catalog"
+  | "benchmark_constituents";
+
+export type OpportunityUniverseImportPreview = {
+  captured_at: string;
+  source_summaries: Array<{
+    source_type: OpportunityUniverseImportSource;
+    label: string;
+    eligible_count: number;
+    missing_count: number;
+    existing_count: number;
+    skipped_count: number;
+  }>;
+  candidates: Array<{
+    security_id: string;
+    entity_id: string;
+    ticker: string;
+    entity_name: string;
+    asset_class: string;
+    instrument_type: string;
+    status: "missing" | "present";
+    origins: OpportunityUniverseOrigin[];
+  }>;
+  skipped: Array<Record<string, unknown>>;
+};
+
+export type OpportunityUniverseImportResult = {
+  imported_count: number;
+  existing_count: number;
+  provenance_updated_count: number;
+  member_ids: string[];
+  preview: OpportunityUniverseImportPreview;
 };
 
 export type OpportunityDiscoveryRun = {

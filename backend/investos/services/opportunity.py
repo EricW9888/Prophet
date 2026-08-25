@@ -7,12 +7,13 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import desc, func, or_, select, update
+from sqlalchemy import and_, desc, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.config import settings
 from investos.core.llm import call_llm_json
+from investos.models.benchmark import Benchmark, BenchmarkConstituent
 from investos.models.entity import Entity, Security
 from investos.models.opportunity import (
     OpportunityCandidate,
@@ -20,6 +21,8 @@ from investos.models.opportunity import (
     OpportunityDiscoveryRun,
     OpportunityUniverseMember,
 )
+from investos.models.portfolio import Position
+from investos.models.profile import Profile
 from investos.schemas.opportunity import (
     OpportunityCandidateReview,
     OpportunityShadowTestRequest,
@@ -56,6 +59,14 @@ class OpportunityDiscoveryService:
         "expired",
         "shadow_tested",
     }
+    UNIVERSE_IMPORT_SOURCES = {
+        "tracked_positions": "Tracked positions",
+        "researched_catalog": "Researched catalog",
+        "benchmark_constituents": "Latest benchmark snapshots",
+    }
+    TRACKED_POSITION_LIST_TYPES = ("holding", "watchlist", "considering")
+    ELIGIBLE_ASSET_CLASSES = {"equity", "etf"}
+    DEFAULT_UNIVERSE_PRIORITY = 0.5
 
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -80,6 +91,323 @@ class OpportunityDiscoveryService:
             self._serialize_member(member, security=security, entity=entity)
             for member, security, entity in rows
         ]
+
+    async def preview_universe_import(
+        self,
+        sources: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Preview additive universe construction from Prophet-owned durable state."""
+
+        selected_sources = self._validated_import_sources(sources)
+        captured_at = datetime.now(UTC)
+        origins_by_security: dict[UUID, list[dict[str, Any]]] = defaultdict(list)
+        catalog: dict[UUID, tuple[Security, Entity]] = {}
+        skipped: list[dict[str, Any]] = []
+        skipped_keys: set[tuple[str, UUID]] = set()
+
+        def register(
+            *,
+            source_type: str,
+            source_id: UUID,
+            label: str,
+            observed_at: datetime,
+            security: Security,
+            entity: Entity,
+            metadata: dict[str, Any] | None = None,
+        ) -> None:
+            reason = self._universe_eligibility_reason(security)
+            if reason is not None:
+                skip_key = (source_type, security.id)
+                if skip_key in skipped_keys:
+                    return
+                skipped_keys.add(skip_key)
+                skipped.append(
+                    {
+                        "source_type": source_type,
+                        "source_id": str(source_id),
+                        "ticker": security.ticker,
+                        "reason": reason,
+                    }
+                )
+                return
+            catalog[security.id] = (security, entity)
+            origin = {
+                "source_type": source_type,
+                "source_id": str(source_id),
+                "label": label,
+                "observed_at": observed_at.isoformat(),
+                "metadata": metadata or {},
+            }
+            existing_keys = {
+                (item.get("source_type"), item.get("source_id"))
+                for item in origins_by_security[security.id]
+            }
+            if (source_type, str(source_id)) not in existing_keys:
+                origins_by_security[security.id].append(origin)
+
+        if "tracked_positions" in selected_sources:
+            rows = (
+                await self.session.execute(
+                    select(Position, Security, Entity)
+                    .join(Security, Position.security_id == Security.id)
+                    .join(Entity, Security.entity_id == Entity.id)
+                    .where(Position.list_type.in_(self.TRACKED_POSITION_LIST_TYPES))
+                )
+            ).all()
+            for position, security, entity in rows:
+                register(
+                    source_type="tracked_positions",
+                    source_id=position.id,
+                    label=f"{position.list_type.replace('_', ' ').title()} position",
+                    observed_at=position.added_at,
+                    security=security,
+                    entity=entity,
+                    metadata={"list_type": position.list_type},
+                )
+
+        if "researched_catalog" in selected_sources:
+            ranked_profiles = (
+                select(
+                    Profile.id.label("profile_id"),
+                    func.row_number()
+                    .over(
+                        partition_by=Profile.subject_id,
+                        order_by=(
+                            Profile.updated_at.desc(),
+                            Profile.created_at.desc(),
+                            Profile.id.desc(),
+                        ),
+                    )
+                    .label("profile_rank"),
+                )
+                .where(Profile.subject_type == "entity")
+                .subquery()
+            )
+            rows = (
+                await self.session.execute(
+                    select(Profile, Security, Entity)
+                    .join(
+                        ranked_profiles,
+                        and_(
+                            ranked_profiles.c.profile_id == Profile.id,
+                            ranked_profiles.c.profile_rank == 1,
+                        ),
+                    )
+                    .join(Entity, Profile.subject_id == Entity.id)
+                    .join(Security, Security.entity_id == Entity.id)
+                )
+            ).all()
+            for profile, security, entity in rows:
+                register(
+                    source_type="researched_catalog",
+                    source_id=profile.id,
+                    label="Entity research profile",
+                    observed_at=profile.updated_at,
+                    security=security,
+                    entity=entity,
+                    metadata={
+                        "profile_version": profile.version,
+                        "review_status": profile.review_status,
+                    },
+                )
+
+        if "benchmark_constituents" in selected_sources:
+            latest_snapshots = (
+                select(
+                    BenchmarkConstituent.benchmark_id.label("benchmark_id"),
+                    func.max(BenchmarkConstituent.as_of_date).label("as_of_date"),
+                )
+                .group_by(BenchmarkConstituent.benchmark_id)
+                .subquery()
+            )
+            rows = (
+                await self.session.execute(
+                    select(BenchmarkConstituent, Benchmark, Security, Entity)
+                    .join(Benchmark, BenchmarkConstituent.benchmark_id == Benchmark.id)
+                    .join(
+                        latest_snapshots,
+                        and_(
+                            latest_snapshots.c.benchmark_id
+                            == BenchmarkConstituent.benchmark_id,
+                            latest_snapshots.c.as_of_date
+                            == BenchmarkConstituent.as_of_date,
+                        ),
+                    )
+                    .join(Security, BenchmarkConstituent.security_id == Security.id)
+                    .join(Entity, Security.entity_id == Entity.id)
+                )
+            ).all()
+            for constituent, benchmark, security, entity in rows:
+                register(
+                    source_type="benchmark_constituents",
+                    source_id=constituent.id,
+                    label=f"{benchmark.name} latest snapshot",
+                    observed_at=constituent.as_of_date,
+                    security=security,
+                    entity=entity,
+                    metadata={
+                        "benchmark_id": str(benchmark.id),
+                        "benchmark_ticker": benchmark.ticker,
+                        "weight_pct": float(constituent.weight_pct),
+                        "as_of_date": constituent.as_of_date.isoformat(),
+                    },
+                )
+
+        existing_rows: list[OpportunityUniverseMember] = []
+        if origins_by_security:
+            existing_rows = list(
+                (
+                    await self.session.execute(
+                        select(OpportunityUniverseMember).where(
+                            OpportunityUniverseMember.security_id.in_(
+                                list(origins_by_security)
+                            )
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        existing_security_ids = {row.security_id for row in existing_rows}
+        candidates = []
+        for security_id, origins in origins_by_security.items():
+            security, entity = catalog[security_id]
+            candidates.append(
+                {
+                    "security_id": security.id,
+                    "entity_id": entity.id,
+                    "ticker": security.ticker,
+                    "entity_name": entity.name,
+                    "asset_class": security.asset_class,
+                    "instrument_type": security.instrument_type,
+                    "status": (
+                        "present" if security.id in existing_security_ids else "missing"
+                    ),
+                    "origins": sorted(
+                        origins,
+                        key=lambda item: (
+                            str(item.get("source_type")),
+                            str(item.get("label")),
+                        ),
+                    ),
+                }
+            )
+        candidates.sort(key=lambda item: (item["ticker"], item["entity_name"]))
+
+        summaries = []
+        for source_type in selected_sources:
+            source_candidates = [
+                item
+                for item in candidates
+                if any(
+                    origin.get("source_type") == source_type
+                    for origin in item["origins"]
+                )
+            ]
+            summaries.append(
+                {
+                    "source_type": source_type,
+                    "label": self.UNIVERSE_IMPORT_SOURCES[source_type],
+                    "eligible_count": len(source_candidates),
+                    "missing_count": sum(
+                        item["status"] == "missing" for item in source_candidates
+                    ),
+                    "existing_count": sum(
+                        item["status"] == "present" for item in source_candidates
+                    ),
+                    "skipped_count": sum(
+                        item.get("source_type") == source_type for item in skipped
+                    ),
+                }
+            )
+        return {
+            "captured_at": captured_at,
+            "source_summaries": summaries,
+            "candidates": candidates,
+            "skipped": skipped,
+        }
+
+    async def import_universe(self, sources: list[str]) -> dict[str, Any]:
+        """Add eligible preview members without removing or reprioritizing state."""
+
+        preview = await self.preview_universe_import(sources)
+        security_ids = [candidate["security_id"] for candidate in preview["candidates"]]
+        existing_rows: list[OpportunityUniverseMember] = []
+        if security_ids:
+            existing_rows = list(
+                (
+                    await self.session.execute(
+                        select(OpportunityUniverseMember)
+                        .where(OpportunityUniverseMember.security_id.in_(security_ids))
+                        .with_for_update()
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        members_by_security = {row.security_id: row for row in existing_rows}
+        imported_count = 0
+        provenance_updated_count = 0
+        member_ids: list[UUID] = []
+        for candidate in preview["candidates"]:
+            security_id = candidate["security_id"]
+            member = members_by_security.get(security_id)
+            if member is None:
+                inserted_id = (
+                    await self.session.execute(
+                        pg_insert(OpportunityUniverseMember)
+                        .values(
+                            security_id=security_id,
+                            entity_id=candidate["entity_id"],
+                            enabled=True,
+                            priority=self.DEFAULT_UNIVERSE_PRIORITY,
+                            source=candidate["origins"][0]["source_type"],
+                            metadata_json={},
+                        )
+                        .on_conflict_do_nothing(
+                            constraint="uq_opportunity_universe_members_security"
+                        )
+                        .returning(OpportunityUniverseMember.id)
+                    )
+                ).scalar_one_or_none()
+                if inserted_id is not None:
+                    member = await self.session.get(
+                        OpportunityUniverseMember,
+                        inserted_id,
+                    )
+                    imported_count += 1
+                else:
+                    member = (
+                        await self.session.execute(
+                            select(OpportunityUniverseMember)
+                            .where(OpportunityUniverseMember.security_id == security_id)
+                            .with_for_update()
+                        )
+                    ).scalar_one()
+                if member is None:
+                    raise RuntimeError(
+                        "Opportunity universe upsert did not return a row."
+                    )
+                members_by_security[security_id] = member
+            metadata = dict(member.metadata_json or {})
+            merged_origins = self._merge_universe_origins(
+                list(metadata.get("origins") or []),
+                list(candidate["origins"]),
+            )
+            if merged_origins != list(metadata.get("origins") or []):
+                metadata["origins"] = merged_origins
+                metadata["last_origin_import_at"] = preview["captured_at"].isoformat()
+                member.metadata_json = metadata
+                provenance_updated_count += 1
+            member_ids.append(member.id)
+        await self.session.commit()
+        return {
+            "imported_count": imported_count,
+            "existing_count": len(preview["candidates"]) - imported_count,
+            "provenance_updated_count": provenance_updated_count,
+            "member_ids": member_ids,
+            "preview": preview,
+        }
 
     async def upsert_universe_member(
         self,
@@ -109,6 +437,21 @@ class OpportunityDiscoveryService:
         else:
             member.enabled = payload.enabled
             member.priority = payload.priority
+        await self.session.flush()
+        metadata = dict(member.metadata_json or {})
+        metadata["origins"] = self._merge_universe_origins(
+            list(metadata.get("origins") or []),
+            [
+                {
+                    "source_type": "manual",
+                    "source_id": str(member.id),
+                    "label": "Added by operator",
+                    "observed_at": datetime.now(UTC).isoformat(),
+                    "metadata": {},
+                }
+            ],
+        )
+        member.metadata_json = metadata
         await self.session.commit()
         await self.session.refresh(member)
         entity = security.entity or await self.session.get(Entity, security.entity_id)
@@ -1056,6 +1399,49 @@ class OpportunityDiscoveryService:
         )
         return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:32]
 
+    @classmethod
+    def _validated_import_sources(cls, sources: list[str] | None) -> list[str]:
+        selected = list(cls.UNIVERSE_IMPORT_SOURCES if sources is None else sources)
+        if not selected:
+            raise ValueError("Select at least one opportunity universe source.")
+        unknown = sorted(set(selected) - set(cls.UNIVERSE_IMPORT_SOURCES))
+        if unknown:
+            raise ValueError(
+                f"Unknown opportunity universe sources: {', '.join(unknown)}"
+            )
+        return [source for source in cls.UNIVERSE_IMPORT_SOURCES if source in selected]
+
+    @classmethod
+    def _universe_eligibility_reason(cls, security: Security) -> str | None:
+        if not (security.ticker or "").strip():
+            return "missing_ticker"
+        if not security.is_active or security.delisted_at is not None:
+            return "inactive_or_delisted_security"
+        if security.asset_class not in cls.ELIGIBLE_ASSET_CLASSES:
+            return "unsupported_asset_class"
+        return None
+
+    @staticmethod
+    def _merge_universe_origins(
+        existing: list[dict[str, Any]],
+        incoming: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        by_key: dict[tuple[str, str], dict[str, Any]] = {}
+        for origin in [*existing, *incoming]:
+            source_type = str(origin.get("source_type") or "").strip()
+            source_id = str(origin.get("source_id") or "").strip()
+            if not source_type or not source_id:
+                continue
+            by_key[(source_type, source_id)] = dict(origin)
+        return sorted(
+            by_key.values(),
+            key=lambda item: (
+                str(item.get("source_type")),
+                str(item.get("label")),
+                str(item.get("source_id")),
+            ),
+        )
+
     @staticmethod
     def _serialize_member(
         member: OpportunityUniverseMember,
@@ -1063,6 +1449,20 @@ class OpportunityDiscoveryService:
         security: Security,
         entity: Entity,
     ) -> dict[str, Any]:
+        origins = list((member.metadata_json or {}).get("origins") or [])
+        if not any(origin.get("source_type") == member.source for origin in origins):
+            origins = OpportunityDiscoveryService._merge_universe_origins(
+                origins,
+                [
+                    {
+                        "source_type": member.source,
+                        "source_id": str(member.id),
+                        "label": "Original universe source",
+                        "observed_at": member.created_at.isoformat(),
+                        "metadata": {},
+                    }
+                ],
+            )
         return {
             "id": member.id,
             "security_id": security.id,
@@ -1072,6 +1472,7 @@ class OpportunityDiscoveryService:
             "enabled": member.enabled,
             "priority": float(member.priority or 0.0),
             "source": member.source,
+            "origins": origins,
             "last_inspected_at": member.last_inspected_at,
             "next_inspection_at": member.next_inspection_at,
             "created_at": member.created_at,
