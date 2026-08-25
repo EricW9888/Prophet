@@ -19,10 +19,7 @@ from youtube_transcript_api import (
 from investos.models.source import Source
 from investos.schemas.evidence import RawEvidenceCreate
 from investos.services.ingestion import IngestionService
-from investos.services.media_workspace import (
-    MediaIngestionPolicy,
-    media_temp_workspace,
-)
+from investos.services.media_workspace import MediaIngestionPolicy, media_temp_workspace
 from investos.services.youtube_transcription import (
     LocalTranscriptionError,
     LocalYouTubeTranscriber,
