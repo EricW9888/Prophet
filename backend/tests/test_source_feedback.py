@@ -124,6 +124,25 @@ def test_video_notes_keep_specific_origin_label():
     assert origin["origin_detail"] == "https://www.youtube.com/watch?v=def456"
 
 
+def test_local_audio_transcript_keeps_extraction_origin_label():
+    source = SimpleNamespace(source_type="youtube")
+    evidence = SimpleNamespace(
+        metadata_json={
+            "trigger": "manual_youtube_ingest",
+            "ingest_mode": "local_audio_transcription",
+            "video_id": "dQw4w9WgXcQ",
+        },
+        source_item_type="video_audio_transcript",
+        url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    )
+
+    origin = SourceService._evidence_origin_summary(evidence, source)
+
+    assert origin["origin_kind"] == "manual"
+    assert origin["origin_label"] == "Local YouTube audio transcript"
+    assert origin["origin_detail"] == "dQw4w9WgXcQ"
+
+
 @pytest.mark.asyncio
 async def test_create_source_returns_hydrated_response_without_lazy_relationships():
     class FakeSession:

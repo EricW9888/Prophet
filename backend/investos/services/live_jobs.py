@@ -18,6 +18,7 @@ class LiveJobEvent:
 @dataclass
 class LiveJobRecord:
     id: UUID
+    job_kind: str
     status: str
     created_at: datetime
     updated_at: datetime
@@ -38,6 +39,8 @@ class LiveJobTracker:
         self._jobs: dict[UUID, LiveJobRecord] = {}
         self._storage_path = Path(settings.STORAGE_DIR) / "_system" / "live_jobs.json"
         self._load_from_disk()
+        if self._recover_interrupted_jobs():
+            self._save_to_disk()
 
     def _save_to_disk(self) -> None:
         import json
@@ -49,6 +52,7 @@ class LiveJobTracker:
                 # Don't persist active tasks or huge error blobs
                 serializable[str(job_id)] = {
                     "id": str(record.id),
+                    "job_kind": record.job_kind,
                     "status": record.status,
                     "created_at": record.created_at.isoformat(),
                     "updated_at": record.updated_at.isoformat(),
@@ -83,6 +87,7 @@ class LiveJobTracker:
                     job_id = UUID(job_id_str)
                     self._jobs[job_id] = LiveJobRecord(
                         id=job_id,
+                        job_kind=str(raw.get("job_kind") or "agent_turn"),
                         status=raw["status"],
                         created_at=datetime.fromisoformat(raw["created_at"]),
                         updated_at=datetime.fromisoformat(raw["updated_at"]),
@@ -106,20 +111,24 @@ class LiveJobTracker:
             pass
 
     def create_job(
-        self, *, request_message: str, session_id: UUID | None
+        self,
+        *,
+        request_message: str,
+        session_id: UUID | None,
+        job_kind: str = "agent_turn",
+        queued_message: str = "Queued for analysis.",
     ) -> LiveJobRecord:
         now = datetime.now(UTC)
         record = LiveJobRecord(
             id=uuid4(),
+            job_kind=job_kind,
             status="queued",
             created_at=now,
             updated_at=now,
             request_message=request_message,
             session_id=session_id,
         )
-        record.events.append(
-            LiveJobEvent(phase="queued", message="Queued for analysis.")
-        )
+        record.events.append(LiveJobEvent(phase="queued", message=queued_message))
         self._jobs[record.id] = record
         self._prune()
         self._save_to_disk()
@@ -147,6 +156,7 @@ class LiveJobTracker:
             record.events.append(
                 LiveJobEvent(phase="cancelled", message="Job cancelled by user.")
             )
+            self._save_to_disk()
             return True
         return False
 
@@ -164,16 +174,20 @@ class LiveJobTracker:
         record.updated_at = datetime.now(UTC)
         record.events.append(LiveJobEvent(phase=phase, message=message, detail=detail))
 
-    def complete(self, job_id: UUID, *, result: dict[str, Any]) -> None:
+    def complete(
+        self,
+        job_id: UUID,
+        *,
+        result: dict[str, Any],
+        message: str = "Analysis finished.",
+    ) -> None:
         record = self._jobs.get(job_id)
         if record is None:
             return
         record.status = "completed"
         record.updated_at = datetime.now(UTC)
         record.result = result
-        record.events.append(
-            LiveJobEvent(phase="completed", message="Analysis finished.")
-        )
+        record.events.append(LiveJobEvent(phase="completed", message=message))
         self._save_to_disk()
 
     def fail(self, job_id: UUID, *, error: str) -> None:
@@ -190,12 +204,18 @@ class LiveJobTracker:
         return self._jobs.get(job_id)
 
     def list_jobs(
-        self, *, status: str | None = None, limit: int = 30
+        self,
+        *,
+        status: str | None = None,
+        job_kind: str | None = None,
+        limit: int = 30,
     ) -> list[LiveJobRecord]:
         self._prune()
         records = sorted(
             self._jobs.values(), key=lambda record: record.updated_at, reverse=True
         )
+        if job_kind:
+            records = [record for record in records if record.job_kind == job_kind]
         if status == "active":
             records = [
                 record for record in records if record.status in {"queued", "running"}
@@ -213,3 +233,22 @@ class LiveJobTracker:
         ]
         for job_id in stale:
             self._jobs.pop(job_id, None)
+
+    def _recover_interrupted_jobs(self) -> bool:
+        recovered = False
+        now = datetime.now(UTC)
+        for record in self._jobs.values():
+            if record.status not in {"queued", "running"}:
+                continue
+            recovered = True
+            record.status = "error"
+            record.updated_at = now
+            record.error = "Job interrupted by backend restart."
+            record.events.append(
+                LiveJobEvent(
+                    phase="error",
+                    message="Job interrupted by backend restart.",
+                    created_at=now,
+                )
+            )
+        return recovered

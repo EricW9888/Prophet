@@ -1382,6 +1382,31 @@ export type MediaIngestionCapabilityResponse = {
   capabilities: MediaIngestionCapability[];
 };
 
+export type MediaIngestionJobEvent = {
+  phase: string;
+  message: string;
+  created_at: string;
+  detail?: Record<string, unknown> | null;
+};
+
+export type MediaIngestionJob = {
+  job_id: string;
+  status: "queued" | "running" | "completed" | "error" | "cancelled" | string;
+  request_url: string;
+  created_at: string;
+  updated_at: string;
+  events: MediaIngestionJobEvent[];
+  result?: {
+    ok?: boolean;
+    error?: string;
+    evidence_id?: string;
+    transcript_length?: number;
+    video_id?: string;
+    ingest_mode?: string;
+  } | null;
+  error?: string | null;
+};
+
 export type OwnershipDisclosureCreate = {
   source_name: string;
   source_type: "filing" | "ownership_tracker";

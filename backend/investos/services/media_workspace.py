@@ -33,11 +33,11 @@ class MediaIngestionPolicy:
         )
 
     def capability_rows(self) -> list[dict[str, str]]:
-        raw_status = "available" if self.persist_raw_media else "disabled"
+        raw_status = "not_configured" if self.persist_raw_media else "disabled"
         raw_detail = (
-            "Raw media persistence is enabled; retained media must carry source, capture time, provider, and cleanup metadata."
+            "Raw media persistence was requested, but no supported connector retains raw media; current media jobs still remove scratch downloads after extraction."
             if self.persist_raw_media
-            else "Raw audio/video persistence is off by default; future media jobs should keep downloads in temporary workspaces and persist transcript/OCR evidence only."
+            else "Raw audio/video persistence is off by default; media jobs keep downloads in temporary workspaces and persist transcript/OCR evidence only."
         )
         return [
             {

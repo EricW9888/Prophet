@@ -294,7 +294,7 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "watch_youtube_video",
-            "description": "Ingest an individual YouTube video's existing caption transcript into the research graph. This does not inspect video frames or transcribe videos with missing captions.",
+            "description": "Ingest an individual YouTube video's transcript into the research graph. Prophet uses existing captions first and may use the explicitly enabled local audio-transcription fallback when captions are unavailable. It does not inspect video frames.",
             "parameters": {
                 "type": "object",
                 "properties": {

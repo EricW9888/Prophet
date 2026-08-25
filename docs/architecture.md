@@ -83,9 +83,13 @@ the earlier provider fails or returns no usable candidates. A successful first
 provider stops the chain. Search snippets remain provisional: research ingestion
 fetches the underlying page through `core/url_security.py` when possible and
 records discovery provider, source URL, content origin, and fallback attempts.
-Neither search provider is Prophet's retrieval system. YouTube ingestion uses
-available captions or an explicitly supplied transcript. The current media
-boundary is documented in `limitations.md`.
+Neither search provider is Prophet's retrieval system. YouTube ingestion is
+caption-first. If captions are unavailable, an explicitly enabled local adapter
+can invoke installed `yt-dlp`, `ffmpeg`, and OpenAI Whisper CLI tools inside the
+same bounded, disposable media workspace used by cleanup automation. Prophet
+persists the transcript, timestamp segments, extraction mode, model, and source
+provenance rather than raw media. It does not infer information from frames.
+The current media boundary is documented in `limitations.md`.
 
 ## Durable State
 
