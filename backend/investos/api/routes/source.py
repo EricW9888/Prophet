@@ -1,7 +1,7 @@
 import asyncio
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.db import async_session_maker, get_session
@@ -32,6 +32,7 @@ from investos.schemas.source import (
     SourceFeedbackResponse,
     SourceResponse,
     SourceUpdate,
+    YouTubeChannelPreviewResponse,
     YouTubeIngestionRequest,
 )
 from investos.services.fundamentals import FundamentalMetricService
@@ -41,6 +42,7 @@ from investos.services.market_setup import MarketSetupSignalService
 from investos.services.ownership_signals import OwnershipSignalService
 from investos.services.source import SourceService
 from investos.services.youtube import YouTubeService
+from investos.services.youtube_channel import YouTubeChannelError
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 
@@ -105,6 +107,24 @@ async def get_youtube_capabilities():
     return YouTubeService.media_capabilities()
 
 
+@router.get(
+    "/youtube/channels/{source_id}/videos",
+    response_model=YouTubeChannelPreviewResponse,
+)
+async def list_youtube_channel_videos(
+    source_id: UUID,
+    limit: int = Query(default=12, ge=1, le=30),
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        return await YouTubeService(session).list_channel_videos(source_id, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except YouTubeChannelError as exc:
+        status_code = 503 if exc.unavailable else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
 @router.post(
     "/youtube/ingest-jobs",
     response_model=MediaIngestionJobResponse,
@@ -137,6 +157,7 @@ async def create_youtube_ingestion_job(
                 result = await service.ingest_video(
                     payload.url,
                     title=payload.title,
+                    source_id=payload.source_id,
                     progress_callback=progress,
                 )
                 tracker.complete(

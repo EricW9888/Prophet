@@ -42,6 +42,14 @@ def test_youtube_url_parser_rejects_channel_as_video():
     }
 
 
+def test_youtube_url_parser_rejects_lookalike_host():
+    service = YouTubeService(SimpleNamespace())
+
+    assert (
+        service._extract_video_id("https://evilyoutube.com/watch?v=dQw4w9WgXcQ") is None
+    )
+
+
 def test_youtube_media_capabilities_report_disabled_local_fallback(monkeypatch):
     monkeypatch.setattr(
         youtube_module.LocalYouTubeTranscriber,
@@ -63,6 +71,7 @@ def test_youtube_media_capabilities_report_disabled_local_fallback(monkeypatch):
     statuses = {item["key"]: item["status"] for item in result["capabilities"]}
     assert statuses["caption_transcript"] == "available"
     assert statuses["channel_source_record"] == "available"
+    assert statuses["channel_video_enumeration"] == "not_configured"
     assert statuses["audio_transcription"] == "disabled"
     assert statuses["frame_or_slide_ocr"] == "not_configured"
     assert statuses["temporary_workspace_cleanup"] == "available"

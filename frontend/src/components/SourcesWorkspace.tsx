@@ -14,6 +14,8 @@ import {
   SourceFeedbackRecord,
   SourceRecord,
   SubjectAliasRecord,
+  YouTubeChannelPreview,
+  YouTubeChannelVideo,
 } from "@/lib/api";
 import { normalizeSourceOrigin } from "@/lib/sourceOrigin";
 import HintMarker from "@/components/HintMarker";
@@ -82,7 +84,11 @@ export default function SourcesWorkspace() {
   const [mediaCapabilities, setMediaCapabilities] = useState<MediaIngestionCapabilityResponse | null>(null);
   const [mediaUrl, setMediaUrl] = useState("");
   const [mediaTitle, setMediaTitle] = useState("");
+  const [mediaSourceId, setMediaSourceId] = useState("");
   const [mediaJob, setMediaJob] = useState<MediaIngestionJob | null>(null);
+  const [channelSourceId, setChannelSourceId] = useState("");
+  const [channelPreview, setChannelPreview] = useState<YouTubeChannelPreview | null>(null);
+  const [channelLoading, setChannelLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -106,6 +112,10 @@ export default function SourcesWorkspace() {
 
   const trustedSources = useMemo(() => sources.filter((source) => source.is_trusted), [sources]);
   const discoveredSources = useMemo(() => sources.filter((source) => !source.is_trusted), [sources]);
+  const youtubeChannelSources = useMemo(
+    () => sources.filter((source) => source.source_type === "youtube" && source.url),
+    [sources],
+  );
   const usefulFlags = feedback.filter((item) => item.rating === "useful");
   const noisyFlags = feedback.filter((item) => item.rating === "not_useful");
 
@@ -126,6 +136,12 @@ export default function SourcesWorkspace() {
       setNotes(noteData);
       setAliases(aliasData);
       setMediaCapabilities(mediaCapabilityData);
+      setChannelSourceId((current) => {
+        if (sourceData.some((source) => source.id === current && source.source_type === "youtube" && source.url)) return current;
+        const preferred = sourceData.find((source) => source.source_type === "youtube" && source.is_trusted && source.url)
+          ?? sourceData.find((source) => source.source_type === "youtube" && source.url);
+        return preferred?.id ?? "";
+      });
       setNoteForm((current) => {
         if (current.sourceId || sourceData.length === 0) return current;
         const preferred = sourceData.find((source) => source.is_trusted) ?? sourceData[0];
@@ -157,6 +173,14 @@ export default function SourcesWorkspace() {
             if (job.result?.ok) {
               setMediaUrl("");
               setMediaTitle("");
+              if (job.result.video_id) {
+                setChannelPreview((current) => current ? {
+                  ...current,
+                  videos: current.videos.map((video) => video.video_id === job.result?.video_id
+                    ? { ...video, already_ingested: true, evidence_id: job.result?.evidence_id ?? video.evidence_id }
+                    : video),
+                } : current);
+              }
               setError(null);
               void loadWorkspace(false);
             } else {
@@ -206,20 +230,63 @@ export default function SourcesWorkspace() {
   async function startMediaIngestion(e: React.FormEvent) {
     e.preventDefault();
     if (!mediaUrl.trim() || (mediaJob && ["queued", "running"].includes(mediaJob.status))) return;
+    await queueMediaIngestion({
+      url: mediaUrl.trim(),
+      title: mediaTitle.trim() || null,
+      sourceId: mediaSourceId || null,
+    });
+  }
+
+  async function queueMediaIngestion({
+    url,
+    title,
+    sourceId,
+  }: {
+    url: string;
+    title: string | null;
+    sourceId: string | null;
+  }) {
     setError(null);
     try {
       const job = await apiFetch<MediaIngestionJob>("/sources/youtube/ingest-jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          url: mediaUrl.trim(),
-          title: mediaTitle.trim() || null,
+          url,
+          title,
+          source_id: sourceId,
         }),
       });
       setMediaJob(job);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to start YouTube ingestion.");
     }
+  }
+
+  async function loadChannelPreview() {
+    if (!channelSourceId) return;
+    setChannelLoading(true);
+    setError(null);
+    try {
+      const result = await apiFetch<YouTubeChannelPreview>(
+        `/sources/youtube/channels/${channelSourceId}/videos?limit=12`,
+      );
+      setChannelPreview(result);
+    } catch (err) {
+      setChannelPreview(null);
+      setError(err instanceof Error ? err.message : "Unable to review channel videos.");
+    } finally {
+      setChannelLoading(false);
+    }
+  }
+
+  async function ingestChannelVideo(video: YouTubeChannelVideo) {
+    if (!channelSourceId || video.already_ingested) return;
+    await queueMediaIngestion({
+      url: video.url,
+      title: video.title,
+      sourceId: channelSourceId,
+    });
   }
 
   async function cancelMediaIngestion() {
@@ -495,9 +562,21 @@ export default function SourcesWorkspace() {
               capabilities={mediaCapabilities}
               mediaUrl={mediaUrl}
               mediaTitle={mediaTitle}
+              mediaSourceId={mediaSourceId}
               mediaJob={mediaJob}
+              channelSources={youtubeChannelSources}
+              channelSourceId={channelSourceId}
+              channelPreview={channelPreview}
+              channelLoading={channelLoading}
               onMediaUrlChange={setMediaUrl}
               onMediaTitleChange={setMediaTitle}
+              onMediaSourceChange={setMediaSourceId}
+              onChannelSourceChange={(value) => {
+                setChannelSourceId(value);
+                setChannelPreview(null);
+              }}
+              onLoadChannel={() => void loadChannelPreview()}
+              onIngestChannelVideo={(video) => void ingestChannelVideo(video)}
               onSubmit={startMediaIngestion}
               onCancel={() => void cancelMediaIngestion()}
               onManualTranscript={prefillManualTranscript}
@@ -1050,9 +1129,18 @@ function MediaCapabilityPanel({
   capabilities,
   mediaUrl,
   mediaTitle,
+  mediaSourceId,
   mediaJob,
+  channelSources,
+  channelSourceId,
+  channelPreview,
+  channelLoading,
   onMediaUrlChange,
   onMediaTitleChange,
+  onMediaSourceChange,
+  onChannelSourceChange,
+  onLoadChannel,
+  onIngestChannelVideo,
   onSubmit,
   onCancel,
   onManualTranscript,
@@ -1060,9 +1148,18 @@ function MediaCapabilityPanel({
   capabilities: MediaIngestionCapabilityResponse | null;
   mediaUrl: string;
   mediaTitle: string;
+  mediaSourceId: string;
   mediaJob: MediaIngestionJob | null;
+  channelSources: SourceRecord[];
+  channelSourceId: string;
+  channelPreview: YouTubeChannelPreview | null;
+  channelLoading: boolean;
   onMediaUrlChange: (value: string) => void;
   onMediaTitleChange: (value: string) => void;
+  onMediaSourceChange: (value: string) => void;
+  onChannelSourceChange: (value: string) => void;
+  onLoadChannel: () => void;
+  onIngestChannelVideo: (video: YouTubeChannelVideo) => void;
   onSubmit: (event: React.FormEvent) => Promise<void>;
   onCancel: () => void;
   onManualTranscript: () => void;
@@ -1090,6 +1187,70 @@ function MediaCapabilityPanel({
           <Video className="h-4 w-4" />
         </div>
       </div>
+      <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50/70 p-3 dark:border-gray-800 dark:bg-gray-900/60">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <label className="min-w-0 flex-1 space-y-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            Tracked channel
+            <select
+              value={channelSourceId}
+              onChange={(event) => onChannelSourceChange(event.target.value)}
+              className={inputClass}
+              disabled={channelSources.length === 0}
+            >
+              {channelSources.length === 0 ? <option value="">Add a YouTube channel source first</option> : null}
+              {channelSources.map((source) => (
+                <option key={source.id} value={source.id}>{source.name}</option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={onLoadChannel}
+            disabled={!channelSourceId || channelLoading || jobActive}
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-200"
+          >
+            <RotateCcw className={`h-4 w-4 ${channelLoading ? "animate-spin" : ""}`} />
+            {channelLoading ? "Checking..." : "Review recent videos"}
+          </button>
+        </div>
+        {channelPreview ? (
+          <div className="mt-3 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 dark:text-gray-400">
+              <span>{channelPreview.channel_name || channelPreview.source_name}</span>
+              <span>{channelPreview.videos.length} recent uploads</span>
+            </div>
+            {channelPreview.videos.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-gray-200 px-3 py-3 text-sm text-gray-500 dark:border-gray-800 dark:text-gray-400">
+                No recent public videos were returned for this channel.
+              </p>
+            ) : channelPreview.videos.map((video) => (
+              <div key={video.video_id} className="flex flex-col gap-2 rounded-lg border border-gray-200 bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-gray-800 dark:bg-gray-950">
+                <div className="min-w-0">
+                  <p className="line-clamp-2 text-sm font-medium text-gray-800 dark:text-gray-100">{video.title}</p>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {video.published_at ? formatDate(video.published_at) : "Publication date unavailable"}
+                    {video.duration_seconds ? ` · ${formatVideoDuration(video.duration_seconds)}` : ""}
+                    {video.view_count !== null && video.view_count !== undefined ? ` · ${video.view_count.toLocaleString()} views` : ""}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onIngestChannelVideo(video)}
+                  disabled={video.already_ingested || jobActive}
+                  className="inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-sky-200 px-3 py-2 text-sm font-medium text-sky-700 disabled:border-gray-200 disabled:text-gray-400 dark:border-sky-900 dark:text-sky-300 dark:disabled:border-gray-800 dark:disabled:text-gray-600"
+                >
+                  {video.already_ingested ? <CheckCircle2 className="h-4 w-4" /> : <Video className="h-4 w-4" />}
+                  {video.already_ingested ? "In knowledge" : "Ingest"}
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">
+            Review is metadata-only. Prophet does not download or ingest a channel until you choose a video.
+          </p>
+        )}
+      </div>
       <form onSubmit={onSubmit} className="mt-4 space-y-2 rounded-lg border border-sky-100 bg-sky-50/60 p-3 dark:border-sky-950 dark:bg-sky-950/20">
         <label className="block text-xs font-semibold uppercase tracking-wider text-sky-800 dark:text-sky-200" htmlFor="youtube-video-url">
           Individual video
@@ -1110,6 +1271,20 @@ function MediaCapabilityPanel({
           aria-label="Optional research title"
           className={inputClass}
         />
+        {channelSources.length > 0 ? (
+          <select
+            value={mediaSourceId}
+            onChange={(event) => onMediaSourceChange(event.target.value)}
+            className={inputClass}
+            aria-label="Optional tracked channel attribution"
+            title="Choose a tracked channel only when this video belongs to it."
+          >
+            <option value="">General YouTube research</option>
+            {channelSources.map((source) => (
+              <option key={source.id} value={source.id}>{source.name}</option>
+            ))}
+          </select>
+        ) : null}
         <div className="flex flex-wrap items-center gap-2">
           <button
             disabled={!mediaUrl.trim() || jobActive}
@@ -1134,7 +1309,9 @@ function MediaCapabilityPanel({
               <p className="font-medium text-gray-700 dark:text-gray-200">{latestEvent?.message || "Video ingestion queued."}</p>
               {mediaJob.result?.ok ? (
                 <p className="mt-1 text-emerald-700 dark:text-emerald-300">
-                  Saved {mediaJob.result.transcript_length?.toLocaleString() ?? 0} transcript characters via {mediaJob.result.ingest_mode?.replaceAll("_", " ")}.
+                  {mediaJob.result.already_ingested
+                    ? "This video was already present in the selected source."
+                    : `Saved ${mediaJob.result.transcript_length?.toLocaleString() ?? 0} transcript characters via ${mediaJob.result.ingest_mode?.replaceAll("_", " ")}.`}
                 </p>
               ) : mediaJob.result?.error ? (
                 <p className="mt-1 text-rose-700 dark:text-rose-300">{mediaJob.result.error}</p>
@@ -1353,6 +1530,16 @@ function formatDate(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "unknown time";
   return date.toLocaleString();
+}
+
+function formatVideoDuration(value: number) {
+  const totalSeconds = Math.max(0, Math.round(value));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
+    : `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 function toIsoOrNull(value: string) {

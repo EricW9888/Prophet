@@ -141,7 +141,10 @@ default and must be enabled with `YOUTUBE_LOCAL_TRANSCRIPTION_ENABLED=true`.
 Downloads stay in bounded temporary workspaces and raw media is removed after
 transcript extraction. This path transcribes speech; it does not inspect charts,
 slides, expressions, or other video frames. See `.env.example` for its operator
-settings.
+settings. When `yt-dlp` is installed, Sources can also show a bounded,
+metadata-only review of recent uploads from a tracked YouTube channel. Prophet
+does not crawl or ingest the channel automatically; a selected video follows the
+same caption-first ingestion path and remains attributed to that channel source.
 
 ## Verification
 

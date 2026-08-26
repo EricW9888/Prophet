@@ -1382,6 +1382,28 @@ export type MediaIngestionCapabilityResponse = {
   capabilities: MediaIngestionCapability[];
 };
 
+export type YouTubeChannelVideo = {
+  video_id: string;
+  title: string;
+  url: string;
+  published_at?: string | null;
+  duration_seconds?: number | null;
+  view_count?: number | null;
+  live_status?: string | null;
+  availability?: string | null;
+  already_ingested: boolean;
+  evidence_id?: string | null;
+};
+
+export type YouTubeChannelPreview = {
+  source_id: string;
+  source_name: string;
+  channel_url: string;
+  channel_id?: string | null;
+  channel_name?: string | null;
+  videos: YouTubeChannelVideo[];
+};
+
 export type MediaIngestionJobEvent = {
   phase: string;
   message: string;
@@ -1402,7 +1424,9 @@ export type MediaIngestionJob = {
     evidence_id?: string;
     transcript_length?: number;
     video_id?: string;
+    source_id?: string;
     ingest_mode?: string;
+    already_ingested?: boolean;
   } | null;
   error?: string | null;
 };

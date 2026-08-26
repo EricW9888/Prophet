@@ -88,8 +88,12 @@ caption-first. If captions are unavailable, an explicitly enabled local adapter
 can invoke installed `yt-dlp`, `ffmpeg`, and OpenAI Whisper CLI tools inside the
 same bounded, disposable media workspace used by cleanup automation. Prophet
 persists the transcript, timestamp segments, extraction mode, model, and source
-provenance rather than raw media. It does not infer information from frames.
-The current media boundary is documented in `limitations.md`.
+provenance rather than raw media. A tracked channel can expose a bounded,
+metadata-only list of recent videos through the same optional `yt-dlp` adapter;
+the operator chooses which video enters the existing ingestion job, and evidence
+is bound to the channel source. Prophet does not infer information from frames or
+automatically crawl a channel. The current media boundary is documented in
+`limitations.md`.
 
 ## Durable State
 

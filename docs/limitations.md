@@ -59,7 +59,9 @@ model download, source access, duration, size, timeout, language, and speech
 quality can all prevent or degrade extraction. Audio transcription does not
 interpret charts, slides, expressions, product demonstrations, or other frames,
 so Prophet must not treat it as a complete understanding of the video. Channel
-tracking does not imply that every channel upload was enumerated or ingested.
+review is bounded and metadata-only, depends on `yt-dlp`, and never implies that
+every upload was discovered, watched, or ingested. Prophet does not automatically
+crawl a channel; each selected video must complete its own ingestion job.
 
 ## Analytical Reliability
 
