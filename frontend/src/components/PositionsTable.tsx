@@ -51,22 +51,22 @@ export default function PositionsTable() {
 
       <section className="space-y-6">
         <div className="grid min-w-0 gap-6 2xl:grid-cols-[1.35fr_0.65fr]">
-          <section className="min-w-0 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6 dark:border-gray-800 dark:bg-gray-950">
+          <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 sm:p-6 dark:border-slate-800 dark:bg-slate-950">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Live holdings</p>
+                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Live holdings</p>
                 <h2 className="mt-1 text-2xl font-semibold tracking-tight">
                   {loading ? "Loading..." : `${holdings.length} active holdings`}
                 </h2>
-                <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
                   The book comes first. Track holdings here, then let research objects orbit around the real portfolio.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <button onClick={() => setIsResearchModalOpen(true)} className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium transition-colors hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-900">
+                <button onClick={() => setIsResearchModalOpen(true)} className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium transition-colors hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-900">
                   Track name
                 </button>
-                <button onClick={() => setIsTransactionModalOpen(true)} className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700">
+                <button onClick={() => setIsTransactionModalOpen(true)} className="rounded-md bg-sky-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-700">
                   Add holding
                 </button>
               </div>
@@ -74,15 +74,15 @@ export default function PositionsTable() {
 
             {error ? <p className="mt-4 text-sm text-red-500">{error}</p> : null}
             {loading ? (
-              <p className="mt-6 text-sm text-gray-400 animate-pulse">Loading holdings...</p>
+              <p className="mt-6 text-sm text-slate-400 animate-pulse">Loading holdings...</p>
             ) : holdings.length === 0 ? (
-              <div className="mt-6 rounded-xl border border-dashed border-gray-300 p-6 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+              <div className="mt-6 rounded-lg border border-dashed border-slate-300 p-6 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
                 No active holdings yet. Add a transaction or import a CSV from Setup.
               </div>
             ) : (
               <div className="mt-6 max-w-full overflow-x-auto">
                 <table className="min-w-[620px] w-full text-sm text-left">
-                  <thead className="text-xs uppercase text-gray-500 dark:text-gray-400">
+                  <thead className="text-xs uppercase text-slate-500 dark:text-slate-400">
                     <tr>
                       <th className="pb-3 font-medium">Holding</th>
                       <th className="pb-3 font-medium text-right">Shares</th>
@@ -92,13 +92,13 @@ export default function PositionsTable() {
                       <th className="pb-3 font-medium text-right">P&L</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                     {holdings.map((pos) => (
                       <tr key={pos.id}>
                         <td className="py-4">
-                          <div className="font-semibold text-gray-900 dark:text-gray-100">{pos.ticker ?? pos.security_id}</div>
+                          <div className="font-semibold text-slate-900 dark:text-slate-100">{pos.ticker ?? pos.security_id}</div>
                           {pos.entity_name ? (
-                            <div className="text-xs text-gray-500 dark:text-gray-400">{pos.entity_name}</div>
+                            <div className="text-xs text-slate-500 dark:text-slate-400">{pos.entity_name}</div>
                           ) : null}
                         </td>
                         <td className="py-4 text-right tabular-nums">{(pos.quantity || 0).toFixed(2)}</td>
@@ -158,22 +158,22 @@ export default function PositionsTable() {
           >
             <div className="mt-4 space-y-3">
               {(overview?.recent_transactions ?? []).length === 0 ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400">No transactions yet.</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">No transactions yet.</p>
               ) : (
                 overview?.recent_transactions.map((txn) => (
-                  <div key={txn.id} className="rounded-xl border border-gray-200 p-4 text-sm dark:border-gray-800">
+                  <div key={txn.id} className="rounded-lg border border-slate-200 p-4 text-sm dark:border-slate-800">
                     <div className="flex items-center justify-between gap-4">
                       <p className="font-medium uppercase">{formatUserLabel(txn.action)}</p>
-                      <span className="text-xs text-gray-400">
+                      <span className="text-xs text-slate-400">
                         {new Date(txn.executed_at).toLocaleDateString()}
                       </span>
                     </div>
-                    <p className="mt-1 text-gray-700 dark:text-gray-300">
+                    <p className="mt-1 text-slate-700 dark:text-slate-300">
                       {(txn.quantity || 0).toFixed(2)} shares
                       {txn.price != null ? ` @ ${safeFormatCurrency(txn.price, 2)}` : ""}
                     </p>
                     {txn.notes ? (
-                      <p className="mt-2 text-gray-500 dark:text-gray-400">{txn.notes}</p>
+                      <p className="mt-2 text-slate-500 dark:text-slate-400">{txn.notes}</p>
                     ) : null}
                   </div>
                 ))
@@ -202,14 +202,14 @@ function CollapsiblePanel({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+    <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
       <button type="button" onClick={onToggle} className="flex w-full items-start justify-between gap-4 text-left">
         <div>
-          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{eyebrow}</p>
+          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{eyebrow}</p>
           <h3 className="mt-1 text-xl font-semibold tracking-tight">{title}</h3>
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">{summary}</p>
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{summary}</p>
         </div>
-        <span className="rounded-full border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 dark:border-gray-700 dark:text-gray-300">
+        <span className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300">
           {open ? "Hide" : "Expand"}
         </span>
       </button>
@@ -230,21 +230,21 @@ function SidebarList({
   emptyState: string;
 }) {
   return (
-    <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
-      <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{title}</p>
-      <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">{description}</p>
+    <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+      <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{title}</p>
+      <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{description}</p>
       <div className="mt-4 space-y-3">
         {items.length === 0 ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">{emptyState}</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">{emptyState}</p>
         ) : (
           items.slice(0, 8).map((item) => (
-            <div key={item.id} className="rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800">
-              <p className="font-medium text-gray-900 dark:text-gray-100">{item.ticker ?? item.security_id}</p>
+            <div key={item.id} className="rounded-lg border border-slate-200 px-4 py-3 dark:border-slate-800">
+              <p className="font-medium text-slate-900 dark:text-slate-100">{item.ticker ?? item.security_id}</p>
               {item.entity_name ? (
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{item.entity_name}</p>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{item.entity_name}</p>
               ) : null}
               {item.conviction != null ? (
-                <p className="mt-1 text-xs uppercase tracking-wider text-gray-400">conviction {item.conviction}/5</p>
+                <p className="mt-1 text-xs uppercase tracking-wider text-slate-400">conviction {item.conviction}/5</p>
               ) : null}
             </div>
           ))
@@ -256,7 +256,7 @@ function SidebarList({
 
 function PortfolioBuildChart({ points }: { points: PortfolioBuildPoint[] }) {
   if (points.length === 0) {
-    return <p className="text-sm text-gray-500 dark:text-gray-400">No transaction history yet.</p>;
+    return <p className="text-sm text-slate-500 dark:text-slate-400">No transaction history yet.</p>;
   }
 
   const maxNet = Math.max(...points.map((point) => point.net_capital_deployed), 1);
@@ -276,8 +276,8 @@ function PortfolioBuildChart({ points }: { points: PortfolioBuildPoint[] }) {
 
   return (
     <div className="space-y-4">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full rounded-xl border border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-900">
-        <path d={path} fill="none" stroke="currentColor" strokeWidth="3" className="text-indigo-600 dark:text-indigo-400" />
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900">
+        <path d={path} fill="none" stroke="currentColor" strokeWidth="3" className="text-sky-600 dark:text-sky-400" />
       </svg>
       <div className="grid gap-4 md:grid-cols-3">
         <Metric label="Net capital deployed" value={safeFormatCurrency(latest.net_capital_deployed, 2)} />
@@ -290,8 +290,8 @@ function PortfolioBuildChart({ points }: { points: PortfolioBuildPoint[] }) {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
-      <p className="text-xs uppercase tracking-wider text-gray-400">{label}</p>
+    <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+      <p className="text-xs uppercase tracking-wider text-slate-400">{label}</p>
       <p className="mt-1 text-xl font-semibold tracking-tight">{value}</p>
     </div>
   );

@@ -104,29 +104,29 @@ export default function RiskPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] text-gray-900 dark:text-gray-100 font-sans selection:bg-indigo-500/30">
+    <div className="min-h-screen bg-background text-foreground font-sans">
       <AppNav active="risk" />
       <main className="mx-auto w-full max-w-[1440px] space-y-8 px-4 py-8 sm:px-6 lg:px-8">
         <header className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Risk + Benchmark</h1>
-            <p className="text-gray-500 dark:text-gray-400">
+            <p className="text-slate-500 dark:text-slate-400">
               Benchmark-relative context, concentration, regime, and scenario impact for the live portfolio.
             </p>
           </div>
-          <button onClick={() => { void loadState(true); void loadAttribution(Number(windowDays) || 21); }} disabled={refreshing} className="rounded-lg border border-gray-300 dark:border-gray-700 px-4 py-3 text-sm disabled:opacity-50">
+          <button onClick={() => { void loadState(true); void loadAttribution(Number(windowDays) || 21); }} disabled={refreshing} className="rounded-lg border border-slate-300 dark:border-slate-700 px-4 py-3 text-sm disabled:opacity-50">
             {refreshing ? "Refreshing..." : "Refresh risk snapshot"}
           </button>
         </header>
 
         {error ? (
-          <div className="rounded-xl border border-red-200 bg-white px-4 py-3 text-sm text-red-600 dark:border-red-900 dark:bg-gray-950 dark:text-red-400">
+          <div className="rounded-lg border border-red-200 bg-white px-4 py-3 text-sm text-red-600 dark:border-red-900 dark:bg-slate-950 dark:text-red-400">
             {error}
           </div>
         ) : null}
 
         {loading || !summary ? (
-          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950 text-sm text-gray-500 animate-pulse">
+          <div className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950 text-sm text-slate-500 animate-pulse">
             Loading benchmark context...
           </div>
         ) : (
@@ -159,24 +159,24 @@ export default function RiskPage() {
                   <ExposureList title="Sector exposures" items={summary.sector_exposures} />
                   <ExposureList title="Asset classes" items={summary.asset_class_exposures} />
                 </div>
-                <div className="mt-4 rounded-xl border border-gray-200 dark:border-gray-800 p-4">
-                  <p className="text-xs uppercase tracking-wider text-gray-400">Concentration stats</p>
-                  <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
+                <div className="mt-4 rounded-lg border border-slate-200 dark:border-slate-800 p-4">
+                  <p className="text-xs uppercase tracking-wider text-slate-400">Concentration stats</p>
+                  <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">
                     Top sector {summary.top_sector ?? "n/a"}{summary.top_sector ? ` · ${summary.top_sector_weight_pct.toFixed(1)}%` : ""}
                   </p>
-                  <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+                  <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">
                     HHI {summary.concentration_hhi.toFixed(0)}
                   </p>
                 </div>
               </Panel>
 
               <Panel title="Regime + Scenarios" eyebrow="Portfolio impact framing">
-                <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
-                  <p className="text-xs uppercase tracking-wider text-gray-400">Current regime</p>
+                <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
+                  <p className="text-xs uppercase tracking-wider text-slate-400">Current regime</p>
                   <p className="mt-2 text-lg font-semibold tracking-tight">
                     {summary.current_regime?.regime_type ?? "Not computed"}
                   </p>
-                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                     {summary.current_regime
                       ? `${(summary.current_regime.confidence * 100).toFixed(0)}% confidence · ${summary.current_regime.signal_source}`
                       : "Refresh the risk snapshot to infer regime state from the benchmark."}
@@ -184,14 +184,14 @@ export default function RiskPage() {
                 </div>
                 <div className="mt-4 space-y-3">
                   {summary.scenarios.map((scenario) => (
-                    <div key={scenario.name} className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+                    <div key={scenario.name} className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
                       <div className="flex items-center justify-between gap-4">
                         <p className="font-medium">{scenario.name.replace("AUTO: ", "")}</p>
                         <span className={`text-sm ${scenario.total_portfolio_impact < 0 ? "text-red-500" : "text-emerald-500"}`}>
                           {formatCurrency(scenario.total_portfolio_impact)}
                         </span>
                       </div>
-                      <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">{scenario.scenario_description}</p>
+                      <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{scenario.scenario_description}</p>
                     </div>
                   ))}
                 </div>
@@ -203,7 +203,7 @@ export default function RiskPage() {
         <section className="grid grid-cols-1 xl:grid-cols-[0.9fr_1.1fr] gap-6">
           <Panel title="Benchmark Catalog" eyebrow="Managed comparison set">
             <div className="mb-4 flex items-start justify-between gap-4">
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
                 Add or reuse the comparison baselines you want the system to reason against.
               </p>
             </div>
@@ -217,7 +217,7 @@ export default function RiskPage() {
                 <option value="custom">Custom</option>
               </select>
               <textarea value={form.description} onChange={(e) => setForm((current) => ({ ...current, description: e.target.value }))} rows={3} placeholder="Why this benchmark matters" className={inputClass} />
-              <button disabled={saving || !form.ticker.trim()} className="rounded-lg bg-indigo-600 px-4 py-3 text-white disabled:opacity-50">
+              <button disabled={saving || !form.ticker.trim()} className="rounded-lg bg-sky-600 px-4 py-3 text-white disabled:opacity-50">
                 {saving ? "Saving..." : "Add benchmark"}
               </button>
             </form>
@@ -226,26 +226,26 @@ export default function RiskPage() {
           <Panel title="Known Benchmarks" eyebrow="Reference universe">
             <div className="space-y-3">
               {benchmarks.length === 0 ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400">No benchmarks saved yet.</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">No benchmarks saved yet.</p>
               ) : (
                 benchmarks.map((benchmark) => (
-                  <div key={benchmark.id} className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+                  <div key={benchmark.id} className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
                     <div className="flex items-center justify-between gap-4">
                       <p className="font-medium">{benchmark.name}</p>
-                      <span className="text-xs uppercase tracking-wider text-gray-400">{benchmark.benchmark_type}</span>
+                      <span className="text-xs uppercase tracking-wider text-slate-400">{benchmark.benchmark_type}</span>
                     </div>
-                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                       {benchmark.ticker ?? "custom"} · {new Date(benchmark.created_at).toLocaleDateString()}
                     </p>
                     {benchmark.description ? (
-                      <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">{benchmark.description}</p>
+                      <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">{benchmark.description}</p>
                     ) : null}
                   </div>
                 ))
               )}
             </div>
-            <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
-              Select the active benchmark in <Link href="/setup/integrations" className="text-indigo-600 dark:text-indigo-400">Settings</Link>.
+            <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
+              Select the active benchmark in <Link href="/setup/integrations" className="text-sky-600 dark:text-sky-400">Settings</Link>.
             </p>
           </Panel>
         </section>
@@ -274,39 +274,39 @@ function PerformanceAttributionPanel({
   const sectors = summarizeSectors(attribution?.items ?? []);
 
   return (
-    <section className="border-y border-gray-200 py-6 dark:border-gray-800">
+    <section className="border-y border-slate-200 py-6 dark:border-slate-800">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Measured performance</p>
+          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Measured performance</p>
           <h2 className="mt-1 text-xl font-semibold">What moved the invested book</h2>
-          <p className="mt-1 max-w-3xl text-sm text-gray-500 dark:text-gray-400">
+          <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
             Dated price changes reconciled with settled buys, sells, dividends, and splits. This is separate from the open-position cost-basis figure above.
           </p>
         </div>
         <div className="flex items-end gap-2">
           <label className="block">
-            <span className="text-xs font-medium uppercase text-gray-500">Calendar days</span>
+            <span className="text-xs font-medium uppercase text-slate-500">Calendar days</span>
             <input
               type="number"
               min={1}
               max={1825}
               value={windowDays}
               onChange={(event) => onWindowDaysChange(event.target.value)}
-              className="mt-1 w-28 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+              className="mt-1 w-28 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
             />
           </label>
-          <button onClick={onAnalyze} disabled={loading} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+          <button onClick={onAnalyze} disabled={loading} className="rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
             {loading ? "Calculating..." : "Analyze"}
           </button>
         </div>
       </div>
 
       {error ? <p className="mt-4 text-sm text-red-600 dark:text-red-400">{error}</p> : null}
-      {loading && !attribution ? <p className="mt-6 text-sm text-gray-500">Calculating cash-flow-aware attribution...</p> : null}
+      {loading && !attribution ? <p className="mt-6 text-sm text-slate-500">Calculating cash-flow-aware attribution...</p> : null}
 
       {attribution ? (
         <>
-          <div className="mt-6 grid grid-cols-2 gap-x-6 gap-y-4 border-y border-gray-200 py-5 md:grid-cols-5 dark:border-gray-800">
+          <div className="mt-6 grid grid-cols-2 gap-x-6 gap-y-4 border-y border-slate-200 py-5 md:grid-cols-5 dark:border-slate-800">
             <AttributionStat label="Invested return" value={formatPct(attribution.return_pct)} />
             <AttributionStat label="Gain / loss" value={formatCurrency(attribution.gain)} tone={attribution.gain} />
             <AttributionStat label="Net flows" value={formatCurrency(attribution.net_flow)} />
@@ -319,7 +319,7 @@ function PerformanceAttributionPanel({
             <AttributionList title="Largest gains" items={gains} empty="No measured gains in this window." />
             <div>
               <h3 className="text-sm font-semibold">Sector contribution</h3>
-              <div className="mt-3 divide-y divide-gray-200 border-y border-gray-200 dark:divide-gray-800 dark:border-gray-800">
+              <div className="mt-3 divide-y divide-slate-200 border-y border-slate-200 dark:divide-slate-800 dark:border-slate-800">
                 {sectors.map((sector) => (
                   <div key={sector.label} className="flex items-center justify-between gap-4 py-3 text-sm">
                     <span>{sector.label}</span>
@@ -332,7 +332,7 @@ function PerformanceAttributionPanel({
             </div>
           </div>
 
-          <div className="mt-5 text-xs leading-5 text-gray-500 dark:text-gray-400">
+          <div className="mt-5 text-xs leading-5 text-slate-500 dark:text-slate-400">
             <p>
               Window {new Date(attribution.period_start).toLocaleDateString()} through {new Date(attribution.as_of).toLocaleDateString()}. {attribution.method}
             </p>
@@ -352,9 +352,9 @@ function AttributionStat({ label, value, detail, tone }: { label: string; value:
   const toneClass = tone == null ? "" : tone < 0 ? "text-red-600 dark:text-red-400" : tone > 0 ? "text-emerald-600 dark:text-emerald-400" : "";
   return (
     <div>
-      <p className="text-xs uppercase text-gray-500">{label}</p>
+      <p className="text-xs uppercase text-slate-500">{label}</p>
       <p className={`mt-1 text-xl font-semibold ${toneClass}`}>{value}</p>
-      {detail ? <p className="mt-1 text-xs text-gray-500">{detail}</p> : null}
+      {detail ? <p className="mt-1 text-xs text-slate-500">{detail}</p> : null}
     </div>
   );
 }
@@ -363,18 +363,18 @@ function AttributionList({ title, items, empty }: { title: string; items: Perfor
   return (
     <div>
       <h3 className="text-sm font-semibold">{title}</h3>
-      <div className="mt-3 divide-y divide-gray-200 border-y border-gray-200 dark:divide-gray-800 dark:border-gray-800">
-        {items.length === 0 ? <p className="py-3 text-sm text-gray-500">{empty}</p> : items.map((item) => (
+      <div className="mt-3 divide-y divide-slate-200 border-y border-slate-200 dark:divide-slate-800 dark:border-slate-800">
+        {items.length === 0 ? <p className="py-3 text-sm text-slate-500">{empty}</p> : items.map((item) => (
           <div key={item.ticker} className="flex items-center justify-between gap-4 py-3">
             <div className="min-w-0">
               <p className="text-sm font-medium">{item.ticker}</p>
-              <p className="truncate text-xs text-gray-500">{item.name} · {item.contribution_pct.toFixed(2)} pts</p>
+              <p className="truncate text-xs text-slate-500">{item.name} · {item.contribution_pct.toFixed(2)} pts</p>
             </div>
             <div className="text-right">
               <p className={`text-sm font-medium ${item.gain < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
                 {formatCurrency(item.gain)}
               </p>
-              <p className="text-xs text-gray-500">{formatPct(item.capital_return_pct)} on capital</p>
+              <p className="text-xs text-slate-500">{formatPct(item.capital_return_pct)} on capital</p>
             </div>
           </div>
         ))}
@@ -401,8 +401,8 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
-      <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{eyebrow}</p>
+    <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+      <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{eyebrow}</p>
       <h2 className="mt-1 text-xl font-semibold tracking-tight">{title}</h2>
       <div className="mt-4">{children}</div>
     </section>
@@ -411,25 +411,25 @@ function Panel({
 
 function MetricCard({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950">
-      <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{label}</p>
+    <div className="rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-950">
+      <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{label}</p>
       <p className="mt-2 text-3xl font-semibold tracking-tight">{value}</p>
-      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{detail}</p>
+      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{detail}</p>
     </div>
   );
 }
 
 function ExposureList({ title, items }: { title: string; items: RiskSummary["sector_exposures"] }) {
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
-      <p className="text-xs uppercase tracking-wider text-gray-400">{title}</p>
+    <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
+      <p className="text-xs uppercase tracking-wider text-slate-400">{title}</p>
       <div className="mt-3 space-y-2">
         {items.length === 0 ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">No exposure data yet.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">No exposure data yet.</p>
         ) : (
           items.map((item) => (
             <div key={item.label} className="flex items-center justify-between gap-4 text-sm">
-              <span className="text-gray-700 dark:text-gray-300">{item.label}</span>
+              <span className="text-slate-700 dark:text-slate-300">{item.label}</span>
               <span className="font-medium">{item.weight_pct.toFixed(1)}%</span>
             </div>
           ))
@@ -453,4 +453,4 @@ function formatCurrency(value: number) {
 }
 
 const inputClass =
-  "w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3";
+  "w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3";

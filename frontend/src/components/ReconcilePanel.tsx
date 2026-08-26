@@ -39,24 +39,24 @@ export default function ReconcilePanel({ id, initiallyOpen = false }: ReconcileP
   }
 
   return (
-    <section id={id} className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-[#111]">
+    <section id={id} className="rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#111]">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center justify-between text-left"
       >
         <div className="flex items-start gap-3">
-          <div className="mt-0.5 rounded-xl bg-indigo-50 p-2 text-indigo-600 dark:bg-indigo-950/30 dark:text-indigo-300">
+          <div className="mt-0.5 rounded-lg bg-sky-50 p-2 text-sky-600 dark:bg-sky-950/30 dark:text-sky-300">
             <ClipboardCheck className="h-4 w-4" />
           </div>
           <div>
           <h2 className="text-sm font-semibold">Reconcile broker truth</h2>
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             Paste a current statement when an email-parsed trade looks wrong, a fill is missing, or the reconstructed book needs an authoritative check.
           </p>
           </div>
         </div>
-        <span className="ml-4 text-xs text-gray-400">{open ? "Hide" : "Open"}</span>
+        <span className="ml-4 text-xs text-slate-400">{open ? "Hide" : "Open"}</span>
       </button>
 
       {open ? (
@@ -66,19 +66,19 @@ export default function ReconcilePanel({ id, initiallyOpen = false }: ReconcileP
             onChange={(e) => setText(e.target.value)}
             rows={6}
             placeholder={"One holding per line, e.g.\nEXMPL 10\nDEMO 1.5\nCASH 2500\n\n…or paste a CSV with Symbol/Quantity columns."}
-            className="w-full resize-y rounded-xl border border-gray-300 bg-white p-3 font-mono text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+            className="w-full resize-y rounded-lg border border-slate-300 bg-white p-3 font-mono text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
           />
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={run}
               disabled={busy || !text.trim()}
-              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-700 disabled:opacity-50"
             >
               <ClipboardCheck className="h-4 w-4" />
               {busy ? "Comparing…" : "Compare statement"}
             </button>
-            <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+            <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
               <input type="checkbox" checked={createReviewItems} onChange={(e) => setCreateReviewItems(e.target.checked)} />
               Queue discrepancies for review
             </label>
@@ -99,23 +99,23 @@ export default function ReconcilePanel({ id, initiallyOpen = false }: ReconcileP
                   {result.in_sync ? "In sync with the statement" : `${result.discrepancies.length} discrepancy(ies)`}
                 </span>
                 {result.review_items_created > 0 ? (
-                  <span className="rounded-full bg-indigo-50 px-3 py-1 text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-300">
+                  <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-700 dark:bg-sky-950/30 dark:text-sky-300">
                     {result.review_items_created} review item(s) created
                   </span>
                 ) : null}
               </div>
 
               {result.cash_discrepancy ? (
-                <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3 text-sm dark:border-amber-900/40 dark:bg-amber-950/20">
+                <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 text-sm dark:border-amber-900/40 dark:bg-amber-950/20">
                   Cash: book ${result.cash_discrepancy.book_cash.toLocaleString()} vs statement $
                   {result.cash_discrepancy.broker_cash.toLocaleString()} (Δ ${result.cash_discrepancy.delta.toLocaleString()})
                 </div>
               ) : null}
 
               {result.discrepancies.length > 0 ? (
-                <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800">
+                <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800">
                   <table className="w-full text-sm">
-                    <thead className="bg-gray-50 text-left text-xs uppercase tracking-wider text-gray-500 dark:bg-gray-900 dark:text-gray-400">
+                    <thead className="bg-slate-50 text-left text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-900 dark:text-slate-400">
                       <tr>
                         <th className="px-3 py-2">Ticker</th>
                         <th className="px-3 py-2">Issue</th>
@@ -126,9 +126,9 @@ export default function ReconcilePanel({ id, initiallyOpen = false }: ReconcileP
                     </thead>
                     <tbody>
                       {result.discrepancies.map((d) => (
-                        <tr key={d.ticker} className="border-t border-gray-100 dark:border-gray-800">
+                        <tr key={d.ticker} className="border-t border-slate-100 dark:border-slate-800">
                           <td className="px-3 py-2 font-medium">{d.ticker}</td>
-                          <td className="px-3 py-2 text-gray-500 dark:text-gray-400">{KIND_LABEL[d.kind] ?? d.kind}</td>
+                          <td className="px-3 py-2 text-slate-500 dark:text-slate-400">{KIND_LABEL[d.kind] ?? d.kind}</td>
                           <td className="px-3 py-2 text-right tabular-nums">{d.book_quantity}</td>
                           <td className="px-3 py-2 text-right tabular-nums">{d.broker_quantity}</td>
                           <td className={`px-3 py-2 text-right tabular-nums ${d.delta < 0 ? "text-red-500" : "text-emerald-600"}`}>

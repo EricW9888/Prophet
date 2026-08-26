@@ -149,10 +149,10 @@ const NODE_STYLES: Record<
   }
 > = {
   fact: {
-    fill: "#4f46e5",
-    stroke: "#c7d2fe",
+    fill: "#2563eb",
+    stroke: "#bfdbfe",
     text: "#ffffff",
-    glow: "rgba(79,70,229,0.35)",
+    glow: "rgba(37,99,235,0.3)",
   },
   claim: {
     fill: "#f97316",
@@ -179,16 +179,16 @@ const NODE_STYLES: Record<
     glow: "rgba(8,145,178,0.24)",
   },
   theme: {
-    fill: "#7c3aed",
-    stroke: "#c4b5fd",
+    fill: "#0f766e",
+    stroke: "#99f6e4",
     text: "#ffffff",
-    glow: "rgba(139,92,246,0.24)",
+    glow: "rgba(15,118,110,0.24)",
   },
   source_item: {
-    fill: "#db2777",
-    stroke: "#f9a8d4",
+    fill: "#d97706",
+    stroke: "#fde68a",
     text: "#ffffff",
-    glow: "rgba(236,72,153,0.24)",
+    glow: "rgba(217,119,6,0.24)",
   },
   raw_evidence: {
     fill: "#64748b",
@@ -203,10 +203,10 @@ const NODE_STYLES: Record<
     glow: "rgba(34,197,94,0.24)",
   },
   conclusion: {
-    fill: "#9333ea",
-    stroke: "#e9d5ff",
+    fill: "#0369a1",
+    stroke: "#bae6fd",
     text: "#ffffff",
-    glow: "rgba(168,85,247,0.24)",
+    glow: "rgba(3,105,161,0.24)",
   },
   lesson: {
     fill: "#65a30d",
@@ -261,10 +261,10 @@ const NODE_STYLES: Record<
 function getNodeStyle(nodeType: string) {
   return (
     NODE_STYLES[nodeType] ?? {
-      fill: "#6366f1",
-      stroke: "#c7d2fe",
+      fill: "#475569",
+      stroke: "#cbd5e1",
       text: "#ffffff",
-      glow: "rgba(99,102,241,0.24)",
+      glow: "rgba(71,85,105,0.24)",
     }
   );
 }
@@ -375,9 +375,9 @@ function citationOriginClasses(kind?: string | null) {
     return "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-300";
   }
   if (["manual", "chat"].includes(normalized)) {
-    return "border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/30 dark:text-indigo-300";
+    return "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-300";
   }
-  return "border-gray-300 bg-gray-50 text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300";
+  return "border-slate-300 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300";
 }
 
 function humanizeGraphError(error: unknown) {
@@ -1841,20 +1841,20 @@ export default function GraphPage() {
   const systemCitations = selectedDetail?.citations.filter((citation) => citation.is_system) ?? [];
   const graphAskPanel =
     graphAskJob || graphAskResult || graphAskError ? (
-      <div className="mt-4 rounded-xl border border-fuchsia-200 bg-fuchsia-50/70 p-4 dark:border-fuchsia-900 dark:bg-fuchsia-950/25">
+      <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900 dark:bg-amber-950/25">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <div className="text-[11px] uppercase tracking-wider text-fuchsia-500 dark:text-fuchsia-300">
+            <div className="text-[11px] uppercase tracking-wider text-amber-500 dark:text-amber-300">
               Analysis
             </div>
             {graphAskTargetLabel ? (
-              <div className="mt-1 text-sm text-gray-700 dark:text-gray-200">
+              <div className="mt-1 text-sm text-slate-700 dark:text-slate-200">
                 Analyzing {graphAskTargetLabel}
               </div>
             ) : null}
           </div>
           {graphAskJob ? (
-            <span className="rounded-full border border-fuchsia-300 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-fuchsia-700 dark:border-fuchsia-800 dark:text-fuchsia-300">
+            <span className="rounded-full border border-amber-300 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-800 dark:text-amber-300">
               {graphAskJob.status}
             </span>
           ) : null}
@@ -1862,8 +1862,8 @@ export default function GraphPage() {
         {graphAskJob && ["queued", "running"].includes(graphAskJob.status) ? (
           <div className="mt-3 space-y-2">
             {graphAskJob.events.slice(-4).map((event) => (
-              <div key={`${event.phase}-${event.created_at}`} className="rounded-lg border border-fuchsia-100 bg-white/70 px-3 py-2 text-sm text-gray-600 dark:border-fuchsia-950 dark:bg-gray-950/40 dark:text-gray-300">
-                <span className="font-medium text-gray-900 dark:text-gray-100">{event.phase}</span>
+              <div key={`${event.phase}-${event.created_at}`} className="rounded-lg border border-amber-100 bg-white/70 px-3 py-2 text-sm text-slate-600 dark:border-amber-950 dark:bg-slate-950/40 dark:text-slate-300">
+                <span className="font-medium text-slate-900 dark:text-slate-100">{event.phase}</span>
                 {" · "}
                 {event.message}
               </div>
@@ -1876,18 +1876,18 @@ export default function GraphPage() {
           </div>
         ) : null}
         {graphAskResult ? (
-          <div className="mt-3 rounded-lg border border-fuchsia-100 bg-white/75 px-3 py-3 dark:border-fuchsia-950 dark:bg-gray-950/40">
-            <div className="whitespace-pre-wrap text-sm leading-relaxed text-gray-800 dark:text-gray-100">
+          <div className="mt-3 rounded-lg border border-amber-100 bg-white/75 px-3 py-3 dark:border-amber-950 dark:bg-slate-950/40">
+            <div className="whitespace-pre-wrap text-sm leading-relaxed text-slate-800 dark:text-slate-100">
               {graphAskResult.assistant_message}
             </div>
             {graphAskResult.session_id ? (
               <div className="mt-3 flex items-center justify-between gap-3">
-                <div className="text-xs text-gray-500 dark:text-gray-400">
+                <div className="text-xs text-slate-500 dark:text-slate-400">
                   Want to keep going in a longer thread?
                 </div>
                 <Link
                   href={`/chat?session_id=${graphAskResult.session_id}`}
-                  className="inline-flex items-center justify-center rounded-full border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:border-gray-400 dark:border-gray-700 dark:text-gray-300"
+                  className="inline-flex items-center justify-center rounded-full border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:border-slate-400 dark:border-slate-700 dark:text-slate-300"
                 >
                   Open in chat
                 </Link>
@@ -1899,7 +1899,7 @@ export default function GraphPage() {
     ) : null;
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] text-gray-900 dark:text-gray-100 font-sans selection:bg-indigo-500/30">
+    <div className="min-h-screen bg-background text-foreground font-sans">
       <AppNav active="knowledge" />
 
       <main className="mx-auto grid w-full max-w-[1760px] grid-cols-1 gap-8 px-4 py-8 sm:px-6 lg:px-8 2xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -1907,7 +1907,7 @@ export default function GraphPage() {
           <header className="flex items-start justify-between gap-6">
             <div className="min-w-0">
               <h1 className="text-3xl font-bold tracking-tight">Knowledge Web</h1>
-              <div className="mt-3 inline-flex rounded-full border border-gray-200 bg-white p-1 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+              <div className="mt-3 inline-flex rounded-full border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950">
                 <button
                   type="button"
                   onClick={() => void showPortfolioGraph()}
@@ -1915,8 +1915,8 @@ export default function GraphPage() {
                   className={[
                     "rounded-full px-3 py-1 text-xs font-semibold transition-colors disabled:opacity-50",
                     graphMode === "portfolio"
-                      ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-950"
-                      : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-900",
+                      ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950"
+                      : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900",
                   ].join(" ")}
                 >
                   Portfolio Web
@@ -1928,8 +1928,8 @@ export default function GraphPage() {
                   className={[
                     "rounded-full px-3 py-1 text-xs font-semibold transition-colors disabled:opacity-50",
                     graphMode === "all"
-                      ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-950"
-                      : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-900",
+                      ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950"
+                      : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900",
                   ].join(" ")}
                 >
                   Expanded Web
@@ -1941,7 +1941,7 @@ export default function GraphPage() {
                 <button
                   type="button"
                   onClick={() => void openGraph(selectedDetail.node_type, selectedDetail.id)}
-                  className="rounded-full border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm text-indigo-700 hover:border-indigo-300 dark:border-indigo-800/40 dark:bg-indigo-900/20 dark:text-indigo-300"
+                  className="rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-700 hover:border-sky-300 dark:border-sky-800/40 dark:bg-sky-900/20 dark:text-sky-300"
                 >
                   Focus on node
                 </button>
@@ -1951,7 +1951,7 @@ export default function GraphPage() {
                   type="button"
                   onClick={() => restoreWorkspaceGraph()}
                   disabled={!workspaceGraph}
-                  className="rounded-full border border-gray-300 px-4 py-2 text-sm text-gray-600 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300"
+                  className="rounded-full border border-slate-300 px-4 py-2 text-sm text-slate-600 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
                 >
                   Back to overview
                 </button>
@@ -1959,18 +1959,18 @@ export default function GraphPage() {
             </div>
           </header>
 
-          <section className="min-w-0 rounded-[28px] border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+          <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
             {graphNotice ? (
-              <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-200">
+              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-200">
                 {graphNotice}
               </div>
             ) : null}
             <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400">
-                <span className="rounded-full bg-gray-100 px-3 py-1 dark:bg-gray-900">
+              <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+                <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-900">
                   {visibleNodeCount} nodes
                 </span>
-                <span className="rounded-full bg-gray-100 px-3 py-1 dark:bg-gray-900">
+                <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-900">
                   {visibleEdgeCount} connections
                 </span>
                 {graphStats ? (
@@ -1991,7 +1991,7 @@ export default function GraphPage() {
                     {formatCount(graphStats.total_edges)} links
                   </span>
                 ) : null}
-                <span className="rounded-full bg-gray-100 px-3 py-1 dark:bg-gray-900">
+                <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-900">
                   {modeLabel}
                 </span>
                 {hiddenNodeCount > 0 || hiddenEdgeCount > 0 ? (
@@ -2000,7 +2000,7 @@ export default function GraphPage() {
                   </span>
                 ) : null}
                 {graphMode === "focused" ? (
-                  <span className="rounded-full bg-indigo-50 px-3 py-1 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-300">
+                  <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-700 dark:bg-sky-900/20 dark:text-sky-300">
                     Focused view
                   </span>
                 ) : null}
@@ -2012,7 +2012,7 @@ export default function GraphPage() {
                     const anchor = viewportAnchor();
                     adjustZoom(viewTransformRef.current.k * 0.85, anchor.x, anchor.y);
                   }}
-                  className="rounded-full hover:bg-gray-100 p-2 text-gray-400 hover:text-gray-600 dark:hover:bg-gray-800"
+                  className="rounded-full hover:bg-slate-100 p-2 text-slate-400 hover:text-slate-600 dark:hover:bg-slate-800"
                   aria-label="Zoom out"
                   title="Zoom out"
                 >
@@ -2021,7 +2021,7 @@ export default function GraphPage() {
                 <button
                   type="button"
                   onClick={() => fitNodesToViewport(displayedNodes)}
-                  className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600 dark:border-gray-800 dark:text-gray-300"
+                  className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:text-slate-300"
                   title="Fit graph"
                 >
                   <span className="inline-flex items-center gap-1.5">
@@ -2038,7 +2038,7 @@ export default function GraphPage() {
                     manualNodePositionsRef.current = {};
                     setLayoutNonce((current) => current + 1);
                   }}
-                  className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600 dark:border-gray-800 dark:text-gray-300"
+                  className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:text-slate-300"
                   title="Reset layout"
                 >
                   <span className="inline-flex items-center gap-1.5">
@@ -2052,7 +2052,7 @@ export default function GraphPage() {
                     const anchor = viewportAnchor();
                     adjustZoom(viewTransformRef.current.k * 1.15, anchor.x, anchor.y);
                   }}
-                  className="rounded-full hover:bg-gray-100 p-2 text-gray-400 hover:text-gray-600 dark:hover:bg-gray-800"
+                  className="rounded-full hover:bg-slate-100 p-2 text-slate-400 hover:text-slate-600 dark:hover:bg-slate-800"
                   aria-label="Zoom in"
                   title="Zoom in"
                 >
@@ -2068,8 +2068,8 @@ export default function GraphPage() {
                 className={[
                   "rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors",
                   activeNodeTypes.length === 0
-                    ? "border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-300"
-                    : "border-gray-200 text-gray-600 hover:border-gray-300 dark:border-gray-800 dark:text-gray-300",
+                    ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-300"
+                    : "border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:text-slate-300",
                 ].join(" ")}
               >
                 All types
@@ -2084,8 +2084,8 @@ export default function GraphPage() {
                     className={[
                       "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors",
                       active
-                        ? "border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-300"
-                        : "border-gray-200 text-gray-500 hover:border-gray-300 dark:border-gray-800 dark:text-gray-400",
+                        ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-300"
+                        : "border-slate-200 text-slate-500 hover:border-slate-300 dark:border-slate-800 dark:text-slate-400",
                     ].join(" ")}
                   >
                     <span
@@ -2097,17 +2097,17 @@ export default function GraphPage() {
                 );
               })}
             </div>
-            <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
-              <label className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 dark:border-gray-800 dark:bg-gray-950">
+            <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+              <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 dark:border-slate-800 dark:bg-slate-950">
                 <input
                   type="checkbox"
                   checked={showDuplicateNodes}
                   onChange={(event) => setShowDuplicateNodes(event.target.checked)}
-                  className="h-3.5 w-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
                 />
                 <span>Show duplicate labels</span>
               </label>
-              <label className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 dark:border-gray-800 dark:bg-gray-950">
+              <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 dark:border-slate-800 dark:bg-slate-950">
                 <input
                   type="checkbox"
                   checked={showSystemNodes}
@@ -2115,7 +2115,7 @@ export default function GraphPage() {
                     resetGraphCachesForScopeChange();
                     setShowSystemNodes(event.target.checked);
                   }}
-                  className="h-3.5 w-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
                 />
                 <span>Include internal memory</span>
               </label>
@@ -2124,13 +2124,13 @@ export default function GraphPage() {
               </span>
             </div>
 
-            <div className="relative mt-6 min-w-0 overflow-hidden rounded-[24px] border border-gray-200 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.12),transparent_48%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,244,255,0.92))] dark:border-gray-800 dark:bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.18),transparent_48%),linear-gradient(180deg,rgba(7,10,22,0.98),rgba(4,6,18,0.96))]">
+            <div className="relative mt-6 min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-[radial-gradient(circle_at_center,rgba(14,165,233,0.1),transparent_48%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(241,245,249,0.94))] dark:border-slate-800 dark:bg-[radial-gradient(circle_at_center,rgba(14,165,233,0.14),transparent_48%),linear-gradient(180deg,rgba(8,15,22,0.98),rgba(5,8,13,0.98))]">
               {error && !activeGraph ? (
                 <div className="absolute inset-0 flex items-center justify-center bg-slate-50/10 backdrop-blur-[2px] z-10">
-                  <div className="max-w-md p-6 bg-white rounded-2xl border border-rose-100 shadow-xl text-center">
+                  <div className="max-w-md p-6 bg-white rounded-lg border border-rose-100 shadow-xl text-center">
                     <X className="w-10 h-10 text-rose-500 mx-auto mb-4" />
                     <p className="text-sm font-bold text-slate-900 mb-2">Knowledge Web is temporarily unavailable</p>
-                    <p className="text-xs text-rose-500 bg-rose-50 p-3 rounded-xl break-words">
+                    <p className="text-xs text-rose-500 bg-rose-50 p-3 rounded-lg break-words">
                       {error}
                     </p>
                     <button
@@ -2139,7 +2139,7 @@ export default function GraphPage() {
                         setGraphNotice(null);
                         void loadSeeds().then((s) => s && openGraph(s[0].subject_type, s[0].subject_id));
                       }}
-                      className="mt-6 px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-all font-mono uppercase tracking-widest"
+                      className="mt-6 px-4 py-2 bg-sky-600 text-white rounded-lg text-xs font-bold hover:bg-sky-700 transition-all font-mono uppercase tracking-widest"
                     >
                       Reconnect
                     </button>
@@ -2149,9 +2149,9 @@ export default function GraphPage() {
                 <div className="flex h-[800px] flex-col items-center justify-center px-8 text-center">
                   {error && error.includes("graph_node_not_found") ? (
                     <>
-                      <svg className="h-12 w-12 text-gray-300 dark:text-gray-700 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Knowledge Web is initializing</h3>
-                      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 max-w-md">
+                      <svg className="h-12 w-12 text-slate-300 dark:text-slate-700 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Knowledge Web is initializing</h3>
+                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 max-w-md">
                         There are currently no nodes in the graph to display. The system will populate connections once it ingests your portfolio, notes, or external intelligence.
                       </p>
                     </>
@@ -2162,7 +2162,7 @@ export default function GraphPage() {
               ) : (
                 <div
                   ref={graphViewportRef}
-                  className="relative h-[clamp(620px,72vh,840px)] w-full overflow-hidden rounded-3xl border border-white/5 bg-slate-950/20 touch-none select-none"
+                  className="relative h-[clamp(620px,72vh,840px)] w-full overflow-hidden rounded-lg border border-white/5 bg-slate-950/20 touch-none select-none"
                   style={{ overscrollBehavior: "contain", touchAction: "none" }}
                   onPointerDown={handleCanvasPointerDown}
                   onPointerMove={handleCanvasPointerMove}
@@ -2172,8 +2172,8 @@ export default function GraphPage() {
                   {loading && (
                     <div className="absolute inset-0 flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px] z-20 pointer-events-none">
                       <div className="flex flex-col items-center gap-4">
-                        <div className="w-8 h-8 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin"></div>
-                        <p className="text-xs font-bold text-indigo-100 tracking-widest uppercase animate-pulse">Syncing Map...</p>
+                        <div className="w-8 h-8 border-4 border-sky-500/30 border-t-sky-500 rounded-full animate-spin"></div>
+                        <p className="text-xs font-bold text-sky-100 tracking-widest uppercase animate-pulse">Syncing Map...</p>
                       </div>
                     </div>
                   )}
@@ -2209,7 +2209,7 @@ export default function GraphPage() {
                             <line
                               className={[
                                 "graph-edge-visible",
-                                selected ? "text-fuchsia-400" : highlighted ? "text-indigo-400" : "text-slate-700"
+                                selected ? "text-amber-400" : highlighted ? "text-sky-400" : "text-slate-700"
                               ].join(" ")}
                               x1={source.x ?? 0} y1={source.y ?? 0}
                               x2={target.x ?? 0} y2={target.y ?? 0}
@@ -2277,7 +2277,7 @@ export default function GraphPage() {
                                       ? 0.5
                                       : 0.74
                               }
-                              stroke={node.is_autonomous ? "#6366f1" : style.stroke}
+                              stroke={node.is_autonomous ? "#38bdf8" : style.stroke}
                               strokeWidth={node.is_root || isSelected || isHovered ? 2.8 : node.is_autonomous ? 2.5 : 2}
                               strokeDasharray={node.is_autonomous ? "4 2" : undefined}
                             />
@@ -2342,14 +2342,14 @@ export default function GraphPage() {
                   </svg>
                   {hoverPreview ? (
                     <div
-                      className="pointer-events-none absolute z-30 max-w-[300px] rounded-2xl border border-white/15 bg-slate-950/88 px-3 py-2 text-white shadow-2xl backdrop-blur-md"
+                      className="pointer-events-none absolute z-30 max-w-[300px] rounded-lg border border-white/15 bg-slate-950/88 px-3 py-2 text-white shadow-lg backdrop-blur-md"
                       style={{
                         left: hoverPreview.left,
                         top: hoverPreview.top,
                         transform: "translate(-50%, calc(-100% - 14px))",
                       }}
                     >
-                      <div className="text-[10px] font-semibold uppercase tracking-wider text-indigo-200">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-sky-200">
                         {hoverPreview.eyebrow}
                       </div>
                       <div className="mt-1 line-clamp-3 text-xs font-semibold leading-snug">
@@ -2367,18 +2367,18 @@ export default function GraphPage() {
             </div>
           </section>
 
-          <section className="min-w-0 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+          <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Tracked research subjects
               </h2>
-              <label className="flex w-full items-center gap-2 border-b border-gray-300 px-1 py-1.5 text-sm sm:w-auto sm:min-w-[260px] dark:border-gray-700">
-                <Search size={15} className="shrink-0 text-gray-400" aria-hidden="true" />
+              <label className="flex w-full items-center gap-2 border-b border-slate-300 px-1 py-1.5 text-sm sm:w-auto sm:min-w-[260px] dark:border-slate-700">
+                <Search size={15} className="shrink-0 text-slate-400" aria-hidden="true" />
                 <input
                   value={knowledgeQuery}
                   onChange={(event) => setKnowledgeQuery(event.target.value)}
                   placeholder="Search all knowledge"
-                  className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-gray-400"
+                  className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-slate-400"
                 />
               </label>
             </div>
@@ -2393,14 +2393,14 @@ export default function GraphPage() {
                   key={`${nodeType}:${nodeId}`}
                   type="button"
                   onClick={() => void openGraph(nodeType, nodeId)}
-                  className="h-20 min-w-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs text-gray-700 hover:border-indigo-400 hover:bg-white dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:border-indigo-600 dark:hover:bg-gray-950"
+                  className="h-20 min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs text-slate-700 hover:border-sky-400 hover:bg-white dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-sky-600 dark:hover:bg-slate-950"
                 >
                   <span className="flex min-w-0 items-center justify-between gap-2">
-                    <span className="shrink-0 text-[9px] font-semibold uppercase text-gray-400">
+                    <span className="shrink-0 text-[9px] font-semibold uppercase text-slate-400">
                       {formatUserLabel(nodeType)}
                     </span>
                     {subtitle ? (
-                      <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[10px] text-gray-400">
+                      <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[10px] text-slate-400">
                         {subtitle}
                       </span>
                     ) : null}
@@ -2412,10 +2412,10 @@ export default function GraphPage() {
                 );
               })}
               {knowledgeSearching ? (
-                <span className="py-1.5 text-xs text-gray-400">Searching...</span>
+                <span className="py-1.5 text-xs text-slate-400">Searching...</span>
               ) : null}
               {!knowledgeSearching && knowledgeQuery.trim().length >= 2 && knowledgeResults.length === 0 ? (
-                <span className="py-1.5 text-xs text-gray-400">No matching knowledge</span>
+                <span className="py-1.5 text-xs text-slate-400">No matching knowledge</span>
               ) : null}
             </div>
           </section>
@@ -2423,44 +2423,44 @@ export default function GraphPage() {
 
         <aside className="min-w-0 space-y-6 self-start 2xl:sticky 2xl:top-24 2xl:max-h-[calc(100vh-7rem)] 2xl:overflow-y-auto 2xl:pr-2">
           {activeEdge ? (
-            <section className="min-w-0 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+            <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Connection detail</h2>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Connection detail</h2>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                     Relationship meaning is shown here instead of spraying labels across the graph.
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setSelectedEdgeId(null)}
-                  className="rounded-full border border-gray-300 px-3 py-1 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-300"
+                  className="rounded-full border border-slate-300 px-3 py-1 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300"
                 >
                   Clear
                 </button>
               </div>
               <div className="mt-5 space-y-3">
-                <div className="rounded-xl border border-fuchsia-200 bg-fuchsia-50/70 p-4 dark:border-fuchsia-900 dark:bg-fuchsia-950/20">
-                  <div className="text-[11px] uppercase tracking-wider text-fuchsia-500 dark:text-fuchsia-300">
+                <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900 dark:bg-amber-950/20">
+                  <div className="text-[11px] uppercase tracking-wider text-amber-500 dark:text-amber-300">
                     {activeEdge.relationship_type.replaceAll("_", " ")}
                   </div>
-                  <div className="mt-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  <div className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
                     {describeEdge(activeEdge)}
                   </div>
-                  <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                  <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                     Confidence {Math.round(activeEdge.confidence * 100)}%
                   </div>
                 </div>
                 <div className="grid grid-cols-1 gap-2">
-                  <div className="rounded-xl border border-gray-200 px-3 py-2 dark:border-gray-800">
-                    <div className="text-[10px] uppercase tracking-wider text-gray-400">Source node</div>
-                    <div className="mt-0.5 text-xs text-gray-800 dark:text-gray-200">
+                  <div className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+                    <div className="text-[10px] uppercase tracking-wider text-slate-400">Source node</div>
+                    <div className="mt-0.5 text-xs text-slate-800 dark:text-slate-200">
                       {nodeByKey[activeEdge.source_key]?.label ?? activeEdge.source_key}
                     </div>
                   </div>
-                  <div className="rounded-xl border border-gray-200 px-3 py-2 dark:border-gray-800">
-                    <div className="text-[10px] uppercase tracking-wider text-gray-400">Target node</div>
-                    <div className="mt-0.5 text-xs text-gray-800 dark:text-gray-200">
+                  <div className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+                    <div className="text-[10px] uppercase tracking-wider text-slate-400">Target node</div>
+                    <div className="mt-0.5 text-xs text-slate-800 dark:text-slate-200">
                       {nodeByKey[activeEdge.target_key]?.label ?? activeEdge.target_key}
                     </div>
                   </div>
@@ -2473,7 +2473,7 @@ export default function GraphPage() {
                       context: "edge",
                     });
                   }}
-                  className="inline-flex items-center justify-center rounded-full border border-indigo-300 px-4 py-2 text-xs font-medium text-indigo-700 hover:border-indigo-400 dark:border-indigo-800 dark:text-indigo-300"
+                  className="inline-flex items-center justify-center rounded-full border border-sky-300 px-4 py-2 text-xs font-medium text-sky-700 hover:border-sky-400 dark:border-sky-800 dark:text-sky-300"
                 >
                   Analyze this connection
                 </button>
@@ -2482,11 +2482,11 @@ export default function GraphPage() {
             </section>
           ) : null}
 
-          <section className="min-w-0 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+          <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Node detail</h2>
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Inspect the selected node, its evidence, and why it belongs in the system.</p>
+                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Node detail</h2>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Inspect the selected node, its evidence, and why it belongs in the system.</p>
               </div>
               {selectedDetail ? (
                 <button
@@ -2503,7 +2503,7 @@ export default function GraphPage() {
                       context: "node",
                     })
                   }
-                  className="rounded-full border border-fuchsia-300 px-3 py-1 text-[10px] text-fuchsia-700 hover:border-fuchsia-400 dark:border-fuchsia-800 dark:text-fuchsia-300"
+                  className="rounded-full border border-amber-300 px-3 py-1 text-[10px] text-amber-700 hover:border-amber-400 dark:border-amber-800 dark:text-amber-300"
                 >
                   Analyze node
                 </button>
@@ -2511,16 +2511,16 @@ export default function GraphPage() {
             </div>
 
             {detailLoading ? (
-              <div className="mt-5 rounded-xl border border-gray-200 p-4 text-xs text-gray-500 animate-pulse dark:border-gray-800 dark:text-gray-400">
+              <div className="mt-5 rounded-lg border border-slate-200 p-4 text-xs text-slate-500 animate-pulse dark:border-slate-800 dark:text-slate-400">
                 Loading node detail...
               </div>
             ) : selectedDetail ? (
               <div className="mt-5 space-y-5">
-                <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-900">
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     Guide this analysis
                   </label>
-                  <p className="mt-1 text-[10px] text-gray-500 dark:text-gray-400">
+                  <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
                     Write the exact question you want answered about this node.
                   </p>
                   <textarea
@@ -2528,7 +2528,7 @@ export default function GraphPage() {
                     onChange={(event) => setGraphAskUserPrompt(event.target.value)}
                     rows={2}
                     placeholder="Why does this matter to me?"
-                    className="mt-2 w-full resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-800 outline-none placeholder:text-gray-400 focus:border-fuchsia-400 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                    className="mt-2 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none placeholder:text-slate-400 focus:border-amber-400 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   />
                 </div>
                 {selectedKey === activeRootKey ? (
@@ -2546,31 +2546,31 @@ export default function GraphPage() {
                         context: "node",
                       })
                     }
-                    className="inline-flex items-center justify-center rounded-full border border-fuchsia-300 px-4 py-2 text-xs font-medium text-fuchsia-700 hover:border-fuchsia-400 dark:border-fuchsia-800 dark:text-fuchsia-300"
+                    className="inline-flex items-center justify-center rounded-full border border-amber-300 px-4 py-2 text-xs font-medium text-amber-700 hover:border-amber-400 dark:border-amber-800 dark:text-amber-300"
                   >
                     Run node analysis
                   </button>
                 ) : null}
                 {graphAskContext === "node" ? graphAskPanel : null}
-                <div className="min-w-0 rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 dark:border-indigo-900 dark:bg-indigo-950/30">
+                <div className="min-w-0 rounded-lg border border-sky-200 bg-sky-50/70 p-4 dark:border-sky-900 dark:bg-sky-950/30">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-md border border-indigo-300 bg-white/60 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-indigo-700 shadow-sm dark:border-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300">
+                    <span className="rounded-md border border-sky-300 bg-white/60 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-sky-700 dark:border-sky-700 dark:bg-sky-900/50 dark:text-sky-300">
                       {nodeTypeLabel(selectedDetail.node_type)}
                     </span>
                     {selectedDetail.tier ? (
-                      <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 shadow-sm dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-400">
+                      <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-400">
                         {selectedDetail.tier.replaceAll("_", " ")}
                       </span>
                     ) : null}
-                    <span className="rounded-md border border-gray-300 bg-white/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-600 dark:border-gray-700 dark:bg-gray-800/40 dark:text-gray-400">
+                    <span className="rounded-md border border-slate-300 bg-white/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
                       {layerLabel(selectedDetail.layer)}
                     </span>
                   </div>
-                  <h3 className="mt-3 text-base font-semibold text-gray-900 dark:text-gray-100">{selectedDetail.label}</h3>
+                  <h3 className="mt-3 text-base font-semibold text-slate-900 dark:text-slate-100">{selectedDetail.label}</h3>
                   {selectedDetail.body && selectedDetail.body.trim() !== selectedDetail.label.trim() ? (
-                    <div className="mt-3 bg-white px-4 py-3 dark:bg-[#1e1e1e] border-l-4 border-indigo-500 rounded-r-lg shadow-sm">
-                      <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-indigo-500/80 dark:text-indigo-400/80">Description & Reasoning</div>
-                      <div className="prose prose-xs dark:prose-invert max-w-none prose-indigo leading-relaxed break-words">
+                    <div className="mt-3 bg-white px-4 py-3 dark:bg-[#1e1e1e] border-l-4 border-sky-500 rounded-r-lg">
+                      <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-sky-500/80 dark:text-sky-400/80">Description & Reasoning</div>
+                      <div className="prose prose-xs dark:prose-invert max-w-none prose-sky leading-relaxed break-words">
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm]}
                           components={{
@@ -2579,7 +2579,7 @@ export default function GraphPage() {
                               <img
                                 {...props}
                                 alt={alt ?? ""}
-                                className="max-w-full rounded-xl border border-slate-200 dark:border-slate-800 my-4 shadow-lg hover:scale-[1.02] transition-transform duration-300"
+                                className="my-4 max-w-full rounded-lg border border-slate-200 dark:border-slate-800"
                                 loading="lazy"
                               />
                             )
@@ -2591,9 +2591,9 @@ export default function GraphPage() {
                     </div>
                   ) : null}
                   {selectedDetail.properties?.horizon_reasoning ? (
-                    <div className="mt-3 bg-amber-50/50 px-4 py-3 dark:bg-amber-950/10 border-l-4 border-amber-400 rounded-r-lg shadow-sm">
+                    <div className="mt-3 bg-amber-50/50 px-4 py-3 dark:bg-amber-950/10 border-l-4 border-amber-400 rounded-r-lg">
                       <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-amber-600/80 dark:text-amber-400/80">Horizon Awareness</div>
-                      <div className="text-xs italic leading-relaxed text-gray-700 dark:text-gray-300">
+                      <div className="text-xs italic leading-relaxed text-slate-700 dark:text-slate-300">
                         {String(selectedDetail.properties.horizon_reasoning)}
                       </div>
                     </div>
@@ -2602,41 +2602,41 @@ export default function GraphPage() {
 
 	                {/* Portfolio Significance Section */}
 	                {selectedDetail.relevance_reasoning && (
-	                  <div className="mb-6 mx-4 rounded-xl border border-violet-200 bg-violet-50 p-4 dark:border-violet-900/60 dark:bg-violet-950/25">
+	                  <div className="mb-6 mx-4 rounded-lg border border-teal-200 bg-teal-50 p-4 dark:border-teal-900/60 dark:bg-teal-950/25">
 	                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <div className="h-2 w-2 rounded-full bg-violet-500 dark:bg-violet-400" />
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300">
+                      <div className="h-2 w-2 rounded-full bg-teal-500 dark:bg-teal-400" />
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300">
                         Why This Is In Your Graph
                       </span>
                       {selectedDetail.properties?.portfolio_significance ? (
-                        <span className="rounded-full border border-violet-300 bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-700 dark:border-violet-700 dark:bg-violet-900/50 dark:text-violet-200">
+                        <span className="rounded-full border border-teal-300 bg-teal-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-teal-700 dark:border-teal-700 dark:bg-teal-900/50 dark:text-teal-200">
                           {String(selectedDetail.properties.portfolio_significance)}
                         </span>
                       ) : null}
                     </div>
-	                    <p className="text-sm leading-relaxed text-violet-950 dark:text-violet-100">
+	                    <p className="text-sm leading-relaxed text-teal-950 dark:text-teal-100">
 	                      {selectedDetail.relevance_reasoning}
 	                    </p>
 	                    {propertyText(selectedDetail.properties?.portfolio_mechanism) ? (
-	                      <div className="mt-4 rounded-lg border border-violet-200 bg-white/65 px-3 py-2 dark:border-violet-800/70 dark:bg-violet-950/30">
-	                        <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300/90">
+	                      <div className="mt-4 rounded-lg border border-teal-200 bg-white/65 px-3 py-2 dark:border-teal-800/70 dark:bg-teal-950/30">
+	                        <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
 	                          Portfolio Mechanism
 	                        </div>
-	                        <p className="text-xs leading-relaxed text-violet-950 dark:text-violet-100">
+	                        <p className="text-xs leading-relaxed text-teal-950 dark:text-teal-100">
 	                          {propertyText(selectedDetail.properties?.portfolio_mechanism)}
 	                        </p>
 	                      </div>
 	                    ) : null}
 	                    {propertyList(selectedDetail.properties?.affected_holdings).length > 0 ? (
 	                      <div className="mt-3">
-	                        <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300/90">
+	                        <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
 	                          Affected Holdings
 	                        </div>
 	                        <div className="flex flex-wrap gap-2">
 	                          {propertyList(selectedDetail.properties?.affected_holdings).map((holding) => (
 	                            <span
 	                              key={`affected-${holding}`}
-	                              className="rounded-full border border-violet-300 bg-white/70 px-2 py-1 text-[10px] font-semibold tracking-wide text-violet-700 dark:border-violet-400/30 dark:bg-violet-500/10 dark:text-violet-100"
+	                              className="rounded-full border border-teal-300 bg-white/70 px-2 py-1 text-[10px] font-semibold tracking-wide text-teal-700 dark:border-teal-400/30 dark:bg-teal-500/10 dark:text-teal-100"
 	                            >
 	                              {holding}
 	                            </span>
@@ -2645,11 +2645,11 @@ export default function GraphPage() {
 	                      </div>
 	                    ) : null}
 	                    {propertyText(selectedDetail.properties?.next_test) ? (
-	                      <div className="mt-3 rounded-lg border border-violet-200 bg-white/65 px-3 py-2 dark:border-violet-800/70 dark:bg-violet-950/30">
-	                        <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300/90">
+	                      <div className="mt-3 rounded-lg border border-teal-200 bg-white/65 px-3 py-2 dark:border-teal-800/70 dark:bg-teal-950/30">
+	                        <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
 	                          Next Useful Test
 	                        </div>
-	                        <p className="text-xs leading-relaxed text-violet-950 dark:text-violet-100">
+	                        <p className="text-xs leading-relaxed text-teal-950 dark:text-teal-100">
 	                          {propertyText(selectedDetail.properties?.next_test)}
 	                        </p>
 	                      </div>
@@ -2657,7 +2657,7 @@ export default function GraphPage() {
 	                    {Array.isArray(selectedDetail.properties?.linked_holdings) &&
 	                    selectedDetail.properties.linked_holdings.length > 0 ? (
 	                      <div className="mt-3">
-                        <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300/90">
+                        <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
                           Linked Holdings
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -2675,7 +2675,7 @@ export default function GraphPage() {
                     {Array.isArray(selectedDetail.properties?.linked_companies) &&
                     selectedDetail.properties.linked_companies.length > 0 ? (
                       <div className="mt-3">
-                        <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300/90">
+                        <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
                           Linked Companies
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -2694,20 +2694,20 @@ export default function GraphPage() {
                 )}
 
                 {Object.keys(selectedDetail.properties || {}).length > 0 ? (
-                  <div className="border-t border-gray-100 pt-4 dark:border-gray-800">
-                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Node Properties</h4>
+                  <div className="border-t border-slate-100 pt-4 dark:border-slate-800">
+                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Node Properties</h4>
                     <div className="mt-2 grid grid-cols-1 gap-1.5">
                       {selectedDetail.relevance !== undefined && (
-                        <div className="min-w-0 rounded-lg border border-indigo-200 bg-indigo-50/30 px-2 py-1.5 dark:border-indigo-800/60 dark:bg-indigo-950/20">
-                          <div className="text-[10px] text-indigo-500 font-bold uppercase tracking-tighter">Match Relevance</div>
+                        <div className="min-w-0 rounded-lg border border-sky-200 bg-sky-50/30 px-2 py-1.5 dark:border-sky-800/60 dark:bg-sky-950/20">
+                          <div className="text-[10px] text-sky-500 font-bold uppercase tracking-tighter">Match Relevance</div>
                           <div className="mt-0.5 flex items-center gap-2">
-                            <div className="h-1.5 flex-1 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
+                            <div className="h-1.5 flex-1 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
                               <div
-                                className="h-full bg-indigo-500 transition-all duration-1000"
+                                className="h-full bg-sky-500 transition-all duration-1000"
                                 style={{ width: `${(selectedDetail.relevance || 0) * 100}%` }}
                               />
                             </div>
-                            <span className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                            <span className="text-xs font-mono font-bold text-sky-600 dark:text-sky-400">
                               {Math.round((selectedDetail.relevance || 0) * 100)}%
                             </span>
                           </div>
@@ -2716,9 +2716,9 @@ export default function GraphPage() {
 	                      {Object.entries(selectedDetail.properties)
 	                        .filter(([key]) => !HIDDEN_DETAIL_PROPERTY_KEYS.has(key))
 	                        .map(([key, value]) => (
-                        <div key={key} className="min-w-0 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 dark:border-gray-800 dark:bg-gray-900">
-                          <div className="text-[10px] text-gray-500">{formatUserLabel(key)}</div>
-                          <div className="mt-0.5 break-words text-xs font-medium text-gray-900 dark:text-white">
+                        <div key={key} className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 dark:border-slate-800 dark:bg-slate-900">
+                          <div className="text-[10px] text-slate-500">{formatUserLabel(key)}</div>
+                          <div className="mt-0.5 break-words text-xs font-medium text-slate-900 dark:text-white">
                             {Array.isArray(value) ? value.join(", ") : String(value)}
                           </div>
                         </div>
@@ -2729,25 +2729,25 @@ export default function GraphPage() {
 
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
-                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Citations</h4>
-                    <span className="text-[10px] text-gray-400">{visibleCitations.length}{systemCitations.length > 0 ? ` + ${systemCitations.length} internal` : ""}</span>
+                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Citations</h4>
+                    <span className="text-[10px] text-slate-400">{visibleCitations.length}{systemCitations.length > 0 ? ` + ${systemCitations.length} internal` : ""}</span>
                   </div>
                   {visibleCitations.length === 0 ? (
-                    <div className="rounded-xl border border-gray-200 p-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
+                    <div className="rounded-lg border border-slate-200 p-3 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
                       {systemCitations.length > 0
                         ? "No external citation is attached yet. Internal operating-memory provenance is available below."
                         : "No source citation attached yet."}
                     </div>
                   ) : (
                     visibleCitations.map((citation) => (
-                      <div key={citation.raw_evidence_id} className="min-w-0 rounded-xl border border-gray-200 p-3 dark:border-gray-800">
-                        <div className="text-xs font-semibold text-gray-900 dark:text-gray-100">{citation.source_name}</div>
+                      <div key={citation.raw_evidence_id} className="min-w-0 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                        <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">{citation.source_name}</div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
-                          <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
+                          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                             {citation.source_type.replaceAll("_", " ")}
                           </span>
                           {citation.source_item_type ? (
-                            <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
+                            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                               {citation.source_item_type.replaceAll("_", " ")}
                             </span>
                           ) : null}
@@ -2755,16 +2755,16 @@ export default function GraphPage() {
                             {citation.origin_label ?? "Source catalog"}
                           </span>
                         </div>
-                        {citation.title ? <div className="mt-2 break-words text-xs text-gray-700 dark:text-gray-200">{citation.title}</div> : null}
+                        {citation.title ? <div className="mt-2 break-words text-xs text-slate-700 dark:text-slate-200">{citation.title}</div> : null}
                         {citation.origin_detail ? (
-                          <div className="mt-2 line-clamp-2 text-[10px] text-gray-500 dark:text-gray-400">
+                          <div className="mt-2 line-clamp-2 text-[10px] text-slate-500 dark:text-slate-400">
                             Origin: {citation.origin_detail}
                           </div>
                         ) : null}
-                        <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-gray-500 dark:text-gray-400">
+                        <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-slate-500 dark:text-slate-400">
                           {citation.author ? <span>Author: {citation.author}</span> : null}
                           {citation.url ? (
-                            <a href={citation.url} target="_blank" rel="noreferrer" className="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">
+                            <a href={citation.url} target="_blank" rel="noreferrer" className="text-sky-600 hover:text-sky-500 dark:text-sky-400">
                               Open source
                             </a>
                           ) : null}
@@ -2773,20 +2773,20 @@ export default function GraphPage() {
                     ))
                   )}
                   {systemCitations.length > 0 ? (
-                    <div className="rounded-xl border border-dashed border-fuchsia-200 p-3 dark:border-fuchsia-900">
+                    <div className="rounded-lg border border-dashed border-amber-200 p-3 dark:border-amber-900">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <div className="text-[10px] font-bold uppercase tracking-wider text-fuchsia-500 dark:text-fuchsia-300">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-amber-500 dark:text-amber-300">
                             Internal provenance
                           </div>
-                          <div className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
+                          <div className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
                             These citations come from Prophet operating memory.
                           </div>
                         </div>
                         <button
                           type="button"
                           onClick={() => setShowSystemCitations((current) => !current)}
-                          className="rounded-full border border-fuchsia-300 px-3 py-1 text-xs text-fuchsia-700 dark:border-fuchsia-800 dark:text-fuchsia-300"
+                          className="rounded-full border border-amber-300 px-3 py-1 text-xs text-amber-700 dark:border-amber-800 dark:text-amber-300"
                         >
                           {showSystemCitations ? "Hide" : "Show"}
                         </button>
@@ -2794,19 +2794,19 @@ export default function GraphPage() {
                       {showSystemCitations ? (
                         <div className="mt-4 space-y-3">
                           {systemCitations.map((citation) => (
-                            <div key={citation.raw_evidence_id} className="min-w-0 rounded-xl border border-fuchsia-100 bg-fuchsia-50/60 p-4 dark:border-fuchsia-950 dark:bg-fuchsia-950/10">
-                              <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{citation.source_name}</div>
+                            <div key={citation.raw_evidence_id} className="min-w-0 rounded-lg border border-amber-100 bg-amber-50/60 p-4 dark:border-amber-950 dark:bg-amber-950/10">
+                              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{citation.source_name}</div>
                               <div className="mt-2 flex flex-wrap gap-1.5">
-                                <span className="rounded-full border border-fuchsia-200 bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-fuchsia-700 dark:border-fuchsia-900 dark:bg-fuchsia-950/40 dark:text-fuchsia-300">
+                                <span className="rounded-full border border-amber-200 bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
                                   {citation.system_reason?.replaceAll("_", " ") ?? "system memory"}
                                 </span>
                                 <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${citationOriginClasses(citation.origin_kind)}`}>
                                   {citation.origin_label ?? "Source catalog"}
                                 </span>
                               </div>
-                              {citation.title ? <div className="mt-3 break-words text-sm text-gray-700 dark:text-gray-200">{citation.title}</div> : null}
+                              {citation.title ? <div className="mt-3 break-words text-sm text-slate-700 dark:text-slate-200">{citation.title}</div> : null}
                               {citation.origin_detail ? (
-                                <div className="mt-2 line-clamp-2 text-xs text-gray-500 dark:text-gray-400">
+                                <div className="mt-2 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
                                   Origin: {citation.origin_detail}
                                 </div>
                               ) : null}
@@ -2819,7 +2819,7 @@ export default function GraphPage() {
                 </div>
               </div>
             ) : (
-              <div className="mt-5 rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+              <div className="mt-5 rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
                 Select a node in the graph to inspect its detail.
               </div>
             )}

@@ -19,7 +19,7 @@ export default function FloatingNotice({
   return (
     <div className="fixed inset-x-4 top-20 z-50 flex justify-center pointer-events-none">
       <div
-        className={`pointer-events-auto flex w-full max-w-2xl items-start justify-between gap-4 rounded-2xl border px-4 py-3 shadow-xl backdrop-blur ${toneClass}`}
+        className={`pointer-events-auto flex w-full max-w-2xl items-start justify-between gap-4 rounded-lg border px-4 py-3 shadow-xl backdrop-blur ${toneClass}`}
         role="status"
         aria-live="polite"
       >

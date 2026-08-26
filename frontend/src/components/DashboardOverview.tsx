@@ -24,7 +24,7 @@ import {
 
 function HeroMetric({ label, value, detail, href }: { label: string; value: string; detail: string; href?: string }) {
   const content = (
-    <div className="cursor-default border-t-2 border-slate-200 bg-white px-1 py-4 transition-colors hover:border-slate-400 dark:border-slate-700 dark:bg-[#0d0d0d] dark:hover:border-slate-500">
+    <div className="cursor-default border-t-2 border-line bg-panel px-1 py-4 transition-colors hover:border-line-strong">
       <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</p>
       <p className="mt-1.5 text-2xl font-semibold text-slate-900 dark:text-slate-100">{value}</p>
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 line-clamp-1">{detail}</p>
@@ -41,7 +41,7 @@ function HeroMetric({ label, value, detail, href }: { label: string; value: stri
 function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
     <div
-      className={`rounded-lg border border-slate-200 bg-white p-4 md:p-5 dark:border-slate-800 dark:bg-[#0d0d0d] ${className}`}
+      className={`rounded-lg border border-line bg-panel p-4 md:p-5 ${className}`}
     >
       {children}
     </div>
@@ -108,11 +108,11 @@ export default function DashboardOverview() {
   if (loading) {
     return (
       <div className="animate-pulse space-y-6">
-        <div className="h-24 rounded-[2rem] bg-slate-100 dark:bg-slate-900" />
+        <div className="h-24 rounded-lg bg-slate-100 dark:bg-slate-900" />
         <div className="grid grid-cols-3 gap-6">
-           <div className="h-96 rounded-[1.25rem] bg-slate-100 dark:bg-slate-900" />
-           <div className="h-96 rounded-[1.25rem] bg-slate-100 dark:bg-slate-900" />
-           <div className="h-96 rounded-[1.25rem] bg-slate-100 dark:bg-slate-900" />
+           <div className="h-96 rounded-lg bg-slate-100 dark:bg-slate-900" />
+           <div className="h-96 rounded-lg bg-slate-100 dark:bg-slate-900" />
+           <div className="h-96 rounded-lg bg-slate-100 dark:bg-slate-900" />
         </div>
       </div>
     );
@@ -325,7 +325,7 @@ export default function DashboardOverview() {
               </div>
               <div className="mt-4 space-y-2">
                 {scannerItems.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-200 px-3 py-4 text-sm italic text-slate-400 dark:border-slate-800 dark:text-slate-500">
+                  <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm italic text-slate-400 dark:border-slate-800 dark:text-slate-500">
                     No active scanner items right now.
                   </div>
                 ) : (
@@ -377,13 +377,13 @@ export default function DashboardOverview() {
             title="Performance"
             subtitle="Returns and risk"
             action={
-              <Link href="/risk" className="text-[11px] font-bold uppercase tracking-widest text-indigo-600 hover:underline">
+              <Link href="/risk" className="text-[11px] font-bold uppercase tracking-widest text-sky-600 hover:underline">
                 Full report
               </Link>
             }
           />
           <div className="space-y-4 text-sm text-slate-600">
-            <div className="rounded-xl border border-slate-100 p-4 bg-slate-50/30 font-bold">
+            <div className="rounded-lg border border-slate-100 p-4 bg-slate-50/30 font-bold">
               <p className="text-[10px] uppercase font-bold tracking-[0.2em] text-slate-400">Net Exposure (Market)</p>
               <div className="flex items-baseline gap-3 mt-1.5">
                 <p className="text-2xl font-bold tracking-tighter text-slate-900">
@@ -394,7 +394,7 @@ export default function DashboardOverview() {
                 </p>
               </div>
             </div>
-            <div className="rounded-xl border border-slate-100 p-4">
+            <div className="rounded-lg border border-slate-100 p-4">
               <p className="text-[10px] uppercase font-bold tracking-[0.2em] text-slate-400 mb-3">Reference frame</p>
               <div className="grid grid-cols-2 gap-2 mt-1">
                 <div className="flex justify-between items-center bg-slate-50 p-2 rounded-lg">
@@ -409,7 +409,7 @@ export default function DashboardOverview() {
               <p className="mt-2 text-[10px] leading-4 text-slate-400">These two reference figures are not cash-flow aligned and should not be subtracted. The Risk report calculates a dated Modified Dietz comparison.</p>
             </div>
             <div className="grid gap-4 lg:grid-cols-2">
-              <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
+              <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-4">
                 <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-2">Top contributors</p>
                 <div className="space-y-2">
                   {!summary?.top_winners || summary.top_winners.length === 0 ? (
@@ -429,7 +429,7 @@ export default function DashboardOverview() {
                   )}
                 </div>
               </div>
-              <div className="rounded-xl border border-rose-100 bg-rose-50/40 p-4">
+              <div className="rounded-lg border border-rose-100 bg-rose-50/40 p-4">
                 <p className="text-[10px] font-bold text-rose-600 uppercase tracking-widest mb-2">Top detractors</p>
                 <div className="space-y-2">
                   {!summary?.top_losers || summary.top_losers.length === 0 ? (
@@ -461,7 +461,7 @@ export default function DashboardOverview() {
           onToggle={() => setExpandedPanels((current) => ({ ...current, trajectory: !current.trajectory }))}
         >
           <div className="space-y-4">
-            <div className="rounded-xl border border-slate-100 bg-slate-50/40 p-4">
+            <div className="rounded-lg border border-slate-100 bg-slate-50/40 p-4">
               <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
                 Capital deployment history
               </div>
@@ -483,10 +483,10 @@ export default function DashboardOverview() {
           <SectionTitle
             title="Infrastructure"
             subtitle={summary?.automation_enabled ? "Running" : "Paused"}
-            action={<Link href="/settings" className="text-[11px] font-bold text-indigo-600 uppercase tracking-widest hover:underline">Settings</Link>}
+            action={<Link href="/settings" className="text-[11px] font-bold text-sky-600 uppercase tracking-widest hover:underline">Settings</Link>}
           />
           <div className="space-y-3">
-            <div className="rounded-xl border border-slate-100 p-3 bg-slate-50/50">
+            <div className="rounded-lg border border-slate-100 p-3 bg-slate-50/50">
               <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">
                 <ShieldCheck className="w-3 h-3 text-emerald-500" /> System Persistent
               </div>
@@ -495,11 +495,11 @@ export default function DashboardOverview() {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-               <div className="rounded-xl border border-slate-100 p-3 bg-white shadow-sm">
+               <div className="rounded-lg border border-slate-100 p-3 bg-white">
                   <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">Profiles</p>
                   <p className="text-xl font-bold text-slate-900">{summary?.profile_count ?? 0}</p>
                </div>
-               <div className="rounded-xl border border-slate-100 p-3 bg-white shadow-sm">
+               <div className="rounded-lg border border-slate-100 p-3 bg-white">
                   <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">Lessons</p>
                   <p className="text-xl font-bold text-slate-900">{summary?.recent_lessons?.length ?? 0}</p>
                </div>
@@ -538,7 +538,7 @@ function TransactionCapturePanel({
         <AutomationHealthPill health={gmailHealth} />
       </div>
       {visibleTransactions.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-200 px-3 py-4 text-sm italic text-slate-400 dark:border-slate-800 dark:text-slate-500">
+        <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm italic text-slate-400 dark:border-slate-800 dark:text-slate-500">
           No recent transactions found in the portfolio ledger.
         </div>
       ) : (
@@ -782,8 +782,8 @@ function PortfolioBuildChart({ points }: { points: DashboardSummary["portfolio_b
         <AreaChart data={points}>
           <defs>
             <linearGradient id="colorDeployed" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-              <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+              <stop offset="5%" stopColor="#0284c7" stopOpacity={0.3}/>
+              <stop offset="95%" stopColor="#0284c7" stopOpacity={0}/>
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148,163,184,0.18)" />
@@ -800,7 +800,7 @@ function PortfolioBuildChart({ points }: { points: DashboardSummary["portfolio_b
               if (active && payload && payload.length) {
                 const data = payload[0].payload;
                 return (
-                  <div className="rounded-xl border border-slate-200 bg-white/95 p-3 shadow-xl backdrop-blur-sm dark:border-slate-700 dark:bg-slate-950/95">
+                  <div className="rounded-lg border border-slate-200 bg-white/95 p-3 shadow-xl backdrop-blur-sm dark:border-slate-700 dark:bg-slate-950/95">
                     <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">
                       {new Date(data.as_of).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                     </p>
@@ -808,7 +808,7 @@ function PortfolioBuildChart({ points }: { points: DashboardSummary["portfolio_b
                       {safeFormatCurrency(data.net_capital_deployed)}
                     </p>
                     <div className="mt-1 flex items-center gap-2">
-                       <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-500 dark:bg-indigo-950/30 dark:text-indigo-300">
+                       <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-500 dark:bg-sky-950/30 dark:text-sky-300">
                          {data.transaction_count} txns
                        </span>
                     </div>
@@ -821,7 +821,7 @@ function PortfolioBuildChart({ points }: { points: DashboardSummary["portfolio_b
           <Area
             type="monotone"
             dataKey="net_capital_deployed"
-            stroke="#6366f1"
+            stroke="#0284c7"
             strokeWidth={3}
             fillOpacity={1}
             fill="url(#colorDeployed)"

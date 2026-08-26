@@ -38,26 +38,26 @@ export default function EvidenceReceiptPage() {
   const origin = useMemo(() => normalizeSourceOrigin(receipt), [receipt]);
 
   return (
-    <main className="min-h-screen bg-[#fafafa] text-gray-900 selection:bg-indigo-100 selection:text-indigo-900 dark:bg-black dark:text-gray-100 dark:selection:bg-indigo-900 dark:selection:text-indigo-100">
+    <main className="min-h-screen bg-background text-foreground">
       <AppNav active="sources" />
 
       <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
-        <Link href="/sources" className="mb-6 inline-flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100">
+        <Link href="/sources" className="mb-6 inline-flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100">
           <ArrowLeft className="h-4 w-4" />
           Sources
         </Link>
 
         {loading ? (
-          <div className="rounded-3xl border border-gray-200 bg-white p-8 text-sm text-gray-500 shadow-sm dark:border-gray-800 dark:bg-[#0d0d0d] dark:text-gray-400">
+          <div className="rounded-lg border border-line bg-panel p-8 text-sm text-muted">
             Loading receipt...
           </div>
         ) : error || !receipt ? (
-          <div className="rounded-3xl border border-rose-100 bg-rose-50 p-8 text-sm font-semibold text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/10 dark:text-rose-300">
+          <div className="rounded-lg border border-rose-100 bg-rose-50 p-8 text-sm font-semibold text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/10 dark:text-rose-300">
             {error ?? "Evidence receipt not found."}
           </div>
         ) : (
           <div className="space-y-6">
-            <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-[#0d0d0d]">
+            <section className="rounded-lg border border-line bg-panel p-6">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
                   <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -71,7 +71,7 @@ export default function EvidenceReceiptPage() {
                   <h1 className="text-2xl font-black tracking-tight sm:text-3xl">
                     {receipt.title || "Untitled evidence receipt"}
                   </h1>
-                  <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                  <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
                     Evidence ID {receipt.id}
                   </p>
                 </div>
@@ -80,7 +80,7 @@ export default function EvidenceReceiptPage() {
                     href={receipt.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-600 hover:border-gray-300 hover:text-gray-900 dark:border-gray-800 dark:text-gray-300 dark:hover:border-gray-700"
+                    className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:border-slate-300 hover:text-slate-900 dark:border-slate-800 dark:text-slate-300 dark:hover:border-slate-700"
                   >
                     Open source
                     <ExternalLink className="h-4 w-4" />
@@ -98,17 +98,17 @@ export default function EvidenceReceiptPage() {
             </section>
 
             <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-              <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-[#0d0d0d]">
-                <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              <div className="rounded-lg border border-line bg-panel p-6">
+                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Extracted receipt text
                 </h2>
-                <div className="mt-4 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm leading-relaxed text-gray-700 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300">
+                <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50 p-4 text-sm leading-relaxed text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
                   {receipt.source_item_summary || receipt.source_item_excerpt || "No extracted text is attached to this receipt yet."}
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-[#0d0d0d]">
-                <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              <div className="rounded-lg border border-line bg-panel p-6">
+                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Provenance metadata
                 </h2>
                 <div className="mt-4 space-y-2">
@@ -132,9 +132,9 @@ export default function EvidenceReceiptPage() {
 
 function ReceiptMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 dark:border-gray-800 dark:bg-gray-950">
-      <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{label}</div>
-      <div className="mt-1 truncate text-sm font-bold text-gray-900 dark:text-gray-100">{value}</div>
+    <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
+      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</div>
+      <div className="mt-1 truncate text-sm font-bold text-slate-900 dark:text-slate-100">{value}</div>
     </div>
   );
 }
@@ -142,9 +142,9 @@ function ReceiptMetric({ label, value }: { label: string; value: string }) {
 function MetadataRow({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null;
   return (
-    <div className="rounded-2xl border border-gray-100 px-3 py-2 text-sm dark:border-gray-800">
-      <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{label}</div>
-      <div className="mt-1 break-words text-gray-700 dark:text-gray-300">{value}</div>
+    <div className="rounded-lg border border-slate-100 px-3 py-2 text-sm dark:border-slate-800">
+      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</div>
+      <div className="mt-1 break-words text-slate-700 dark:text-slate-300">{value}</div>
     </div>
   );
 }
@@ -153,7 +153,7 @@ function StatusPill({ children, tone = "neutral" }: { children: string; tone?: "
   const className =
     tone === "good"
       ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
-      : "border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300";
+      : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300";
   return (
     <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${className}`}>
       {children}
@@ -169,14 +169,14 @@ function OriginPill({ children, kind }: { children: string; kind?: string | null
       : normalized === "email"
       ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
       : normalized === "automation"
-      ? "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-300"
+      ? "border-teal-200 bg-teal-50 text-teal-700 dark:border-teal-900 dark:bg-teal-950/30 dark:text-teal-300"
       : normalized === "discovery"
       ? "border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-900 dark:bg-cyan-950/30 dark:text-cyan-300"
       : normalized === "chat"
-      ? "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700 dark:border-fuchsia-900 dark:bg-fuchsia-950/30 dark:text-fuchsia-300"
+      ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
       : normalized === "disclosure"
       ? "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/30 dark:text-orange-300"
-      : "border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300";
+      : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300";
   return (
     <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${className}`}>
       {children}

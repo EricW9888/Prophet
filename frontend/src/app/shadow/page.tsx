@@ -252,7 +252,7 @@ export default function ShadowPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50/60 font-sans text-gray-900 selection:bg-gray-200 dark:bg-[#0a0a0a] dark:text-gray-100 dark:selection:bg-gray-800">
+    <div className="min-h-screen bg-background font-sans text-foreground">
       <AppNav active="experiments" />
 
       <main className="mx-auto grid w-full max-w-[1440px] grid-cols-1 items-start gap-6 px-4 py-8 sm:px-6 lg:px-8 xl:grid-cols-[minmax(360px,0.72fr)_minmax(0,1.28fr)]">
@@ -262,44 +262,44 @@ export default function ShadowPage() {
         {!error && notice ? (
           <FloatingNotice tone="success" message={notice} onDismiss={() => setNotice(null)} />
         ) : null}
-        <header className="border-b border-gray-200 pb-5 dark:border-gray-800 xl:col-span-2">
+        <header className="border-b border-slate-200 pb-5 dark:border-slate-800 xl:col-span-2">
           <h1 className="text-3xl font-semibold">Shadow Lab</h1>
-          <p className="mt-2 max-w-3xl text-sm text-gray-500 dark:text-gray-400">
+          <p className="mt-2 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
             Run a parallel portfolio experiment from the current live book, then review what it tried, why it tried it, and how it compared against the real portfolio.
           </p>
         </header>
 
         <section className="self-start space-y-6 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto xl:pr-1">
 
-          <form onSubmit={createExperiment} className="space-y-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-950">
+          <form onSubmit={createExperiment} className="space-y-5 rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-950">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Launch a new experiment</h2>
-                <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Launch a new experiment</h2>
+                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
                   Write a single instruction describing how the shadow portfolio should behave differently from the real one. Prophet will handle the rest.
                 </p>
               </div>
               {!autoRun ? (
                 <div>
-                  <p className="text-xs font-medium text-gray-600 dark:text-gray-300">Starting book</p>
-                  <div className="mt-2 grid grid-cols-2 rounded-md border border-gray-300 p-1 dark:border-gray-700" role="group" aria-label="Paper account starting book">
+                  <p className="text-xs font-medium text-slate-600 dark:text-slate-300">Starting book</p>
+                  <div className="mt-2 grid grid-cols-2 rounded-md border border-slate-300 p-1 dark:border-slate-700" role="group" aria-label="Paper account starting book">
                     <button
                       type="button"
                       onClick={() => setAccountBasis("clone_portfolio")}
-                      className={`rounded px-3 py-2 text-sm font-medium ${accountBasis === "clone_portfolio" ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-950" : "text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"}`}
+                      className={`rounded px-3 py-2 text-sm font-medium ${accountBasis === "clone_portfolio" ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950" : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"}`}
                     >
                       Clone live book
                     </button>
                     <button
                       type="button"
                       onClick={() => setAccountBasis("cash_only")}
-                      className={`rounded px-3 py-2 text-sm font-medium ${accountBasis === "cash_only" ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-950" : "text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"}`}
+                      className={`rounded px-3 py-2 text-sm font-medium ${accountBasis === "cash_only" ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950" : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"}`}
                     >
                       Cash only
                     </button>
                   </div>
                   {accountBasis === "cash_only" ? (
-                    <label className="mt-3 block text-xs font-medium text-gray-600 dark:text-gray-300">
+                    <label className="mt-3 block text-xs font-medium text-slate-600 dark:text-slate-300">
                       Starting paper cash
                       <input
                         value={startingCash}
@@ -307,11 +307,11 @@ export default function ShadowPage() {
                         type="number"
                         min="0.01"
                         step="0.01"
-                        className="mt-2 block w-full rounded-md border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-gray-500 focus:outline-none dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                        className="mt-2 block w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-slate-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-white"
                       />
                     </label>
                   ) : null}
-                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                     {accountBasis === "clone_portfolio"
                       ? "Starts with a deterministic copy of current tracked positions and buying power."
                       : "Starts empty with the paper cash entered above; the live portfolio remains only a research reference."}
@@ -322,88 +322,88 @@ export default function ShadowPage() {
 
             <div className="space-y-4">
               <div>
-                <p className="text-xs font-medium text-gray-600 dark:text-gray-300">Account mode</p>
-                <div className="mt-2 grid grid-cols-2 rounded-md border border-gray-300 p-1 dark:border-gray-700" role="group" aria-label="Paper account mode">
+                <p className="text-xs font-medium text-slate-600 dark:text-slate-300">Account mode</p>
+                <div className="mt-2 grid grid-cols-2 rounded-md border border-slate-300 p-1 dark:border-slate-700" role="group" aria-label="Paper account mode">
                   <button
                     type="button"
                     onClick={() => setAutoRun(true)}
-                    className={`rounded px-3 py-2 text-sm font-medium ${autoRun ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-950" : "text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"}`}
+                    className={`rounded px-3 py-2 text-sm font-medium ${autoRun ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950" : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"}`}
                   >
                     Autonomous
                   </button>
                   <button
                     type="button"
                     onClick={() => setAutoRun(false)}
-                    className={`rounded px-3 py-2 text-sm font-medium ${!autoRun ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-950" : "text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"}`}
+                    className={`rounded px-3 py-2 text-sm font-medium ${!autoRun ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950" : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"}`}
                   >
                     Manual
                   </button>
                 </div>
-                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                   {autoRun
                     ? "Prophet proposes bounded target weights; the paper broker alone validates and fills orders."
                     : "You submit simulated orders through a ticket. No model action and no real-broker routing."}
                 </p>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">Experiment name</label>
+                <label className="block text-xs font-medium text-slate-600 dark:text-slate-300">Experiment name</label>
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="mt-2 block w-full rounded-md border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:focus:ring-white/10"
+                  className="mt-2 block w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:ring-white/10"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">{autoRun ? "Policy prompt" : "Account note"}</label>
+                <label className="block text-xs font-medium text-slate-600 dark:text-slate-300">{autoRun ? "Policy prompt" : "Account note"}</label>
                 <textarea
                   value={operatorPrompt}
                   onChange={(e) => setOperatorPrompt(e.target.value)}
                   rows={4}
                   placeholder={autoRun ? "Example: Act more defensively if the thesis is thin, keep 20% cash, and test exiting non-conviction positions." : "Optional note describing what this manual paper account is testing."}
-                  className="mt-2 block min-h-[140px] w-full rounded-md border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:focus:ring-white/10"
+                  className="mt-2 block min-h-[140px] w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:ring-white/10"
                 />
               </div>
             </div>
 
-            <button disabled={saving || (autoRun && !operatorPrompt.trim()) || (!autoRun && accountBasis === "cash_only" && !(Number(startingCash) > 0))} className="w-full rounded-md bg-gray-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50 dark:bg-gray-100 dark:text-gray-950 dark:hover:bg-gray-300">
+            <button disabled={saving || (autoRun && !operatorPrompt.trim()) || (!autoRun && accountBasis === "cash_only" && !(Number(startingCash) > 0))} className="w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-300">
               {saving ? "Creating..." : autoRun ? "Start shadow run" : "Open paper account"}
             </button>
           </form>
 
-          <details className="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-950">
+          <details className="rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-950">
             <summary className="list-none cursor-pointer">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Automation</h2>
-                  <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                  <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Automation</h2>
+                  <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
                     Shadow refresh and agent reflection keep parallel experiments moving even when you are not on this page.
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <button onClick={() => void loadState()} className="text-xs font-medium text-gray-600 hover:text-gray-950 dark:text-gray-300 dark:hover:text-white">
+                  <button onClick={() => void loadState()} className="text-xs font-medium text-slate-600 hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">
                     Refresh
                   </button>
                 </div>
               </div>
             </summary>
-            <div className="mt-4 divide-y divide-gray-200 dark:divide-gray-800">
+            <div className="mt-4 divide-y divide-slate-200 dark:divide-slate-800">
               {automation?.jobs.map((job) => (
                 <div key={job.name} className="py-4 first:pt-0 last:pb-0">
                   <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                     <div className="min-w-0">
                       <p className="font-medium">{job.name}</p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">{job.detail ?? "No detail yet."}</p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">{job.detail ?? "No detail yet."}</p>
                     </div>
                     <button
                       onClick={() => void triggerAutomation(job.name)}
                       disabled={runningJob !== null}
-                      className="shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-gray-700"
+                      className="shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-slate-700"
                     >
                       Run now
                     </button>
                   </div>
-                  <p className="mt-2 text-xs font-mono text-gray-400">
+                  <p className="mt-2 text-xs font-mono text-slate-400">
                     status={job.last_status} interval={job.interval_seconds ?? 0}s last={job.last_run_at ?? "never"}
                   </p>
                 </div>
@@ -413,32 +413,32 @@ export default function ShadowPage() {
         </section>
 
         <section className="min-w-0 space-y-4 overflow-hidden">
-          <div className="flex min-h-9 items-center justify-between border-b border-gray-200 pb-3 dark:border-gray-800">
-            <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Experiment runs</h2>
-            <span className="text-xs text-gray-500 dark:text-gray-400">{experiments.length} total</span>
+          <div className="flex min-h-9 items-center justify-between border-b border-slate-200 pb-3 dark:border-slate-800">
+            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Experiment runs</h2>
+            <span className="text-xs text-slate-500 dark:text-slate-400">{experiments.length} total</span>
           </div>
           {loading ? (
-            <div className="text-sm text-gray-500 animate-pulse">Loading experiments...</div>
+            <div className="text-sm text-slate-500 animate-pulse">Loading experiments...</div>
           ) : experiments.length === 0 ? (
-            <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950 text-gray-500 dark:text-gray-400">
+            <div className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950 text-slate-500 dark:text-slate-400">
               No experiments yet.
             </div>
           ) : (
             experiments.map((experiment) => (
-              <article key={experiment.id} className="min-w-0 overflow-hidden rounded-lg border border-gray-200 bg-white p-5 [overflow-wrap:anywhere] dark:border-gray-800 dark:bg-gray-950">
+              <article key={experiment.id} className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-5 [overflow-wrap:anywhere] dark:border-slate-800 dark:bg-slate-950">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="text-xl font-semibold tracking-tight">{experiment.name}</h2>
                       <StatusBadge status={experiment.run_status} />
                     </div>
-                    <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">{experiment.policy_description}</p>
+                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{experiment.policy_description}</p>
                   </div>
                   {experiment.execution_mode !== "manual" ? (
                     <button
                       onClick={() => void rerunExperiment(experiment.id)}
                       disabled={runningJob !== null}
-                      className="rounded-lg border border-gray-300 dark:border-gray-700 px-4 py-2 text-sm disabled:opacity-50"
+                      className="rounded-lg border border-slate-300 dark:border-slate-700 px-4 py-2 text-sm disabled:opacity-50"
                     >
                       {runningJob === `experiment:${experiment.id}` ? "Re-running..." : "Re-run"}
                     </button>
@@ -476,7 +476,7 @@ export default function ShadowPage() {
 
                 {experiment.operator_prompt ? (
                   <details
-                    className="mt-3 rounded-xl border border-gray-200 p-3 dark:border-gray-800"
+                    className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800"
                     open={expandedZones.has(`${experiment.id}:operator`)}
                     onToggle={(e) => {
                       const isOpen = (e.target as HTMLDetailsElement).open;
@@ -484,10 +484,10 @@ export default function ShadowPage() {
                       if (isOpen !== expandedZones.has(key)) toggleZone(key);
                     }}
                   >
-                    <summary className="cursor-pointer text-xs font-bold uppercase tracking-wider text-gray-500">
+                    <summary className="cursor-pointer text-xs font-bold uppercase tracking-wider text-slate-500">
                       Operator guidance
                     </summary>
-                    <p className="mt-3 whitespace-pre-wrap text-sm text-gray-600 dark:text-gray-300">
+                    <p className="mt-3 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">
                       {experiment.operator_prompt}
                     </p>
                   </details>
@@ -514,7 +514,7 @@ export default function ShadowPage() {
                 ) : null}
 
                 {experiment.run_status === "running" ? (
-                  <div className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-300">
+                  <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-800 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300">
                     {(() => {
                       const progress = experiment.run_details?.progress ?? {};
                       const stepCount = progress.step_count ?? 0;
@@ -525,7 +525,7 @@ export default function ShadowPage() {
                 ) : null}
 
                 {experiment.execution_mode === "manual" ? (
-                  <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 dark:border-gray-800 dark:bg-gray-900/40 dark:text-gray-300">
+                  <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-300">
                     This is a user-directed paper account. Orders use current quotes, configured slippage and buying-power checks; they never route to a real broker.
                   </div>
                 ) : null}
@@ -537,56 +537,56 @@ export default function ShadowPage() {
                 ) : null}
 
                 {experiment.run_status === "completed" && experiment.report?.policy_assessment ? (
-                  <div className="mt-4 rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+                  <div className="mt-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
                     <div className="flex items-start justify-between gap-3">
-                      <p className="text-xs uppercase tracking-wider text-gray-400">Experiment report</p>
+                      <p className="text-xs uppercase tracking-wider text-slate-400">Experiment report</p>
                     </div>
-                    <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">
+                    <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
                       {experiment.report.policy_assessment}
                     </p>
                     {experiment.report.key_lesson ? (
-                      <p className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-900 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">
+                      <p className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
                         {experiment.report.key_lesson}
                       </p>
                     ) : null}
                     {experiment.lesson ? (
-                      <div className="mt-4 border-t border-gray-200 pt-4 dark:border-gray-800">
+                      <div className="mt-4 border-t border-slate-200 pt-4 dark:border-slate-800">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
-                            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                               Learning state
                             </p>
-                            <p className="mt-1 text-sm font-medium text-gray-900 dark:text-gray-100">
+                            <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">
                               {experiment.lesson.title}
                             </p>
                           </div>
                           <span
-                            className="rounded-full border border-gray-300 px-2.5 py-1 text-xs font-semibold uppercase text-gray-600 dark:border-gray-700 dark:text-gray-300"
+                            className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-semibold uppercase text-slate-600 dark:border-slate-700 dark:text-slate-300"
                             title="Provisional means fewer than the configured minimum repeated experiments. Validated requires repeated, directionally consistent outcomes. Mixed means the family has meaningful counterexamples."
                           >
                             {experiment.lesson.maturity_status}
                           </span>
                         </div>
-                        <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">
+                        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
                           {experiment.lesson.summary}
                         </p>
                         <dl className="mt-4 grid grid-cols-2 gap-x-5 gap-y-3 text-sm sm:grid-cols-4">
                           <div>
-                            <dt className="text-xs uppercase text-gray-400">Confidence</dt>
+                            <dt className="text-xs uppercase text-slate-400">Confidence</dt>
                             <dd className="mt-1 font-medium">
                               {formatPct(experiment.lesson.confidence_score)}
                             </dd>
                           </div>
                           <div>
-                            <dt className="text-xs uppercase text-gray-400">Supportive</dt>
+                            <dt className="text-xs uppercase text-slate-400">Supportive</dt>
                             <dd className="mt-1 font-medium">{experiment.lesson.supporting_observations}</dd>
                           </div>
                           <div>
-                            <dt className="text-xs uppercase text-gray-400">Contradictory</dt>
+                            <dt className="text-xs uppercase text-slate-400">Contradictory</dt>
                             <dd className="mt-1 font-medium">{experiment.lesson.contradicting_observations}</dd>
                           </div>
                           <div>
-                            <dt className="text-xs uppercase text-gray-400">Immaterial</dt>
+                            <dt className="text-xs uppercase text-slate-400">Immaterial</dt>
                             <dd className="mt-1 font-medium">{experiment.lesson.neutral_observations}</dd>
                           </div>
                         </dl>
@@ -596,7 +596,7 @@ export default function ShadowPage() {
                 ) : null}
 
                 <details
-                  className="mt-3 rounded-xl border border-gray-200 p-3 dark:border-gray-800"
+                  className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800"
                   open={expandedZones.has(`${experiment.id}:details`)}
                   onToggle={(e) => {
                     const isOpen = (e.target as HTMLDetailsElement).open;
@@ -605,11 +605,11 @@ export default function ShadowPage() {
                     if (isOpen !== expandedZones.has(key)) toggleZone(key);
                   }}
                 >
-                  <summary className="cursor-pointer text-xs font-bold uppercase tracking-wider text-gray-500">
+                  <summary className="cursor-pointer text-xs font-bold uppercase tracking-wider text-slate-500">
                     Run details
                   </summary>
                   {loadingDetailIds.has(experiment.id) ? (
-                    <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
+                    <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
                       Loading the full checkpoint, order, and decision history...
                     </p>
                   ) : null}
@@ -624,25 +624,25 @@ export default function ShadowPage() {
                   experiment.report?.actual_outcome?.summary ? (
                     <div className="mt-4 grid gap-4 lg:grid-cols-3">
                       {experiment.report?.policy_summary?.objective ? (
-                        <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
-                          <p className="text-xs uppercase tracking-wider text-gray-400">What it was trying to do</p>
-                          <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">
+                        <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+                          <p className="text-xs uppercase tracking-wider text-slate-400">What it was trying to do</p>
+                          <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
                             {experiment.report.policy_summary.objective}
                           </p>
                         </div>
                       ) : null}
                       {experiment.report?.expected_outcome?.summary ? (
-                        <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 dark:border-amber-900 dark:bg-amber-950/20">
+                        <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-4 dark:border-amber-900 dark:bg-amber-950/20">
                           <p className="text-xs uppercase tracking-wider text-amber-600 dark:text-amber-300">What it expected</p>
-                          <p className="mt-3 text-sm text-gray-700 dark:text-gray-200">
+                          <p className="mt-3 text-sm text-slate-700 dark:text-slate-200">
                             {experiment.report.expected_outcome.summary}
                           </p>
                         </div>
                       ) : null}
                       {experiment.report?.actual_outcome?.summary ? (
-                        <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900 dark:bg-emerald-950/20">
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900 dark:bg-emerald-950/20">
                           <p className="text-xs uppercase tracking-wider text-emerald-600 dark:text-emerald-300">What actually happened</p>
-                          <p className="mt-3 text-sm text-gray-700 dark:text-gray-200">
+                          <p className="mt-3 text-sm text-slate-700 dark:text-slate-200">
                             {experiment.report.actual_outcome.summary}
                           </p>
                         </div>
@@ -651,36 +651,36 @@ export default function ShadowPage() {
                   ) : null}
 
                   {experiment.report?.learning_summary ? (
-                    <div className="mt-4 rounded-xl border border-gray-200 p-4 dark:border-gray-800">
-                      <p className="text-xs uppercase tracking-wider text-gray-400">How the system should learn from this</p>
-                      <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">
+                    <div className="mt-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+                      <p className="text-xs uppercase tracking-wider text-slate-400">How the system should learn from this</p>
+                      <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
                         {experiment.report.learning_summary.why_this_matters}
                       </p>
-                      <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                      <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
                         Baseline: {experiment.report.learning_summary.baseline_description}
                       </p>
                     </div>
                   ) : null}
 
                   {experiment.report?.thesis_context?.length ? (
-                    <div className="mt-4 rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+                    <div className="mt-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
                       <div className="flex items-start justify-between gap-3">
-                        <p className="text-xs uppercase tracking-wider text-gray-400">Thesis context used by the run</p>
+                        <p className="text-xs uppercase tracking-wider text-slate-400">Thesis context used by the run</p>
                       </div>
                       <div className="mt-3 space-y-3">
                         {experiment.report.thesis_context.map((item, index) => (
-                          <div key={`${experiment.id}-thesis-${index}`} className="rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-800">
-                            <p className="font-medium text-gray-800 dark:text-gray-100">
+                          <div key={`${experiment.id}-thesis-${index}`} className="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
+                            <p className="font-medium text-slate-800 dark:text-slate-100">
                               {item.ticker} {item.entity_name ? `· ${item.entity_name}` : ""}
                             </p>
-                            <p className="mt-1 text-gray-500 dark:text-gray-400">
+                            <p className="mt-1 text-slate-500 dark:text-slate-400">
                               stance {item.stance ?? "n/a"} · confidence {item.confidence_band ?? "n/a"} · action {item.action ?? "n/a"}
                             </p>
                             {item.thesis_summary ? (
-                              <p className="mt-2 text-gray-600 dark:text-gray-300">{item.thesis_summary}</p>
+                              <p className="mt-2 text-slate-600 dark:text-slate-300">{item.thesis_summary}</p>
                             ) : null}
                             {item.rationale ? (
-                              <p className="mt-2 text-gray-500 dark:text-gray-400">{item.rationale}</p>
+                              <p className="mt-2 text-slate-500 dark:text-slate-400">{item.rationale}</p>
                             ) : null}
                           </div>
                         ))}
@@ -689,11 +689,11 @@ export default function ShadowPage() {
                   ) : null}
 
                   <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                    <div className="rounded-xl border border-gray-200 p-4 text-sm dark:border-gray-800">
+                    <div className="rounded-lg border border-slate-200 p-4 text-sm dark:border-slate-800">
                       <div className="flex items-start justify-between gap-3">
-                        <p className="text-xs uppercase tracking-wider text-gray-400">Run state</p>
+                        <p className="text-xs uppercase tracking-wider text-slate-400">Run state</p>
                       </div>
-                      <div className="mt-3 space-y-2 text-gray-600 dark:text-gray-300">
+                      <div className="mt-3 space-y-2 text-slate-600 dark:text-slate-300">
                         <p>
                           progress:{" "}
                           {experiment.run_details.progress?.step_count == null
@@ -719,18 +719,18 @@ export default function ShadowPage() {
                         </p>
                       </div>
                     </div>
-                    <div className="rounded-xl border border-gray-200 p-4 text-sm dark:border-gray-800">
+                    <div className="rounded-lg border border-slate-200 p-4 text-sm dark:border-slate-800">
                       <div className="flex items-start justify-between gap-3">
-                        <p className="text-xs uppercase tracking-wider text-gray-400">What the run concluded</p>
+                        <p className="text-xs uppercase tracking-wider text-slate-400">What the run concluded</p>
                       </div>
                       {experiment.run_status === "completed" && experiment.result ? (
-                        <p className="mt-3 text-gray-600 dark:text-gray-300">{experiment.result.reasoning}</p>
+                        <p className="mt-3 text-slate-600 dark:text-slate-300">{experiment.result.reasoning}</p>
                       ) : experiment.execution_mode === "manual" ? (
-                        <p className="mt-3 text-gray-500 dark:text-gray-400">
+                        <p className="mt-3 text-slate-500 dark:text-slate-400">
                           This account has no autonomous conclusion. Its durable order and fill ledger is the record of what was actually simulated.
                         </p>
                       ) : (
-                        <p className="mt-3 text-gray-500 dark:text-gray-400">
+                        <p className="mt-3 text-slate-500 dark:text-slate-400">
                           The run is still gathering checkpoints. Prophet will only lock in a final comparison and lesson once the planned live observation window completes.
                         </p>
                       )}
@@ -739,24 +739,24 @@ export default function ShadowPage() {
 
                   {experiment.run_details.pending_evidence_events?.length ||
                   experiment.run_details.evidence_event_log?.length ? (
-                    <div className="mt-4 rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+                    <div className="mt-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <p className="text-xs uppercase tracking-wider text-gray-400">
+                          <p className="text-xs uppercase tracking-wider text-slate-400">
                             Evidence wake-ups
                           </p>
-                          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
                             New source-backed evidence can wake an active experiment. Pending items remain queued until a provider-backed checkpoint evaluates them.
                           </p>
                         </div>
                         <span
-                          className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-300"
+                          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300"
                           title="Safe hold fallbacks do not consume evidence wake-ups. The event remains pending for a later provider-backed checkpoint."
                         >
                           {experiment.run_details.pending_evidence_events?.length ?? 0} pending
                         </span>
                       </div>
-                      <div className="mt-4 divide-y divide-gray-200 dark:divide-gray-800">
+                      <div className="mt-4 divide-y divide-slate-200 dark:divide-slate-800">
                         {[
                           ...(experiment.run_details.pending_evidence_events ?? []).map((event) => ({
                             ...event,
@@ -769,14 +769,14 @@ export default function ShadowPage() {
                         ].map((event) => (
                           <div key={`${experiment.id}-evidence-event-${event.event_id}`} className="py-3 text-sm">
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-medium text-gray-800 dark:text-gray-100">
+                              <span className="font-medium text-slate-800 dark:text-slate-100">
                                 {event.trigger_reason}
                               </span>
-                              <span className="rounded border border-gray-300 px-2 py-0.5 text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                              <span className="rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
                                 {event.state}
                               </span>
                             </div>
-                            <p className="mt-1 text-gray-500 dark:text-gray-400">
+                            <p className="mt-1 text-slate-500 dark:text-slate-400">
                               {event.state === "consumed" && event.consumed_at
                                 ? `evaluated ${formatDate(event.consumed_at)}${event.checkpoint_index ? ` at checkpoint ${event.checkpoint_index}` : ""}`
                                 : event.queued_at
@@ -793,18 +793,18 @@ export default function ShadowPage() {
                   ) : null}
 
                   {experiment.run_details.checkpoint_log?.length ? (
-                    <div className="mt-4 rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+                    <div className="mt-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
                       <div className="flex items-start justify-between gap-3">
-                        <p className="text-xs uppercase tracking-wider text-gray-400">Checkpoint timeline</p>
+                        <p className="text-xs uppercase tracking-wider text-slate-400">Checkpoint timeline</p>
                       </div>
                       <div className="mt-3 space-y-3">
                         {experiment.run_details.checkpoint_log.map((checkpoint, index) => (
-                          <div key={`${experiment.id}-checkpoint-${index}`} className="rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-800">
-                            <p className="font-medium text-gray-800 dark:text-gray-100">
+                          <div key={`${experiment.id}-checkpoint-${index}`} className="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
+                            <p className="font-medium text-slate-800 dark:text-slate-100">
                               Checkpoint {checkpoint.step_index}
                               {checkpoint.captured_at ? ` · ${formatDate(checkpoint.captured_at)}` : ""}
                             </p>
-                            <p className="mt-2 text-gray-600 dark:text-gray-300">
+                            <p className="mt-2 text-slate-600 dark:text-slate-300">
                               {checkpoint.summary}
                             </p>
                           </div>
@@ -814,64 +814,64 @@ export default function ShadowPage() {
                   ) : null}
 
                   {experiment.run_details.decision_history?.length ? (
-                    <div className="mt-4 rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+                    <div className="mt-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
                       <div className="flex items-start justify-between gap-3">
-                        <p className="text-xs uppercase tracking-wider text-gray-400">Decision history</p>
+                        <p className="text-xs uppercase tracking-wider text-slate-400">Decision history</p>
                       </div>
                       <div className="mt-3 space-y-3">
                         {experiment.run_details.decision_history.map((entry, index) => (
-                          <div key={`${experiment.id}-decision-${index}`} className="rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-800">
-                            <p className="font-medium text-gray-800 dark:text-gray-100">
+                          <div key={`${experiment.id}-decision-${index}`} className="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
+                            <p className="font-medium text-slate-800 dark:text-slate-100">
                               Checkpoint {entry.step_index}
                               {entry.observed_at ? ` · ${formatDate(entry.observed_at)}` : ""}
                             </p>
                             {entry.checkpoint_objective ? (
-                              <p className="mt-2 text-gray-700 dark:text-gray-200">{entry.checkpoint_objective}</p>
+                              <p className="mt-2 text-slate-700 dark:text-slate-200">{entry.checkpoint_objective}</p>
                             ) : null}
                             {entry.portfolio_view ? (
-                              <p className="mt-2 text-gray-500 dark:text-gray-400">{entry.portfolio_view}</p>
+                              <p className="mt-2 text-slate-500 dark:text-slate-400">{entry.portfolio_view}</p>
                             ) : null}
                             {entry.planned_posture ? (
-                              <p className="mt-2 text-gray-500 dark:text-gray-400">posture: {entry.planned_posture}</p>
+                              <p className="mt-2 text-slate-500 dark:text-slate-400">posture: {entry.planned_posture}</p>
                             ) : null}
                             {entry.prior_realization ? (
-                              <p className="mt-2 text-gray-500 dark:text-gray-400">{entry.prior_realization}</p>
+                              <p className="mt-2 text-slate-500 dark:text-slate-400">{entry.prior_realization}</p>
                             ) : null}
                             {entry.research_goal ? (
-                              <p className="mt-2 text-gray-600 dark:text-gray-300">
+                              <p className="mt-2 text-slate-600 dark:text-slate-300">
                                 research goal: {entry.research_goal}
                               </p>
                             ) : null}
                             {entry.shadow_research?.title ? (
-                              <p className="mt-2 text-gray-500 dark:text-gray-400">
+                              <p className="mt-2 text-slate-500 dark:text-slate-400">
                                 research run: {entry.shadow_research.title} · {entry.shadow_research.reason}
                               </p>
                             ) : null}
                             {entry.baseline_comparison ? (
-                              <p className="mt-2 text-gray-500 dark:text-gray-400">
+                              <p className="mt-2 text-slate-500 dark:text-slate-400">
                                 baseline check: shadow {formatPct(entry.baseline_comparison.shadow_return)} · real {formatPct(entry.baseline_comparison.real_portfolio_return)} · alpha {formatPct(entry.baseline_comparison.alpha)}
                               </p>
                             ) : null}
                             {entry.decisions?.length ? (
                               <div className="mt-3 space-y-2">
                                 {entry.decisions.map((decision, decisionIndex) => (
-                                  <div key={`${experiment.id}-decision-item-${decisionIndex}`} className="rounded-lg bg-gray-50 p-3 dark:bg-gray-900/40">
-                                    <p className="font-medium text-gray-800 dark:text-gray-100">
+                                  <div key={`${experiment.id}-decision-item-${decisionIndex}`} className="rounded-lg bg-slate-50 p-3 dark:bg-slate-900/40">
+                                    <p className="font-medium text-slate-800 dark:text-slate-100">
                                       {decision.ticker}
                                       {decision.entity_name ? ` · ${decision.entity_name}` : ""}
                                       {decision.action ? ` · ${decision.action.toUpperCase()}` : ""}
                                     </p>
                                     {decision.observed_signal ? (
-                                      <p className="mt-1 text-gray-500 dark:text-gray-400">signal: {decision.observed_signal}</p>
+                                      <p className="mt-1 text-slate-500 dark:text-slate-400">signal: {decision.observed_signal}</p>
                                     ) : null}
                                     {decision.expected_outcome ? (
-                                      <p className="mt-1 text-gray-600 dark:text-gray-300">expected: {decision.expected_outcome}</p>
+                                      <p className="mt-1 text-slate-600 dark:text-slate-300">expected: {decision.expected_outcome}</p>
                                     ) : null}
                                     {decision.risk_guardrail ? (
-                                      <p className="mt-1 text-gray-500 dark:text-gray-400">guardrail: {decision.risk_guardrail}</p>
+                                      <p className="mt-1 text-slate-500 dark:text-slate-400">guardrail: {decision.risk_guardrail}</p>
                                     ) : null}
                                     {decision.rationale ? (
-                                      <p className="mt-1 text-gray-500 dark:text-gray-400">{decision.rationale}</p>
+                                      <p className="mt-1 text-slate-500 dark:text-slate-400">{decision.rationale}</p>
                                     ) : null}
                                   </div>
                                 ))}
@@ -891,38 +891,38 @@ export default function ShadowPage() {
                     onSubmitManual={submitManualPaperOrder}
                   />
 
-                  <div className="mt-4 rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+                  <div className="mt-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
                     <div className="flex items-start justify-between gap-3">
-                      <p className="text-xs uppercase tracking-wider text-gray-400">Run log</p>
+                      <p className="text-xs uppercase tracking-wider text-slate-400">Run log</p>
                     </div>
                     {experiment.run_details.run_log?.length ? (
                       <div className="mt-3 space-y-3">
                         {experiment.run_details.run_log.map((entry, index) => (
-                          <div key={`${experiment.id}-${entry.ticker}-${index}`} className="rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-800">
+                          <div key={`${experiment.id}-${entry.ticker}-${index}`} className="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="font-medium">{entry.ticker}</span>
-                              {entry.entity_name ? <span className="text-gray-500 dark:text-gray-400">{entry.entity_name}</span> : null}
-                              <span className="text-gray-500 dark:text-gray-400">{entry.action.toUpperCase()}</span>
-                              <span className="text-gray-500 dark:text-gray-400">
+                              {entry.entity_name ? <span className="text-slate-500 dark:text-slate-400">{entry.entity_name}</span> : null}
+                              <span className="text-slate-500 dark:text-slate-400">{entry.action.toUpperCase()}</span>
+                              <span className="text-slate-500 dark:text-slate-400">
                                 {entry.quantity.toFixed(2)} @ {formatCurrency(entry.price)}
                               </span>
                             </div>
-                            <p className="mt-2 text-gray-600 dark:text-gray-300">{entry.rationale}</p>
-                            <p className="mt-2 text-gray-500 dark:text-gray-400">
+                            <p className="mt-2 text-slate-600 dark:text-slate-300">{entry.rationale}</p>
+                            <p className="mt-2 text-slate-500 dark:text-slate-400">
                               stance {entry.stance ?? "n/a"} · confidence {entry.confidence_band ?? "n/a"}
                               {entry.actual_weight_pct != null ? ` · actual weight ${entry.actual_weight_pct.toFixed(2)}%` : ""}
                             </p>
                             {entry.thesis_summary ? (
-                              <p className="mt-2 text-gray-500 dark:text-gray-400">{entry.thesis_summary}</p>
+                              <p className="mt-2 text-slate-500 dark:text-slate-400">{entry.thesis_summary}</p>
                             ) : null}
-                            <p className="mt-2 text-gray-500 dark:text-gray-400">
+                            <p className="mt-2 text-slate-500 dark:text-slate-400">
                               buying power after trade: {formatCurrency(entry.post_trade_buying_power)}
                             </p>
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">No detailed run log stored yet.</p>
+                      <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">No detailed run log stored yet.</p>
                     )}
                   </div>
                 </details>
@@ -978,46 +978,46 @@ function PaperBrokerLedger({
   }
 
   return (
-    <section className="mt-5 border-t border-gray-200 pt-5 dark:border-gray-800">
+    <section className="mt-5 border-t border-slate-200 pt-5 dark:border-slate-800">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">Paper broker ledger</p>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Orders are derived from model intent; only deterministic fills change this account.</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Paper broker ledger</p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Orders are derived from model intent; only deterministic fills change this account.</p>
         </div>
-        <span className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-300">
+        <span className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
           {account?.provider?.replaceAll("_", " ") ?? "local simulator"} · {fills.length} fill{fills.length === 1 ? "" : "s"}
         </span>
       </div>
 
       {isManual ? (
-        <form onSubmit={submitOrder} className="mt-4 border-y border-gray-200 py-4 dark:border-gray-800">
+        <form onSubmit={submitOrder} className="mt-4 border-y border-slate-200 py-4 dark:border-slate-800">
           <div className="flex flex-wrap items-end gap-3">
-            <label className="min-w-[120px] flex-1 text-xs font-medium text-gray-500 dark:text-gray-400">
+            <label className="min-w-[120px] flex-1 text-xs font-medium text-slate-500 dark:text-slate-400">
               Ticker
               <input
                 value={ticker}
                 onChange={(event) => setTicker(event.target.value.toUpperCase())}
                 placeholder="EXMPL"
                 maxLength={24}
-                className="mt-2 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm uppercase text-gray-900 focus:border-gray-500 focus:outline-none dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                className="mt-2 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm uppercase text-slate-900 focus:border-slate-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-white"
               />
             </label>
-            <div className="text-xs font-medium text-gray-500 dark:text-gray-400">
+            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
               Side
-              <div className="mt-2 flex rounded-md border border-gray-300 p-1 dark:border-gray-700" role="group" aria-label="Paper order side">
+              <div className="mt-2 flex rounded-md border border-slate-300 p-1 dark:border-slate-700" role="group" aria-label="Paper order side">
                 {(["buy", "sell"] as const).map((value) => (
                   <button
                     key={value}
                     type="button"
                     onClick={() => setSide(value)}
-                    className={`rounded px-3 py-1.5 text-sm font-medium ${side === value ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-950" : "text-gray-500 dark:text-gray-400"}`}
+                    className={`rounded px-3 py-1.5 text-sm font-medium ${side === value ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950" : "text-slate-500 dark:text-slate-400"}`}
                   >
                     {value === "buy" ? "Buy" : "Sell"}
                   </button>
                 ))}
               </div>
             </div>
-            <label className="min-w-[140px] flex-1 text-xs font-medium text-gray-500 dark:text-gray-400">
+            <label className="min-w-[140px] flex-1 text-xs font-medium text-slate-500 dark:text-slate-400">
               Quantity
               <input
                 value={quantity}
@@ -1026,35 +1026,35 @@ function PaperBrokerLedger({
                 min="0"
                 step="any"
                 placeholder="0.00"
-                className="mt-2 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                className="mt-2 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-white"
               />
             </label>
             <button
               type="submit"
               disabled={submittingOrder || !ticker.trim() || !(Number(quantity) > 0)}
-              className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-gray-100 dark:text-gray-950"
+              className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950"
             >
               {submittingOrder ? "Submitting..." : "Submit paper order"}
             </button>
           </div>
-          <label className="mt-3 block text-xs font-medium text-gray-500 dark:text-gray-400">
+          <label className="mt-3 block text-xs font-medium text-slate-500 dark:text-slate-400">
             Rationale
             <input
               value={rationale}
               onChange={(event) => setRationale(event.target.value)}
               placeholder="What this simulated order is testing"
               maxLength={1000}
-              className="mt-2 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              className="mt-2 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-white"
             />
           </label>
-          <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+          <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
             Market/day simulation only. The broker rejects untracked tickers, oversells, insufficient buying power, and buys above the configured per-order equity cap. Outside regular hours, valid orders wait without changing positions.
           </p>
         </form>
       ) : null}
 
       {account ? (
-        <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 border-y border-gray-200 py-4 text-sm md:grid-cols-3 dark:border-gray-800">
+        <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 border-y border-slate-200 py-4 text-sm md:grid-cols-3 dark:border-slate-800">
           <Metric label="Equity" value={formatCurrency(account.equity)} />
           <Metric label="Cash" value={formatCurrency(account.cash)} />
           <Metric label="Reserved" value={formatCurrency(account.cash_reserved)} />
@@ -1067,7 +1067,7 @@ function PaperBrokerLedger({
       {paperPositions.length ? (
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[720px] border-collapse text-left text-sm">
-            <thead className="border-b border-gray-200 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
+            <thead className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
               <tr>
                 <th className="py-2 pr-4 font-medium">Position</th>
                 <th className="px-4 py-2 text-right font-medium">Quantity</th>
@@ -1077,12 +1077,12 @@ function PaperBrokerLedger({
                 <th className="py-2 pl-4 text-right font-medium">Unrealized P&amp;L</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
               {paperPositions.map(position => (
                 <tr key={position.security_id}>
                   <td className="py-3 pr-4">
-                    <p className="font-medium text-gray-900 dark:text-gray-100">{position.ticker}</p>
-                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    <p className="font-medium text-slate-900 dark:text-slate-100">{position.ticker}</p>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                       {position.weight_pct.toFixed(2)}% of paper equity
                       {position.marked_at ? ` · marked ${formatDate(position.marked_at)}` : ""}
                     </p>
@@ -1100,37 +1100,37 @@ function PaperBrokerLedger({
           </table>
         </div>
       ) : isManual ? (
-        <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">This paper account does not hold any positions yet.</p>
+        <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">This paper account does not hold any positions yet.</p>
       ) : null}
 
       {accountEvents.length ? (
-        <div className="mt-5 border-t border-gray-200 pt-4 dark:border-gray-800">
+        <div className="mt-5 border-t border-slate-200 pt-4 dark:border-slate-800">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">
               Account events
             </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               Settled portfolio events applied once to this paper account
             </p>
           </div>
-          <div className="mt-2 divide-y divide-gray-200 dark:divide-gray-800">
+          <div className="mt-2 divide-y divide-slate-200 dark:divide-slate-800">
             {accountEvents.map(event => (
               <div key={event.id} className="grid gap-2 py-3 text-sm md:grid-cols-[minmax(0,1fr)_auto] md:gap-6">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-gray-900 dark:text-gray-100">{event.ticker}</span>
-                    <span className="capitalize text-gray-700 dark:text-gray-200">{event.event_type}</span>
+                    <span className="font-semibold text-slate-900 dark:text-slate-100">{event.ticker}</span>
+                    <span className="capitalize text-slate-700 dark:text-slate-200">{event.event_type}</span>
                     <AccountEventStatus status={event.status} />
                   </div>
-                  <p className="mt-1 text-gray-600 dark:text-gray-300">{event.detail}</p>
+                  <p className="mt-1 text-slate-600 dark:text-slate-300">{event.detail}</p>
                   <p
-                    className="mt-1 text-xs text-gray-500 dark:text-gray-400"
+                    className="mt-1 text-xs text-slate-500 dark:text-slate-400"
                     title="Derivation records whether the amount came directly from broker provenance or was reconstructed from the settled transaction ledger."
                   >
                     {event.derivation.replaceAll("_", " ")}
                   </p>
                 </div>
-                <div className="text-left text-xs tabular-nums text-gray-500 md:text-right dark:text-gray-400">
+                <div className="text-left text-xs tabular-nums text-slate-500 md:text-right dark:text-slate-400">
                   <p>{formatDate(event.occurred_at)}</p>
                   {event.event_type === "split" ? (
                     <p className="mt-1">{event.quantity_before.toFixed(4)} → {event.quantity_after.toFixed(4)} shares</p>
@@ -1145,7 +1145,7 @@ function PaperBrokerLedger({
       ) : null}
 
       {orders.length ? (
-        <div className="mt-3 divide-y divide-gray-200 dark:divide-gray-800">
+        <div className="mt-3 divide-y divide-slate-200 dark:divide-slate-800">
           {orders.map(order => {
             const fill = fills.find(item => item.order_id === order.id);
             const intent = order.source_decision_json ?? {};
@@ -1155,7 +1155,7 @@ function PaperBrokerLedger({
               <div key={order.id} className="grid gap-2 py-4 text-sm md:grid-cols-[minmax(0,1fr)_auto] md:gap-6">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-gray-900 dark:text-gray-100">{order.ticker}</span>
+                    <span className="font-semibold text-slate-900 dark:text-slate-100">{order.ticker}</span>
                     <span>{order.side.toUpperCase()} {order.requested_quantity.toFixed(4)}</span>
                     <OrderStatus status={order.status} reason={order.rejection_reason} />
                     {order.status === "accepted" ? (
@@ -1163,26 +1163,26 @@ function PaperBrokerLedger({
                         type="button"
                         onClick={() => void onCancel(experiment.id, order.id)}
                         disabled={cancelingOrderId === order.id}
-                        className="text-xs font-medium text-gray-600 underline-offset-4 hover:underline disabled:opacity-50 dark:text-gray-300"
+                        className="text-xs font-medium text-slate-600 underline-offset-4 hover:underline disabled:opacity-50 dark:text-slate-300"
                       >
                         {cancelingOrderId === order.id ? "Canceling..." : "Cancel"}
                       </button>
                     ) : null}
                   </div>
-                  <p className="mt-1 text-gray-500 dark:text-gray-400">
+                  <p className="mt-1 text-slate-500 dark:text-slate-400">
                     submitted {formatDate(order.submitted_at)} · {order.order_type} / {order.time_in_force}
                     {targetWeight == null ? "" : ` · target ${targetWeight.toFixed(2)}%`}
                   </p>
                   {fill ? (
-                    <p className="mt-1 text-gray-700 dark:text-gray-200">
+                    <p className="mt-1 text-slate-700 dark:text-slate-200">
                       filled {fill.quantity.toFixed(4)} @ {formatCurrency(fill.price)} · notional {formatCurrency(fill.gross_notional)} · slippage {fill.slippage_bps.toFixed(1)} bps
                     </p>
                   ) : null}
                   {order.rejection_reason ? <p className="mt-1 text-red-600 dark:text-red-300">{order.rejection_reason.replaceAll("_", " ")}</p> : null}
                   {adjustments.map((adjustment, index) => <p key={`${order.id}-adjustment-${index}`} className="mt-1 text-amber-700 dark:text-amber-300">{adjustment}</p>)}
-                  <p className="mt-2 text-gray-600 dark:text-gray-300">{order.rationale}</p>
+                  <p className="mt-2 text-slate-600 dark:text-slate-300">{order.rationale}</p>
                 </div>
-                <div className="text-left text-xs text-gray-500 md:text-right dark:text-gray-400">
+                <div className="text-left text-xs text-slate-500 md:text-right dark:text-slate-400">
                   <p>reference {formatCurrency(order.reference_price)}</p>
                   <p className="mt-1">session {order.quote_session?.replaceAll("_", " ") ?? "unknown"}</p>
                   {order.evidence_refs_json.length ? <p className="mt-1">{order.evidence_refs_json.length} evidence ref{order.evidence_refs_json.length === 1 ? "" : "s"}</p> : null}
@@ -1192,7 +1192,7 @@ function PaperBrokerLedger({
           })}
         </div>
       ) : (
-        <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">No paper orders have been submitted for this run.</p>
+        <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">No paper orders have been submitted for this run.</p>
       )}
     </section>
   );
@@ -1214,7 +1214,7 @@ function AccountEventStatus({ status }: { status: string }) {
       ? "border-red-300 text-red-700 dark:border-red-800 dark:text-red-300"
       : status === "needs_reconciliation"
         ? "border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-300"
-        : "border-gray-300 text-gray-600 dark:border-gray-700 dark:text-gray-300";
+        : "border-slate-300 text-slate-600 dark:border-slate-700 dark:text-slate-300";
   return (
     <span className={`rounded border px-2 py-0.5 text-xs font-medium ${tone}`}>
       {status.replaceAll("_", " ")}
@@ -1238,26 +1238,26 @@ function OpportunitySummary({
   const stage = profile.signal_stage?.replaceAll("_", " ");
   const pricedIn = profile.priced_in_assessment?.replaceAll("_", " ");
   return (
-    <div className="mt-4 min-w-0 border-t-2 border-gray-300 pt-4 text-sm [overflow-wrap:anywhere] dark:border-gray-700">
+    <div className="mt-4 min-w-0 border-t-2 border-slate-300 pt-4 text-sm [overflow-wrap:anywhere] dark:border-slate-700">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+        <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
           Opportunity thesis
         </p>
-        <span className="max-w-full rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-300">
+        <span className="max-w-full rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
           {[stage, pricedIn ? `${pricedIn} priced in` : null, profile.opportunity_type?.replaceAll("_", " "), profile.priority_score == null ? null : `priority ${(profile.priority_score * 100).toFixed(0)}%`]
             .filter(Boolean)
             .join(" · ")}
         </span>
       </div>
-      <p className="mt-3 font-medium text-gray-800 dark:text-gray-100">{profile.investable_thesis}</p>
+      <p className="mt-3 font-medium text-slate-800 dark:text-slate-100">{profile.investable_thesis}</p>
       {profile.why_now ? (
-        <p className="mt-2 text-gray-700 dark:text-gray-200"><span className="font-medium">Why now:</span> {profile.why_now}</p>
+        <p className="mt-2 text-slate-700 dark:text-slate-200"><span className="font-medium">Why now:</span> {profile.why_now}</p>
       ) : null}
       {profile.portfolio_transmission ? (
-        <p className="mt-2 text-gray-600 dark:text-gray-300">Transmission: {profile.portfolio_transmission}</p>
+        <p className="mt-2 text-slate-600 dark:text-slate-300">Transmission: {profile.portfolio_transmission}</p>
       ) : null}
       {profile.expected_edge ? (
-        <p className="mt-2 text-gray-600 dark:text-gray-300">Expected edge: {profile.expected_edge}</p>
+        <p className="mt-2 text-slate-600 dark:text-slate-300">Expected edge: {profile.expected_edge}</p>
       ) : null}
       <div className="mt-3 grid gap-3 lg:grid-cols-3">
         {leading.length ? <CompactList title="Leading evidence" items={leading} /> : null}
@@ -1268,15 +1268,15 @@ function OpportunitySummary({
         {controls.length ? <CompactList title="Risk controls" items={controls} /> : null}
       </div>
       {evidenceSnapshot.length ? (
-        <details className="mt-4 border-t border-gray-200 pt-3 dark:border-gray-800">
-          <summary className="cursor-pointer text-xs font-medium text-gray-600 dark:text-gray-300">
+        <details className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
+          <summary className="cursor-pointer text-xs font-medium text-slate-600 dark:text-slate-300">
             Point-in-time evidence ({evidenceSnapshot.length})
             {profile.captured_at ? ` · captured ${formatDate(profile.captured_at)}` : ""}
           </summary>
-          <div className="mt-3 space-y-2 text-xs text-gray-500 dark:text-gray-400">
+          <div className="mt-3 space-y-2 text-xs text-slate-500 dark:text-slate-400">
             {evidenceSnapshot.map((item) => (
-              <div key={item.ref} className="min-w-0 border-l-2 border-gray-200 pl-3 dark:border-gray-700">
-                <p className="font-medium text-gray-700 dark:text-gray-200">
+              <div key={item.ref} className="min-w-0 border-l-2 border-slate-200 pl-3 dark:border-slate-700">
+                <p className="font-medium text-slate-700 dark:text-slate-200">
                   {[item.ticker, item.kind?.replaceAll("_", " "), item.source].filter(Boolean).join(" · ") || item.ref}
                 </p>
                 <p className="mt-1 break-all">
@@ -1285,7 +1285,7 @@ function OpportunitySummary({
                 <p className="mt-1">
                   {item.as_of ? formatDate(item.as_of) : "Date not supplied"} · {item.ref}
                   {item.url ? (
-                    <> · <a href={item.url} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline dark:text-indigo-300">source</a></>
+                    <> · <a href={item.url} target="_blank" rel="noreferrer" className="text-sky-600 hover:underline dark:text-sky-300">source</a></>
                   ) : null}
                 </p>
               </div>
@@ -1299,9 +1299,9 @@ function OpportunitySummary({
 
 function CompactList({ title, items }: { title: string; items: string[] }) {
   return (
-    <div className="min-w-0 border-l-2 border-gray-200 pl-3 [overflow-wrap:anywhere] dark:border-gray-700">
-      <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{title}</p>
-      <ul className="mt-2 space-y-1 text-gray-600 dark:text-gray-300">
+    <div className="min-w-0 border-l-2 border-slate-200 pl-3 [overflow-wrap:anywhere] dark:border-slate-700">
+      <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{title}</p>
+      <ul className="mt-2 space-y-1 text-slate-600 dark:text-slate-300">
         {items.slice(0, 4).map((item) => (
           <li key={item}>• {item}</li>
         ))}
@@ -1312,8 +1312,8 @@ function CompactList({ title, items }: { title: string; items: string[] }) {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border-l-2 border-gray-200 py-1 pl-3 dark:border-gray-700">
-      <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
+    <div className="border-l-2 border-slate-200 py-1 pl-3 dark:border-slate-700">
+      <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
       <p className="mt-1 text-xl font-semibold">{value}</p>
     </div>
   );
@@ -1331,14 +1331,14 @@ function InfoCard({
   hint?: string;
 }) {
   return (
-    <div className="min-w-0 border-l-2 border-gray-200 py-1 pl-3 text-sm [overflow-wrap:anywhere] dark:border-gray-700">
+    <div className="min-w-0 border-l-2 border-slate-200 py-1 pl-3 text-sm [overflow-wrap:anywhere] dark:border-slate-700">
       <div className="flex items-start justify-between gap-3">
-        <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</p>
+        <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</p>
 
       </div>
-      <p className="mt-2 font-medium text-gray-700 dark:text-gray-200">{body}</p>
-      <p className="mt-2 text-gray-500 dark:text-gray-400">{detail}</p>
-      {hint ? <p className="mt-3 text-xs text-gray-400 dark:text-gray-500">{hint}</p> : null}
+      <p className="mt-2 font-medium text-slate-700 dark:text-slate-200">{body}</p>
+      <p className="mt-2 text-slate-500 dark:text-slate-400">{detail}</p>
+      {hint ? <p className="mt-3 text-xs text-slate-400 dark:text-slate-500">{hint}</p> : null}
     </div>
   );
 }
@@ -1349,14 +1349,14 @@ function StatusBadge({ status }: { status: string }) {
     normalized === "completed"
       ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
       : normalized === "running"
-      ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300"
+      ? "bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
       : normalized === "queued"
       ? "bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
       : normalized === "failed"
       ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
       : normalized === "skipped"
       ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
-      : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300";
+      : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
   return <span className={`rounded px-2 py-1 text-xs font-medium ${className}`}>{normalized}</span>;
 }
 
@@ -1386,12 +1386,12 @@ function ShadowComparisonChart({ experiment }: { experiment: ShadowExperiment })
   const maxAbs = Math.max(Math.abs(shadow), Math.abs(actual), Math.abs(experiment.result.alpha), 0.01);
 
   return (
-    <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+    <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
       <div className="flex items-start justify-between gap-3">
-        <p className="text-xs uppercase tracking-wider text-gray-400">Shadow vs real portfolio</p>
+        <p className="text-xs uppercase tracking-wider text-slate-400">Shadow vs real portfolio</p>
       </div>
       <div className="mt-4 grid gap-4 md:grid-cols-3">
-        <ComparisonBar label="Shadow" value={shadow} maxAbs={maxAbs} tone="indigo" />
+        <ComparisonBar label="Shadow" value={shadow} maxAbs={maxAbs} tone="sky" />
         <ComparisonBar label="Actual" value={actual} maxAbs={maxAbs} tone="slate" />
         <ComparisonBar label="Alpha" value={experiment.result.alpha} maxAbs={maxAbs} tone={experiment.result.alpha >= 0 ? "emerald" : "rose"} />
       </div>
@@ -1408,22 +1408,22 @@ function ComparisonBar({
   label: string;
   value: number;
   maxAbs: number;
-  tone: "indigo" | "slate" | "emerald" | "rose";
+  tone: "sky" | "slate" | "emerald" | "rose";
 }) {
   const pct = `${Math.min(100, Math.max(8, (Math.abs(value) / maxAbs) * 100))}%`;
   const toneClass =
-    tone === "indigo"
-      ? "bg-indigo-500"
+    tone === "sky"
+      ? "bg-sky-500"
       : tone === "slate"
       ? "bg-slate-500"
       : tone === "emerald"
       ? "bg-emerald-500"
       : "bg-rose-500";
   return (
-    <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
-      <p className="text-xs uppercase tracking-wider text-gray-400">{label}</p>
+    <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+      <p className="text-xs uppercase tracking-wider text-slate-400">{label}</p>
       <p className="mt-2 text-lg font-semibold">{formatPct(value)}</p>
-      <div className="mt-3 h-2 rounded-full bg-gray-200 dark:bg-gray-800">
+      <div className="mt-3 h-2 rounded-full bg-slate-200 dark:bg-slate-800">
         <div className={`h-2 rounded-full ${toneClass}`} style={{ width: pct }} />
       </div>
     </div>

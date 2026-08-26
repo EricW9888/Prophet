@@ -5,7 +5,7 @@ import SourcesWorkspace from "@/components/SourcesWorkspace";
 
 export default function SourcesPage() {
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 dark:bg-[#0a0a0a] dark:text-gray-100">
+    <div className="min-h-screen bg-background text-foreground">
       <AppNav active="sources" />
       <SourcesWorkspace />
     </div>
