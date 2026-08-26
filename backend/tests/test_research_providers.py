@@ -439,6 +439,7 @@ async def test_ingestion_exhausts_searxng_variants_before_tavily(monkeypatch):
 
     service = ResearchService(None)
     service.session = SimpleNamespace(commit=AsyncMock())
+    service._record_discovery_results = AsyncMock(return_value={})
     service._find_recent_duplicate_research = AsyncMock(return_value=None)
     service.ingestion.fetch_url_document = AsyncMock(side_effect=fetch_document)
     service.ingestion.ingest_text = AsyncMock(return_value=SimpleNamespace(id=uuid4()))
@@ -472,6 +473,82 @@ async def test_ingestion_exhausts_searxng_variants_before_tavily(monkeypatch):
     assert result.started is True
     assert result.query == "second"
     assert calls == [("searxng", "first"), ("searxng", "second")]
+
+
+@pytest.mark.asyncio
+async def test_discovery_observation_preserves_snippet_without_evidence_promotion():
+    added = []
+
+    class FakeSession:
+        def add(self, value):
+            value.id = uuid4()
+            added.append(value)
+
+        async def flush(self):
+            pass
+
+    service = ResearchService(FakeSession())
+
+    ids = await service._record_discovery_results(
+        provider="searxng",
+        request_id="request-1",
+        input_query="memory pricing",
+        effective_query="memory pricing filing",
+        title="Memory pricing",
+        results=[
+            {
+                "title": "Memory report",
+                "url": "https://example.com/report",
+                "content": "Search-result context that has not been fetched.",
+                "content_kind": "snippet",
+                "engines": ["brave"],
+            }
+        ],
+        metadata={
+            "subject_type": "position",
+            "subject_id": "abc",
+            "subject_name": "MU",
+        },
+    )
+
+    observation = added[0]
+    assert ids["https://example.com/report"] == observation.id
+    assert observation.snippet == "Search-result context that has not been fetched."
+    assert observation.content_kind == "snippet"
+    assert observation.outcome == "observed"
+    assert observation.evidence_id is None
+    assert observation.subject_name == "MU"
+
+
+@pytest.mark.asyncio
+async def test_discovery_observation_collapses_duplicate_urls_within_one_response():
+    added = []
+
+    class FakeSession:
+        def add(self, value):
+            value.id = uuid4()
+            added.append(value)
+
+        async def flush(self):
+            pass
+
+    service = ResearchService(FakeSession())
+
+    ids = await service._record_discovery_results(
+        provider="searxng",
+        request_id="request-1",
+        input_query="memory pricing",
+        effective_query="memory pricing",
+        title="Memory pricing",
+        results=[
+            {"title": "First", "url": "https://example.com/report"},
+            {"title": "Duplicate", "url": "https://example.com/report"},
+        ],
+        metadata={},
+    )
+
+    assert len(added) == 1
+    assert list(ids) == ["https://example.com/report"]
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@ import {
   MediaIngestionCapabilityResponse,
   MediaIngestionJob,
   OwnershipDisclosureCreate,
+  ResearchDiscoveryObservation,
   SourceEvidenceDetail,
   SourceEvidenceSummary,
   SourceFeedbackRecord,
@@ -78,6 +79,7 @@ const emptyDisclosureForm: DisclosureForm = {
 export default function SourcesWorkspace() {
   const [sources, setSources] = useState<SourceRecord[]>([]);
   const [recentEvidence, setRecentEvidence] = useState<SourceEvidenceSummary[]>([]);
+  const [discoveries, setDiscoveries] = useState<ResearchDiscoveryObservation[]>([]);
   const [feedback, setFeedback] = useState<SourceFeedbackRecord[]>([]);
   const [notes, setNotes] = useState<SourceEvidenceSummary[]>([]);
   const [aliases, setAliases] = useState<SubjectAliasRecord[]>([]);
@@ -111,6 +113,14 @@ export default function SourcesWorkspace() {
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceTab>("review");
 
   const trustedSources = useMemo(() => sources.filter((source) => source.is_trusted), [sources]);
+  const operatorTrustedSources = useMemo(
+    () => trustedSources.filter((source) => source.trust_origin === "operator"),
+    [trustedSources],
+  );
+  const learnedTrustedSources = useMemo(
+    () => trustedSources.filter((source) => source.trust_origin !== "operator"),
+    [trustedSources],
+  );
   const discoveredSources = useMemo(() => sources.filter((source) => !source.is_trusted), [sources]);
   const youtubeChannelSources = useMemo(
     () => sources.filter((source) => source.source_type === "youtube" && source.url),
@@ -122,9 +132,10 @@ export default function SourcesWorkspace() {
   async function loadWorkspace(showSpinner = true) {
     if (showSpinner) setLoading(true);
     try {
-      const [sourceData, evidenceData, feedbackData, noteData, aliasData, mediaCapabilityData] = await Promise.all([
+      const [sourceData, evidenceData, discoveryData, feedbackData, noteData, aliasData, mediaCapabilityData] = await Promise.all([
         apiFetch<SourceRecord[]>("/sources/"),
         apiFetch<SourceEvidenceSummary[]>("/sources/recent-evidence?limit=80"),
+        apiFetch<ResearchDiscoveryObservation[]>("/sources/discoveries?limit=40"),
         apiFetch<SourceFeedbackRecord[]>("/sources/feedback?limit=80"),
         apiFetch<SourceEvidenceSummary[]>("/sources/notes?limit=30"),
         apiFetch<SubjectAliasRecord[]>("/graph/aliases?limit=80"),
@@ -132,6 +143,7 @@ export default function SourcesWorkspace() {
       ]);
       setSources(sourceData);
       setRecentEvidence(evidenceData);
+      setDiscoveries(discoveryData);
       setFeedback(feedbackData);
       setNotes(noteData);
       setAliases(aliasData);
@@ -536,18 +548,28 @@ export default function SourcesWorkspace() {
         <section className="space-y-6">
           <SourceSection
             title="Your Trusted Sources"
-            subtitle="Sources you explicitly trust. Prophet should lean on these first, while still checking them against evidence."
-            sources={trustedSources}
+            subtitle="Your explicit trust choice is preserved. Prophet still measures reliability and recommends a review when later evidence disagrees."
+            sources={operatorTrustedSources}
             empty="No trusted sources yet."
             onToggleTrusted={toggleTrusted}
           />
+          {learnedTrustedSources.length > 0 ? (
+            <SourceSection
+              title="Agent-Promoted Sources"
+              subtitle="Sources Prophet promoted from observed quality. Unlike your explicit choices, learned trust may change as outcomes accumulate."
+              sources={learnedTrustedSources}
+              empty="No agent-promoted sources yet."
+              onToggleTrusted={toggleTrusted}
+            />
+          ) : null}
           <SourceSection
-            title="LLM / Agent Discovered Sources"
-            subtitle="Sources found through web research, email, ingestion, or extraction. Promote the useful ones; demote noisy ones."
+            title="Sources Under Evaluation"
+            subtitle="Sources found through research, email, ingestion, or extraction. Their observed value is tracked separately from your trust choice."
             sources={discoveredSources}
             empty="No discovered sources yet."
             onToggleTrusted={toggleTrusted}
           />
+          <DiscoveryObservationPanel discoveries={discoveries} />
         </section>
       ) : activeWorkspace === "capture" ? (
         <div className="grid gap-6 xl:grid-cols-2">
@@ -785,6 +807,13 @@ function SourceSection({
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="truncate text-base font-semibold tracking-tight">{source.name}</h3>
                     <StatusPill tone={source.is_trusted ? "good" : "neutral"}>{source.is_trusted ? "trusted" : "learning"}</StatusPill>
+                    <StatusPill tone={source.trust_origin === "operator" ? "info" : "neutral"}>
+                      {source.trust_origin === "operator"
+                        ? "operator decision"
+                        : source.trust_origin === "learned"
+                          ? "learned assessment"
+                          : "not assessed"}
+                    </StatusPill>
                     <StatusPill>{source.source_type.replaceAll("_", " ")}</StatusPill>
                     <OriginPill kind={origin.origin_kind}>{origin.origin_label}</OriginPill>
                   </div>
@@ -810,6 +839,14 @@ function SourceSection({
                   {source.is_trusted ? "Untrust" : "Trust"}
                 </button>
               </div>
+
+              {source.trust_review_status === "change_recommended" ? (
+                <div className="mt-3 border-l-2 border-amber-500 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
+                  <div className="font-semibold">Trust review recommended</div>
+                  <p className="mt-1">{source.trust_review_reason || "Prophet's learned assessment now differs from your explicit trust choice."}</p>
+                  <p className="mt-1 text-xs opacity-80">Your trust setting was not changed automatically.</p>
+                </div>
+              ) : null}
 
               <SourceScoreSummary source={source} />
               <details className="mt-3 rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
@@ -863,6 +900,76 @@ function SourceSection({
             </article>
             );
           })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function DiscoveryObservationPanel({ discoveries }: { discoveries: ResearchDiscoveryObservation[] }) {
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+          Recent Research Discovery
+        </h2>
+        <p className="mt-1 max-w-3xl text-sm text-gray-500 dark:text-gray-400">
+          Dated search observations are retained for provenance and pattern review. Snippets remain provisional and cannot corroborate a view until Prophet fetches attributable source content.
+        </p>
+      </div>
+      {discoveries.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-gray-200 bg-white p-5 text-sm text-gray-500 dark:border-gray-800 dark:bg-gray-950">
+          No discovery observations recorded yet.
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
+          {discoveries.slice(0, 12).map((item) => (
+            <article
+              key={item.id}
+              className="grid gap-2 border-b border-gray-100 px-4 py-3 last:border-b-0 dark:border-gray-800 lg:grid-cols-[minmax(0,1fr)_auto]"
+            >
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <a
+                    href={item.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="truncate text-sm font-semibold text-sky-700 dark:text-sky-300"
+                  >
+                    {item.result_title}
+                  </a>
+                  <StatusPill
+                    tone={
+                      item.outcome === "ingested_evidence"
+                        ? "good"
+                        : item.outcome === "fetch_failed"
+                          ? "warning"
+                          : "neutral"
+                    }
+                  >
+                    {item.outcome.replaceAll("_", " ")}
+                  </StatusPill>
+                  <StatusPill>{item.provider}</StatusPill>
+                  <StatusPill>{item.content_kind.replaceAll("_", " ")}</StatusPill>
+                </div>
+                {item.snippet ? (
+                  <p className="mt-2 line-clamp-2 text-sm text-gray-600 dark:text-gray-300">
+                    {item.snippet}
+                  </p>
+                ) : null}
+                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                  Query: {item.effective_query}
+                  {item.subject_name ? ` · ${item.subject_name}` : ""}
+                </p>
+              </div>
+              <time
+                className="text-xs text-gray-500 dark:text-gray-400"
+                dateTime={item.observed_at}
+              >
+                {formatDate(item.observed_at)}
+              </time>
+            </article>
+          ))}
         </div>
       )}
     </section>
@@ -1484,7 +1591,7 @@ function StatusPill({
   title,
 }: {
   children: React.ReactNode;
-  tone?: "neutral" | "good" | "bad" | "info";
+  tone?: "neutral" | "good" | "bad" | "info" | "warning";
   title?: string;
 }) {
   const className =
@@ -1492,6 +1599,8 @@ function StatusPill({
       ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
       : tone === "bad"
       ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
+      : tone === "warning"
+      ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
       : tone === "info"
       ? "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-300"
       : "border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300";

@@ -2624,7 +2624,13 @@ class AgentService:
         ).scalar_one_or_none()
         if source is not None:
             if source.is_trusted:
-                source.is_trusted = False
+                source.apply_learned_trust(
+                    False,
+                    reason=(
+                        "Prophet conversation memory is operating context, not "
+                        "independent external evidence."
+                    ),
+                )
             return source
         source = Source(
             name=CONVERSATION_SOURCE_NAME,

@@ -1,10 +1,11 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
 
+from investos.models.source import Source
 from investos.schemas.source import (
     SourceClaimBatchAssessmentCreate,
     SourceClaimBatchAssessmentResponse,
@@ -201,7 +202,7 @@ async def test_create_source_returns_hydrated_response_without_lazy_relationship
 
 @pytest.mark.asyncio
 async def test_create_source_duplicate_can_adopt_clearer_manual_name():
-    existing = SimpleNamespace(
+    existing = Source(
         id=uuid4(),
         name="Example",
         source_type="youtube",
@@ -257,6 +258,102 @@ async def test_create_source_duplicate_can_adopt_clearer_manual_name():
     assert result["name"] == "ExampleFinance"
     assert existing.description == "Transcript source"
     assert existing.is_trusted is True
+    assert existing.trust_origin == "operator"
+
+
+def test_learned_trust_cannot_silently_replace_operator_choice():
+    source = Source(
+        name="Example Research",
+        source_type="analyst",
+        is_trusted=False,
+    )
+    source.apply_operator_trust(True)
+
+    source.apply_learned_trust(
+        False,
+        reason="Later outcomes show a degrading reliability trajectory.",
+    )
+
+    assert source.is_trusted is True
+    assert source.trust_origin == "operator"
+    assert source.trust_review_status == "change_recommended"
+    assert "degrading" in (source.trust_review_reason or "")
+
+
+def test_learned_source_can_be_demoted_by_later_assessment():
+    source = Source(
+        name="Example Research",
+        source_type="analyst",
+        is_trusted=True,
+        trust_origin="learned",
+    )
+
+    source.apply_learned_trust(False, reason="Later claims did not hold up.")
+
+    assert source.is_trusted is False
+    assert source.trust_origin == "learned"
+    assert source.trust_review_status == "current"
+
+
+@pytest.mark.asyncio
+async def test_source_merge_keeps_latest_operator_choice_and_flags_conflict():
+    older = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    newer = older + timedelta(days=1)
+    trusted = Source(
+        id=uuid4(),
+        name="Example Research",
+        source_type="analyst",
+        is_trusted=True,
+        trust_origin="operator",
+        trust_reviewed_at=older,
+        created_at=older,
+        updated_at=older,
+    )
+    untrusted = Source(
+        id=uuid4(),
+        name="Example Research Duplicate",
+        source_type="analyst",
+        is_trusted=False,
+        trust_origin="operator",
+        trust_reviewed_at=newer,
+        created_at=newer,
+        updated_at=newer,
+    )
+
+    class EmptyResult:
+        def scalar_one_or_none(self):
+            return None
+
+        def scalars(self):
+            return self
+
+        def all(self):
+            return []
+
+    class FakeSession:
+        def __init__(self):
+            self.deleted = []
+
+        async def execute(self, _statement):
+            return EmptyResult()
+
+        def add(self, _value):
+            pass
+
+        async def delete(self, value):
+            self.deleted.append(value)
+
+        async def flush(self):
+            pass
+
+    canonical = await SourceService(FakeSession())._merge_source_group(
+        [trusted, untrusted]
+    )
+
+    assert canonical.is_trusted is False
+    assert canonical.trust_origin == "operator"
+    assert canonical.trust_review_status == "change_recommended"
+    assert "Conflicting operator trust choices" in (canonical.trust_review_reason or "")
 
 
 def test_source_learning_adjusts_quality_from_user_feedback():

@@ -195,7 +195,13 @@ class IngestionService:
         ).scalar_one_or_none()
         if source:
             if source.is_trusted:
-                source.is_trusted = False
+                source.apply_learned_trust(
+                    False,
+                    reason=(
+                        "Fallback manual uploads and notes are user-provided context, "
+                        "not independent corroboration."
+                    ),
+                )
             return source
 
         source = Source(

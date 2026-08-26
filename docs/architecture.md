@@ -83,6 +83,11 @@ the earlier provider fails or returns no usable candidates. A successful first
 provider stops the chain. Search snippets remain provisional: research ingestion
 fetches the underlying page through `core/url_security.py` when possible and
 records discovery provider, source URL, content origin, and fallback attempts.
+Each candidate is also retained as a dated `ResearchDiscoveryObservation` with
+its query, rank, snippet or provider-content kind, fetch outcome, and eventual
+evidence link. These observations support provenance and later pattern review;
+they are not `RawEvidence` and cannot satisfy corroboration or accepted-state
+promotion.
 Neither search provider is Prophet's retrieval system. YouTube ingestion is
 caption-first. If captions are unavailable, an explicitly enabled local adapter
 can invoke installed `yt-dlp`, `ffmpeg`, and OpenAI Whisper CLI tools inside the
@@ -105,7 +110,8 @@ The main state groups are:
 
 - **Portfolio truth:** `Transaction`, `Lot`, `Position`, and cash-ledger records.
 - **Evidence and provenance:** `Source`, `RawEvidence`, `SourceItem`, source
-  profiles, quality segments, and source-performance history.
+  profiles, quality segments, source-performance history, and provisional
+  `ResearchDiscoveryObservation` records.
 - **Structured knowledge:** `Fact`, `Claim`, `Event`, `FundamentalMetric`,
   `MarketSetupSignal`, `Entity`, `Theme`, aliases, and graph `Edge` records.
 - **Research state:** `Profile`, `CoverageMap`, unresolved questions,
@@ -122,6 +128,13 @@ The main state groups are:
   cash controls.
 - **Simulation:** shadow experiments, account events, orders, fills, evidence
   wake-ups, results, and experiment-family learning state.
+
+Source trust keeps operator intent separate from learned assessment. An explicit
+operator trust choice remains authoritative until the operator changes it.
+Prophet continues to score reliability, calibration, noise, value, and later
+claim outcomes; disagreement creates a dated review recommendation instead of a
+silent override. Sources whose trust was established by automated learning may
+be promoted or demoted as their measured record changes.
 
 Evidence models use event, publication, ingestion, and eligible-action times
 from `models/base.py`. These timestamps preserve what happened, when it became

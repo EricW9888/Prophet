@@ -1227,6 +1227,10 @@ export type SourceRecord = {
   url?: string | null;
   description?: string | null;
   is_trusted: boolean;
+  trust_origin: "operator" | "learned" | "discovered" | string;
+  trust_review_status: "current" | "change_recommended" | string;
+  trust_review_reason?: string | null;
+  trust_reviewed_at?: string | null;
   origin?: SourceOrigin | null;
   evidence_count: number;
   trust_profile?: {
@@ -1290,6 +1294,32 @@ export type SourceRecord = {
   }>;
   created_at: string;
   updated_at: string;
+};
+
+export type ResearchDiscoveryObservation = {
+  id: string;
+  provider: string;
+  request_id?: string | null;
+  query: string;
+  effective_query: string;
+  search_title: string;
+  result_rank: number;
+  result_title: string;
+  url: string;
+  snippet?: string | null;
+  content_kind: "snippet" | "raw_content" | string;
+  outcome:
+    | "observed"
+    | "fetch_failed"
+    | "duplicate_evidence"
+    | "ingested_evidence"
+    | string;
+  evidence_id?: string | null;
+  subject_type?: string | null;
+  subject_id?: string | null;
+  subject_name?: string | null;
+  error?: string | null;
+  observed_at: string;
 };
 
 export type SourceOrigin = {
