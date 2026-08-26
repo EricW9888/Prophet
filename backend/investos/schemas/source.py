@@ -168,6 +168,29 @@ class MediaIngestionCapabilityResponse(BaseModel):
 class YouTubeIngestionRequest(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
     title: Optional[str] = Field(default=None, max_length=500)
+    source_id: Optional[UUID] = None
+
+
+class YouTubeChannelVideoResponse(BaseModel):
+    video_id: str
+    title: str
+    url: str
+    published_at: Optional[datetime] = None
+    duration_seconds: Optional[float] = None
+    view_count: Optional[int] = None
+    live_status: Optional[str] = None
+    availability: Optional[str] = None
+    already_ingested: bool = False
+    evidence_id: Optional[UUID] = None
+
+
+class YouTubeChannelPreviewResponse(BaseModel):
+    source_id: UUID
+    source_name: str
+    channel_url: str
+    channel_id: Optional[str] = None
+    channel_name: Optional[str] = None
+    videos: list[YouTubeChannelVideoResponse] = Field(default_factory=list)
 
 
 class MediaIngestionJobEventResponse(BaseModel):

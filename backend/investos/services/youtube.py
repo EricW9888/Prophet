@@ -6,6 +6,7 @@ import re
 from datetime import UTC, datetime
 from typing import Any, Awaitable, Callable
 from urllib.parse import parse_qs, urlparse
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,10 +17,15 @@ from youtube_transcript_api import (
     YouTubeTranscriptApi,
 )
 
+from investos.models.evidence import RawEvidence
 from investos.models.source import Source
 from investos.schemas.evidence import RawEvidenceCreate
 from investos.services.ingestion import IngestionService
 from investos.services.media_workspace import MediaIngestionPolicy, media_temp_workspace
+from investos.services.youtube_channel import (
+    YouTubeChannelEnumerator,
+    YouTubeChannelError,
+)
 from investos.services.youtube_transcription import (
     LocalTranscriptionError,
     LocalYouTubeTranscriber,
@@ -34,11 +40,13 @@ class YouTubeService:
         session: AsyncSession,
         *,
         audio_transcriber: LocalYouTubeTranscriber | None = None,
+        channel_enumerator: YouTubeChannelEnumerator | None = None,
         media_policy: MediaIngestionPolicy | None = None,
     ):
         self.session = session
         self.ingestion = IngestionService(session)
         self.audio_transcriber = audio_transcriber or LocalYouTubeTranscriber()
+        self.channel_enumerator = channel_enumerator or YouTubeChannelEnumerator()
         self.media_policy = media_policy or MediaIngestionPolicy.from_settings()
 
     async def ingest_video(
@@ -46,6 +54,7 @@ class YouTubeService:
         url: str,
         *,
         title: str | None = None,
+        source_id: UUID | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> dict[str, Any]:
         url_kind = self._classify_url(url)
@@ -67,6 +76,29 @@ class YouTubeService:
                 "error": "Invalid or unsupported YouTube video URL",
                 "url_kind": url_kind.get("kind", "invalid"),
             }
+
+        bound_source = None
+        if source_id is not None:
+            try:
+                bound_source = await self._get_or_create_youtube_source(source_id)
+            except ValueError as exc:
+                return {
+                    "ok": False,
+                    "error": str(exc),
+                    "url_kind": "video",
+                    "video_id": video_id,
+                }
+            existing = await self._find_existing_video(bound_source.id, video_id)
+            if existing is not None:
+                existing_metadata = existing.metadata_json or {}
+                return {
+                    "ok": True,
+                    "already_ingested": True,
+                    "evidence_id": str(existing.id),
+                    "video_id": video_id,
+                    "source_id": str(bound_source.id),
+                    "ingest_mode": existing_metadata.get("ingest_mode"),
+                }
 
         await self._report(
             progress_callback,
@@ -171,7 +203,7 @@ class YouTubeService:
             "Saving the transcript as dated source evidence.",
             {"ingest_mode": ingest_mode},
         )
-        source = await self._get_or_create_youtube_source()
+        source = bound_source or await self._get_or_create_youtube_source()
         evidence = await self.ingestion.ingest_text(
             RawEvidenceCreate(
                 title=title or f"YouTube Video: {video_id}",
@@ -190,7 +222,62 @@ class YouTubeService:
             "evidence_id": str(evidence.id),
             "transcript_length": len(full_text),
             "video_id": video_id,
+            "source_id": str(source.id),
             "ingest_mode": ingest_mode,
+            "already_ingested": False,
+        }
+
+    async def list_channel_videos(
+        self, source_id: UUID, *, limit: int = 12
+    ) -> dict[str, Any]:
+        source = await self._get_or_create_youtube_source(source_id)
+        if not source.url:
+            raise YouTubeChannelError(
+                "The selected YouTube source does not have a channel URL."
+            )
+        result = await self.channel_enumerator.list_recent(
+            channel_url=source.url,
+            limit=limit,
+        )
+        video_ids = [video["video_id"] for video in result["videos"]]
+        evidence_rows = []
+        if video_ids:
+            evidence_rows = (
+                (
+                    await self.session.execute(
+                        select(RawEvidence)
+                        .where(RawEvidence.source_id == source.id)
+                        .where(
+                            RawEvidence.metadata_json["video_id"].astext.in_(video_ids)
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        evidence_by_video_id = {
+            str(metadata.get("video_id")): evidence
+            for evidence in evidence_rows
+            if isinstance((metadata := evidence.metadata_json), dict)
+            and metadata.get("video_id")
+        }
+        videos = []
+        for video in result["videos"]:
+            existing = evidence_by_video_id.get(video["video_id"])
+            videos.append(
+                {
+                    **video,
+                    "already_ingested": existing is not None,
+                    "evidence_id": existing.id if existing is not None else None,
+                }
+            )
+        return {
+            "source_id": source.id,
+            "source_name": source.name,
+            "channel_url": result["channel_url"],
+            "channel_id": result.get("channel_id"),
+            "channel_name": result.get("channel_name"),
+            "videos": videos,
         }
 
     @classmethod
@@ -200,7 +287,7 @@ class YouTubeService:
         )
         transcriber = LocalYouTubeTranscriber()
         transcription_readiness = transcriber.readiness()
-        ytdlp_available = bool(transcription_readiness["downloader_path"])
+        channel_readiness = YouTubeChannelEnumerator().readiness()
         frame_ocr_available = False
         media_policy = MediaIngestionPolicy.from_settings()
         return {
@@ -232,11 +319,15 @@ class YouTubeService:
                 {
                     "key": "channel_video_enumeration",
                     "label": "Channel video enumeration",
-                    "status": "unsupported",
+                    "status": (
+                        "available"
+                        if channel_readiness["available"]
+                        else "not_configured"
+                    ),
                     "detail": (
-                        "yt-dlp is installed, but Prophet does not yet enumerate or crawl channel uploads."
-                        if ytdlp_available
-                        else "Prophet does not yet enumerate or crawl channel uploads; yt-dlp is also not installed."
+                        "Can review a bounded list of recent uploads from a tracked channel without downloading media."
+                        if channel_readiness["available"]
+                        else "Install yt-dlp to review recent uploads from tracked channels; Prophet will not ingest them automatically."
                     ),
                 },
                 {
@@ -283,7 +374,7 @@ class YouTubeService:
             video_id = valid_video_id(path_parts[0] if path_parts else None)
             return {"kind": "video" if video_id else "invalid", "video_id": video_id}
 
-        if host.endswith("youtube.com"):
+        if host == "youtube.com" or host.endswith(".youtube.com"):
             query_video_id = valid_video_id(parse_qs(parsed.query).get("v", [None])[0])
             if query_video_id:
                 return {"kind": "video", "video_id": query_video_id}
@@ -307,7 +398,18 @@ class YouTubeService:
 
         return {"kind": "invalid", "video_id": None}
 
-    async def _get_or_create_youtube_source(self) -> Source:
+    async def _get_or_create_youtube_source(
+        self, source_id: UUID | None = None
+    ) -> Source:
+        if source_id is not None:
+            source = (
+                await self.session.execute(select(Source).where(Source.id == source_id))
+            ).scalar_one_or_none()
+            if source is None:
+                raise ValueError("The selected source no longer exists.")
+            if source.source_type != "youtube":
+                raise ValueError("The selected source is not a YouTube source.")
+            return source
         source_name = "YouTube Research"
         existing = (
             await self.session.execute(select(Source).where(Source.name == source_name))
@@ -323,6 +425,18 @@ class YouTubeService:
         self.session.add(source)
         await self.session.flush()
         return source
+
+    async def _find_existing_video(
+        self, source_id: UUID, video_id: str
+    ) -> RawEvidence | None:
+        return (
+            await self.session.execute(
+                select(RawEvidence)
+                .where(RawEvidence.source_id == source_id)
+                .where(RawEvidence.metadata_json["video_id"].astext == video_id)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
 
     @staticmethod
     async def _report(
