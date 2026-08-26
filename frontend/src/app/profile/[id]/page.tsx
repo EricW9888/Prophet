@@ -46,52 +46,52 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
       case "bearish":
         return "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800/50";
       default:
-        return "text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700";
+        return "text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700";
     }
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0a0a0a]">
-        <div className="animate-pulse text-gray-500 font-mono text-sm tracking-widest">LOADING PROFILE...</div>
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="animate-pulse text-slate-500 font-mono text-sm tracking-widest">LOADING PROFILE...</div>
       </div>
     );
   }
 
   if (!profile || error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0a0a0a] text-red-500">
+      <div className="min-h-screen flex items-center justify-center bg-background text-red-500">
         {error ?? "Profile not found."}
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] text-gray-900 dark:text-gray-100 font-sans selection:bg-indigo-500/30 pb-20">
+    <div className="min-h-screen bg-background text-foreground font-sans pb-20">
       <AppNav active="research" />
 
-      <header className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 pb-8 border-b border-gray-200 dark:border-gray-800">
+      <header className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 pb-8 border-b border-slate-200 dark:border-slate-800">
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
           <div className="space-y-2">
             <div className="flex items-center gap-3">
-              <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest text-indigo-600 bg-indigo-50 border border-indigo-200 rounded dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-800/50">
+              <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest text-sky-600 bg-sky-50 border border-sky-200 rounded dark:bg-sky-950/40 dark:text-sky-400 dark:border-sky-800/50">
                 {profile.subject_type} PROFILE
               </span>
             </div>
-            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-gray-900 dark:text-white">{profile.subject_name}</h1>
-            <p className="text-sm font-mono text-gray-500">Node ID: {profile.subject_id}</p>
+            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-slate-900 dark:text-white">{profile.subject_name}</h1>
+            <p className="text-sm font-mono text-slate-500">Node ID: {profile.subject_id}</p>
           </div>
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-            <div className={`flex flex-col p-3 rounded-xl border ${getStanceColor(profile.current_stance)} min-w-[140px]`}>
+            <div className={`flex flex-col p-3 rounded-lg border ${getStanceColor(profile.current_stance)} min-w-[140px]`}>
               <span className="text-[10px] uppercase font-bold tracking-wider opacity-70 mb-1">System Stance</span>
               <span className="text-xl font-bold uppercase tracking-tight leading-none">{profile.current_stance ?? "no_view"}</span>
               <span className="text-xs font-medium mt-2 opacity-80">Confidence: {profile.confidence_band ?? "unknown"}</span>
             </div>
-            <div className="flex flex-col p-3 bg-white dark:bg-[#111] border border-gray-200 dark:border-gray-800 rounded-xl min-w-[140px] shadow-sm">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-gray-500 mb-1">Coverage Score</span>
+            <div className="flex flex-col p-3 bg-white dark:bg-[#111] border border-slate-200 dark:border-slate-800 rounded-lg min-w-[140px]">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 mb-1">Coverage Score</span>
               <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white leading-none">{(profile.coverage_score ?? 0).toFixed(1)}</span>
-                <span className="text-sm text-gray-400">/ 100</span>
+                <span className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white leading-none">{(profile.coverage_score ?? 0).toFixed(1)}</span>
+                <span className="text-sm text-slate-400">/ 100</span>
               </div>
             </div>
           </div>
@@ -100,45 +100,45 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-8">
-          <section className="bg-white dark:bg-[#111] border border-gray-200 dark:border-gray-800 rounded-2xl p-6 shadow-sm">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-4">Core Conclusion State</h2>
-            <p className="text-lg md:text-xl font-medium text-gray-900 dark:text-gray-100 leading-snug">
+          <section className="bg-white dark:bg-[#111] border border-slate-200 dark:border-slate-800 rounded-lg p-6">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-4">Core Conclusion State</h2>
+            <p className="text-lg md:text-xl font-medium text-slate-900 dark:text-slate-100 leading-snug">
               {profile.current_thesis_summary ?? profile.executive_summary ?? "No current conclusion state yet."}
             </p>
           </section>
 
           {(profile.fundamental_metrics?.length || profile.market_setup_signals?.length) ? (
-            <section className="border-y border-gray-200 bg-white dark:border-gray-800 dark:bg-[#111]">
+            <section className="border-y border-slate-200 bg-white dark:border-slate-800 dark:bg-[#111]">
               {profile.fundamental_metrics?.length ? (
                 <div className="px-6 py-6">
                   <div className="mb-4 flex items-start gap-3">
                     <Gauge className="mt-0.5 h-5 w-5 text-sky-600 dark:text-sky-400" aria-hidden="true" />
                     <div>
-                      <h2 className="text-sm font-bold uppercase text-gray-600 dark:text-gray-300">Fundamentals & Valuation</h2>
-                      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                      <h2 className="text-sm font-bold uppercase text-slate-600 dark:text-slate-300">Fundamentals & Valuation</h2>
+                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                         Source-dated measurements tied to this profile. Stale and contradictory values remain visible for review.
                       </p>
                     </div>
                   </div>
-                  <div className="divide-y divide-gray-200 dark:divide-gray-800">
+                  <div className="divide-y divide-slate-200 dark:divide-slate-800">
                     {profile.fundamental_metrics.map((metric) => (
                       <article key={metric.id} className="grid gap-3 py-4 first:pt-0 md:grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)]">
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="font-semibold text-gray-950 dark:text-white">{metric.metric_name}</h3>
+                            <h3 className="font-semibold text-slate-950 dark:text-white">{metric.metric_name}</h3>
                             <span className="rounded bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
                               {metric.metric_family.replaceAll("_", " ")}
                             </span>
                           </div>
-                          <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-gray-100">{metricDisplay(metric)}</p>
-                          <p className="mt-1 text-xs text-gray-500">
+                          <p className="mt-2 text-lg font-semibold text-slate-900 dark:text-slate-100">{metricDisplay(metric)}</p>
+                          <p className="mt-1 text-xs text-slate-500">
                             {[metric.ticker, metric.period_label, compactDate(metric.as_of ?? metric.public_time)].filter(Boolean).join(" · ")}
                           </p>
                         </div>
-                        <div className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+                        <div className="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
                           <p>{metric.investment_relevance ?? "Investment relevance has not been recorded yet."}</p>
-                          {metric.next_test ? <p className="mt-2 text-gray-500 dark:text-gray-400">Next check: {metric.next_test}</p> : null}
-                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                          {metric.next_test ? <p className="mt-2 text-slate-500 dark:text-slate-400">Next check: {metric.next_test}</p> : null}
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                             <span>{metric.freshness_status?.replaceAll("_", " ") ?? "freshness unscored"}</span>
                             <span aria-hidden="true">·</span>
                             <span>{metric.source_name ?? metric.source_type ?? "source unavailable"}</span>
@@ -156,23 +156,23 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
               ) : null}
 
               {profile.market_setup_signals?.length ? (
-                <div className="border-t border-gray-200 px-6 py-6 dark:border-gray-800">
+                <div className="border-t border-slate-200 px-6 py-6 dark:border-slate-800">
                   <div className="mb-4 flex items-start gap-3">
                     <Activity className="mt-0.5 h-5 w-5 text-amber-600 dark:text-amber-400" aria-hidden="true" />
                     <div>
-                      <h2 className="text-sm font-bold uppercase text-gray-600 dark:text-gray-300">Market Setup & Expectations</h2>
-                      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                      <h2 className="text-sm font-bold uppercase text-slate-600 dark:text-slate-300">Market Setup & Expectations</h2>
+                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                         What investors appeared to expect, what occurred, and the evidence still needed to score the signal.
                       </p>
                     </div>
                   </div>
-                  <div className="divide-y divide-gray-200 dark:divide-gray-800">
+                  <div className="divide-y divide-slate-200 dark:divide-slate-800">
                     {profile.market_setup_signals.map((signal) => (
                       <article key={signal.id} className="py-4 first:pt-0">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
-                            <h3 className="font-semibold text-gray-950 dark:text-white">{signal.signal_name}</h3>
-                            <p className="mt-1 text-xs text-gray-500">
+                            <h3 className="font-semibold text-slate-950 dark:text-white">{signal.signal_name}</h3>
+                            <p className="mt-1 text-xs text-slate-500">
                               {[signal.ticker, signal.signal_family.replaceAll("_", " "), compactDate(signal.as_of ?? signal.public_time)].filter(Boolean).join(" · ")}
                             </p>
                           </div>
@@ -181,14 +181,14 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
                           </span>
                         </div>
                         <div className="mt-3 grid gap-3 text-sm leading-relaxed md:grid-cols-2">
-                          <p className="text-gray-800 dark:text-gray-200">{signal.setup_context ?? "Setup context was not recorded."}</p>
-                          <p className="text-gray-600 dark:text-gray-400">
+                          <p className="text-slate-800 dark:text-slate-200">{signal.setup_context ?? "Setup context was not recorded."}</p>
+                          <p className="text-slate-600 dark:text-slate-400">
                             {signal.actual_context ?? signal.price_reaction ?? signal.investment_relevance ?? "The later result has not been scored yet."}
                           </p>
                         </div>
                         {signal.outcome_status === "unscored" && signal.outcome_assessment_attempt ? (
-                          <div className="mt-3 border-l-2 border-amber-300 pl-3 text-xs text-gray-600 dark:border-amber-700 dark:text-gray-400">
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-medium text-gray-800 dark:text-gray-200">
+                          <div className="mt-3 border-l-2 border-amber-300 pl-3 text-xs text-slate-600 dark:border-amber-700 dark:text-slate-400">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-medium text-slate-800 dark:text-slate-200">
                               <span className="inline-flex items-center gap-1">
                                 <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
                                 Outcome review deferred
@@ -213,8 +213,8 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
                             </p>
                           </div>
                         ) : null}
-                        {signal.next_test ? <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Next check: {signal.next_test}</p> : null}
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                        {signal.next_test ? <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Next check: {signal.next_test}</p> : null}
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                           <span>{signal.source_name ?? signal.source_type ?? "source unavailable"}</span>
                           {signal.url ? (
                             <a href={signal.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-amber-700 hover:underline dark:text-amber-300">
@@ -231,60 +231,60 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
           ) : null}
 
           {profile.historical_analogy_lenses.length ? (
-            <section className="bg-white dark:bg-[#111] border border-gray-200 dark:border-gray-800 rounded-2xl p-6 shadow-sm">
+            <section className="bg-white dark:bg-[#111] border border-slate-200 dark:border-slate-800 rounded-lg p-6">
               <div className="flex items-start justify-between gap-4 mb-5">
                 <div>
-                  <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Historical Rhyme</h2>
-                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Historical Rhyme</h2>
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                     Causal analogies to test against current evidence, not predictions.
                   </p>
                 </div>
               </div>
               <div className="space-y-4">
                 {profile.historical_analogy_lenses.map((lens) => (
-                  <article key={`${lens.name}-${lens.period ?? "period"}`} className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+                  <article key={`${lens.name}-${lens.period ?? "period"}`} className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-base font-bold text-gray-900 dark:text-white">{lens.name}</h3>
+                      <h3 className="text-base font-bold text-slate-900 dark:text-white">{lens.name}</h3>
                       {lens.period ? (
-                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-500 dark:bg-gray-900 dark:text-gray-400">
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:bg-slate-900 dark:text-slate-400">
                           {lens.period}
                         </span>
                       ) : null}
                     </div>
                     {lens.what_rhymes ? (
-                      <p className="mt-3 text-sm leading-relaxed text-gray-800 dark:text-gray-200">{lens.what_rhymes}</p>
+                      <p className="mt-3 text-sm leading-relaxed text-slate-800 dark:text-slate-200">{lens.what_rhymes}</p>
                     ) : null}
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                       {lens.dominant_channel_test ? (
-                        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-950/40">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Channel To Test</p>
-                          <p className="mt-1 text-sm text-gray-800 dark:text-gray-200">{lens.dominant_channel_test}</p>
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Channel To Test</p>
+                          <p className="mt-1 text-sm text-slate-800 dark:text-slate-200">{lens.dominant_channel_test}</p>
                         </div>
                       ) : null}
                       {lens.where_analogy_breaks ? (
-                        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-950/40">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Break Condition</p>
-                          <p className="mt-1 text-sm text-gray-800 dark:text-gray-200">{lens.where_analogy_breaks}</p>
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Break Condition</p>
+                          <p className="mt-1 text-sm text-slate-800 dark:text-slate-200">{lens.where_analogy_breaks}</p>
                         </div>
                       ) : null}
                       {lens.portfolio_transmission ? (
-                        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-950/40">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Portfolio Route</p>
-                          <p className="mt-1 text-sm text-gray-800 dark:text-gray-200">{lens.portfolio_transmission}</p>
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Portfolio Route</p>
+                          <p className="mt-1 text-sm text-slate-800 dark:text-slate-200">{lens.portfolio_transmission}</p>
                         </div>
                       ) : null}
                       {lens.best_next_check ? (
-                        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-950/40">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Best Next Check</p>
-                          <p className="mt-1 text-sm text-gray-800 dark:text-gray-200">{lens.best_next_check}</p>
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Best Next Check</p>
+                          <p className="mt-1 text-sm text-slate-800 dark:text-slate-200">{lens.best_next_check}</p>
                         </div>
                       ) : null}
                     </div>
                     {lens.investor_questions.length ? (
                       <ul className="mt-4 space-y-2">
                         {lens.investor_questions.slice(0, 3).map((question) => (
-                          <li key={question} className="text-sm text-gray-700 dark:text-gray-300">
-                            <span className="mr-2 text-gray-400">•</span>
+                          <li key={question} className="text-sm text-slate-700 dark:text-slate-300">
+                            <span className="mr-2 text-slate-400">•</span>
                             {question}
                           </li>
                         ))}
@@ -296,7 +296,7 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
             </section>
           ) : null}
 
-          <section className="bg-red-50/50 dark:bg-red-950/10 border border-red-100 dark:border-red-900/30 rounded-2xl p-6">
+          <section className="bg-red-50/50 dark:bg-red-950/10 border border-red-100 dark:border-red-900/30 rounded-lg p-6">
             <h2 className="text-sm font-bold uppercase tracking-wider text-red-800 dark:text-red-400 mb-4">What Would Falsify This</h2>
             <ul className="space-y-3">
               {profile.what_would_falsify.length ? profile.what_would_falsify.map((item, i) => (
@@ -304,22 +304,22 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
                   <span className="flex-shrink-0 w-5 h-5 rounded-full bg-red-100 dark:bg-red-900/50 flex items-center justify-center mt-0.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-red-600 dark:bg-red-400"></span>
                   </span>
-                  <span className="text-gray-800 dark:text-gray-200">{item}</span>
+                  <span className="text-slate-800 dark:text-slate-200">{item}</span>
                 </li>
-              )) : <li className="text-sm text-gray-500">No falsifiers recorded yet.</li>}
+              )) : <li className="text-sm text-slate-500">No falsifiers recorded yet.</li>}
             </ul>
           </section>
 
-          <section className="border border-gray-200 dark:border-gray-800 rounded-2xl p-6 bg-white dark:bg-[#111]">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-4">Recent Evidence</h2>
+          <section className="border border-slate-200 dark:border-slate-800 rounded-lg p-6 bg-white dark:bg-[#111]">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-4">Recent Evidence</h2>
             <div className="space-y-3">
               {profile.recent_evidence.map((item) => (
-                <div key={item.id} className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+                <div key={item.id} className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
                   <div className="flex items-center justify-between gap-4">
-                    <span className="text-xs uppercase tracking-wider text-gray-400">{item.node_type}</span>
-                    <span className="text-xs font-mono text-gray-400">{item.tier ?? "unknown"}</span>
+                    <span className="text-xs uppercase tracking-wider text-slate-400">{item.node_type}</span>
+                    <span className="text-xs font-mono text-slate-400">{item.tier ?? "unknown"}</span>
                   </div>
-                  <p className="mt-2 text-sm text-gray-800 dark:text-gray-200">{item.text}</p>
+                  <p className="mt-2 text-sm text-slate-800 dark:text-slate-200">{item.text}</p>
                 </div>
               ))}
             </div>
@@ -327,11 +327,11 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
         </div>
 
         <div className="space-y-6">
-          <section className="bg-white dark:bg-[#111] border border-gray-200 dark:border-gray-800 rounded-2xl p-6 shadow-sm">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-5 border-b border-gray-100 dark:border-gray-800 pb-2">Coverage Audit</h3>
+          <section className="bg-white dark:bg-[#111] border border-slate-200 dark:border-slate-800 rounded-lg p-6">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-5 border-b border-slate-100 dark:border-slate-800 pb-2">Coverage Audit</h3>
             <div className="space-y-4">
               <div>
-                <span className="text-xs text-gray-500 block mb-1">Missing Evidence Classes</span>
+                <span className="text-xs text-slate-500 block mb-1">Missing Evidence Classes</span>
                 <div className="flex flex-wrap gap-2">
                   {profile.missing_evidence.map((item) => (
                     <span key={item.id} className="inline-flex items-center px-2 py-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-400 text-xs font-medium border border-amber-200 dark:border-amber-800/50">
@@ -340,13 +340,13 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
                   ))}
                 </div>
               </div>
-              <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
-                <span className="text-xs text-gray-500 block mb-1">Unresolved Questions</span>
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                <span className="text-xs text-slate-500 block mb-1">Unresolved Questions</span>
                 <div className="space-y-3">
                   {profile.unresolved_questions.map((item) => (
                     <div key={item.id}>
-                      <p className="text-sm text-gray-800 dark:text-gray-300">{item.question_text}</p>
-                      <div className="mt-1 text-[10px] text-indigo-600 dark:text-indigo-400 font-mono">
+                      <p className="text-sm text-slate-800 dark:text-slate-300">{item.question_text}</p>
+                      <div className="mt-1 text-[10px] text-sky-600 dark:text-sky-400 font-mono">
                         Status: {item.status} | Urgency: {item.urgency}
                       </div>
                     </div>
@@ -356,19 +356,19 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
             </div>
           </section>
 
-          <section className="bg-white dark:bg-[#111] border border-gray-200 dark:border-gray-800 rounded-2xl p-6 shadow-sm">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-4 border-b border-gray-100 dark:border-gray-800 pb-2">Narrative Split</h3>
+          <section className="bg-white dark:bg-[#111] border border-slate-200 dark:border-slate-800 rounded-lg p-6">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-4 border-b border-slate-100 dark:border-slate-800 pb-2">Narrative Split</h3>
             <div className="space-y-4 text-sm">
               <div>
-                <p className="text-xs uppercase tracking-wider text-gray-400 mb-1">Bull Case</p>
+                <p className="text-xs uppercase tracking-wider text-slate-400 mb-1">Bull Case</p>
                 <p>{profile.bull_case ?? "Not set yet."}</p>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wider text-gray-400 mb-1">Bear Case</p>
+                <p className="text-xs uppercase tracking-wider text-slate-400 mb-1">Bear Case</p>
                 <p>{profile.bear_case ?? "Not set yet."}</p>
               </div>
             </div>
-            <Link href="/chat" className="mt-6 block w-full py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-center text-gray-900 dark:text-white rounded-lg text-sm font-medium transition-colors border border-gray-200 dark:border-gray-700">
+            <Link href="/chat" className="mt-6 block w-full py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-center text-slate-900 dark:text-white rounded-lg text-sm font-medium transition-colors border border-slate-200 dark:border-slate-700">
               Launch Research Chat
             </Link>
           </section>

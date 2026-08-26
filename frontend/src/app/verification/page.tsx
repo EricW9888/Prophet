@@ -80,51 +80,51 @@ export default function VerificationPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] text-gray-900 dark:text-gray-100 font-sans selection:bg-indigo-500/30">
+    <div className="min-h-screen bg-background text-foreground font-sans">
       <AppNav active="review" />
       <main className="mx-auto grid w-full max-w-[1440px] grid-cols-1 gap-8 px-4 py-8 sm:px-6 lg:px-8 xl:grid-cols-[0.95fr_1.05fr]">
         <section className="space-y-6">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Review Queue</h1>
-            <p className="mt-2 text-gray-500 dark:text-gray-400">
+            <p className="mt-2 text-slate-500 dark:text-slate-400">
               This should be the user-facing place where the continuously running system surfaces weak coverage, unresolved contradictions, and shadow divergences that deserve attention.
             </p>
           </div>
-          <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+          <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                   The system should escalate weak coverage, unresolved questions, source conflicts, and shadow divergences here.
                 </p>
               </div>
-              <button onClick={() => void refreshQueue()} className="rounded-lg border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm">
+              <button onClick={() => void refreshQueue()} className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm">
                 Refresh queue
               </button>
             </div>
             <div className="mt-4 space-y-3">
               {queue.length === 0 ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400">No pending review items.</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">No pending review items.</p>
               ) : (
                 queue.slice(0, 8).map((item) => (
-                  <div key={item.id} className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+                  <div key={item.id} className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
                     <div className="flex items-center justify-between gap-4">
                       <div>
                         <p className="font-medium">{item.item_label}</p>
-                        <p className="mt-1 text-xs uppercase tracking-wider text-gray-400">{item.item_type.replaceAll("_", " ")}</p>
+                        <p className="mt-1 text-xs uppercase tracking-wider text-slate-400">{item.item_type.replaceAll("_", " ")}</p>
                       </div>
-                      <span className="text-xs uppercase tracking-wider text-gray-400">
+                      <span className="text-xs uppercase tracking-wider text-slate-400">
                         priority {item.priority_score.toFixed(1)}
                       </span>
                     </div>
-                    <p className="mt-3 text-sm text-gray-700 dark:text-gray-200">{item.why_now_summary}</p>
-                    <div className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-sm text-indigo-900 dark:border-indigo-900 dark:bg-indigo-950/20 dark:text-indigo-200">
+                    <p className="mt-3 text-sm text-slate-700 dark:text-slate-200">{item.why_now_summary}</p>
+                    <div className="mt-2 rounded-lg border border-sky-100 bg-sky-50/60 px-3 py-2 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-200">
                       Next best move: {item.next_action}
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {item.signal_tags.map((tag) => (
                         <span
                           key={tag}
-                          className="rounded-full border border-gray-200 px-2.5 py-1 text-[11px] uppercase tracking-wider text-gray-500 dark:border-gray-800 dark:text-gray-400"
+                          className="rounded-full border border-slate-200 px-2.5 py-1 text-[11px] uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:text-slate-400"
                         >
                           {tag}
                         </span>
@@ -138,12 +138,12 @@ export default function VerificationPage() {
                           [item.id]: !current[item.id],
                         }))
                       }
-                      className="mt-3 text-xs font-bold uppercase tracking-wider text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                      className="mt-3 text-xs font-bold uppercase tracking-wider text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
                     >
                       {expandedSignals[item.id] ? "Hide signal detail" : "View signal detail"}
                     </button>
                     {expandedSignals[item.id] ? (
-                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-400">
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
                         <span>priority {item.priority_score.toFixed(1)}</span>
                         <span>contradiction {item.contradiction_pressure.toFixed(1)}</span>
                         <span>coverage pressure {item.coverage_weakness.toFixed(1)}</span>
@@ -156,9 +156,9 @@ export default function VerificationPage() {
             </div>
           </section>
 
-          <form onSubmit={runVerification} className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950 space-y-4">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Manual challenge</h2>
-            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Select Profile</h2>
+          <form onSubmit={runVerification} className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950 space-y-4">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Manual challenge</h2>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Select Profile</h2>
             <select value={selectedId} onChange={(e) => handleProfileChange(e.target.value)} className={inputClass}>
               {profiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
@@ -167,7 +167,7 @@ export default function VerificationPage() {
               ))}
             </select>
             <textarea value={challengeText} onChange={(e) => setChallengeText(e.target.value)} rows={8} className={inputClass} />
-            <button disabled={running || !selectedSubjectId} className="w-full rounded-lg bg-indigo-600 px-4 py-3 text-white disabled:opacity-50">
+            <button disabled={running || !selectedSubjectId} className="w-full rounded-lg bg-sky-600 px-4 py-3 text-white disabled:opacity-50">
               {running ? "Verifying..." : "Run verification"}
             </button>
           </form>
@@ -176,45 +176,45 @@ export default function VerificationPage() {
 
         <section>
           {!result ? (
-            <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950 text-gray-500 dark:text-gray-400">
+            <div className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950 text-slate-500 dark:text-slate-400">
               No verification run yet.
             </div>
           ) : (
-            <article className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950 space-y-5">
+            <article className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950 space-y-5">
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <h2 className="text-xl font-semibold tracking-tight">{result.subject_type}</h2>
-                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{new Date(result.verified_at).toLocaleString()}</p>
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{new Date(result.verified_at).toLocaleString()}</p>
                 </div>
                 <span className={`text-xs uppercase tracking-wider ${result.conclusion_changed ? "text-amber-500" : "text-emerald-500"}`}>
                   {result.conclusion_changed ? "conclusion changed" : "stance held"}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-4 text-sm">
-                <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
-                  <p className="text-gray-500 dark:text-gray-400">Prior stance</p>
+                <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
+                  <p className="text-slate-500 dark:text-slate-400">Prior stance</p>
                   <p className="mt-1 font-medium">{result.prior_stance}</p>
                 </div>
-                <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
-                  <p className="text-gray-500 dark:text-gray-400">Verified stance</p>
+                <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
+                  <p className="text-slate-500 dark:text-slate-400">Verified stance</p>
                   <p className="mt-1 font-medium">{result.verified_stance} · {result.confidence_band}</p>
                 </div>
               </div>
-              <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
-                <p className="text-sm text-gray-500 dark:text-gray-400">Coverage status</p>
+              <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
+                <p className="text-sm text-slate-500 dark:text-slate-400">Coverage status</p>
                 <p className="mt-1 font-medium">{result.contradiction_coverage_status}</p>
                 {result.missing_classes_found.length ? (
-                  <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">Missing: {result.missing_classes_found.join(", ")}</p>
+                  <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Missing: {result.missing_classes_found.join(", ")}</p>
                 ) : null}
               </div>
               <div>
-                <h3 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Reasoning</h3>
-                <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">{result.change_reasoning}</p>
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Reasoning</h3>
+                <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">{result.change_reasoning}</p>
               </div>
               {result.what_would_falsify.length ? (
                 <div>
-                  <h3 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Falsifiers</h3>
-                  <ul className="mt-2 space-y-2 text-sm text-gray-700 dark:text-gray-300">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Falsifiers</h3>
+                  <ul className="mt-2 space-y-2 text-sm text-slate-700 dark:text-slate-300">
                     {result.what_would_falsify.map((item) => (
                       <li key={item}>{item}</li>
                     ))}
@@ -230,4 +230,4 @@ export default function VerificationPage() {
 }
 
 const inputClass =
-  "w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3";
+  "w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3";

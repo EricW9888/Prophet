@@ -125,35 +125,35 @@ export default function DecisionsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] text-gray-900 dark:text-gray-100 font-sans selection:bg-indigo-500/30">
+    <div className="min-h-screen bg-background text-foreground font-sans">
       <AppNav active="portfolio" />
       <main className="mx-auto grid w-full max-w-[1440px] grid-cols-1 gap-8 px-4 py-8 sm:px-6 lg:px-8 xl:grid-cols-[0.9fr_1.1fr]">
         <section className="space-y-6">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Operating Memory</h1>
-            <p className="mt-2 text-gray-500 dark:text-gray-400">
+            <p className="mt-2 text-slate-500 dark:text-slate-400">
               This is the system record of what Prophet concluded, what it acted on, how shadows and reviews evolved, and what was learned afterward.
             </p>
           </div>
-          <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950 space-y-4">
+          <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950 space-y-4">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">How this should work</h2>
-                <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">How this should work</h2>
+                <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
                   Prophet should usually write this memory itself from reasoning runs, thesis changes, shadow experiments, and retrospective reviews. Manual entry is an override, not the primary workflow.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowManualEntry((value) => !value)}
-                className="rounded-lg border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm"
+                className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm"
               >
                 {showManualEntry ? "Hide manual override" : "Manual override"}
               </button>
             </div>
             {showManualEntry ? (
-              <form onSubmit={createDecision} className="space-y-4 border-t border-gray-200 pt-4 dark:border-gray-800">
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Manual operating-memory entry</h3>
+              <form onSubmit={createDecision} className="space-y-4 border-t border-slate-200 pt-4 dark:border-slate-800">
+                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Manual operating-memory entry</h3>
                 <select value={form.position_id} onChange={(e) => setForm((current) => ({ ...current, position_id: e.target.value }))} className={inputClass}>
                   <option value="">No linked position</option>
                   {positions.map((position) => (
@@ -173,7 +173,7 @@ export default function DecisionsPage() {
                 <textarea value={form.rationale} onChange={(e) => setForm((current) => ({ ...current, rationale: e.target.value }))} rows={6} placeholder="Why this override matters." className={inputClass} />
                 <input value={form.expected_catalyst_timeframe} onChange={(e) => setForm((current) => ({ ...current, expected_catalyst_timeframe: e.target.value }))} placeholder="Catalyst timeframe" className={inputClass} />
                 <input value={form.expected_return} onChange={(e) => setForm((current) => ({ ...current, expected_return: e.target.value }))} type="number" step="0.01" placeholder="Expected return %" className={inputClass} />
-                <button disabled={saving || !form.rationale.trim()} className="w-full rounded-lg bg-indigo-600 px-4 py-3 text-white disabled:opacity-50">
+                <button disabled={saving || !form.rationale.trim()} className="w-full rounded-lg bg-sky-600 px-4 py-3 text-white disabled:opacity-50">
                   {saving ? "Saving..." : "Record override"}
                 </button>
               </form>
@@ -184,45 +184,45 @@ export default function DecisionsPage() {
 
         <section className="space-y-4">
           {loading ? (
-            <div className="text-sm text-gray-500 animate-pulse">Loading decisions...</div>
+            <div className="text-sm text-slate-500 animate-pulse">Loading decisions...</div>
           ) : decisions.length === 0 ? (
-            <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950 text-gray-500 dark:text-gray-400">
+            <div className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950 text-slate-500 dark:text-slate-400">
               No decisions recorded yet.
             </div>
           ) : (
             decisions.map((decision) => (
-              <article key={decision.id} className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+              <article key={decision.id} className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <h2 className="text-xl font-semibold tracking-tight">{decision.position_label ?? "Unlinked decision"}</h2>
-                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{decision.decision_type} · {new Date(decision.created_at).toLocaleString()}</p>
+                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{decision.decision_type} · {new Date(decision.created_at).toLocaleString()}</p>
                   </div>
-                  <button onClick={() => setReviewingId(reviewingId === decision.id ? null : decision.id)} className="rounded-lg border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm">
+                  <button onClick={() => setReviewingId(reviewingId === decision.id ? null : decision.id)} className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm">
                     {reviewingId === decision.id ? "Close Review" : "Add Review"}
                   </button>
                 </div>
-                <p className="mt-4 text-sm text-gray-700 dark:text-gray-300">{decision.rationale}</p>
-                <div className="mt-4 grid grid-cols-2 gap-4 text-sm text-gray-500 dark:text-gray-400">
+                <p className="mt-4 text-sm text-slate-700 dark:text-slate-300">{decision.rationale}</p>
+                <div className="mt-4 grid grid-cols-2 gap-4 text-sm text-slate-500 dark:text-slate-400">
                   <div>Catalyst: {decision.expected_catalyst_timeframe ?? "n/a"}</div>
                   <div>Expected return: {decision.expected_return == null ? "n/a" : `${decision.expected_return}%`}</div>
                 </div>
                 {decision.reviews.length ? (
-                  <div className="mt-5 space-y-3 border-t border-gray-200 dark:border-gray-800 pt-4">
+                  <div className="mt-5 space-y-3 border-t border-slate-200 dark:border-slate-800 pt-4">
                     {decision.reviews.map((review) => (
-                      <div key={review.id} className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+                      <div key={review.id} className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
                         <p className="font-medium">{review.outcome_assessment}</p>
-                        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{new Date(review.reviewed_at).toLocaleString()}</p>
-                        {review.what_went_wrong ? <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">Wrong: {review.what_went_wrong}</p> : null}
-                        {review.what_to_improve ? <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">Improve: {review.what_to_improve}</p> : null}
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{new Date(review.reviewed_at).toLocaleString()}</p>
+                        {review.what_went_wrong ? <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">Wrong: {review.what_went_wrong}</p> : null}
+                        {review.what_to_improve ? <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">Improve: {review.what_to_improve}</p> : null}
                         {review.extracted_lessons.length ? (
                           <div className="mt-3 space-y-2">
-                            <p className="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                            <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
                               Extracted lessons
                             </p>
                             {review.extracted_lessons.map((lesson) => (
-                              <div key={lesson.id} className="rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-800">
+                              <div key={lesson.id} className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800">
                                 <p className="font-medium">{lesson.title}</p>
-                                <p className="mt-1 text-gray-500 dark:text-gray-400">{lesson.summary}</p>
+                                <p className="mt-1 text-slate-500 dark:text-slate-400">{lesson.summary}</p>
                               </div>
                             ))}
                           </div>
@@ -232,7 +232,7 @@ export default function DecisionsPage() {
                   </div>
                 ) : null}
                 {reviewingId === decision.id ? (
-                  <div className="mt-5 space-y-3 border-t border-gray-200 dark:border-gray-800 pt-4">
+                  <div className="mt-5 space-y-3 border-t border-slate-200 dark:border-slate-800 pt-4">
                     <select value={reviewForm.outcome_assessment} onChange={(e) => setReviewForm((current) => ({ ...current, outcome_assessment: e.target.value }))} className={inputClass}>
                       <option value="correct_for_right_reason">Correct For Right Reason</option>
                       <option value="correct_for_wrong_reason">Correct For Wrong Reason</option>
@@ -248,7 +248,7 @@ export default function DecisionsPage() {
                     <textarea value={reviewForm.what_went_right} onChange={(e) => setReviewForm((current) => ({ ...current, what_went_right: e.target.value }))} rows={2} placeholder="What went right" className={inputClass} />
                     <textarea value={reviewForm.what_went_wrong} onChange={(e) => setReviewForm((current) => ({ ...current, what_went_wrong: e.target.value }))} rows={2} placeholder="What went wrong" className={inputClass} />
                     <textarea value={reviewForm.what_to_improve} onChange={(e) => setReviewForm((current) => ({ ...current, what_to_improve: e.target.value }))} rows={2} placeholder="What to improve next time" className={inputClass} />
-                    <button onClick={() => void createReview(decision.id)} disabled={saving} className="w-full rounded-lg border border-gray-300 dark:border-gray-700 px-4 py-3 text-sm disabled:opacity-50">
+                    <button onClick={() => void createReview(decision.id)} disabled={saving} className="w-full rounded-lg border border-slate-300 dark:border-slate-700 px-4 py-3 text-sm disabled:opacity-50">
                       Save review
                     </button>
                   </div>
@@ -263,4 +263,4 @@ export default function DecisionsPage() {
 }
 
 const inputClass =
-  "w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3";
+  "w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3";

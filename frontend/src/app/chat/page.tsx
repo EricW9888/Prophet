@@ -291,17 +291,17 @@ function LiveWatchers() {
   };
 
   return (
-    <div className="shrink-0 border-b border-gray-200 p-4 dark:border-gray-800">
-      <p className="mb-3 text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+    <div className="shrink-0 border-b border-slate-200 p-4 dark:border-slate-800">
+      <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
         Live Watches ({watchers.length})
       </p>
       <div className="max-h-[30vh] space-y-3 overflow-y-auto overscroll-contain pr-1">
         {visibleWatchers.map((w) => (
-          <div key={w.id} className="rounded-xl border border-indigo-200 bg-indigo-50/30 p-3 text-xs dark:border-indigo-900/30 dark:bg-indigo-900/10">
+          <div key={w.id} className="rounded-lg border border-sky-200 bg-sky-50/30 p-3 text-xs dark:border-sky-900/30 dark:bg-sky-900/10">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-indigo-600 dark:text-indigo-400">{w.ticker}</span>
+              <span className="font-bold text-sky-600 dark:text-sky-400">{w.ticker}</span>
               <div className="flex items-center gap-1.5">
-                <span className="text-[10px] uppercase text-gray-400 font-bold">
+                <span className="text-[10px] uppercase text-slate-400 font-bold">
                   {w.condition_type.replaceAll("_", " ")}
                 </span>
                 <button
@@ -309,7 +309,7 @@ function LiveWatchers() {
                   title="Dismiss watch"
                   aria-label={`Dismiss ${w.ticker ?? "untargeted"} watch`}
                   onClick={() => void dismissWatcher(w.id)}
-                  className="grid size-6 place-items-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                  className="grid size-6 place-items-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                 >
                   <X size={13} aria-hidden="true" />
                 </button>
@@ -317,12 +317,12 @@ function LiveWatchers() {
             </div>
             <p className="mt-1 font-medium">{w.objective}</p>
             {w.adjustment_plan ? (
-              <p className="mt-1 line-clamp-2 text-[11px] text-gray-500 dark:text-gray-400">
+              <p className="mt-1 line-clamp-2 text-[11px] text-slate-500 dark:text-slate-400">
                 If it fires: {w.adjustment_plan}
               </p>
             ) : null}
             {w.deadline && (
-              <p className={`mt-1 text-[10px] font-semibold uppercase tracking-wide ${w.is_overdue ? "text-rose-500" : "text-gray-400"}`}>
+              <p className={`mt-1 text-[10px] font-semibold uppercase tracking-wide ${w.is_overdue ? "text-rose-500" : "text-slate-400"}`}>
                 {w.is_overdue ? "Overdue" : formatCountdown(w.countdown_seconds)}
                 {" · "}
                 {formatTimestamp(w.deadline)}
@@ -334,7 +334,7 @@ function LiveWatchers() {
           <button
             type="button"
             onClick={() => setExpanded((current) => !current)}
-            className="w-full py-1 text-left text-[11px] font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
+            className="w-full py-1 text-left text-[11px] font-semibold text-sky-600 hover:text-sky-500 dark:text-sky-400"
           >
             {expanded ? "Show fewer" : `Show ${watchers.length - 12} more`}
           </button>
@@ -356,27 +356,27 @@ function RunningChats({
   if (jobs.length === 0) return null;
 
   return (
-    <div className="shrink-0 border-b border-gray-200 p-4 dark:border-gray-800">
-      <p className="mb-3 text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+    <div className="shrink-0 border-b border-slate-200 p-4 dark:border-slate-800">
+      <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
         Running chats ({jobs.length})
       </p>
       <div className="space-y-2">
         {jobs.slice(0, 5).map((job) => (
-          <div key={job.job_id} className="rounded-xl border border-amber-200 bg-amber-50/40 p-3 text-xs dark:border-amber-900/40 dark:bg-amber-950/10">
+          <div key={job.job_id} className="rounded-lg border border-amber-200 bg-amber-50/40 p-3 text-xs dark:border-amber-900/40 dark:bg-amber-950/10">
             <button type="button" onClick={() => onFocus(job)} className="w-full text-left">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">
                   {job.status}
                 </span>
-                <span className="text-[10px] text-gray-400">{formatTimestamp(job.updated_at)}</span>
+                <span className="text-[10px] text-slate-400">{formatTimestamp(job.updated_at)}</span>
               </div>
-              <p className="mt-1 line-clamp-2 font-medium text-gray-700 dark:text-gray-200">{job.request_message}</p>
-              <p className="mt-1 text-[10px] text-gray-500 dark:text-gray-400">Turn ID {job.job_id.slice(0, 8)}</p>
+              <p className="mt-1 line-clamp-2 font-medium text-slate-700 dark:text-slate-200">{job.request_message}</p>
+              <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">Turn ID {job.job_id.slice(0, 8)}</p>
             </button>
             <button
               type="button"
               onClick={() => onCancel(job.job_id)}
-              className="mt-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 hover:text-rose-600 dark:text-gray-400"
+              className="mt-2 text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-rose-600 dark:text-slate-400"
             >
               Cancel
             </button>
@@ -985,41 +985,41 @@ export default function ChatPage() {
       : "Long-running reasoning in progress. You can move around the product and reconnect to it.";
 
   return (
-    <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-gray-50 font-sans text-gray-900 selection:bg-indigo-500/30 dark:bg-[#0a0a0a] dark:text-gray-100">
+    <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-background font-sans text-foreground">
       <AppNav active="research" />
 
       <main className="flex min-h-0 w-full flex-1 overflow-hidden">
-        <aside className="hidden h-full min-h-0 w-[320px] shrink-0 flex-col border-r border-gray-200 bg-white/70 dark:border-gray-800 dark:bg-gray-950/70 lg:flex">
-          <div className="border-b border-gray-200 p-4 dark:border-gray-800">
-            <p className="mb-3 text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+        <aside className="hidden h-full min-h-0 w-[320px] shrink-0 flex-col border-r border-slate-200 bg-white/70 dark:border-slate-800 dark:bg-slate-950/70 lg:flex">
+          <div className="border-b border-slate-200 p-4 dark:border-slate-800">
+            <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
               Saved chats
             </p>
             <button
               type="button"
               onClick={startNewChat}
-              className="w-full rounded-xl bg-indigo-600 px-4 py-3 text-sm font-medium text-white"
+              className="w-full rounded-lg bg-sky-600 px-4 py-3 text-sm font-medium text-white"
             >
               Start new chat
             </button>
           </div>
-          <div className="border-b border-gray-200 p-4 dark:border-gray-800">
+          <div className="border-b border-slate-200 p-4 dark:border-slate-800">
             <div className="flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-semibold">Agent Execution</p>
-                  <span className={`h-1.5 w-1.5 rounded-full ${executionActive ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" : "bg-gray-300"}`} />
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                  <span className={`h-1.5 w-1.5 rounded-full ${executionActive ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" : "bg-slate-300"}`} />
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     {executionActive ? "Active" : "Passive"}
                   </span>
                 </div>
-                <p className="text-[11px] text-gray-500 dark:text-gray-400">Allow Prophet to research and act.</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Allow Prophet to research and act.</p>
               </div>
               <button
                 type="button"
                 id="agent-execution-toggle"
                 onClick={() => setAllowActions(!allowActions)}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:ring-offset-2 ${
-                  allowActions ? "bg-indigo-600" : "bg-gray-200 dark:bg-gray-700"
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-sky-600 focus:ring-offset-2 ${
+                  allowActions ? "bg-sky-600" : "bg-slate-200 dark:bg-slate-700"
                 }`}
               >
                 <span
@@ -1035,7 +1035,7 @@ export default function ChatPage() {
           <LiveWatchers />
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {conversations.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+              <p className="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
                 No saved chats yet.
               </p>
             ) : (
@@ -1045,10 +1045,10 @@ export default function ChatPage() {
                 return (
                   <div
                     key={conversation.session_id}
-                    className={`group w-full rounded-xl border px-3 py-3 transition ${
+                    className={`group w-full rounded-lg border px-3 py-3 transition ${
                       isActive
-                        ? "border-indigo-300 bg-indigo-50 dark:border-indigo-700 dark:bg-indigo-950/30"
-                        : "border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950"
+                        ? "border-sky-300 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/30"
+                        : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950"
                     }`}
                   >
                     {isRenaming ? (
@@ -1069,13 +1069,13 @@ export default function ChatPage() {
                               cancelRename();
                             }
                           }}
-                          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-gray-700 dark:bg-gray-900"
+                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 dark:border-slate-700 dark:bg-slate-900"
                         />
                         <div className="flex justify-end gap-2">
                           <button
                             type="submit"
                             disabled={renameBusy || !renameTitle.trim()}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white disabled:opacity-50"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-sky-600 text-white disabled:opacity-50"
                             title="Save chat name"
                           >
                             <Check className="h-4 w-4" />
@@ -1084,7 +1084,7 @@ export default function ChatPage() {
                           <button
                             type="button"
                             onClick={cancelRename}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-500 dark:border-gray-800"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 dark:border-slate-800"
                             title="Cancel rename"
                           >
                             <X className="h-4 w-4" />
@@ -1101,20 +1101,20 @@ export default function ChatPage() {
                         >
                           <div className="flex items-start justify-between gap-2">
                             <p className="truncate text-sm font-medium">{conversation.title}</p>
-                            <span className="shrink-0 text-[10px] uppercase tracking-wide text-gray-400">
+                            <span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-400">
                               {formatTimestamp(conversation.updated_at)}
                             </span>
                           </div>
                           {conversation.subject_name ? (
-                            <p className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">{conversation.subject_name}</p>
+                            <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{conversation.subject_name}</p>
                           ) : null}
                           {conversation.latest_message_preview ? (
-                            <p className="mt-2 line-clamp-2 text-xs text-gray-500 dark:text-gray-400">
+                            <p className="mt-2 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
                               {stripInternalReasoningBlock(conversation.latest_message_preview)}
                             </p>
                           ) : null}
                           {conversation.artifact_count ? (
-                            <p className="mt-2 text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                            <p className="mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
                               {conversation.artifact_count} system {conversation.artifact_count === 1 ? "note" : "notes"} hidden
                             </p>
                           ) : null}
@@ -1122,7 +1122,7 @@ export default function ChatPage() {
                         <button
                           type="button"
                           onClick={() => startRename(conversation)}
-                          className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-400 opacity-100 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-900 dark:hover:text-gray-200 lg:opacity-0 lg:group-hover:opacity-100"
+                          className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 opacity-100 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-900 dark:hover:text-slate-200 lg:opacity-0 lg:group-hover:opacity-100"
                           title="Rename chat"
                         >
                           <Pencil className="h-4 w-4" />
@@ -1138,7 +1138,7 @@ export default function ChatPage() {
         </aside>
 
         <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="shrink-0 border-b border-gray-200 bg-white/70 px-4 py-4 dark:border-gray-800 dark:bg-gray-950/70 sm:px-6">
+          <div className="shrink-0 border-b border-slate-200 bg-white/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70 sm:px-6">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
               <div>
                 {activeConversation && renamingSessionId === activeConversation.session_id ? (
@@ -1159,12 +1159,12 @@ export default function ChatPage() {
                           cancelRename();
                         }
                       }}
-                      className="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xl font-semibold tracking-tight outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-gray-700 dark:bg-gray-900"
+                      className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xl font-semibold tracking-tight outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 dark:border-slate-700 dark:bg-slate-900"
                     />
                     <button
                       type="submit"
                       disabled={renameBusy || !renameTitle.trim()}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white disabled:opacity-50"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-sky-600 text-white disabled:opacity-50"
                       title="Save chat name"
                     >
                       <Check className="h-4 w-4" />
@@ -1173,7 +1173,7 @@ export default function ChatPage() {
                     <button
                       type="button"
                       onClick={cancelRename}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-gray-500 dark:border-gray-800"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 dark:border-slate-800"
                       title="Cancel rename"
                     >
                       <X className="h-4 w-4" />
@@ -1189,7 +1189,7 @@ export default function ChatPage() {
                       <button
                         type="button"
                         onClick={() => startRename(activeConversation)}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-900 dark:hover:text-gray-200"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-900 dark:hover:text-slate-200"
                         title="Rename chat"
                       >
                         <Pencil className="h-4 w-4" />
@@ -1198,7 +1198,7 @@ export default function ChatPage() {
                     ) : null}
                   </div>
                 )}
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                   {activeConversation
                     ? `Talking with Prophet about ${activeConversation.subject_name ?? selectedSubjectName}.`
                     : "Ask a question naturally. Prophet will usually resolve the right context for you."}
@@ -1208,7 +1208,7 @@ export default function ChatPage() {
                 <button
                   type="button"
                   onClick={startNewChat}
-                  className="rounded-full border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-700"
+                  className="rounded-full border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700"
                 >
                   New chat
                 </button>
@@ -1219,7 +1219,7 @@ export default function ChatPage() {
 
             {error ? <p className="mt-3 text-sm text-red-500">{error}</p> : null}
             {loadingHistory ? (
-              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                 Loading saved conversation...
               </p>
             ) : null}
@@ -1228,18 +1228,18 @@ export default function ChatPage() {
           <div ref={messagesScrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-6 pt-6 sm:px-6">
             {messages.length === 0 ? (
               <div className="mx-auto mt-16 max-w-2xl text-center">
-                <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-100 dark:bg-indigo-900/30">
-                  <svg className="h-8 w-8 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div className="inline-flex h-16 w-16 items-center justify-center rounded-lg bg-sky-100 dark:bg-sky-900/30">
+                  <svg className="h-8 w-8 text-sky-600 dark:text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
                 </div>
-                <h2 className="mt-6 text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">Good morning. Focus on what matters.</h2>
-                <p className="mt-4 text-base text-gray-500 dark:text-gray-400">
+                <h2 className="mt-6 text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">Good morning. Focus on what matters.</h2>
+                <p className="mt-4 text-base text-slate-500 dark:text-slate-400">
                   Prophet intelligently groups your queries to the right context. Probe a specific thesis, ask for research updates, or challenge an assumption.
                 </p>
                 <div className="mt-8 flex flex-wrap justify-center gap-3">
-                  <button onClick={() => setInput("What are the core vulnerabilities in our largest tech holding?")} className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-600 hover:border-gray-300 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:border-gray-700">What are the core vulnerabilities in our largest tech holding?</button>
-                  <button onClick={() => setInput("Summarize recent developments for Apple.")} className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-600 hover:border-gray-300 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:border-gray-700">Summarize recent developments for Apple.</button>
+                  <button onClick={() => setInput("What are the core vulnerabilities in our largest tech holding?")} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-slate-700">What are the core vulnerabilities in our largest tech holding?</button>
+                  <button onClick={() => setInput("Summarize recent developments for Apple.")} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-slate-700">Summarize recent developments for Apple.</button>
                 </div>
               </div>
             ) : (
@@ -1248,46 +1248,46 @@ export default function ChatPage() {
                   <div key={idx} className={`flex w-full ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                     <div className={`flex w-full gap-4 ${m.role === "user" ? "max-w-[720px] flex-row-reverse" : "max-w-[960px] flex-row"}`}>
                       <div className="mt-1 flex-shrink-0">
-                        <div className={`flex h-8 w-8 items-center justify-center shadow-sm ${
+                        <div className={`flex h-8 w-8 items-center justify-center ${
                           m.role === "assistant"
-                            ? "rounded-lg bg-indigo-600"
+                            ? "rounded-lg bg-sky-600"
                             : m.role === "user"
-                              ? "rounded-full border border-gray-300 bg-gray-200 dark:border-gray-700 dark:bg-gray-800"
-                              : "rounded-lg border border-gray-300 bg-white dark:border-gray-700 dark:bg-gray-900"
+                              ? "rounded-full border border-slate-300 bg-slate-200 dark:border-slate-700 dark:bg-slate-800"
+                              : "rounded-lg border border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900"
                         }`}>
                           <span className={`${
                             m.role === "assistant"
                               ? "font-mono text-white"
                               : m.role === "user"
-                                ? "text-gray-600 dark:text-gray-300"
-                                : "font-mono text-gray-500 dark:text-gray-400"
+                                ? "text-slate-600 dark:text-slate-300"
+                                : "font-mono text-slate-500 dark:text-slate-400"
                           } text-xs font-bold`}>
                             {m.role === "assistant" ? "AI" : m.role === "user" ? "U" : "S"}
                           </span>
                         </div>
                       </div>
                       <div
-                        className={`w-full rounded-2xl p-4 text-sm leading-relaxed md:text-base ${
+                        className={`w-full rounded-lg p-4 text-sm leading-relaxed md:text-base ${
                           m.role === "user"
-                            ? "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100"
+                            ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
                             : m.role === "system"
-                              ? "border border-dashed border-gray-200 bg-gray-50 text-gray-700 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300"
-                            : "border border-gray-200 bg-white text-gray-800 shadow-sm dark:border-gray-800 dark:bg-[#111] dark:text-gray-200"
+                              ? "border border-dashed border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
+                            : "border border-slate-200 bg-white text-slate-800 dark:border-slate-800 dark:bg-[#111] dark:text-slate-200"
                         }`}
                       >
                         {formatTimestamp(m.createdAt) ? (
                           <p
                             className={`mb-2 text-[11px] uppercase tracking-wide ${
                               m.role === "user"
-                                ? "text-right text-gray-500 dark:text-gray-400"
-                                : "text-gray-400"
+                                ? "text-right text-slate-500 dark:text-slate-400"
+                                : "text-slate-400"
                             }`}
                           >
                             {formatTimestamp(m.createdAt)}
                           </p>
                         ) : null}
                         {m.isArtifact ? (
-                          <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                          <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
                             {formatUserLabel(m.messageKind ?? "system_artifact")}
                           </p>
                         ) : null}
@@ -1296,7 +1296,7 @@ export default function ChatPage() {
                             <p>{m.content.replace("Enable state updates first.", "")}</p>
                             <button
                               onClick={() => setAllowActions(true)}
-                              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700"
+                              className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-700"
                             >
                               Enable state updates
                             </button>
@@ -1305,45 +1305,45 @@ export default function ChatPage() {
                           <div className="whitespace-pre-wrap break-words leading-7">{m.content}</div>
                         )}
                         {m.role === "assistant" && m.meta ? (
-                          <div className="mt-4 space-y-3 border-t border-gray-200 pt-4 dark:border-gray-800">
+                          <div className="mt-4 space-y-3 border-t border-slate-200 pt-4 dark:border-slate-800">
                             <ActualProcessSummary
                               message={m}
                               trace={m.meta.reasoning_run_id ? traceCache[m.meta.reasoning_run_id] : undefined}
                             />
                             <div className="flex flex-wrap gap-2 text-xs">
                               {m.meta.stance ? (
-                                <span className="rounded-full border border-gray-200 px-3 py-1 dark:border-gray-700">
+                                <span className="rounded-full border border-slate-200 px-3 py-1 dark:border-slate-700">
                                   Stance: {formatUserLabel(m.meta.stance)}
                                 </span>
                               ) : null}
                               {m.meta.confidence_band ? (
-                                <span className="rounded-full border border-gray-200 px-3 py-1 dark:border-gray-700">
+                                <span className="rounded-full border border-slate-200 px-3 py-1 dark:border-slate-700">
                                   Confidence: {formatUserLabel(m.meta.confidence_band)}
                                 </span>
                               ) : null}
                             </div>
                             {m.meta.actions && m.meta.actions.length > 0 ? (
                               <div className="space-y-2">
-                                <p className="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                                <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
                                   Agent actions
                                 </p>
                                 {m.meta.actions.map((action, actionIndex) => (
-                                  <div key={`${action.action_type}-${actionIndex}`} className="rounded-xl border border-gray-200 px-3 py-2 text-sm dark:border-gray-800">
+                                  <div key={`${action.action_type}-${actionIndex}`} className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800">
                                     <p className="font-medium">{action.action_type.replaceAll("_", " ")}</p>
-                                    <p className="mt-1 text-gray-500 dark:text-gray-400">{action.summary}</p>
+                                    <p className="mt-1 text-slate-500 dark:text-slate-400">{action.summary}</p>
                                   </div>
                                 ))}
                               </div>
                             ) : null}
                             {m.meta.subagents && Object.keys(m.meta.subagents).length > 0 ? (
                               <div className="space-y-2">
-                                <p className="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                                <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
                                   Independent analysis lenses
                                 </p>
                                 {Object.entries(m.meta.subagents).map(([label, insight]) => (
-                                  <div key={label} className="rounded-xl border border-gray-200 px-3 py-2 text-sm dark:border-gray-800">
+                                  <div key={label} className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800">
                                     <p className="font-medium">{label.replaceAll("_", " ")}</p>
-                                    <p className="mt-1 text-gray-500 dark:text-gray-400">{insight}</p>
+                                    <p className="mt-1 text-slate-500 dark:text-slate-400">{insight}</p>
                                   </div>
                                 ))}
                               </div>
@@ -1353,7 +1353,7 @@ export default function ChatPage() {
                                 <button
                                   type="button"
                                   onClick={() => void toggleTrace(m.meta!.reasoning_run_id!)}
-                                  className="rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-800"
+                                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800"
                                 >
                                   {openTraceRunId === m.meta.reasoning_run_id ? "Hide analysis detail" : "View analysis detail"}
                                 </button>
@@ -1372,15 +1372,15 @@ export default function ChatPage() {
                   <div className="flex w-full justify-start">
                     <div className="flex w-full max-w-[960px] gap-4">
                       <div className="mt-1 flex-shrink-0">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 shadow-sm">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-600">
                           <span className="font-mono text-xs font-bold text-white">AI</span>
                         </div>
                       </div>
-                      <div className="rounded-2xl border border-gray-200 bg-white p-4 text-sm leading-relaxed text-gray-800 shadow-sm dark:border-gray-800 dark:bg-[#111] dark:text-gray-200 md:text-base">
+                      <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm leading-relaxed text-slate-800 dark:border-slate-800 dark:bg-[#111] dark:text-slate-200 md:text-base">
                         <p className="font-medium">
                           {allowActions ? "Prophet is analyzing and can act on what it finds." : "Prophet is analyzing your request."}
                         </p>
-                        <div className="mt-3 rounded-xl border border-gray-200 p-3 text-sm text-gray-500 dark:border-gray-800 dark:text-gray-400">
+                        <div className="mt-3 rounded-lg border border-slate-200 p-3 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
                           <p>
                             {resolvedPreview?.subject_name
                               ? `Resolved context: ${resolvedPreview.subject_name}.`
@@ -1393,20 +1393,20 @@ export default function ChatPage() {
                             Analysis continues in the background even if you leave this page briefly.
                           </p>
                           {activeJobRequestMessage ? (
-                            <p className="mt-2 text-gray-600 dark:text-gray-300">
+                            <p className="mt-2 text-slate-600 dark:text-slate-300">
                               Working on: <span className="font-medium">{activeJobRequestMessage}</span>
                             </p>
                           ) : null}
                         </div>
                         <div className="mt-4 flex items-center justify-between gap-4">
-                          <p className="text-xs uppercase tracking-wider text-gray-400">{elapsedSeconds}s elapsed</p>
+                          <p className="text-xs uppercase tracking-wider text-slate-400">{elapsedSeconds}s elapsed</p>
                           {activeJob?.job_id ? (
-                            <p className="text-xs text-gray-500 dark:text-gray-400">Turn ID {activeJob.job_id.slice(0, 8)}</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">Turn ID {activeJob.job_id.slice(0, 8)}</p>
                           ) : null}
                         </div>
                         {liveEvents.length > 0 ? (
                           <div className="mt-4 space-y-2">
-                            <p className="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                            <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
                               Live trace
                             </p>
                             {liveEvents.map((event, index) => {
@@ -1416,14 +1416,14 @@ export default function ChatPage() {
                               const subagentInsight =
                                 typeof eventDetail?.subagent_insight === "string" ? eventDetail.subagent_insight : null;
                               return (
-                                <div key={`${event.phase}-${event.created_at}-${index}`} className="rounded-xl border border-gray-200 px-3 py-2 text-sm dark:border-gray-800">
+                                <div key={`${event.phase}-${event.created_at}-${index}`} className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800">
                                   <div className="flex items-center justify-between gap-3">
                                     <p className="font-medium capitalize">{event.phase.replaceAll("_", " ")}</p>
-                                    <time className="text-[11px] text-gray-400">{formatTimestamp(event.created_at)}</time>
+                                    <time className="text-[11px] text-slate-400">{formatTimestamp(event.created_at)}</time>
                                   </div>
-                                  <p className="mt-1 text-gray-500 dark:text-gray-400">{event.message}</p>
+                                  <p className="mt-1 text-slate-500 dark:text-slate-400">{event.message}</p>
                                   {subagentRole && subagentInsight ? (
-                                    <div className="mt-2 rounded-lg bg-gray-50/50 p-2 text-xs italic text-gray-600 dark:bg-gray-900/40 dark:text-gray-300 border-l-2 border-indigo-500">
+                                    <div className="mt-2 rounded-lg bg-slate-50/50 p-2 text-xs italic text-slate-600 dark:bg-slate-900/40 dark:text-slate-300 border-l-2 border-sky-500">
                                       <span className="font-bold not-italic">{subagentRole}:</span> {subagentInsight}
                                     </div>
                                   ) : null}
@@ -1432,7 +1432,7 @@ export default function ChatPage() {
                             })}
                           </div>
                         ) : null}
-                        <details className="mt-4 rounded-xl border border-dashed border-gray-200 px-3 py-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
+                        <details className="mt-4 rounded-lg border border-dashed border-slate-200 px-3 py-3 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
                           <summary className="cursor-pointer font-medium uppercase tracking-wider">
                             What this live trace means
                           </summary>
@@ -1449,7 +1449,7 @@ export default function ChatPage() {
             )}
           </div>
 
-          <div className="shrink-0 border-t border-gray-200 bg-gray-50/90 px-4 py-3 backdrop-blur dark:border-gray-800 dark:bg-[#0a0a0a]/90 sm:px-6">
+          <div className="shrink-0 border-t border-line bg-background/90 px-4 py-3 backdrop-blur sm:px-6">
             <form onSubmit={handleSubmit} className="relative mx-auto max-w-5xl">
               <textarea
                 ref={composerRef}
@@ -1461,12 +1461,12 @@ export default function ChatPage() {
                 onKeyDown={handleComposerKeyDown}
                 placeholder="Tell Prophet what you think, what changed, or what to analyze next..."
                 rows={1}
-                className="min-h-[64px] w-full resize-none overflow-y-auto rounded-2xl border border-gray-300 bg-white py-4 pl-5 pr-20 shadow-sm outline-none transition-[border-color,box-shadow,height] focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                className="min-h-[64px] w-full resize-none overflow-y-auto rounded-lg border border-slate-300 bg-white py-4 pl-5 pr-20 outline-none transition-[border-color,box-shadow,height] focus:border-sky-500 focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
               />
               <button
                 type="submit"
                 disabled={Boolean(activeJob && isActiveTurnJob(activeJob)) || !input.trim()}
-                className="absolute bottom-2.5 right-2.5 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
+                className="absolute bottom-2.5 right-2.5 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-700 disabled:opacity-50"
               >
                 Send
               </button>
@@ -1481,7 +1481,7 @@ export default function ChatPage() {
 function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
   if (!trace) {
     return (
-      <div className="rounded-xl border border-gray-200 px-3 py-3 text-sm text-gray-500 dark:border-gray-800 dark:text-gray-400">
+      <div className="rounded-lg border border-slate-200 px-3 py-3 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
         Loading trace...
       </div>
     );
@@ -1502,48 +1502,48 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
     summarizeReasoningTrace(trace);
 
   return (
-    <div className="space-y-3 rounded-xl border border-gray-200 px-3 py-3 text-sm dark:border-gray-800">
+    <div className="space-y-3 rounded-lg border border-slate-200 px-3 py-3 text-sm dark:border-slate-800">
       <div className="flex flex-wrap gap-2 text-xs">
-        <span className="rounded-full border border-gray-200 px-2 py-1 dark:border-gray-800">{formatUserLabel(trace.run_type)}</span>
-        <span className="rounded-full border border-gray-200 px-2 py-1 dark:border-gray-800">{formatModelUsedLabel(trace.model_used)}</span>
-        <span className="rounded-full border border-gray-200 px-2 py-1 dark:border-gray-800">{trace.input_tokens ?? 0} in</span>
-        <span className="rounded-full border border-gray-200 px-2 py-1 dark:border-gray-800">{trace.output_tokens ?? 0} out</span>
-        <span className="rounded-full border border-gray-200 px-2 py-1 dark:border-gray-800">{trace.duration_ms ?? 0}ms</span>
+        <span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-800">{formatUserLabel(trace.run_type)}</span>
+        <span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-800">{formatModelUsedLabel(trace.model_used)}</span>
+        <span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-800">{trace.input_tokens ?? 0} in</span>
+        <span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-800">{trace.output_tokens ?? 0} out</span>
+        <span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-800">{trace.duration_ms ?? 0}ms</span>
       </div>
       {trace.evidence_packet ? (
-        <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
+        <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
           <p className="font-medium">Evidence packet</p>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
+          <p className="mt-1 text-slate-500 dark:text-slate-400">
             direct {trace.evidence_packet.direct_evidence_count} · connected {trace.evidence_packet.connected_evidence_count} · historical {trace.evidence_packet.historical_evidence_count} · contradiction {trace.evidence_packet.contradiction_evidence_count}
           </p>
           {trace.evidence_packet.gap_flags.length > 0 ? (
-            <p className="mt-1 text-gray-500 dark:text-gray-400">gaps: {trace.evidence_packet.gap_flags.join(", ")}</p>
+            <p className="mt-1 text-slate-500 dark:text-slate-400">gaps: {trace.evidence_packet.gap_flags.join(", ")}</p>
           ) : null}
         </div>
       ) : null}
       <CorroborationPanel summary={summarizeReasoningTrace(trace)} />
-      <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
+      <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
         <p className="font-medium">Readable summary</p>
-        <div className="mt-2 space-y-3 text-sm text-gray-600 dark:text-gray-300">
+        <div className="mt-2 space-y-3 text-sm text-slate-600 dark:text-slate-300">
           {thesisSummary ? <p>{thesisSummary}</p> : null}
           {reasoningText ? (
-            <p className="rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-900/40">{reasoningText}</p>
+            <p className="rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-900/40">{reasoningText}</p>
           ) : null}
           <div className="flex flex-wrap gap-2 text-xs">
             {stance ? (
-              <span className="rounded-full border border-gray-200 px-2 py-1 dark:border-gray-800">
+              <span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-800">
                 stance {formatUserLabel(stance)}
               </span>
             ) : null}
             {confidenceBand ? (
-              <span className="rounded-full border border-gray-200 px-2 py-1 dark:border-gray-800">
+              <span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-800">
                 confidence {formatUserLabel(confidenceBand)}
               </span>
             ) : null}
           </div>
           {strengthen.length > 0 ? (
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 What would strengthen this view
               </p>
               <ul className="mt-2 list-disc space-y-1 pl-5">
@@ -1555,7 +1555,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
           ) : null}
           {gapFlags.length > 0 ? (
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 What looks thin or missing
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
@@ -1572,7 +1572,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
           ) : null}
           {falsify.length > 0 ? (
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 What would change the conclusion
               </p>
               <ul className="mt-2 list-disc space-y-1 pl-5">
@@ -1584,14 +1584,14 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
           ) : null}
           {retrievalLayers.length > 0 ? (
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Retrieval path
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {retrievalLayers.map((item) => (
                   <span
                     key={item}
-                    className="rounded-full border border-gray-200 px-2 py-1 text-xs dark:border-gray-800"
+                    className="rounded-full border border-slate-200 px-2 py-1 text-xs dark:border-slate-800"
                   >
                     {formatUserLabel(item)}
                   </span>
@@ -1601,7 +1601,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
           ) : null}
           {contradictions.length > 0 ? (
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Active contradictions
               </p>
               <ul className="mt-2 list-disc space-y-1 pl-5">
@@ -1613,15 +1613,15 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
           ) : null}
           {alternativeHypotheses.length > 0 ? (
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Alternative explanations
               </p>
               <div className="mt-2 space-y-2">
                 {alternativeHypotheses.slice(0, 4).map((item, index) => (
-                  <div key={`${item.hypothesis}-${index}`} className="rounded-lg border border-gray-200 p-2 dark:border-gray-800">
+                  <div key={`${item.hypothesis}-${index}`} className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
                     <p>{item.hypothesis}</p>
                     {item.decisiveTest ? (
-                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Test: {item.decisiveTest}</p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Test: {item.decisiveTest}</p>
                     ) : null}
                   </div>
                 ))}
@@ -1629,25 +1629,25 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
             </div>
           ) : null}
         </div>
-        <details className="mt-3 rounded-lg border border-dashed border-gray-200 px-3 py-2 dark:border-gray-800">
-          <summary className="cursor-pointer text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+        <details className="mt-3 rounded-lg border border-dashed border-slate-200 px-3 py-2 dark:border-slate-800">
+          <summary className="cursor-pointer text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
             View raw analysis payload
           </summary>
-          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-gray-500 dark:text-gray-400">
+          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-slate-500 dark:text-slate-400">
             {JSON.stringify(trace.structured_output_json, null, 2)}
           </pre>
         </details>
       </div>
       {trace.critique ? (
-        <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
+        <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
           <p className="font-medium">Critique</p>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">{trace.critique.critique_text}</p>
+          <p className="mt-1 text-slate-500 dark:text-slate-400">{trace.critique.critique_text}</p>
           {trace.critique.issues_found.length > 0 ? (
-            <p className="mt-1 text-gray-500 dark:text-gray-400">issues: {trace.critique.issues_found.join(" | ")}</p>
+            <p className="mt-1 text-slate-500 dark:text-slate-400">issues: {trace.critique.issues_found.join(" | ")}</p>
           ) : null}
         </div>
       ) : (
-        <div className="rounded-lg border border-gray-200 p-3 text-gray-500 dark:border-gray-800 dark:text-gray-400">
+        <div className="rounded-lg border border-slate-200 p-3 text-slate-500 dark:border-slate-800 dark:text-slate-400">
           No critique stored for this interactive turn.
         </div>
       )}
@@ -1675,17 +1675,17 @@ function ActualProcessSummary({
   const nextBestStep = summary.strengthen[0] ?? null;
 
   return (
-    <details className="rounded-xl border border-gray-200 bg-gray-50/70 px-3 py-3 text-sm dark:border-gray-800 dark:bg-gray-950/40">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+    <details className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-3 text-sm dark:border-slate-800 dark:bg-slate-950/40">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
         <span>Answer audit</span>
         {displayedConfidence ? (
-          <span className="rounded-full border border-gray-200 px-2 py-1 text-[10px] dark:border-gray-700">
+          <span className="rounded-full border border-slate-200 px-2 py-1 text-[10px] dark:border-slate-700">
             {formatUserLabel(displayedConfidence)}
           </span>
         ) : null}
       </summary>
       <div className="mt-3 space-y-3">
-      <div className="space-y-1 text-gray-500 dark:text-gray-400">
+      <div className="space-y-1 text-slate-500 dark:text-slate-400">
         {message.meta.process_mode ? (
           <p>analysis path: {formatUserLabel(message.meta.process_mode)}</p>
         ) : null}
@@ -1694,7 +1694,7 @@ function ActualProcessSummary({
         {sourceFeedbackSummary ? <p>source feedback: {sourceFeedbackSummary}</p> : null}
         {trace ? (
           <details className="pt-1">
-            <summary className="cursor-pointer text-xs uppercase tracking-wider text-gray-400">
+            <summary className="cursor-pointer text-xs uppercase tracking-wider text-slate-400">
               Technical trace
             </summary>
             <p className="mt-1">
@@ -1710,14 +1710,14 @@ function ActualProcessSummary({
       </div>
       <CorroborationPanel summary={summary} />
       {historicalLens ? (
-        <div className="mt-3 rounded-lg border border-gray-200 p-3 dark:border-gray-800">
-          <p className="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+        <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+          <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Historical rhyme
           </p>
-          <p className="mt-2 font-medium text-gray-800 dark:text-gray-100">
+          <p className="mt-2 font-medium text-slate-800 dark:text-slate-100">
             {[historicalLens.name, historicalLens.period].filter(Boolean).join(" · ")}
           </p>
-          <div className="mt-2 space-y-2 text-gray-600 dark:text-gray-300">
+          <div className="mt-2 space-y-2 text-slate-600 dark:text-slate-300">
             {historicalLens.lens_use_policy ? <p>Use policy: {historicalLens.lens_use_policy}</p> : null}
             {historicalLens.current_application_prompt ? (
               <p>Application prompt: {historicalLens.current_application_prompt}</p>
@@ -1749,13 +1749,13 @@ function ActualProcessSummary({
       {displayedThesis || summary.gapFlags.length > 0 || nextBestStep ? (
         <div className="mt-3 grid gap-3 md:grid-cols-3">
           {displayedThesis ? (
-            <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
-              <p className="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Current read
               </p>
-              <p className="mt-2 text-gray-700 dark:text-gray-200">{displayedThesis}</p>
+              <p className="mt-2 text-slate-700 dark:text-slate-200">{displayedThesis}</p>
               {(displayedStance || displayedConfidence) ? (
-                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                   {[displayedStance ? `stance ${formatUserLabel(displayedStance)}` : null, displayedConfidence ? `confidence ${formatUserLabel(displayedConfidence)}` : null]
                     .filter(Boolean)
                     .join(" · ")}
@@ -1764,11 +1764,11 @@ function ActualProcessSummary({
             </div>
           ) : null}
           {summary.gapFlags.length > 0 ? (
-            <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
-              <p className="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Missing or thin
               </p>
-              <ul className="mt-2 space-y-1 text-gray-700 dark:text-gray-200">
+              <ul className="mt-2 space-y-1 text-slate-700 dark:text-slate-200">
                 {summary.gapFlags.slice(0, 3).map((item) => (
                   <li key={item}>• {formatUserLabel(item)}</li>
                 ))}
@@ -1776,11 +1776,11 @@ function ActualProcessSummary({
             </div>
           ) : null}
           {nextBestStep ? (
-            <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
-              <p className="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Best next check
               </p>
-              <p className="mt-2 text-gray-700 dark:text-gray-200">{nextBestStep}</p>
+              <p className="mt-2 text-slate-700 dark:text-slate-200">{nextBestStep}</p>
             </div>
           ) : null}
         </div>

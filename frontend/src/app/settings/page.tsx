@@ -230,30 +230,30 @@ export default function SettingsPage() {
   }
 
   if (!settings) {
-    return <div className="p-12 animate-pulse text-gray-500">Loading your configuration...</div>;
+    return <div className="p-12 animate-pulse text-slate-500">Loading your configuration...</div>;
   }
   const activeLlmCapability = (settings.llm.available_providers ?? []).find(
     capability => capability.provider === settings.llm.provider,
   );
 
   return (
-    <div className="min-h-screen bg-gray-50/60 text-gray-900 dark:bg-[#0a0a0a] dark:text-gray-100">
+    <div className="min-h-screen bg-background text-foreground">
       <AppNav active="settings" />
 
       <main className="mx-auto w-full max-w-[1440px] px-4 py-8 sm:px-6 lg:px-8">
         {error && <FloatingNotice tone="error" message={error} onDismiss={() => setError(null)} />}
         {notice && <FloatingNotice tone="success" message={notice} onDismiss={() => setNotice(null)} />}
 
-        <div className="mb-8 flex flex-col justify-between gap-5 border-b border-gray-200 pb-5 md:flex-row md:items-end dark:border-gray-800">
+        <div className="mb-8 flex flex-col justify-between gap-5 border-b border-slate-200 pb-5 md:flex-row md:items-end dark:border-slate-800">
           <div>
             <h1 className="text-3xl font-semibold">Settings</h1>
-            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
               Manage your data connections, research providers, and system state.
             </p>
           </div>
 
           <div className="flex w-full items-start gap-2 md:w-auto">
-            <div className="grid min-w-0 flex-1 grid-cols-2 border-b border-gray-200 sm:flex dark:border-gray-800">
+            <div className="grid min-w-0 flex-1 grid-cols-2 border-b border-slate-200 sm:flex dark:border-slate-800">
               <TabButton active={activeTab === "overview"} onClick={() => setActiveTab("overview")} label="Overview" icon={<CheckCircle2 className="w-4 h-4" />} />
               <TabButton active={activeTab === "data"} onClick={() => setActiveTab("data")} label="Data Connections" icon={<Database className="w-4 h-4" />} />
               <TabButton active={activeTab === "research"} onClick={() => setActiveTab("research")} label="Research" icon={<Search className="w-4 h-4" />} />
@@ -261,7 +261,7 @@ export default function SettingsPage() {
             </div>
             <button
               onClick={() => setShowLogs(!showLogs)}
-              className={`mt-0.5 shrink-0 rounded p-2 transition-colors ${showLogs ? "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100" : "text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"}`}
+              className={`mt-0.5 shrink-0 rounded p-2 transition-colors ${showLogs ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100" : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"}`}
               title="Show Live Logs"
               aria-label="Show live logs"
             >
@@ -274,25 +274,25 @@ export default function SettingsPage() {
           {activeTab === "overview" && (
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.72fr)]">
               <section className="space-y-5">
-                <Card title="System Readiness" icon={<Zap className="h-5 w-5 text-gray-500" />}>
+                <Card title="System Readiness" icon={<Zap className="h-5 w-5 text-slate-500" />}>
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium">Configuration Progress</span>
-                      <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{Math.round((setup?.completion_ratio ?? 0) * 100)}%</span>
+                      <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">{Math.round((setup?.completion_ratio ?? 0) * 100)}%</span>
                     </div>
-                    <div className="h-2 w-full bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
-                      <div className="h-full bg-gray-900 transition-all duration-1000 dark:bg-gray-100" style={{ width: `${(setup?.completion_ratio ?? 0) * 100}%` }} />
+                    <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-slate-900 transition-all duration-1000 dark:bg-slate-100" style={{ width: `${(setup?.completion_ratio ?? 0) * 100}%` }} />
                     </div>
-                    <p className="text-xs text-gray-500">
-                      Next step: <span className="font-bold text-gray-700 dark:text-gray-300">{setup?.next_recommended_step ?? "All core setup steps are complete"}</span>
+                    <p className="text-xs text-slate-500">
+                      Next step: <span className="font-bold text-slate-700 dark:text-slate-300">{setup?.next_recommended_step ?? "All core setup steps are complete"}</span>
                     </p>
-                    <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+                    <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
                       Readiness covers data, credentials, safety gates, and automation prerequisites. Local evidence can still work while a live provider is incomplete.
                     </p>
                   </div>
                 </Card>
 
-                <div className="divide-y divide-gray-200 overflow-hidden rounded-lg border border-gray-200 bg-white dark:divide-gray-800 dark:border-gray-800 dark:bg-gray-950">
+                <div className="divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-950">
                   {setup?.steps.map(step => {
                     const tone = setupStepTone(step.status);
                     const targetTab = setupStepTargetTab(step.id);
@@ -307,7 +307,7 @@ export default function SettingsPage() {
                             )}
                             <div className="min-w-0">
                               <p className="text-sm font-bold">{step.label}</p>
-                              <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">{step.description}</p>
+                              <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{step.description}</p>
                             </div>
                           </div>
                           <span className={`shrink-0 rounded px-2 py-1 text-xs font-medium ${tone.badge}`} title={`Raw status: ${step.status}`}>
@@ -315,12 +315,12 @@ export default function SettingsPage() {
                           </span>
                         </div>
                         {step.detail ? (
-                          <p className="mt-3 border-l-2 border-gray-200 pl-3 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-300">
+                          <p className="mt-3 border-l-2 border-slate-200 pl-3 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
                             {step.detail}
                           </p>
                         ) : null}
                         {step.hint ? (
-                          <p className="mt-2 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+                          <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
                             {step.hint}
                           </p>
                         ) : null}
@@ -328,7 +328,7 @@ export default function SettingsPage() {
                           <button
                             type="button"
                             onClick={() => setActiveTab(targetTab)}
-                            className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-gray-700 hover:text-gray-950 dark:text-gray-300 dark:hover:text-white"
+                            className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 hover:text-slate-950 dark:text-slate-300 dark:hover:text-white"
                           >
                             {step.action_label ?? "Open settings"}
                             <ArrowRight className="h-3.5 w-3.5" />
@@ -336,7 +336,7 @@ export default function SettingsPage() {
                         ) : step.href ? (
                           <a
                             href={step.href}
-                            className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-gray-700 hover:text-gray-950 dark:text-gray-300 dark:hover:text-white"
+                            className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 hover:text-slate-950 dark:text-slate-300 dark:hover:text-white"
                           >
                             {step.action_label ?? "Open"}
                             <ArrowRight className="h-3.5 w-3.5" />
@@ -349,7 +349,7 @@ export default function SettingsPage() {
               </section>
 
               <aside className="space-y-6">
-                <Card title="Live Status" icon={<Shield className="h-5 w-5 text-gray-500" />}>
+                <Card title="Live Status" icon={<Shield className="h-5 w-5 text-slate-500" />}>
                   <div className="grid grid-cols-2 gap-4">
                     <StatItem label="Holdings" value={String(portfolioOverview?.holdings.length ?? 0)} />
                     <StatItem label="Market Value" value={safeFormatCurrency((portfolioOverview?.holdings ?? []).reduce((s, h) => s + h.market_value, 0))} />
@@ -359,15 +359,15 @@ export default function SettingsPage() {
                 </Card>
 
                 <Card title="Automation Status">
-                  <div className="divide-y divide-gray-200 dark:divide-gray-800">
+                  <div className="divide-y divide-slate-200 dark:divide-slate-800">
                     {automation?.jobs.map(job => {
                       const statusView = automationStatusView(job);
                       return (
                       <div key={job.name} className="py-3 first:pt-0 last:pb-0">
                         <div className="flex items-start justify-between gap-4">
                           <div className="min-w-0">
-                            <span className="text-xs font-bold text-gray-900 dark:text-gray-100">{formatJobName(job.name)}</span>
-                            <p className="mt-1 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                            <span className="text-xs font-bold text-slate-900 dark:text-slate-100">{formatJobName(job.name)}</span>
+                            <p className="mt-1 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
                               {automationJobDescription(job.name)} {statusView.meaning}
                             </p>
                           </div>
@@ -376,11 +376,11 @@ export default function SettingsPage() {
                           </span>
                         </div>
                         {job.detail ? (
-                          <p className="mt-2 border-l-2 border-gray-200 pl-2 text-[11px] text-gray-600 dark:border-gray-700 dark:text-gray-300">
+                          <p className="mt-2 border-l-2 border-slate-200 pl-2 text-[11px] text-slate-600 dark:border-slate-700 dark:text-slate-300">
                             {humanizeJobDetail(job.detail)}
                           </p>
                         ) : null}
-                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-400">
+                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
                           <span className="inline-flex items-center gap-1">
                             <Clock className="h-3 w-3" />
                             {formatInterval(job.interval_seconds)}
@@ -389,7 +389,7 @@ export default function SettingsPage() {
                         </div>
                       </div>
                       );
-                    }) ?? <p className="text-sm text-gray-400">No active jobs.</p>}
+                    }) ?? <p className="text-sm text-slate-400">No active jobs.</p>}
                   </div>
                 </Card>
               </aside>
@@ -398,14 +398,14 @@ export default function SettingsPage() {
 
           {activeTab === "data" && (
             <div className="max-w-4xl space-y-6">
-              <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-950">
+              <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
                 <div className="flex items-center gap-3 mb-8">
-                  <div className="rounded-md border border-gray-200 p-2 dark:border-gray-800">
-                    <Database className="h-6 w-6 text-gray-600 dark:text-gray-300" />
+                  <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
+                    <Database className="h-6 w-6 text-slate-600 dark:text-slate-300" />
                   </div>
                   <div>
                     <h2 className="text-xl font-semibold">Gmail Data Ingestion</h2>
-                    <p className="text-sm text-gray-500">Prophet securely parses broker confirmations from a scoped label.</p>
+                    <p className="text-sm text-slate-500">Prophet securely parses broker confirmations from a scoped label.</p>
                   </div>
                 </div>
 
@@ -468,7 +468,7 @@ export default function SettingsPage() {
                   <button
                     onClick={handleGmailSync}
                     disabled={gmailBusy || !settings.gmail.enabled}
-                    className="rounded-md bg-gray-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-gray-700 disabled:opacity-50 dark:bg-gray-100 dark:text-gray-950 dark:hover:bg-gray-300"
+                    className="rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-700 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-300"
                   >
                     {gmailBusy ? "Syncing..." : "Sync Recent"}
                   </button>
@@ -497,15 +497,15 @@ export default function SettingsPage() {
                 ) : null}
               </section>
 
-              <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-950">
+              <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
                 <div className="mb-6 flex items-start justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <div className="rounded-md border border-gray-200 p-2 dark:border-gray-800">
-                      <Landmark className="h-6 w-6 text-gray-600 dark:text-gray-300" />
+                    <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
+                      <Landmark className="h-6 w-6 text-slate-600 dark:text-slate-300" />
                     </div>
                     <div>
                       <h2 className="text-xl font-semibold">Paper Broker</h2>
-                      <p className="text-sm text-gray-500">Deterministic orders and fills for Shadow Lab. This broker cannot route real trades.</p>
+                      <p className="text-sm text-slate-500">Deterministic orders and fills for Shadow Lab. This broker cannot route real trades.</p>
                     </div>
                   </div>
                   <label className="flex items-center gap-2 text-sm font-medium">
@@ -522,7 +522,7 @@ export default function SettingsPage() {
                   </label>
                 </div>
 
-                <p className="mb-5 text-sm text-gray-500">{settings.paper_trading.status_message}</p>
+                <p className="mb-5 text-sm text-slate-500">{settings.paper_trading.status_message}</p>
                 <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
                   <Field label="Execution Provider">
                     <select
@@ -577,7 +577,7 @@ export default function SettingsPage() {
                       className={inputClass}
                     />
                   </Field>
-                  <label className="flex items-center gap-3 rounded-md border border-gray-200 px-4 py-3 text-sm dark:border-gray-800">
+                  <label className="flex items-center gap-3 rounded-md border border-slate-200 px-4 py-3 text-sm dark:border-slate-800">
                     <input
                       type="checkbox"
                       checked={settings.paper_trading.allow_fractional}
@@ -589,7 +589,7 @@ export default function SettingsPage() {
                     />
                     Allow fractional shares
                   </label>
-                  <label className="flex items-center gap-3 rounded-md border border-gray-200 px-4 py-3 text-sm dark:border-gray-800">
+                  <label className="flex items-center gap-3 rounded-md border border-slate-200 px-4 py-3 text-sm dark:border-slate-800">
                     <input
                       type="checkbox"
                       checked={settings.paper_trading.require_regular_session}
@@ -604,15 +604,15 @@ export default function SettingsPage() {
                 </div>
               </section>
 
-              <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-950">
+              <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
                 <div className="mb-6 flex items-start justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <div className="rounded-md border border-gray-200 p-2 dark:border-gray-800">
-                      <Landmark className="h-6 w-6 text-gray-600 dark:text-gray-300" />
+                    <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
+                      <Landmark className="h-6 w-6 text-slate-600 dark:text-slate-300" />
                     </div>
                     <div>
                       <h2 className="text-xl font-semibold">Brokerage Reconciliation</h2>
-                      <p className="text-sm text-gray-500">Connect through Plaid Investments and compare broker holdings with Prophet&apos;s evidence-built ledger.</p>
+                      <p className="text-sm text-slate-500">Connect through Plaid Investments and compare broker holdings with Prophet&apos;s evidence-built ledger.</p>
                     </div>
                   </div>
                   <button
@@ -624,9 +624,9 @@ export default function SettingsPage() {
                   </button>
                 </div>
 
-                <div className="mb-5 border-l-2 border-gray-200 pl-3 text-sm text-gray-600 dark:border-gray-700 dark:text-gray-300">
+                <div className="mb-5 border-l-2 border-slate-200 pl-3 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
                   <p>{settings.plaid.status_message ?? "Brokerage status unavailable."}</p>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-slate-500">
                     Reconciliation never silently overwrites lots or cost basis. Differences become review items so broker truth and transaction evidence stay auditable.
                   </p>
                 </div>
@@ -671,7 +671,7 @@ export default function SettingsPage() {
                   </Field>
                 </div>
 
-                <div className="mt-6 border-t border-gray-200 pt-5 dark:border-gray-800">
+                <div className="mt-6 border-t border-slate-200 pt-5 dark:border-slate-800">
                   <PlaidConnectionControl
                     enabled={settings.plaid.enabled}
                     credentialsReady={settings.plaid.client_id_set && settings.plaid.secret_set}
@@ -683,14 +683,14 @@ export default function SettingsPage() {
                 </div>
               </section>
 
-              <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-950">
+              <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
                 <div className="flex items-center gap-3 mb-8">
-                  <div className="rounded-md border border-gray-200 p-2 dark:border-gray-800">
-                    <Shield className="h-6 w-6 text-gray-600 dark:text-gray-300" />
+                  <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
+                    <Shield className="h-6 w-6 text-slate-600 dark:text-slate-300" />
                   </div>
                   <div>
                     <h2 className="text-xl font-semibold">Portfolio Baseline</h2>
-                    <p className="text-sm text-gray-500">Define your benchmark and available buying power.</p>
+                    <p className="text-sm text-slate-500">Define your benchmark and available buying power.</p>
                   </div>
                 </div>
 
@@ -713,14 +713,14 @@ export default function SettingsPage() {
                 </div>
               </section>
 
-              <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-950">
+              <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
                 <div className="flex items-center gap-3 mb-8">
-                  <div className="rounded-md border border-gray-200 p-2 dark:border-gray-800">
-                    <Zap className="h-6 w-6 text-gray-600 dark:text-gray-300" />
+                  <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
+                    <Zap className="h-6 w-6 text-slate-600 dark:text-slate-300" />
                   </div>
                   <div>
                     <h2 className="text-xl font-semibold">Market Data</h2>
-                    <p className="text-sm text-gray-500">Configure how Prophet retrieves live pricing and ticker info.</p>
+                    <p className="text-sm text-slate-500">Configure how Prophet retrieves live pricing and ticker info.</p>
                   </div>
                 </div>
 
@@ -750,14 +750,14 @@ export default function SettingsPage() {
 
           {activeTab === "research" && (
             <div className="max-w-4xl space-y-6">
-              <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-950">
+              <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
                 <div className="flex items-center gap-3 mb-8">
-                  <div className="rounded-md border border-gray-200 p-2 dark:border-gray-800">
-                    <Search className="h-6 w-6 text-gray-600 dark:text-gray-300" />
+                  <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
+                    <Search className="h-6 w-6 text-slate-600 dark:text-slate-300" />
                   </div>
                   <div>
                     <h2 className="text-xl font-semibold">Research Connectivity</h2>
-                    <p className="text-sm text-gray-500">Configure how Prophet searches the broader web.</p>
+                    <p className="text-sm text-slate-500">Configure how Prophet searches the broader web.</p>
                   </div>
                 </div>
 
@@ -826,19 +826,19 @@ export default function SettingsPage() {
                     />
                   </Field>
                 </div>
-                <p className="mt-5 text-sm text-gray-500">
+                <p className="mt-5 text-sm text-slate-500">
                   {settings.research.status_message}
                 </p>
               </section>
 
-              <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-950">
+              <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
                 <div className="flex items-center gap-3 mb-8">
-                  <div className="rounded-md border border-gray-200 p-2 dark:border-gray-800">
-                    <Zap className="h-6 w-6 text-gray-600 dark:text-gray-300" />
+                  <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
+                    <Zap className="h-6 w-6 text-slate-600 dark:text-slate-300" />
                   </div>
                   <div>
                     <h2 className="text-xl font-semibold">Extraction & Intelligence</h2>
-                    <p className="text-sm text-gray-500">The LLM brain used for data extraction and research analysis.</p>
+                    <p className="text-sm text-slate-500">The LLM brain used for data extraction and research analysis.</p>
                   </div>
                 </div>
 
@@ -917,14 +917,14 @@ export default function SettingsPage() {
 
           {activeTab === "system" && (
             <div className="max-w-4xl space-y-6">
-              <section className="rounded-lg border border-red-200 bg-white p-6 dark:border-red-900/40 dark:bg-gray-950">
+              <section className="rounded-lg border border-red-200 bg-white p-6 dark:border-red-900/40 dark:bg-slate-950">
                 <div className="flex items-center gap-3 mb-8">
                   <div className="rounded-md border border-red-200 p-2 dark:border-red-900/40">
                     <Trash2 className="w-6 h-6 text-red-600" />
                   </div>
                   <div>
                     <h2 className="text-xl font-semibold text-red-600">Danger Zone</h2>
-                    <p className="text-sm text-gray-500">Permanent actions to reset your environment.</p>
+                    <p className="text-sm text-slate-500">Permanent actions to reset your environment.</p>
                   </div>
                 </div>
 
@@ -932,12 +932,12 @@ export default function SettingsPage() {
                   {setup?.development_reset_enabled ? (
                     <div className="border-t border-red-100 pt-6 dark:border-red-900/30">
                       <h3 className="font-bold text-red-700 dark:text-red-400">Hard System Reset</h3>
-                      <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+                      <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
                         This will delete all transaction history, research profiles, and knowledge nodes. This action cannot be undone.
                       </p>
 
                       <div className="mt-6 space-y-4">
-                        <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Type RESET INVESTOS to confirm</p>
+                        <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Type RESET INVESTOS to confirm</p>
                         <input
                           value={resetPhrase}
                           onChange={e => setResetPhrase(e.target.value)}
@@ -954,11 +954,11 @@ export default function SettingsPage() {
                       </div>
                     </div>
                   ) : (
-                    <div className="flex items-start gap-3 border-t border-gray-200 pt-5 dark:border-gray-800">
-                      <Shield className="mt-0.5 h-5 w-5 shrink-0 text-gray-500" />
+                    <div className="flex items-start gap-3 border-t border-slate-200 pt-5 dark:border-slate-800">
+                      <Shield className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" />
                       <div>
-                        <h3 className="font-semibold text-gray-900 dark:text-gray-100">Development reset disabled</h3>
-                        <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                        <h3 className="font-semibold text-slate-900 dark:text-slate-100">Development reset disabled</h3>
+                        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
                           Destructive reset is unavailable unless it is explicitly enabled for a local development session.
                         </p>
                       </div>
@@ -1041,7 +1041,7 @@ function PlaidConnectionControl({
   }
 
   if (!enabled) {
-    return <p className="text-sm text-gray-500">Enable broker sync, save, then connect an account.</p>;
+    return <p className="text-sm text-slate-500">Enable broker sync, save, then connect an account.</p>;
   }
   if (!credentialsReady) {
     return <p className="text-sm text-amber-700 dark:text-amber-300">Save a Plaid client ID and secret before opening Plaid Link.</p>;
@@ -1063,12 +1063,12 @@ function PlaidConnectionControl({
           type="button"
           onClick={() => void reconcile()}
           disabled={busy}
-          className="rounded-md bg-gray-900 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-gray-100 dark:text-gray-950"
+          className="rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950"
         >
           {busy ? "Reconciling..." : "Reconcile now"}
         </button>
       )}
-      <span className="text-xs text-gray-500">
+      <span className="text-xs text-slate-500">
         {connected ? "Connected; an automatic check runs every 6 hours." : "Plaid Link opens in a secure provider flow."}
       </span>
     </div>
@@ -1119,7 +1119,7 @@ function PlaidLinkLauncher({
       type="button"
       onClick={() => open()}
       disabled={!ready || busy || !linkToken || Boolean(error)}
-      className="rounded-md bg-gray-900 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-gray-100 dark:text-gray-950"
+      className="rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950"
       title={error ? "Plaid Link is unavailable right now." : undefined}
     >
       {busy ? "Connecting..." : error ? "Plaid unavailable" : "Connect brokerage"}
@@ -1149,9 +1149,9 @@ function setupStepTone(status: string): SetupTone {
     };
   }
   return {
-    border: "border-gray-200 dark:border-gray-800",
-    badge: "bg-gray-100 text-gray-600 dark:bg-gray-900 dark:text-gray-300",
-    icon: "text-gray-400",
+    border: "border-slate-200 dark:border-slate-800",
+    badge: "bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300",
+    icon: "text-slate-400",
   };
 }
 
@@ -1179,9 +1179,9 @@ const AUTOMATION_JOB_COPY: Record<string, { label: string; description: string }
   shadow_discovery: { label: "Paper idea discovery", description: "Looks for evidence-backed ideas worth testing in the shadow portfolio." },
   pattern_discovery: { label: "Pattern and cycle review", description: "Looks across independently sourced signals, portfolio relationships, the current regime, and historical rhymes to create provisional hypotheses with falsifiers and next checks." },
   watcher_loop: { label: "Catalyst monitors", description: "Evaluates active event, price, filing, and thesis-change monitors." },
-  entity_hygiene: { label: "Entity cleanup", description: "Merges duplicates and removes or reclassifies non-investable artifact entities." },
-  theme_hygiene: { label: "Theme cleanup", description: "Consolidates duplicate or placeholder research themes while preserving useful evidence." },
-  media_cleanup: { label: "Media cleanup", description: "Removes expired temporary media files while preserving extracted evidence and provenance." },
+  entity_hygiene: { label: "Entity reconciliation", description: "Reconciles duplicate entities and reclassifies non-investable artifacts while preserving audit history." },
+  theme_hygiene: { label: "Theme reconciliation", description: "Reconciles duplicate or placeholder themes while preserving useful evidence and progression." },
+  media_cleanup: { label: "Temporary media cleanup", description: "Removes expired temporary media files while preserving extracted evidence and provenance." },
   source_claim_assessment: { label: "Source calibration", description: "Tests due source claims against later evidence, defers inconclusive reviews with a visible retry time, and can launch one bounded follow-up research pass." },
   market_setup_assessment: { label: "Setup outcome review", description: "Revisits due expectations against later evidence, defers uncertain cases with retry timing, and can launch bounded follow-up research." },
   fundamental_freshness: { label: "Metric freshness", description: "Marks financial metrics current or stale based on their dates and reporting cadence." },
@@ -1205,9 +1205,9 @@ type AutomationJob = AutomationStatus["jobs"][number];
 function automationStatusView(job: AutomationJob) {
   if (!job.enabled || job.last_status === "disabled") {
     return {
-      bg: "bg-gray-50 dark:bg-gray-900",
-      border: "border-gray-100 dark:border-gray-800",
-      text: "text-gray-500 dark:text-gray-400",
+      bg: "bg-slate-50 dark:bg-slate-900",
+      border: "border-slate-100 dark:border-slate-800",
+      text: "text-slate-500 dark:text-slate-400",
       meaning: "Disabled by runtime settings.",
     };
   }
@@ -1237,9 +1237,9 @@ function automationStatusView(job: AutomationJob) {
   }
   if (job.last_status === "idle") {
     return {
-      bg: "bg-gray-50 dark:bg-gray-900",
-      border: "border-gray-100 dark:border-gray-800",
-      text: "text-gray-500 dark:text-gray-400",
+      bg: "bg-slate-50 dark:bg-slate-900",
+      border: "border-slate-100 dark:border-slate-800",
+      text: "text-slate-500 dark:text-slate-400",
       meaning: "Enabled and waiting for the next scheduled run.",
     };
   }
@@ -1319,8 +1319,8 @@ function TabButton({ active, onClick, label, icon }: { active: boolean; onClick:
       onClick={onClick}
       className={`flex min-w-0 items-center justify-center gap-2 border-b-2 px-2 py-2.5 text-sm font-medium transition-colors sm:shrink-0 sm:justify-start sm:px-4 ${
         active
-          ? "border-gray-900 text-gray-950 dark:border-gray-100 dark:text-gray-100"
-          : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-900 dark:hover:border-gray-700 dark:hover:text-gray-100"
+          ? "border-slate-900 text-slate-950 dark:border-slate-100 dark:text-slate-100"
+          : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-900 dark:hover:border-slate-700 dark:hover:text-slate-100"
       }`}
     >
       {icon}
@@ -1331,10 +1331,10 @@ function TabButton({ active, onClick, label, icon }: { active: boolean; onClick:
 
 function Card({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-950">
-      <div className="mb-5 flex items-center gap-2 border-b border-gray-100 pb-3 dark:border-gray-800">
+    <section className="rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-950">
+      <div className="mb-5 flex items-center gap-2 border-b border-slate-100 pb-3 dark:border-slate-800">
         {icon}
-        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">{title}</h2>
+        <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</h2>
       </div>
       {children}
     </section>
@@ -1344,14 +1344,14 @@ function Card({ title, icon, children }: { title: string; icon?: React.ReactNode
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-2">
-      <label className="text-xs font-medium text-gray-600 dark:text-gray-300">{label}</label>
+      <label className="text-xs font-medium text-slate-600 dark:text-slate-300">{label}</label>
       {children}
     </div>
   );
 }
 
 function SecretStatus({ saved, pending }: { saved: boolean; pending: boolean }) {
-  const tone = pending ? "text-amber-600 dark:text-amber-300" : saved ? "text-emerald-600 dark:text-emerald-300" : "text-gray-500 dark:text-gray-400";
+  const tone = pending ? "text-amber-600 dark:text-amber-300" : saved ? "text-emerald-600 dark:text-emerald-300" : "text-slate-500 dark:text-slate-400";
   const label = pending ? "New credential pending save" : saved ? "Saved credential will be kept" : "Missing credential";
   return (
     <p className={`text-xs font-medium ${tone}`}>
@@ -1362,11 +1362,11 @@ function SecretStatus({ saved, pending }: { saved: boolean; pending: boolean }) 
 
 function StatItem({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border-l-2 border-gray-200 py-1 pl-3 dark:border-gray-700">
-      <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
+    <div className="border-l-2 border-slate-200 py-1 pl-3 dark:border-slate-700">
+      <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
       <p className="mt-1 truncate text-lg font-semibold">{value}</p>
     </div>
   );
 }
 
-const inputClass = "w-full rounded-md border border-gray-300 bg-white px-3 py-2.5 text-sm transition-colors focus:border-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:border-gray-700 dark:bg-gray-900 dark:focus:border-gray-500 dark:focus:ring-white/10";
+const inputClass = "w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm transition-colors focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:focus:border-slate-500 dark:focus:ring-white/10";

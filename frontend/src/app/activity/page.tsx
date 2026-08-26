@@ -185,16 +185,16 @@ export default function ActivityPage() {
   }, [normalizedItems]);
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 dark:bg-[#0a0a0a] dark:text-gray-100">
+    <div className="min-h-screen bg-background text-foreground">
       <AppNav active="activity" />
       <main className="mx-auto w-full max-w-[1440px] px-4 py-8 sm:px-6 lg:px-8">
         <header className="flex flex-wrap items-end justify-between gap-6">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-gray-400 dark:text-gray-500">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">
               Agent Activity
             </p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight">What Prophet Did</h1>
-            <p className="mt-2 max-w-3xl text-sm text-gray-500 dark:text-gray-400">
+            <p className="mt-2 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
               A running catch-up feed of research, reasoning, automation, and system actions. This is the full activity stream,
               not just the latest dashboard summary.
             </p>
@@ -203,7 +203,7 @@ export default function ActivityPage() {
             <select
               value={source}
               onChange={(event) => setSource(event.target.value as (typeof SOURCES)[number])}
-              className="rounded-full border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
             >
               {SOURCES.map((value) => (
                 <option key={value} value={value}>
@@ -214,7 +214,7 @@ export default function ActivityPage() {
             <select
               value={status}
               onChange={(event) => setStatus(event.target.value as (typeof STATUSES)[number])}
-              className="rounded-full border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
             >
               {STATUSES.map((value) => (
                 <option key={value} value={value}>
@@ -226,53 +226,53 @@ export default function ActivityPage() {
         </header>
 
         {error ? (
-          <div className="mt-8 rounded-2xl border border-red-200 bg-red-50/70 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
+          <div className="mt-8 rounded-lg border border-red-200 bg-red-50/70 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
             {error}
           </div>
         ) : null}
 
         {loading && items.length === 0 ? (
-          <div className="mt-8 text-sm text-gray-500 dark:text-gray-400">Loading activity…</div>
+          <div className="mt-8 text-sm text-slate-500 dark:text-slate-400">Loading activity…</div>
         ) : null}
 
         <div className="mt-8 space-y-8">
           {groups.map(([day, dayItems]) => (
             <section key={day}>
-              <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.24em] text-gray-400 dark:text-gray-500">
+              <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">
                 {day}
               </div>
               <div className="space-y-3">
                 {dayItems.map((item) => (
                   <article
                     key={item.id}
-                    className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950"
+                    className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-gray-500">
+                          <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
                             {item.displaySource}
                           </span>
-                          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                          <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                             {item.displayTitle}
                           </span>
                           <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${actionAccent(item.status)}`}>
                             {item.displayStatus}
                           </span>
                         </div>
-                        <p className="mt-2 text-sm leading-relaxed text-gray-600 dark:text-gray-300">{item.displaySummary}</p>
+                        <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{item.displaySummary}</p>
                         {Object.keys(item.metadata || {}).length > 0 ? (
-                          <details className="mt-3 rounded-xl border border-gray-200 px-3 py-2 dark:border-gray-800">
-                            <summary className="cursor-pointer text-xs font-medium text-gray-500 dark:text-gray-400">
+                          <details className="mt-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+                            <summary className="cursor-pointer text-xs font-medium text-slate-500 dark:text-slate-400">
                               View metadata
                             </summary>
-                            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-[11px] leading-relaxed text-gray-600 dark:text-gray-300">
+                            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
                               {JSON.stringify(item.metadata, null, 2)}
                             </pre>
                           </details>
                         ) : null}
                       </div>
-                      <div className="text-xs text-gray-400 dark:text-gray-500">{actionWhen(item.timestamp)}</div>
+                      <div className="text-xs text-slate-400 dark:text-slate-500">{actionWhen(item.timestamp)}</div>
                     </div>
                   </article>
                 ))}

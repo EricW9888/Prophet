@@ -71,15 +71,15 @@ export default function AddResearchObjectModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
-        <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/60 px-6 py-4 dark:border-gray-800 dark:bg-gray-800/50">
+      <div className="w-full max-w-2xl overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-6 py-4 dark:border-slate-800 dark:bg-slate-800/50">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Track Name</h3>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Track Name</h3>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
               Start tracking a watchlist or considering name. Advanced thesis fields are optional.
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-gray-300">
+          <button onClick={onClose} className="text-slate-400 transition-colors hover:text-slate-600 dark:hover:text-slate-300">
             ✕
           </button>
         </div>
@@ -107,8 +107,8 @@ export default function AddResearchObjectModal({
             </Field>
           </div>
 
-          <details className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
-            <summary className="cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-300">
+          <details className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+            <summary className="cursor-pointer text-sm font-medium text-slate-700 dark:text-slate-300">
               Optional thesis detail
             </summary>
             <div className="mt-4 space-y-4">
@@ -140,10 +140,10 @@ export default function AddResearchObjectModal({
           {error ? <p className="text-sm text-red-600 dark:text-red-400">{error}</p> : null}
 
           <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800">
+            <button type="button" onClick={onClose} className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
               Cancel
             </button>
-            <button disabled={submitting || !ticker.trim()} type="submit" className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50">
+            <button disabled={submitting || !ticker.trim()} type="submit" className="rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-700 disabled:opacity-50">
               {submitting ? "Creating..." : "Track name"}
             </button>
           </div>
@@ -156,11 +156,11 @@ export default function AddResearchObjectModal({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block space-y-1">
-      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{label}</span>
+      <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{label}</span>
       {children}
     </label>
   );
 }
 
 const inputClass =
-  "w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100";
+  "w-full rounded-md border border-slate-300 px-3 py-2 focus:border-sky-500 focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100";

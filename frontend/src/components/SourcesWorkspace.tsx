@@ -492,9 +492,9 @@ export default function SourcesWorkspace() {
     <main className="mx-auto w-full max-w-[1440px] px-4 py-8 sm:px-6 lg:px-8">
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-indigo-500">Source memory</div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-sky-500">Source memory</div>
           <h1 className="mt-2 text-3xl font-bold tracking-tight">Sources, Notes, and Feedback</h1>
-          <p className="mt-2 max-w-3xl text-sm text-gray-500 dark:text-gray-400">
+          <p className="mt-2 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
             One workspace for sources Prophet trusts, sources it has only discovered, user notes, and the evidence you marked useful or noisy.
           </p>
         </div>
@@ -513,7 +513,7 @@ export default function SourcesWorkspace() {
         </div>
       ) : null}
 
-      <div className="mb-6 flex flex-wrap gap-2 rounded-lg border border-gray-200 bg-white p-1 dark:border-gray-800 dark:bg-gray-950">
+      <div className="mb-6 flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950">
         <WorkspaceTabButton
           active={activeWorkspace === "review"}
           label="Source Review"
@@ -541,7 +541,7 @@ export default function SourcesWorkspace() {
       </div>
 
       {loading ? (
-        <div className="rounded-lg border border-gray-200 bg-white p-6 text-sm text-gray-500 dark:border-gray-800 dark:bg-gray-950">
+        <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950">
           Loading source workspace...
         </div>
       ) : activeWorkspace === "review" ? (
@@ -661,8 +661,8 @@ function WorkspaceTabButton({
       className={[
         "inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition-colors",
         active
-          ? "bg-gray-900 text-white shadow-sm dark:bg-gray-100 dark:text-gray-950"
-          : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-900",
+          ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950"
+          : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900",
       ].join(" ")}
     >
       <span>{label}</span>
@@ -671,8 +671,8 @@ function WorkspaceTabButton({
           className={[
             "rounded-full px-2 py-0.5 text-[11px]",
             active
-              ? "bg-white/15 text-white dark:bg-gray-950/10 dark:text-gray-950"
-              : "bg-gray-100 text-gray-500 dark:bg-gray-900 dark:text-gray-400",
+              ? "bg-white/15 text-white dark:bg-slate-950/10 dark:text-slate-950"
+              : "bg-slate-100 text-slate-500 dark:bg-slate-900 dark:text-slate-400",
           ].join(" ")}
         >
           {count}
@@ -694,11 +694,11 @@ function AddDisclosurePanel({
   onSubmit: (e: React.FormEvent) => Promise<void>;
 }) {
   return (
-    <form onSubmit={onSubmit} className="rounded-lg border border-orange-200 bg-white p-4 dark:border-orange-900 dark:bg-gray-950">
+    <form onSubmit={onSubmit} className="rounded-lg border border-orange-200 bg-white p-4 dark:border-orange-900 dark:bg-slate-950">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Add Disclosure Signal</h2>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Add Disclosure Signal</h2>
             <HintMarker label="Disclosure signal">
               <p>
                 A source-dated ownership, insider, political, institutional, or regulatory disclosure that can affect market setup. Prophet stores the filing date and the event date separately so late disclosures do not look timely.
@@ -738,11 +738,11 @@ function AddDisclosurePanel({
         <input value={form.actorType} onChange={(e) => setForm((current) => ({ ...current, actorType: e.target.value }))} placeholder="Actor type" className={inputClass} title="Example: insider, director, fund, senator, institution." />
         <input value={form.transactionType} onChange={(e) => setForm((current) => ({ ...current, transactionType: e.target.value }))} placeholder="Transaction" className={inputClass} title="Example: buy, sell, option exercise, new position, increased stake." />
         <input value={form.transactionValue} onChange={(e) => setForm((current) => ({ ...current, transactionValue: e.target.value }))} placeholder="$ value or range" className={inputClass} title="Use the disclosed dollar value, share count, or range. Ranges are preserved as text." />
-        <label className="space-y-1 text-xs font-semibold uppercase tracking-wider text-gray-400">
+        <label className="space-y-1 text-xs font-semibold uppercase tracking-wider text-slate-400">
           Trade date
           <input type="datetime-local" value={form.transactionDate} onChange={(e) => setForm((current) => ({ ...current, transactionDate: e.target.value }))} className={inputClass} title="When the trade or ownership event happened." />
         </label>
-        <label className="space-y-1 text-xs font-semibold uppercase tracking-wider text-gray-400">
+        <label className="space-y-1 text-xs font-semibold uppercase tracking-wider text-slate-400">
           Disclosure date
           <input type="datetime-local" value={form.disclosureDate} onChange={(e) => setForm((current) => ({ ...current, disclosureDate: e.target.value }))} className={inputClass} title="When the market could reasonably know about it." />
         </label>
@@ -758,8 +758,8 @@ function AddDisclosurePanel({
 
 function SummaryCard({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-950">
-      <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{label}</div>
+    <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
+      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</div>
       <div className="mt-1 text-2xl font-bold tracking-tight">{value}</div>
     </div>
   );
@@ -783,17 +783,17 @@ function SourceSection({
     <section className="space-y-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">{title}</h2>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{subtitle}</p>
+          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{title}</h2>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>
         </div>
         {sources.length > visibleSources.length ? (
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
             Showing {visibleSources.length} of {sources.length}
           </p>
         ) : null}
       </div>
       {sources.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-gray-200 bg-white p-5 text-sm text-gray-500 dark:border-gray-800 dark:bg-gray-950">
+        <div className="rounded-lg border border-dashed border-slate-200 bg-white p-5 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950">
           {empty}
         </div>
       ) : (
@@ -801,7 +801,7 @@ function SourceSection({
           {visibleSources.map((source) => {
             const origin = normalizeSourceOrigin(source.origin);
             return (
-            <article key={source.id} className="min-w-0 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-950">
+            <article key={source.id} className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -818,15 +818,15 @@ function SourceSection({
                     <OriginPill kind={origin.origin_kind}>{origin.origin_label}</OriginPill>
                   </div>
                   {source.description ? (
-                    <p className="mt-2 line-clamp-2 text-sm text-gray-600 dark:text-gray-300">{source.description}</p>
+                    <p className="mt-2 line-clamp-2 text-sm text-slate-600 dark:text-slate-300">{source.description}</p>
                   ) : null}
                   {origin.origin_detail ? (
-                    <p className="mt-2 line-clamp-2 text-xs text-gray-500 dark:text-gray-400">
+                    <p className="mt-2 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
                       Origin: {origin.origin_detail}
                     </p>
                   ) : null}
                   {source.url ? (
-                    <a href={source.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex max-w-full items-center gap-1 truncate text-sm text-indigo-600 dark:text-indigo-400">
+                    <a href={source.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex max-w-full items-center gap-1 truncate text-sm text-sky-600 dark:text-sky-400">
                       <span className="truncate">{source.url}</span>
                       <ExternalLink className="h-3.5 w-3.5 shrink-0" />
                     </a>
@@ -834,7 +834,7 @@ function SourceSection({
                 </div>
                 <button
                   onClick={() => void onToggleTrusted(source)}
-                  className="shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700"
+                  className="shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700"
                 >
                   {source.is_trusted ? "Untrust" : "Trust"}
                 </button>
@@ -849,8 +849,8 @@ function SourceSection({
               ) : null}
 
               <SourceScoreSummary source={source} />
-              <details className="mt-3 rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
-                <summary className="cursor-pointer select-none text-[10px] font-bold uppercase tracking-widest text-gray-400">
+              <details className="mt-3 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                <summary className="cursor-pointer select-none text-[10px] font-bold uppercase tracking-widest text-slate-400">
                   Score details
                 </summary>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -866,8 +866,8 @@ function SourceSection({
                   </SourceMetric>
                 </div>
                 {source.performance_history.length > 0 ? (
-                  <div className="mt-3 rounded-lg border border-gray-100 bg-white/70 px-3 py-3 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-950/60 dark:text-gray-300">
-                    <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Outcome history</div>
+                  <div className="mt-3 rounded-lg border border-slate-100 bg-white/70 px-3 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-300">
+                    <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Outcome history</div>
                     {source.performance_history.slice(0, 1).map((history) => (
                       <div key={history.id} className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
                         <span>{history.total_claims} assessed claims</span>
@@ -878,19 +878,19 @@ function SourceSection({
                   </div>
                 ) : null}
                 {source.claim_queue.total > 0 ? (
-                  <div className="mt-3 border-t border-gray-200 pt-3 text-sm text-gray-600 dark:border-gray-800 dark:text-gray-300">
-                    <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Claim calibration queue</div>
+                  <div className="mt-3 border-t border-slate-200 pt-3 text-sm text-slate-600 dark:border-slate-800 dark:text-slate-300">
+                    <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Claim calibration queue</div>
                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
                       <span>{source.claim_queue.total} tracked</span>
                       <span>{source.claim_queue.assessed} assessed</span>
                       <span>{source.claim_queue.pending} pending</span>
                       {source.claim_queue.deferred > 0 ? <span>{source.claim_queue.deferred} waiting for retry</span> : null}
                     </div>
-                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                       Pending claims are tested against later evidence. Inconclusive reviews wait for new evidence instead of being repeatedly rescored.
                     </p>
                     {source.claim_queue.last_assessment_at ? (
-                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                         Last completed assessment {formatDate(source.claim_queue.last_assessment_at)}
                       </p>
                     ) : null}
@@ -910,23 +910,23 @@ function DiscoveryObservationPanel({ discoveries }: { discoveries: ResearchDisco
   return (
     <section className="space-y-3">
       <div>
-        <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
           Recent Research Discovery
         </h2>
-        <p className="mt-1 max-w-3xl text-sm text-gray-500 dark:text-gray-400">
+        <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
           Dated search observations are retained for provenance and pattern review. Snippets remain provisional and cannot corroborate a view until Prophet fetches attributable source content.
         </p>
       </div>
       {discoveries.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-gray-200 bg-white p-5 text-sm text-gray-500 dark:border-gray-800 dark:bg-gray-950">
+        <div className="rounded-lg border border-dashed border-slate-200 bg-white p-5 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950">
           No discovery observations recorded yet.
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
           {discoveries.slice(0, 12).map((item) => (
             <article
               key={item.id}
-              className="grid gap-2 border-b border-gray-100 px-4 py-3 last:border-b-0 dark:border-gray-800 lg:grid-cols-[minmax(0,1fr)_auto]"
+              className="grid gap-2 border-b border-slate-100 px-4 py-3 last:border-b-0 dark:border-slate-800 lg:grid-cols-[minmax(0,1fr)_auto]"
             >
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
@@ -953,17 +953,17 @@ function DiscoveryObservationPanel({ discoveries }: { discoveries: ResearchDisco
                   <StatusPill>{item.content_kind.replaceAll("_", " ")}</StatusPill>
                 </div>
                 {item.snippet ? (
-                  <p className="mt-2 line-clamp-2 text-sm text-gray-600 dark:text-gray-300">
+                  <p className="mt-2 line-clamp-2 text-sm text-slate-600 dark:text-slate-300">
                     {item.snippet}
                   </p>
                 ) : null}
-                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                   Query: {item.effective_query}
                   {item.subject_name ? ` · ${item.subject_name}` : ""}
                 </p>
               </div>
               <time
-                className="text-xs text-gray-500 dark:text-gray-400"
+                className="text-xs text-slate-500 dark:text-slate-400"
                 dateTime={item.observed_at}
               >
                 {formatDate(item.observed_at)}
@@ -1007,9 +1007,9 @@ function SourceScoreSummary({ source }: { source: SourceRecord }) {
 
 function SourceMetric({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-gray-100 bg-white/70 px-3 py-3 dark:border-gray-800 dark:bg-gray-950/60">
-      <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{title}</div>
-      <div className="mt-2 space-y-1 text-sm text-gray-600 dark:text-gray-300">{children}</div>
+    <div className="rounded-lg border border-slate-100 bg-white/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/60">
+      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{title}</div>
+      <div className="mt-2 space-y-1 text-sm text-slate-600 dark:text-slate-300">{children}</div>
     </div>
   );
 }
@@ -1028,25 +1028,25 @@ function SubjectAliasPanel({
     <section className="space-y-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Subject Aliases</h2>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Subject Aliases</h2>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             Inspect the shorthand, synonyms, and pattern labels Prophet uses when resolving context.
           </p>
         </div>
         {aliases.length > visibleAliases.length ? (
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
             Showing {visibleAliases.length} of {aliases.length}
           </p>
         ) : null}
       </div>
       {visibleAliases.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-gray-200 bg-white p-5 text-sm text-gray-500 dark:border-gray-800 dark:bg-gray-950">
+        <div className="rounded-lg border border-dashed border-slate-200 bg-white p-5 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950">
           No subject aliases recorded yet.
         </div>
       ) : (
         <div className="grid gap-3 2xl:grid-cols-2">
           {visibleAliases.map((alias) => (
-            <article key={alias.id} className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-950">
+            <article key={alias.id} className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -1056,10 +1056,10 @@ function SubjectAliasPanel({
                     </StatusPill>
                     <StatusPill>{Math.round(alias.confidence * 100)}%</StatusPill>
                   </div>
-                  <p className="mt-2 text-sm text-gray-700 dark:text-gray-200">
+                  <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">
                     {alias.subject_name}
                   </p>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                     {alias.subject_type.replaceAll("_", " ")} · updated {formatDate(alias.updated_at)}
                   </p>
                 </div>
@@ -1091,10 +1091,10 @@ function SubjectAliasPanel({
                 </button>
               </div>
               {alias.reason ? (
-                <p className="mt-3 line-clamp-2 text-sm text-gray-600 dark:text-gray-300">{alias.reason}</p>
+                <p className="mt-3 line-clamp-2 text-sm text-slate-600 dark:text-slate-300">{alias.reason}</p>
               ) : null}
               {alias.normalized_alias !== alias.alias.toLowerCase() ? (
-                <p className="mt-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 font-mono text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400">
+                <p className="mt-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 font-mono text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
                   {alias.normalized_alias}
                 </p>
               ) : null}
@@ -1120,8 +1120,8 @@ function RecentEvidence({
   return (
     <section className="space-y-3">
       <div>
-        <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Recent Evidence to Train On</h2>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Recent Evidence to Train On</h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           Mark what helped and what wasted attention. These flags remain visible here and are attached to the original evidence.
         </p>
       </div>
@@ -1129,7 +1129,7 @@ function RecentEvidence({
         {evidence.slice(0, 12).map((item) => {
           const origin = normalizeSourceOrigin(item);
           return (
-          <div key={item.id} className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-950">
+          <div key={item.id} className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
@@ -1145,11 +1145,11 @@ function RecentEvidence({
                     <StatusPill tone="info">saved as lesson</StatusPill>
                   ) : null}
                 </div>
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   {item.source_item_type.replaceAll("_", " ")} · {formatDate(item.created_at)}
                 </p>
                 {origin.origin_detail ? (
-                  <p className="mt-1 line-clamp-2 text-xs text-gray-500 dark:text-gray-400">
+                  <p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
                     {origin.origin_detail}
                   </p>
                 ) : null}
@@ -1181,7 +1181,7 @@ function RecentEvidence({
                 setFeedbackNotes((current) => ({ ...current, [item.id]: event.target.value }))
               }
               placeholder="Optional feedback note"
-              className="mt-3 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-gray-800 dark:bg-gray-900"
+              className="mt-3 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 dark:border-slate-800 dark:bg-slate-900"
             />
           </div>
           );
@@ -1203,8 +1203,8 @@ function AddSourcePanel({
   onSubmit: (e: React.FormEvent) => Promise<void>;
 }) {
   return (
-    <form onSubmit={onSubmit} className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-950">
-      <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Add Trusted Source</h2>
+    <form onSubmit={onSubmit} className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+      <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Add Trusted Source</h2>
       <div className="mt-4 space-y-3">
         <select value={form.source_type} onChange={(e) => setForm((current) => ({ ...current, source_type: e.target.value }))} className={inputClass}>
           <option value="analyst">Analyst / investor</option>
@@ -1224,7 +1224,7 @@ function AddSourcePanel({
           <input type="checkbox" checked={form.is_trusted} onChange={(e) => setForm((current) => ({ ...current, is_trusted: e.target.checked }))} />
           Trust immediately
         </label>
-        <button disabled={saving || !form.name.trim()} className="w-full rounded-lg bg-indigo-600 px-4 py-3 text-sm font-medium text-white disabled:opacity-50">
+        <button disabled={saving || !form.name.trim()} className="w-full rounded-lg bg-sky-600 px-4 py-3 text-sm font-medium text-white disabled:opacity-50">
           {saving ? "Saving..." : "Create source"}
         </button>
       </div>
@@ -1275,18 +1275,18 @@ function MediaCapabilityPanel({
   const jobActive = Boolean(mediaJob && ["queued", "running"].includes(mediaJob.status));
   const latestEvent = mediaJob?.events[mediaJob.events.length - 1];
   return (
-    <section className="rounded-lg border border-sky-200 bg-white p-4 dark:border-sky-900 dark:bg-gray-950">
+    <section className="rounded-lg border border-sky-200 bg-white p-4 dark:border-sky-900 dark:bg-slate-950">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Video Ingestion</h2>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Video Ingestion</h2>
             <HintMarker label="Video ingestion">
               <p>
                 Prophet separates channel tracking, caption transcript ingestion, no-transcript audio transcription, and frame/OCR extraction. A channel source is not the same as a processed video.
               </p>
             </HintMarker>
           </div>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             No-transcript extraction: {capabilities?.can_extract_without_transcript ? "available" : "not configured"}
           </p>
         </div>
@@ -1294,9 +1294,9 @@ function MediaCapabilityPanel({
           <Video className="h-4 w-4" />
         </div>
       </div>
-      <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50/70 p-3 dark:border-gray-800 dark:bg-gray-900/60">
+      <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-900/60">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <label className="min-w-0 flex-1 space-y-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+          <label className="min-w-0 flex-1 space-y-1 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Tracked channel
             <select
               value={channelSourceId}
@@ -1314,7 +1314,7 @@ function MediaCapabilityPanel({
             type="button"
             onClick={onLoadChannel}
             disabled={!channelSourceId || channelLoading || jobActive}
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-200"
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
           >
             <RotateCcw className={`h-4 w-4 ${channelLoading ? "animate-spin" : ""}`} />
             {channelLoading ? "Checking..." : "Review recent videos"}
@@ -1322,19 +1322,19 @@ function MediaCapabilityPanel({
         </div>
         {channelPreview ? (
           <div className="mt-3 space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 dark:text-gray-400">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
               <span>{channelPreview.channel_name || channelPreview.source_name}</span>
               <span>{channelPreview.videos.length} recent uploads</span>
             </div>
             {channelPreview.videos.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-gray-200 px-3 py-3 text-sm text-gray-500 dark:border-gray-800 dark:text-gray-400">
+              <p className="rounded-lg border border-dashed border-slate-200 px-3 py-3 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
                 No recent public videos were returned for this channel.
               </p>
             ) : channelPreview.videos.map((video) => (
-              <div key={video.video_id} className="flex flex-col gap-2 rounded-lg border border-gray-200 bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-gray-800 dark:bg-gray-950">
+              <div key={video.video_id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800 dark:bg-slate-950">
                 <div className="min-w-0">
-                  <p className="line-clamp-2 text-sm font-medium text-gray-800 dark:text-gray-100">{video.title}</p>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  <p className="line-clamp-2 text-sm font-medium text-slate-800 dark:text-slate-100">{video.title}</p>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                     {video.published_at ? formatDate(video.published_at) : "Publication date unavailable"}
                     {video.duration_seconds ? ` · ${formatVideoDuration(video.duration_seconds)}` : ""}
                     {video.view_count !== null && video.view_count !== undefined ? ` · ${video.view_count.toLocaleString()} views` : ""}
@@ -1344,7 +1344,7 @@ function MediaCapabilityPanel({
                   type="button"
                   onClick={() => onIngestChannelVideo(video)}
                   disabled={video.already_ingested || jobActive}
-                  className="inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-sky-200 px-3 py-2 text-sm font-medium text-sky-700 disabled:border-gray-200 disabled:text-gray-400 dark:border-sky-900 dark:text-sky-300 dark:disabled:border-gray-800 dark:disabled:text-gray-600"
+                  className="inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-sky-200 px-3 py-2 text-sm font-medium text-sky-700 disabled:border-slate-200 disabled:text-slate-400 dark:border-sky-900 dark:text-sky-300 dark:disabled:border-slate-800 dark:disabled:text-slate-600"
                 >
                   {video.already_ingested ? <CheckCircle2 className="h-4 w-4" /> : <Video className="h-4 w-4" />}
                   {video.already_ingested ? "In knowledge" : "Ingest"}
@@ -1353,7 +1353,7 @@ function MediaCapabilityPanel({
             ))}
           </div>
         ) : (
-          <p className="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">
+          <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
             Review is metadata-only. Prophet does not download or ingest a channel until you choose a video.
           </p>
         )}
@@ -1411,9 +1411,9 @@ function MediaCapabilityPanel({
           ) : null}
         </div>
         {mediaJob ? (
-          <div className="flex items-start justify-between gap-3 rounded-lg border border-sky-100 bg-white px-3 py-2 text-xs dark:border-sky-950 dark:bg-gray-950">
+          <div className="flex items-start justify-between gap-3 rounded-lg border border-sky-100 bg-white px-3 py-2 text-xs dark:border-sky-950 dark:bg-slate-950">
             <div className="min-w-0">
-              <p className="font-medium text-gray-700 dark:text-gray-200">{latestEvent?.message || "Video ingestion queued."}</p>
+              <p className="font-medium text-slate-700 dark:text-slate-200">{latestEvent?.message || "Video ingestion queued."}</p>
               {mediaJob.result?.ok ? (
                 <p className="mt-1 text-emerald-700 dark:text-emerald-300">
                   {mediaJob.result.already_ingested
@@ -1434,12 +1434,12 @@ function MediaCapabilityPanel({
         <>
           <div className="mt-4 space-y-2">
             {capabilityRows.map((item) => (
-              <div key={item.key} className="rounded-lg border border-gray-100 px-3 py-3 text-sm dark:border-gray-800">
+              <div key={item.key} className="rounded-lg border border-slate-100 px-3 py-3 text-sm dark:border-slate-800">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-medium">{item.label}</span>
                   <StatusPill tone={item.status === "available" ? "good" : "neutral"}>{item.status.replaceAll("_", " ")}</StatusPill>
                 </div>
-                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{item.detail}</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{item.detail}</p>
               </div>
             ))}
           </div>
@@ -1457,7 +1457,7 @@ function MediaCapabilityPanel({
           </button>
         </>
       ) : (
-        <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Loading media ingestion status...</p>
+        <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">Loading media ingestion status...</p>
       )}
     </section>
   );
@@ -1479,13 +1479,13 @@ function AddNotePanel({
   onCagrTest: () => void;
 }) {
   return (
-    <form onSubmit={onSubmit} className="rounded-lg border border-indigo-200 bg-white p-4 dark:border-indigo-900 dark:bg-gray-950">
+    <form onSubmit={onSubmit} className="rounded-lg border border-sky-200 bg-white p-4 dark:border-sky-900 dark:bg-slate-950">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Add Note</h2>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Save tests, assumptions, or observations as evidence.</p>
+          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Add Note</h2>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Save tests, assumptions, or observations as evidence.</p>
         </div>
-        <button type="button" onClick={onCagrTest} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200 text-indigo-600 dark:border-indigo-900 dark:text-indigo-300" title="Prefill CAGR test note">
+        <button type="button" onClick={onCagrTest} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-sky-200 text-sky-600 dark:border-sky-900 dark:text-sky-300" title="Prefill CAGR test note">
           <BookmarkPlus className="h-4 w-4" />
           <span className="sr-only">Prefill CAGR test note</span>
         </button>
@@ -1514,7 +1514,7 @@ function AddNotePanel({
           className={inputClass}
         />
         <textarea value={form.content} onChange={(e) => setForm((current) => ({ ...current, content: e.target.value }))} rows={5} placeholder="Write the note, test, assumption, or calculation..." className={inputClass} />
-        <button disabled={saving || !form.content.trim()} className="w-full rounded-lg bg-gray-900 px-4 py-3 text-sm font-medium text-white disabled:opacity-50 dark:bg-gray-100 dark:text-gray-950">
+        <button disabled={saving || !form.content.trim()} className="w-full rounded-lg bg-slate-900 px-4 py-3 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950">
           {saving ? "Saving..." : "Save note"}
         </button>
       </div>
@@ -1524,32 +1524,32 @@ function AddNotePanel({
 
 function FlaggedPanel({ feedback, onClear }: { feedback: SourceFeedbackRecord[]; onClear: (evidenceId: string) => Promise<void> }) {
   return (
-    <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-950">
-      <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Flagged Later</h2>
+    <section className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+      <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Flagged Later</h2>
       <div className="mt-3 space-y-2">
         {feedback.length === 0 ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">No useful/noisy flags yet.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">No useful/noisy flags yet.</p>
         ) : (
           feedback.slice(0, 8).map((item) => {
             const origin = normalizeSourceOrigin(item);
             return (
-            <div key={item.evidence_id} className="rounded-lg border border-gray-100 px-3 py-3 text-sm dark:border-gray-800">
+            <div key={item.evidence_id} className="rounded-lg border border-slate-100 px-3 py-3 text-sm dark:border-slate-800">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate font-medium">{item.title || "Untitled evidence"}</p>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{item.source_name} · {origin.origin_label} · {formatDate(item.flagged_at || item.created_at)}</p>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{item.source_name} · {origin.origin_label} · {formatDate(item.flagged_at || item.created_at)}</p>
                 </div>
                 <StatusPill tone={item.rating === "useful" ? "good" : "bad"}>
                   {item.rating === "useful" ? "useful" : "not useful"}
                 </StatusPill>
               </div>
-              {item.note ? <p className="mt-2 text-gray-600 dark:text-gray-300">{item.note}</p> : null}
+              {item.note ? <p className="mt-2 text-slate-600 dark:text-slate-300">{item.note}</p> : null}
               {item.lesson_title ? (
-                <p className="mt-2 rounded-lg bg-indigo-50 px-2.5 py-2 text-xs text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-300">
+                <p className="mt-2 rounded-lg bg-sky-50 px-2.5 py-2 text-xs text-sky-700 dark:bg-sky-950/30 dark:text-sky-300">
                   Preference lesson: {item.lesson_title}
                 </p>
               ) : null}
-              <button type="button" onClick={() => void onClear(item.evidence_id)} className="mt-2 inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">
+              <button type="button" onClick={() => void onClear(item.evidence_id)} className="mt-2 inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">
                 <RotateCcw className="h-3.5 w-3.5" />
                 Clear flag
               </button>
@@ -1564,18 +1564,18 @@ function FlaggedPanel({ feedback, onClear }: { feedback: SourceFeedbackRecord[];
 
 function NotesPanel({ notes }: { notes: SourceEvidenceSummary[] }) {
   return (
-    <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-950">
-      <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Recent Notes</h2>
+    <section className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+      <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Recent Notes</h2>
       <div className="mt-3 space-y-2">
         {notes.length === 0 ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">No notes saved yet.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">No notes saved yet.</p>
         ) : (
           notes.slice(0, 6).map((note) => {
             const origin = normalizeSourceOrigin(note);
             return (
-            <div key={note.id} className="rounded-lg border border-gray-100 px-3 py-3 text-sm dark:border-gray-800">
+            <div key={note.id} className="rounded-lg border border-slate-100 px-3 py-3 text-sm dark:border-slate-800">
               <p className="font-medium">{note.title || "Untitled note"}</p>
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{note.source_name} · {origin.origin_label} · {formatDate(note.created_at)}</p>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{note.source_name} · {origin.origin_label} · {formatDate(note.created_at)}</p>
             </div>
             );
           })
@@ -1602,8 +1602,8 @@ function StatusPill({
       : tone === "warning"
       ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
       : tone === "info"
-      ? "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-300"
-      : "border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300";
+      ? "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300"
+      : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300";
   return (
     <span title={title} className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${className}`}>
       {children}
@@ -1619,14 +1619,14 @@ function OriginPill({ children, kind }: { children: React.ReactNode; kind?: stri
       : normalized === "email"
       ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
       : normalized === "automation"
-      ? "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-300"
+      ? "border-teal-200 bg-teal-50 text-teal-700 dark:border-teal-900 dark:bg-teal-950/30 dark:text-teal-300"
       : normalized === "discovery"
       ? "border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-900 dark:bg-cyan-950/30 dark:text-cyan-300"
       : normalized === "chat"
-      ? "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700 dark:border-fuchsia-900 dark:bg-fuchsia-950/30 dark:text-fuchsia-300"
+      ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
       : normalized === "disclosure"
       ? "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/30 dark:text-orange-300"
-      : "border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300";
+      : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300";
   return (
     <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${className}`}>
       {children}
@@ -1664,4 +1664,4 @@ function compactRecord(record: Record<string, unknown>) {
 }
 
 const inputClass =
-  "w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-gray-700 dark:bg-gray-900";
+  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 dark:border-slate-700 dark:bg-slate-900";

@@ -25,29 +25,27 @@ export default function AppNav({ active }: { active: NavKey }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <nav className="sticky top-0 z-50 w-full border-b border-gray-200 bg-white/95 backdrop-blur-md dark:border-gray-800 dark:bg-[#0a0a0a]/95">
+    <nav className="sticky top-0 z-50 w-full border-b border-line bg-panel/95 backdrop-blur-md">
       <div className="mx-auto w-full max-w-[1440px] px-4 sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-center justify-between gap-4 py-2 md:py-2.5">
-          <div className="flex shrink-0 items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded border border-gray-900 bg-gray-900 dark:border-gray-100 dark:bg-gray-100">
-              <span className="text-xs font-semibold text-white dark:text-gray-950">PR</span>
-            </div>
-            <div>
-              <p className="text-base font-semibold">Prophet</p>
-            </div>
-          </div>
+          <Link
+            href="/"
+            className="shrink-0 text-base font-semibold text-foreground transition-colors hover:text-action"
+          >
+            Prophet
+          </Link>
 
           <button
             type="button"
             onClick={() => setMobileOpen(current => !current)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded border border-gray-200 text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-950 md:hidden dark:border-gray-800 dark:text-gray-300 dark:hover:bg-gray-900 dark:hover:text-white"
+            className="inline-flex h-9 w-9 items-center justify-center rounded border border-slate-200 text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-950 xl:hidden dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-white"
             aria-label={mobileOpen ? "Close navigation" : "Open navigation"}
             aria-expanded={mobileOpen}
           >
             {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </button>
 
-          <div className="hidden min-w-0 items-center gap-1 whitespace-nowrap md:flex">
+          <div className="hidden min-w-0 items-center gap-1 whitespace-nowrap xl:flex">
             {navItems.map((item) => (
               <Link
                 key={item.key}
@@ -55,8 +53,8 @@ export default function AppNav({ active }: { active: NavKey }) {
                 aria-current={active === item.key ? "page" : undefined}
                 className={`shrink-0 border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
                   active === item.key
-                    ? "border-gray-900 text-gray-950 dark:border-gray-100 dark:text-gray-100"
-                    : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-900 dark:text-gray-400 dark:hover:border-gray-700 dark:hover:text-gray-100"
+                    ? "border-slate-900 text-slate-950 dark:border-slate-100 dark:text-slate-100"
+                    : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-900 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:text-slate-100"
                 }`}
               >
                 {item.label}
@@ -66,7 +64,7 @@ export default function AppNav({ active }: { active: NavKey }) {
         </div>
 
         {mobileOpen ? (
-          <div className="grid grid-cols-2 gap-1 border-t border-gray-100 py-2 md:hidden dark:border-gray-800">
+          <div className="grid grid-cols-2 gap-1 border-t border-slate-100 py-2 xl:hidden dark:border-slate-800">
             {navItems.map(item => (
               <Link
                 key={item.key}
@@ -75,8 +73,8 @@ export default function AppNav({ active }: { active: NavKey }) {
                 aria-current={active === item.key ? "page" : undefined}
                 className={`rounded px-3 py-2 text-sm font-medium transition-colors ${
                   active === item.key
-                    ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-950"
-                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-950 dark:text-gray-300 dark:hover:bg-gray-900 dark:hover:text-white"
+                    ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950"
+                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-white"
                 }`}
               >
                 {item.label}
@@ -84,6 +82,10 @@ export default function AppNav({ active }: { active: NavKey }) {
             ))}
           </div>
         ) : null}
+
+        <p className="border-t border-line py-1.5 text-[11px] leading-4 text-muted">
+          AI-assisted research can be incomplete or wrong. Verify sources and reconcile portfolio data before acting.
+        </p>
       </div>
     </nav>
   );

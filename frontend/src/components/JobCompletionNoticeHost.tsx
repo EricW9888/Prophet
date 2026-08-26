@@ -64,15 +64,15 @@ export default function JobCompletionNoticeHost() {
 
   return (
     <div className="fixed inset-x-4 bottom-6 z-50 flex justify-center pointer-events-none">
-      <div className="pointer-events-auto flex w-full max-w-xl items-center justify-between gap-4 rounded-2xl border border-indigo-200 bg-white/95 px-4 py-3 shadow-xl backdrop-blur dark:border-indigo-900 dark:bg-gray-950/95">
+      <div className="pointer-events-auto flex w-full max-w-xl items-center justify-between gap-4 rounded-lg border border-sky-200 bg-white/95 px-4 py-3 shadow-xl backdrop-blur dark:border-sky-900 dark:bg-slate-950/95">
         <div>
-          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{notice.message}</p>
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">You can jump straight back into the reasoning thread.</p>
+          <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{notice.message}</p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">You can jump straight back into the reasoning thread.</p>
         </div>
         <div className="flex items-center gap-2">
           <Link
             href={notice.sessionId ? `/chat?session_id=${notice.sessionId}` : "/chat"}
-            className="rounded-full bg-indigo-600 px-3 py-2 text-xs font-semibold text-white"
+            className="rounded-full bg-sky-600 px-3 py-2 text-xs font-semibold text-white"
           >
             Open chat
           </Link>
@@ -84,7 +84,7 @@ export default function JobCompletionNoticeHost() {
               }
               setNotice(null);
             }}
-            className="rounded-full border border-gray-300 px-3 py-2 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-300"
+            className="rounded-full border border-slate-300 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300"
           >
             Dismiss
           </button>
