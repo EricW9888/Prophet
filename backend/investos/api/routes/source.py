@@ -19,6 +19,7 @@ from investos.schemas.source import (
     MediaIngestionCapabilityResponse,
     MediaIngestionJobResponse,
     OwnershipDisclosureCreate,
+    ResearchDiscoveryObservationResponse,
     SourceClaimAssessmentCreate,
     SourceClaimAssessmentResponse,
     SourceClaimAutoAssessmentCreate,
@@ -92,6 +93,14 @@ async def list_recent_source_evidence(
     session: AsyncSession = Depends(get_session),
 ):
     return await SourceService(session).list_recent_evidence(limit=limit)
+
+
+@router.get("/discoveries", response_model=list[ResearchDiscoveryObservationResponse])
+async def list_research_discoveries(
+    limit: int = 80,
+    session: AsyncSession = Depends(get_session),
+):
+    return await SourceService(session).list_discovery_observations(limit=limit)
 
 
 @router.get("/notes", response_model=list[SourceEvidenceSummary])

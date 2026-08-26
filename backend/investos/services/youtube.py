@@ -420,7 +420,7 @@ class YouTubeService:
             name=source_name,
             source_type="youtube",
             description="Caption or optional local speech-to-text transcripts from YouTube videos. This connector does not inspect frames, slides, or audio tone.",
-            is_trusted=True,
+            is_trusted=False,
         )
         self.session.add(source)
         await self.session.flush()

@@ -23,6 +23,16 @@ class Source(Base):
     description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     is_trusted: Mapped[bool] = mapped_column(Boolean, default=False)
+    trust_origin: Mapped[str] = mapped_column(
+        String, default="discovered", server_default="discovered"
+    )
+    trust_review_status: Mapped[str] = mapped_column(
+        String, default="current", server_default="current"
+    )
+    trust_review_reason: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    trust_reviewed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
@@ -30,6 +40,31 @@ class Source(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+    def apply_operator_trust(self, trusted: bool) -> None:
+        self.is_trusted = trusted
+        self.trust_origin = "operator"
+        self.trust_review_status = "current"
+        self.trust_review_reason = None
+        self.trust_reviewed_at = utcnow()
+
+    def apply_learned_trust(self, trusted: bool, *, reason: str) -> None:
+        """Apply learned trust without silently replacing an operator decision."""
+
+        self.trust_reviewed_at = utcnow()
+        if self.trust_origin == "operator":
+            if self.is_trusted == trusted:
+                self.trust_review_status = "current"
+                self.trust_review_reason = None
+            else:
+                self.trust_review_status = "change_recommended"
+                self.trust_review_reason = reason
+            return
+
+        self.is_trusted = trusted
+        self.trust_origin = "learned"
+        self.trust_review_status = "current"
+        self.trust_review_reason = None
 
     quality_segments: Mapped[list["SourceQualitySegment"]] = relationship(
         "SourceQualitySegment", back_populates="source"

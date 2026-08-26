@@ -9,7 +9,7 @@ from typing import Any
 from uuid import UUID
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.config import settings
@@ -23,7 +23,11 @@ from investos.core.research_providers import (
 from investos.core.url_security import UnsafeUrlError, UrlFetchNetworkError
 from investos.models.coverage import CoverageMap, Resolution, UnresolvedQuestion
 from investos.models.entity import Entity, Security
-from investos.models.evidence import RawEvidence, SourceItem
+from investos.models.evidence import (
+    RawEvidence,
+    ResearchDiscoveryObservation,
+    SourceItem,
+)
 from investos.models.portfolio import Position
 from investos.models.theme import Theme
 from investos.schemas.evidence import RawEvidenceCreate
@@ -85,6 +89,11 @@ class ResearchSearchResult:
     provider: str | None = None
     provider_attempts: list[dict[str, Any]] = field(default_factory=list)
     variants_tried: list[str] = field(default_factory=list)
+    observation_ids_by_url: dict[str, UUID] = field(default_factory=dict)
+
+
+DISCOVERY_OBSERVATION_LIMIT = 20
+DISCOVERY_SNIPPET_LIMIT = 4000
 
 
 class ResearchService:
@@ -127,6 +136,81 @@ class ResearchService:
         path = Path(settings.STORAGE_DIR) / "_system" / "research_requests.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
+
+    async def _record_discovery_results(
+        self,
+        *,
+        provider: str,
+        request_id: str | None,
+        input_query: str,
+        effective_query: str,
+        title: str,
+        results: list[dict[str, Any]],
+        metadata: dict[str, Any],
+    ) -> dict[str, UUID]:
+        if self.session is None:
+            return {}
+        observation_ids: dict[str, UUID] = {}
+        seen_urls: set[str] = set()
+        for rank, result in enumerate(results[:DISCOVERY_OBSERVATION_LIMIT], start=1):
+            url = str(result.get("url") or "").strip()
+            if not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            content = " ".join(str(result.get("content") or "").split()).strip()
+            observation = ResearchDiscoveryObservation(
+                provider=provider,
+                request_id=request_id,
+                query=input_query,
+                effective_query=effective_query,
+                search_title=title,
+                result_rank=rank,
+                result_title=str(result.get("title") or url).strip(),
+                url=url,
+                snippet=content[:DISCOVERY_SNIPPET_LIMIT] or None,
+                content_kind=str(result.get("content_kind") or "snippet"),
+                outcome="observed",
+                subject_type=(
+                    str(metadata.get("subject_type"))
+                    if metadata.get("subject_type")
+                    else None
+                ),
+                subject_id=(
+                    str(metadata.get("subject_id"))
+                    if metadata.get("subject_id")
+                    else None
+                ),
+                subject_name=(
+                    str(metadata.get("subject_name"))
+                    if metadata.get("subject_name")
+                    else None
+                ),
+                metadata_json={
+                    "score": result.get("score"),
+                    "published_date": result.get("published_date"),
+                    "engines": result.get("engines") or [],
+                },
+            )
+            self.session.add(observation)
+            await self.session.flush()
+            observation_ids[url] = observation.id
+        return observation_ids
+
+    async def _update_discovery_outcome(
+        self,
+        observation_id: UUID | None,
+        *,
+        outcome: str,
+        evidence_id: UUID | None = None,
+        error: str | None = None,
+    ) -> None:
+        if self.session is None or observation_id is None:
+            return
+        await self.session.execute(
+            update(ResearchDiscoveryObservation)
+            .where(ResearchDiscoveryObservation.id == observation_id)
+            .values(outcome=outcome, evidence_id=evidence_id, error=error)
+        )
 
     @staticmethod
     def _legacy_usage_log_path() -> Path:
@@ -749,6 +833,15 @@ class ResearchService:
                         }
                     )
                     if response.status == "ok" and response.results:
+                        observation_ids = await self._record_discovery_results(
+                            provider=provider,
+                            request_id=response.request_id,
+                            input_query=query,
+                            effective_query=candidate_query,
+                            title=title,
+                            results=response.results,
+                            metadata=metadata,
+                        )
                         return ResearchSearchResult(
                             searched=True,
                             reason="ok",
@@ -758,6 +851,7 @@ class ResearchService:
                             provider=provider,
                             provider_attempts=provider_attempts,
                             variants_tried=variants_tried,
+                            observation_ids_by_url=observation_ids,
                         )
                     if response.status != "no_result":
                         break
@@ -830,7 +924,7 @@ class ResearchService:
                 query=query,
             )
 
-        return await self._discover(
+        result = await self._discover(
             query=query,
             title=title,
             search_depth=search_depth,
@@ -838,6 +932,9 @@ class ResearchService:
             metadata=metadata,
             timeout_seconds=timeout_seconds,
         )
+        if self.session is not None:
+            await self.session.commit()
+        return result
 
     async def _find_recent_duplicate_research(
         self,
@@ -1017,12 +1114,19 @@ class ResearchService:
 
                 for rank, candidate in enumerate(discovery.results[:5], start=1):
                     source_url = str(candidate.get("url") or "").strip()
+                    observation_id = discovery.observation_ids_by_url.get(source_url)
                     duplicate = await self._find_recent_duplicate_research(
                         title=title,
                         query=query,
                         url=source_url,
                     )
                     if duplicate is not None:
+                        await self._update_discovery_outcome(
+                            observation_id,
+                            outcome="duplicate_evidence",
+                            evidence_id=duplicate.id,
+                        )
+                        await self.session.commit()
                         self._log_research_action(
                             status="duplicate_recent_research",
                             summary=f"External research skipped for {title}. The discovered source was ingested recently.",
@@ -1053,6 +1157,11 @@ class ResearchService:
                         fetch_error = f"{type(exc).__name__}: {exc}"
                         raw_content = str(candidate.get("raw_content") or "").strip()
                         if provider != "tavily" or not raw_content:
+                            await self._update_discovery_outcome(
+                                observation_id,
+                                outcome="fetch_failed",
+                                error=fetch_error,
+                            )
                             continue
                         content_origin = "provider_raw_content"
                         content = raw_content
@@ -1092,6 +1201,12 @@ class ResearchService:
                             content=content[:20000],
                         ),
                         process_now=False,
+                    )
+                    await self._update_discovery_outcome(
+                        observation_id,
+                        outcome="ingested_evidence",
+                        evidence_id=evidence.id,
+                        error=fetch_error,
                     )
 
                     loop_detail = None
@@ -1166,6 +1281,8 @@ class ResearchService:
             title=title,
             metadata_json=metadata_json,
         )
+        if self.session is not None:
+            await self.session.commit()
         return ResearchRunResult(
             started=False,
             reason=last_reason,

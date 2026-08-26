@@ -83,6 +83,13 @@ failed fetches, model omissions, and the configured revisit interval can all
 leave relevant opportunities unseen. The Ideas workspace exposes those coverage
 limits and keeps assumptions separate from source-backed evidence.
 
+Search-result snippets are retained as provisional discovery history, not as
+evidence. They can be incomplete, stale, or misleading and cannot corroborate a
+claim until Prophet fetches attributable source content. Likewise, a source
+marked trusted by the operator is still fallible: Prophet may recommend a trust
+review when later outcomes degrade, but it does not silently replace that
+explicit choice.
+
 Prophet does not expose a provider's hidden chain-of-thought. It stores concise
 reasoning summaries, assumptions, evidence references, challenges, and action
 traces that can be inspected without presenting private model reasoning as an

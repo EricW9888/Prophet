@@ -231,7 +231,10 @@ class SourceLearningService:
             promote = True
         if evidence_count < 2 and source.source_type not in {"official", "filing"}:
             promote = False
-        source.is_trusted = promote
+        source.apply_learned_trust(
+            promote,
+            reason=evaluation["trust_reasoning"],
+        )
         await self.session.commit()
         await self.session.refresh(source)
         return {
@@ -240,6 +243,9 @@ class SourceLearningService:
             "source_name": source.name,
             "source_type": source.source_type,
             "is_trusted": source.is_trusted,
+            "trust_origin": source.trust_origin,
+            "trust_review_status": source.trust_review_status,
+            "trust_review_reason": source.trust_review_reason,
             "evidence_count": evidence_count,
             "trust_reasoning": evaluation["trust_reasoning"],
         }

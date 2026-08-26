@@ -99,6 +99,10 @@ class SourceResponse(BaseModel):
     url: Optional[str] = None
     description: Optional[str] = None
     is_trusted: bool
+    trust_origin: str = "discovered"
+    trust_review_status: str = "current"
+    trust_review_reason: Optional[str] = None
+    trust_reviewed_at: Optional[datetime] = None
     origin: SourceOriginSummary = Field(
         default_factory=lambda: SourceOriginSummary(
             origin_kind="catalog",
@@ -119,6 +123,27 @@ class SourceResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ResearchDiscoveryObservationResponse(BaseModel):
+    id: UUID
+    provider: str
+    request_id: Optional[str] = None
+    query: str
+    effective_query: str
+    search_title: str
+    result_rank: int
+    result_title: str
+    url: str
+    snippet: Optional[str] = None
+    content_kind: str
+    outcome: str
+    evidence_id: Optional[UUID] = None
+    subject_type: Optional[str] = None
+    subject_id: Optional[str] = None
+    subject_name: Optional[str] = None
+    error: Optional[str] = None
+    observed_at: datetime
 
 
 class SourceEvidenceSummary(BaseModel):

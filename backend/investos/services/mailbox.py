@@ -1058,7 +1058,13 @@ class GmailMailboxService:
         ).scalar_one_or_none()
         if existing:
             if existing.is_trusted:
-                existing.is_trusted = False
+                existing.apply_learned_trust(
+                    False,
+                    reason=(
+                        "Operational brokerage email is portfolio input, not an "
+                        "independent research source."
+                    ),
+                )
             return existing
         source = Source(
             name=GMAIL_OPERATIONAL_SOURCE_NAME,

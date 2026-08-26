@@ -18,7 +18,11 @@ from investos.models.catalog import (
     SourceValueProfile,
 )
 from investos.models.entity import Entity, Security
-from investos.models.evidence import RawEvidence, SourceItem
+from investos.models.evidence import (
+    RawEvidence,
+    ResearchDiscoveryObservation,
+    SourceItem,
+)
 from investos.models.graph import Edge
 from investos.models.knowledge import Claim, Event, Fact
 from investos.models.lesson import Lesson
@@ -249,6 +253,10 @@ class SourceService:
                     "url": source.url,
                     "description": source.description,
                     "is_trusted": source.is_trusted,
+                    "trust_origin": source.trust_origin,
+                    "trust_review_status": source.trust_review_status,
+                    "trust_review_reason": source.trust_review_reason,
+                    "trust_reviewed_at": source.trust_reviewed_at,
                     "origin": self._source_origin_summary(source),
                     "evidence_count": int(evidence_counts.get(source.id, 0)),
                     "trust_profile": (
@@ -325,6 +333,42 @@ class SourceService:
             )
         ).all()
         return [self._evidence_summary(evidence, source) for evidence, source in rows]
+
+    async def list_discovery_observations(self, limit: int = 80) -> list[dict]:
+        rows = (
+            (
+                await self.session.execute(
+                    select(ResearchDiscoveryObservation)
+                    .order_by(desc(ResearchDiscoveryObservation.observed_at))
+                    .limit(max(1, min(limit, 200)))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return [
+            {
+                "id": row.id,
+                "provider": row.provider,
+                "request_id": row.request_id,
+                "query": row.query,
+                "effective_query": row.effective_query,
+                "search_title": row.search_title,
+                "result_rank": row.result_rank,
+                "result_title": row.result_title,
+                "url": row.url,
+                "snippet": row.snippet,
+                "content_kind": row.content_kind,
+                "outcome": row.outcome,
+                "evidence_id": row.evidence_id,
+                "subject_type": row.subject_type,
+                "subject_id": row.subject_id,
+                "subject_name": row.subject_name,
+                "error": row.error,
+                "observed_at": row.observed_at,
+            }
+            for row in rows
+        ]
 
     async def list_notes(self, limit: int = 80) -> list[dict]:
         rows = (
@@ -1143,7 +1187,7 @@ class SourceService:
                 existing.description = cleaned_description
                 updated = True
             if payload.is_trusted and not existing.is_trusted:
-                existing.is_trusted = True
+                existing.apply_operator_trust(True)
                 updated = True
             if updated:
                 await self.session.commit()
@@ -1154,8 +1198,9 @@ class SourceService:
             source_type=payload.source_type.strip(),
             url=self._normalize_source_url(payload.url),
             description=payload.description.strip() if payload.description else None,
-            is_trusted=payload.is_trusted,
+            is_trusted=False,
         )
+        source.apply_operator_trust(payload.is_trusted)
         self.session.add(source)
         await self.session.commit()
         await self.session.refresh(source)
@@ -1176,7 +1221,7 @@ class SourceService:
         if payload.description is not None:
             source.description = payload.description.strip() or None
         if payload.is_trusted is not None:
-            source.is_trusted = payload.is_trusted
+            source.apply_operator_trust(payload.is_trusted)
         duplicate = await self._find_duplicate_source(
             name=source.name,
             source_type=source.source_type,
@@ -1210,6 +1255,10 @@ class SourceService:
             "url": row.url,
             "description": row.description,
             "is_trusted": row.is_trusted,
+            "trust_origin": row.trust_origin,
+            "trust_review_status": row.trust_review_status,
+            "trust_review_reason": row.trust_review_reason,
+            "trust_reviewed_at": row.trust_reviewed_at,
             "origin": self._source_origin_summary(row),
             "evidence_count": 0,
             "trust_profile": None,
@@ -1341,8 +1390,49 @@ class SourceService:
                 (source.description for source in duplicates if source.description),
                 canonical.description,
             )
-        if any(source.is_trusted for source in duplicates):
-            canonical.is_trusted = True
+        trust_candidates = [canonical, *duplicates]
+        operator_candidates = [
+            source for source in trust_candidates if source.trust_origin == "operator"
+        ]
+        learned_candidates = [
+            source for source in trust_candidates if source.trust_origin == "learned"
+        ]
+        conflicting_operator_choices = {
+            source.is_trusted for source in operator_candidates
+        }
+        chosen_trust = max(
+            operator_candidates or learned_candidates or trust_candidates,
+            key=lambda source: (
+                source.trust_reviewed_at
+                or source.updated_at
+                or source.created_at
+                or datetime.min.replace(tzinfo=UTC)
+            ),
+        )
+        canonical.is_trusted = chosen_trust.is_trusted
+        canonical.trust_origin = chosen_trust.trust_origin
+        canonical.trust_review_status = chosen_trust.trust_review_status
+        canonical.trust_review_reason = chosen_trust.trust_review_reason
+        canonical.trust_reviewed_at = chosen_trust.trust_reviewed_at
+
+        if len(conflicting_operator_choices) > 1:
+            canonical.trust_review_status = "change_recommended"
+            canonical.trust_review_reason = (
+                "Conflicting operator trust choices were merged; the most recent "
+                "explicit choice was retained."
+            )
+        review_candidate = next(
+            (
+                source
+                for source in trust_candidates
+                if source.trust_review_status == "change_recommended"
+            ),
+            None,
+        )
+        if review_candidate is not None and len(conflicting_operator_choices) <= 1:
+            canonical.trust_review_status = "change_recommended"
+            canonical.trust_review_reason = review_candidate.trust_review_reason
+            canonical.trust_reviewed_at = review_candidate.trust_reviewed_at
 
         move_models = [
             RawEvidence,
@@ -2167,6 +2257,11 @@ class SourceService:
             profile.trust_trajectory = trajectory
             profile.notes = performance_note
             profile.last_reviewed_at = datetime.now(UTC)
+
+        source.apply_learned_trust(
+            float(history.accuracy_rate or 0.0) >= 0.55,
+            reason=performance_note,
+        )
 
     @staticmethod
     def _performance_reliability_label(accuracy_rate: float) -> str:
