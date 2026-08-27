@@ -1457,6 +1457,20 @@ export type MediaIngestionJob = {
     source_id?: string;
     ingest_mode?: string;
     already_ingested?: boolean;
+    investigation?: {
+      status?: string;
+      first_pass_sufficient?: boolean;
+      reason?: string;
+      requested_passes?: string[];
+    };
+    passes?: Array<{
+      kind: string;
+      representation: string;
+      role: string;
+      status: string;
+      evidence_id?: string | null;
+      reason?: string | null;
+    }>;
   } | null;
   error?: string | null;
 };

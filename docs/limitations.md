@@ -52,16 +52,22 @@ benchmark, and cash as controls. This measures one return outcome; it does not
 prove that the causal thesis was correct, that the trade was executable, or that
 the historical price provider will never revise its data.
 
-YouTube ingestion uses available captions first. An operator may explicitly
-enable a free local fallback backed by separately installed `yt-dlp`, `ffmpeg`,
-and the OpenAI Whisper CLI for an individual no-caption video. Tool availability,
-model download, source access, duration, size, timeout, language, and speech
-quality can all prevent or degrade extraction. Audio transcription does not
-interpret charts, slides, expressions, product demonstrations, or other frames,
-so Prophet must not treat it as a complete understanding of the video. Channel
-review is bounded and metadata-only, depends on `yt-dlp`, and never implies that
-every upload was discovered, watched, or ingested. Prophet does not automatically
-crawl a channel; each selected video must complete its own ingestion job.
+YouTube ingestion uses available captions first and may request a deeper pass
+when the representation leaves a material question unresolved. An operator may
+explicitly enable a free local audio adapter backed by separately installed
+`yt-dlp`, `ffmpeg`, and the OpenAI Whisper CLI. Tool availability, model download,
+source access, duration, size, timeout, language, and speech quality can all
+prevent or degrade extraction. A separately enabled Tesseract adapter can read
+text from bounded frame samples, but it does not interpret chart geometry,
+expressions, product demonstrations, motion, or every intervening frame. A
+requested visual pass that cannot run is reported as unavailable rather than
+silently treated as covered.
+
+Periodic channel review is bounded, depends on `yt-dlp`, and applies only to
+operator-trusted YouTube sources. Upload metadata is provisional discovery, not
+evidence. Automatic transcript ingestion is separately bounded, can fail or be
+disabled, and never implies that every upload was discovered, watched, or fully
+understood.
 
 ## Analytical Reliability
 

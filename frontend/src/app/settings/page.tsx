@@ -1182,6 +1182,7 @@ const AUTOMATION_JOB_COPY: Record<string, { label: string; description: string }
   entity_hygiene: { label: "Entity reconciliation", description: "Reconciles duplicate entities and reclassifies non-investable artifacts while preserving audit history." },
   theme_hygiene: { label: "Theme reconciliation", description: "Reconciles duplicate or placeholder themes while preserving useful evidence and progression." },
   media_cleanup: { label: "Temporary media cleanup", description: "Removes expired temporary media files while preserving extracted evidence and provenance." },
+  youtube_channel_review: { label: "YouTube source review", description: "Checks operator-trusted channels for new uploads, records provisional discovery, and runs a bounded number through caption-first investigation." },
   source_claim_assessment: { label: "Source calibration", description: "Tests due source claims against later evidence, defers inconclusive reviews with a visible retry time, and can launch one bounded follow-up research pass." },
   market_setup_assessment: { label: "Setup outcome review", description: "Revisits due expectations against later evidence, defers uncertain cases with retry timing, and can launch bounded follow-up research." },
   fundamental_freshness: { label: "Metric freshness", description: "Marks financial metrics current or stale based on their dates and reporting cadence." },

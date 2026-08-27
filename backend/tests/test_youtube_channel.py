@@ -12,7 +12,7 @@ from sqlalchemy import delete
 
 from investos.api.routes import source as source_routes
 from investos.db import async_session_maker
-from investos.models.evidence import RawEvidence
+from investos.models.evidence import RawEvidence, ResearchDiscoveryObservation
 from investos.models.source import Source
 from investos.services.youtube import YouTubeService
 from investos.services.youtube_channel import (
@@ -162,6 +162,9 @@ class ScalarListResult:
     def all(self):
         return self.values
 
+    def __iter__(self):
+        return iter(self.values)
+
 
 @pytest.mark.asyncio
 async def test_channel_preview_binds_ingestion_state_to_tracked_source():
@@ -211,6 +214,203 @@ async def test_channel_preview_binds_ingestion_state_to_tracked_source():
     assert result["source_id"] == source_id
     assert result["videos"][0]["already_ingested"] is True
     assert result["videos"][0]["evidence_id"] == evidence_id
+
+
+@pytest.mark.asyncio
+async def test_channel_review_keeps_upload_metadata_provisional():
+    source = SimpleNamespace(
+        id=uuid4(),
+        name="Rhino Finance",
+        source_type="youtube",
+        url="https://www.youtube.com/@RhinoFinance",
+    )
+    added = []
+    session = SimpleNamespace(
+        execute=AsyncMock(
+            side_effect=[
+                ScalarListResult([source]),
+                ScalarListResult([]),
+                ScalarListResult([]),
+            ]
+        ),
+        flush=AsyncMock(),
+        commit=AsyncMock(),
+    )
+
+    def add(value):
+        value.id = uuid4()
+        added.append(value)
+
+    session.add = add
+    enumerator = SimpleNamespace(
+        readiness=lambda: {"available": True, "missing": []},
+        list_recent=AsyncMock(
+            return_value={
+                "channel_url": "https://www.youtube.com/@RhinoFinance/videos",
+                "channel_id": "UC-rhino",
+                "channel_name": "Rhino Finance",
+                "videos": [
+                    {
+                        "video_id": "dQw4w9WgXcQ",
+                        "title": "Memory cycle update",
+                        "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                        "published_at": datetime(2026, 8, 23, tzinfo=UTC),
+                        "duration_seconds": 754,
+                        "view_count": 12000,
+                    }
+                ],
+            }
+        ),
+    )
+
+    result = await YouTubeService(
+        session, channel_enumerator=enumerator
+    ).review_tracked_channels(auto_ingest=False)
+
+    assert result["uploads_observed"] == 1
+    assert result["uploads_ingested"] == 0
+    assert len(added) == 1
+    observation = added[0]
+    assert isinstance(observation, ResearchDiscoveryObservation)
+    assert observation.content_kind == "channel_upload_metadata"
+    assert observation.evidence_id is None
+    assert observation.metadata_json["evidence_status"] == "not_yet_fetched"
+    assert not any(isinstance(item, RawEvidence) for item in added)
+
+
+@pytest.mark.asyncio
+async def test_channel_review_promotes_only_fetched_transcript_to_evidence():
+    source = SimpleNamespace(
+        id=uuid4(),
+        name="Rhino Finance",
+        source_type="youtube",
+        url="https://www.youtube.com/@RhinoFinance",
+    )
+    evidence_id = uuid4()
+    added = []
+    session = SimpleNamespace(
+        execute=AsyncMock(
+            side_effect=[
+                ScalarListResult([source]),
+                ScalarListResult([]),
+                ScalarListResult([]),
+            ]
+        ),
+        flush=AsyncMock(),
+        commit=AsyncMock(),
+    )
+
+    def add(value):
+        value.id = uuid4()
+        added.append(value)
+
+    session.add = add
+    enumerator = SimpleNamespace(
+        readiness=lambda: {"available": True, "missing": []},
+        list_recent=AsyncMock(
+            return_value={
+                "channel_url": "https://www.youtube.com/@RhinoFinance/videos",
+                "channel_id": "UC-rhino",
+                "channel_name": "Rhino Finance",
+                "videos": [
+                    {
+                        "video_id": "dQw4w9WgXcQ",
+                        "title": "Memory cycle update",
+                        "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                    }
+                ],
+            }
+        ),
+    )
+    service = YouTubeService(session, channel_enumerator=enumerator)
+    service.ingest_video = AsyncMock(
+        return_value={
+            "ok": True,
+            "evidence_id": str(evidence_id),
+            "ingest_mode": "caption_transcript",
+        }
+    )
+
+    result = await service.review_tracked_channels(auto_ingest=True)
+
+    observation = added[0]
+    assert result["uploads_observed"] == 1
+    assert result["uploads_ingested"] == 1
+    assert observation.outcome == "ingested"
+    assert observation.evidence_id == evidence_id
+    assert observation.metadata_json["evidence_status"] == "ingested"
+
+
+@pytest.mark.asyncio
+async def test_channel_review_retries_previous_fetch_failure_without_duplicate():
+    source = SimpleNamespace(
+        id=uuid4(),
+        name="Rhino Finance",
+        source_type="youtube",
+        url="https://www.youtube.com/@RhinoFinance",
+    )
+    observation = ResearchDiscoveryObservation(
+        id=uuid4(),
+        provider="youtube_channel",
+        query=f"youtube_channel:{source.id}",
+        effective_query=source.url,
+        search_title="Tracked YouTube channel: Rhino Finance",
+        result_rank=1,
+        result_title="Memory cycle update",
+        url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        content_kind="channel_upload_metadata",
+        outcome="fetch_failed",
+        error="captions unavailable",
+        metadata_json={"video_id": "dQw4w9WgXcQ"},
+    )
+    evidence_id = uuid4()
+    session = SimpleNamespace(
+        execute=AsyncMock(
+            side_effect=[
+                ScalarListResult([source]),
+                ScalarListResult([observation]),
+                ScalarListResult([]),
+            ]
+        ),
+        add=lambda _value: (_ for _ in ()).throw(
+            AssertionError("retry must reuse the prior observation")
+        ),
+        flush=AsyncMock(),
+        commit=AsyncMock(),
+    )
+    enumerator = SimpleNamespace(
+        readiness=lambda: {"available": True, "missing": []},
+        list_recent=AsyncMock(
+            return_value={
+                "channel_url": "https://www.youtube.com/@RhinoFinance/videos",
+                "channel_id": "UC-rhino",
+                "channel_name": "Rhino Finance",
+                "videos": [
+                    {
+                        "video_id": "dQw4w9WgXcQ",
+                        "title": "Memory cycle update",
+                        "url": observation.url,
+                    }
+                ],
+            }
+        ),
+    )
+    service = YouTubeService(session, channel_enumerator=enumerator)
+    service.ingest_video = AsyncMock(
+        return_value={
+            "ok": True,
+            "evidence_id": str(evidence_id),
+            "ingest_mode": "caption_transcript",
+        }
+    )
+
+    result = await service.review_tracked_channels(auto_ingest=True)
+
+    assert result["uploads_observed"] == 0
+    assert result["uploads_ingested"] == 1
+    assert observation.outcome == "ingested"
+    assert observation.error is None
+    assert observation.evidence_id == evidence_id
 
 
 @pytest.mark.asyncio
