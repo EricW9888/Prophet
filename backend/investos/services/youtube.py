@@ -30,10 +30,7 @@ from investos.services.youtube_channel import (
     YouTubeChannelError,
 )
 from investos.services.youtube_channel_review import YouTubeChannelReviewService
-from investos.services.youtube_frame_ocr import (
-    LocalFrameOCR,
-    LocalYouTubeFrameOCR,
-)
+from investos.services.youtube_frame_ocr import LocalFrameOCR, LocalYouTubeFrameOCR
 from investos.services.youtube_transcription import (
     LocalTranscript,
     LocalTranscriptionError,
