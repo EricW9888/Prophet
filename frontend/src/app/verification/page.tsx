@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import AppNav from "@/components/AppNav";
+import PageHeader from "@/components/PageHeader";
 import { API_BASE, apiFetch, ProfileListItem, ReviewQueueItem, VerificationResult } from "@/lib/api";
 
 export default function VerificationPage() {
@@ -84,12 +85,11 @@ export default function VerificationPage() {
       <AppNav active="review" />
       <main className="mx-auto grid w-full max-w-[1440px] grid-cols-1 gap-8 px-4 py-8 sm:px-6 lg:px-8 xl:grid-cols-[0.95fr_1.05fr]">
         <section className="space-y-6">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Review Queue</h1>
-            <p className="mt-2 text-slate-500 dark:text-slate-400">
-              This should be the user-facing place where the continuously running system surfaces weak coverage, unresolved contradictions, and shadow divergences that deserve attention.
-            </p>
-          </div>
+          <PageHeader
+            eyebrow="Decision quality"
+            title="Review queue"
+            description="Resolve thin coverage, contradictions, stale views, and simulation disagreements before they quietly shape portfolio decisions."
+          />
           <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
             <div className="flex items-center justify-between gap-4">
               <div>

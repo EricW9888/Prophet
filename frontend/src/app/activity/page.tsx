@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import AppNav from "@/components/AppNav";
+import PageHeader from "@/components/PageHeader";
 import { AgentActionLogItem, apiFetch } from "@/lib/api";
 import { formatUserLabel } from "@/lib/formatting";
 
@@ -188,18 +189,12 @@ export default function ActivityPage() {
     <div className="min-h-screen bg-background text-foreground">
       <AppNav active="activity" />
       <main className="mx-auto w-full max-w-[1440px] px-4 py-8 sm:px-6 lg:px-8">
-        <header className="flex flex-wrap items-end justify-between gap-6">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">
-              Agent Activity
-            </p>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight">What Prophet Did</h1>
-            <p className="mt-2 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
-              A running catch-up feed of research, reasoning, automation, and system actions. This is the full activity stream,
-              not just the latest dashboard summary.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
+        <PageHeader
+          eyebrow="System activity"
+          title="What Prophet did"
+          description="A dated catch-up stream of research, reasoning, automation, and system actions beyond the latest dashboard summary."
+          actions={(
+            <>
             <select
               value={source}
               onChange={(event) => setSource(event.target.value as (typeof SOURCES)[number])}
@@ -222,8 +217,9 @@ export default function ActivityPage() {
                 </option>
               ))}
             </select>
-          </div>
-        </header>
+            </>
+          )}
+        />
 
         {error ? (
           <div className="mt-8 rounded-lg border border-red-200 bg-red-50/70 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">

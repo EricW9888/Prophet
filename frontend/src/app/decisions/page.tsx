@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import AppNav from "@/components/AppNav";
+import PageHeader from "@/components/PageHeader";
 import { API_BASE, apiFetch, DecisionJournal, Position } from "@/lib/api";
 
 export default function DecisionsPage() {
@@ -128,19 +129,19 @@ export default function DecisionsPage() {
     <div className="min-h-screen bg-background text-foreground font-sans">
       <AppNav active="portfolio" />
       <main className="mx-auto grid w-full max-w-[1440px] grid-cols-1 gap-8 px-4 py-8 sm:px-6 lg:px-8 xl:grid-cols-[0.9fr_1.1fr]">
+        <PageHeader
+          className="xl:col-span-2"
+          eyebrow="Learning loop"
+          title="Operating memory"
+          description="Review what Prophet concluded, what changed, how simulations and later outcomes differed, and what the system learned."
+        />
         <section className="space-y-6">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Operating Memory</h1>
-            <p className="mt-2 text-slate-500 dark:text-slate-400">
-              This is the system record of what Prophet concluded, what it acted on, how shadows and reviews evolved, and what was learned afterward.
-            </p>
-          </div>
           <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950 space-y-4">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">How this should work</h2>
+                <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Automated record with manual override</h2>
                 <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-                  Prophet should usually write this memory itself from reasoning runs, thesis changes, shadow experiments, and retrospective reviews. Manual entry is an override, not the primary workflow.
+                  Prophet records reasoning runs, view changes, shadow experiments, and retrospective reviews automatically. Manual entry is available when the record needs an explicit correction or addition.
                 </p>
               </div>
               <button

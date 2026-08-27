@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 import AppNav from "@/components/AppNav";
+import PageHeader from "@/components/PageHeader";
 import { apiFetch, TimelineItem, API_BASE, SourceRecord, GraphNodeDetail, GraphConnection, KnowledgeChangeSummary } from "@/lib/api";
 
 const HIDDEN_DETAIL_PROPERTY_KEYS = new Set([
@@ -423,14 +424,11 @@ export default function TimelinePage() {
 
       <main className="mx-auto grid w-full max-w-[1440px] grid-cols-1 gap-8 px-4 py-8 sm:px-6 lg:px-8 xl:grid-cols-[1.15fr_0.85fr]">
         <section className="space-y-8">
-          <header className="flex flex-col gap-2">
-            <div className="flex items-center gap-3">
-              <h1 className="text-3xl font-bold tracking-tight">Research Feed</h1>
-            </div>
-            <p className="text-slate-500 dark:text-slate-400">
-              Facts, claims, and events ranked by how useful they look right now, not just by when they were created. Open any item to inspect the connected graph behind it.
-            </p>
-          </header>
+          <PageHeader
+            eyebrow="Monitoring"
+            title="Research feed"
+            description="Review dated facts, claims, and events ranked by current usefulness, then open an item to inspect its sources, relevance, and connected knowledge."
+          />
 
           <section className="relative border-l border-slate-200 dark:border-slate-800 ml-3 md:ml-4 space-y-8 py-4">
             {loading ? (

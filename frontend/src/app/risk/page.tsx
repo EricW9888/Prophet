@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import AppNav from "@/components/AppNav";
+import PageHeader from "@/components/PageHeader";
 import { API_BASE, apiFetch, BenchmarkRecord, PerformanceAttribution, RiskSummary } from "@/lib/api";
 
 export default function RiskPage() {
@@ -107,17 +108,16 @@ export default function RiskPage() {
     <div className="min-h-screen bg-background text-foreground font-sans">
       <AppNav active="risk" />
       <main className="mx-auto w-full max-w-[1440px] space-y-8 px-4 py-8 sm:px-6 lg:px-8">
-        <header className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Risk + Benchmark</h1>
-            <p className="text-slate-500 dark:text-slate-400">
-              Benchmark-relative context, concentration, regime, and scenario impact for the live portfolio.
-            </p>
-          </div>
-          <button onClick={() => { void loadState(true); void loadAttribution(Number(windowDays) || 21); }} disabled={refreshing} className="rounded-lg border border-slate-300 dark:border-slate-700 px-4 py-3 text-sm disabled:opacity-50">
-            {refreshing ? "Refreshing..." : "Refresh risk snapshot"}
-          </button>
-        </header>
+        <PageHeader
+          eyebrow="Portfolio"
+          title="Risk and benchmark"
+          description="Benchmark-relative performance, concentration, regime, and scenario impact for the live portfolio."
+          actions={(
+            <button onClick={() => { void loadState(true); void loadAttribution(Number(windowDays) || 21); }} disabled={refreshing} className="rounded border border-line-strong px-3 py-2 text-sm font-medium disabled:opacity-50">
+              {refreshing ? "Refreshing..." : "Refresh snapshot"}
+            </button>
+          )}
+        />
 
         {error ? (
           <div className="rounded-lg border border-red-200 bg-white px-4 py-3 text-sm text-red-600 dark:border-red-900 dark:bg-slate-950 dark:text-red-400">

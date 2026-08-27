@@ -5,6 +5,7 @@ import { usePlaidLink } from "react-plaid-link";
 import AppNav from "@/components/AppNav";
 import FloatingNotice from "@/components/FloatingNotice";
 import FloatingSaveBar from "@/components/FloatingSaveBar";
+import PageHeader from "@/components/PageHeader";
 import {
   API_BASE,
   apiFetch,
@@ -244,15 +245,13 @@ export default function SettingsPage() {
         {error && <FloatingNotice tone="error" message={error} onDismiss={() => setError(null)} />}
         {notice && <FloatingNotice tone="success" message={notice} onDismiss={() => setNotice(null)} />}
 
-        <div className="mb-8 flex flex-col justify-between gap-5 border-b border-slate-200 pb-5 md:flex-row md:items-end dark:border-slate-800">
-          <div>
-            <h1 className="text-3xl font-semibold">Settings</h1>
-            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-              Manage your data connections, research providers, and system state.
-            </p>
-          </div>
-
-          <div className="flex w-full items-start gap-2 md:w-auto">
+        <PageHeader
+          className="mb-8"
+          eyebrow="Configuration"
+          title="Settings"
+          description="Manage portfolio inputs, data connections, research providers, model access, automation, and system state."
+          actions={(
+            <div className="flex w-full items-start gap-2 md:w-auto">
             <div className="grid min-w-0 flex-1 grid-cols-2 border-b border-slate-200 sm:flex dark:border-slate-800">
               <TabButton active={activeTab === "overview"} onClick={() => setActiveTab("overview")} label="Overview" icon={<CheckCircle2 className="w-4 h-4" />} />
               <TabButton active={activeTab === "data"} onClick={() => setActiveTab("data")} label="Data Connections" icon={<Database className="w-4 h-4" />} />
@@ -267,8 +266,9 @@ export default function SettingsPage() {
             >
               <Terminal className="w-4 h-4" />
             </button>
-          </div>
-        </div>
+            </div>
+          )}
+        />
 
         <div className="space-y-6 animate-in fade-in duration-300">
           {activeTab === "overview" && (

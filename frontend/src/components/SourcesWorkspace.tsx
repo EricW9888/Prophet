@@ -20,6 +20,7 @@ import {
 } from "@/lib/api";
 import { normalizeSourceOrigin } from "@/lib/sourceOrigin";
 import HintMarker from "@/components/HintMarker";
+import PageHeader from "@/components/PageHeader";
 
 type NoteForm = {
   title: string;
@@ -490,15 +491,13 @@ export default function SourcesWorkspace() {
 
   return (
     <main className="mx-auto w-full max-w-[1440px] px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-sky-500">Source memory</div>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight">Sources, Notes, and Feedback</h1>
-          <p className="mt-2 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
-            One workspace for sources Prophet trusts, sources it has only discovered, user notes, and the evidence you marked useful or noisy.
-          </p>
-        </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+      <div className="mb-6 space-y-4">
+        <PageHeader
+          eyebrow="Research library"
+          title="Sources, notes, and feedback"
+          description="Manage operator-trusted sources, agent recommendations, provisional discoveries, research notes, and evidence feedback without confusing trust with proof."
+        />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5 lg:max-w-3xl">
           <SummaryCard label="Trusted" value={trustedSources.length} />
           <SummaryCard label="Discovered" value={discoveredSources.length} />
           <SummaryCard label="Useful" value={usefulFlags.length} />
