@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Check, Pencil, X } from "lucide-react";
+import { Check, ChevronDown, Pencil, X } from "lucide-react";
 
 import AppNav from "@/components/AppNav";
 import {
@@ -22,6 +22,7 @@ import { formatModelUsedLabel, formatUserLabel } from "@/lib/formatting";
 
 const ACTIVE_JOB_STORAGE_KEY = "prophet:active-chat-job";
 const ALLOW_ACTIONS_STORAGE_KEY = "prophet:allow-agent-actions";
+const WATCHERS_COLLAPSED_STORAGE_KEY = "prophet:research-watches-collapsed";
 const ACTIVE_JOBS_POLL_ACTIVE_MS = 5000;
 const ACTIVE_JOBS_POLL_IDLE_MS = 15000;
 const ACTIVE_JOBS_POLL_HIDDEN_MS = 60000;
@@ -76,6 +77,15 @@ function formatCountdown(seconds?: number | null) {
   if (days > 0) return `${days}d ${hours}h left`;
   if (hours > 0) return `${hours}h ${minutes}m left`;
   return `${Math.max(1, minutes)}m left`;
+}
+
+function watchesStartCollapsed() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(WATCHERS_COLLAPSED_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
 }
 
 type StructuredReasoningSummary = {
@@ -268,7 +278,8 @@ function CorroborationPanel({ summary }: { summary: StructuredReasoningSummary }
 
 function LiveWatchers() {
   const [watchers, setWatchers] = useState<ActiveWatcher[]>([]);
-  const [expanded, setExpanded] = useState(false);
+  const [collapsed, setCollapsed] = useState(watchesStartCollapsed);
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -283,7 +294,18 @@ function LiveWatchers() {
   }, []);
 
   if (watchers.length === 0) return null;
-  const visibleWatchers = expanded ? watchers : watchers.slice(0, 12);
+  const visibleWatchers = showAll ? watchers : watchers.slice(0, 12);
+  const overdueCount = watchers.filter((watcher) => watcher.is_overdue).length;
+
+  const toggleCollapsed = () => {
+    setCollapsed((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(WATCHERS_COLLAPSED_STORAGE_KEY, String(next));
+      } catch {}
+      return next;
+    });
+  };
 
   const dismissWatcher = async (watcherId: string) => {
     await apiFetch(`/watcher/${watcherId}/deactivate`, { method: "POST" });
@@ -291,11 +313,32 @@ function LiveWatchers() {
   };
 
   return (
-    <div className="shrink-0 border-b border-slate-200 p-4 dark:border-slate-800">
-      <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-        Live Watches ({watchers.length})
-      </p>
-      <div className="max-h-[30vh] space-y-3 overflow-y-auto overscroll-contain pr-1">
+    <section className="shrink-0 border-b border-slate-200 dark:border-slate-800">
+      <button
+        type="button"
+        onClick={toggleCollapsed}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-xs font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900/60 dark:hover:text-slate-100"
+        aria-expanded={!collapsed}
+        aria-controls="research-live-watches"
+      >
+        <span>
+          Live watches <span className="tabular-nums">({watchers.length})</span>
+          {overdueCount > 0 ? (
+            <span className="ml-2 text-rose-600 dark:text-rose-400">
+              {overdueCount} overdue
+            </span>
+          ) : null}
+        </span>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 transition-transform ${collapsed ? "-rotate-90" : ""}`}
+          aria-hidden="true"
+        />
+      </button>
+      <div
+        id="research-live-watches"
+        hidden={collapsed}
+        className="max-h-[30vh] space-y-3 overflow-y-auto overscroll-contain px-4 pb-4 pr-5"
+      >
         {visibleWatchers.map((w) => (
           <div key={w.id} className="rounded-lg border border-sky-200 bg-sky-50/30 p-3 text-xs dark:border-sky-900/30 dark:bg-sky-900/10">
             <div className="flex items-center justify-between">
@@ -333,14 +376,14 @@ function LiveWatchers() {
         {watchers.length > 12 ? (
           <button
             type="button"
-            onClick={() => setExpanded((current) => !current)}
+            onClick={() => setShowAll((current) => !current)}
             className="w-full py-1 text-left text-[11px] font-semibold text-sky-600 hover:text-sky-500 dark:text-sky-400"
           >
-            {expanded ? "Show fewer" : `Show ${watchers.length - 12} more`}
+            {showAll ? "Show fewer" : `Show ${watchers.length - 12} more`}
           </button>
         ) : null}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -1002,35 +1045,6 @@ export default function ChatPage() {
               Start new chat
             </button>
           </div>
-          <div className="border-b border-slate-200 p-4 dark:border-slate-800">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-semibold">Agent Execution</p>
-                  <span className={`h-1.5 w-1.5 rounded-full ${executionActive ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" : "bg-slate-300"}`} />
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    {executionActive ? "Active" : "Passive"}
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">Allow Prophet to research and act.</p>
-              </div>
-              <button
-                type="button"
-                id="agent-execution-toggle"
-                onClick={() => setAllowActions(!allowActions)}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-sky-600 focus:ring-offset-2 ${
-                  allowActions ? "bg-sky-600" : "bg-slate-200 dark:bg-slate-700"
-                }`}
-              >
-                <span
-                  aria-hidden="true"
-                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                    allowActions ? "translate-x-5" : "translate-x-0"
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
           <RunningChats jobs={activeJobs} onFocus={focusJob} onCancel={(jobId) => void cancelJob(jobId)} />
           <LiveWatchers />
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -1450,26 +1464,57 @@ export default function ChatPage() {
           </div>
 
           <div className="shrink-0 border-t border-line bg-background/90 px-4 py-3 backdrop-blur sm:px-6">
-            <form onSubmit={handleSubmit} className="relative mx-auto max-w-5xl">
-              <textarea
-                ref={composerRef}
-                value={input}
-                onChange={(e) => {
-                  setInput(e.target.value);
-                  resizeComposer(e.target.value);
-                }}
-                onKeyDown={handleComposerKeyDown}
-                placeholder="Tell Prophet what you think, what changed, or what to analyze next..."
-                rows={1}
-                className="min-h-[64px] w-full resize-none overflow-y-auto rounded-lg border border-slate-300 bg-white py-4 pl-5 pr-20 outline-none transition-[border-color,box-shadow,height] focus:border-sky-500 focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-              />
-              <button
-                type="submit"
-                disabled={Boolean(activeJob && isActiveTurnJob(activeJob)) || !input.trim()}
-                className="absolute bottom-2.5 right-2.5 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-700 disabled:opacity-50"
-              >
-                Send
-              </button>
+            <form onSubmit={handleSubmit} className="mx-auto max-w-5xl">
+              <div className="mb-2 flex min-h-8 items-center justify-between gap-3">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={executionActive}
+                  disabled={!allowActionsLoaded}
+                  onClick={() => setAllowActions((current) => !current)}
+                  title="Allow Prophet to use enabled research and system actions for new turns"
+                  className="inline-flex items-center gap-2 rounded border border-line bg-panel px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:border-line-strong hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`relative h-4 w-7 rounded-full transition-colors ${
+                      executionActive ? "bg-emerald-600" : "bg-slate-300 dark:bg-slate-700"
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${
+                        executionActive ? "translate-x-3.5" : "translate-x-0.5"
+                      }`}
+                    />
+                  </span>
+                  Agent actions
+                  <span className="text-muted">{executionActive ? "On" : "Off"}</span>
+                </button>
+                {activeJob && isActiveTurnJob(activeJob) ? (
+                  <span className="truncate text-xs text-muted">Turn running in background</span>
+                ) : null}
+              </div>
+              <div className="relative">
+                <textarea
+                  ref={composerRef}
+                  value={input}
+                  onChange={(e) => {
+                    setInput(e.target.value);
+                    resizeComposer(e.target.value);
+                  }}
+                  onKeyDown={handleComposerKeyDown}
+                  placeholder="Tell Prophet what you think, what changed, or what to analyze next..."
+                  rows={1}
+                  className="min-h-[64px] w-full resize-none overflow-y-auto rounded-lg border border-slate-300 bg-white py-4 pl-5 pr-20 outline-none transition-[border-color,box-shadow,height] focus:border-sky-500 focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                />
+                <button
+                  type="submit"
+                  disabled={Boolean(activeJob && isActiveTurnJob(activeJob)) || !input.trim()}
+                  className="absolute bottom-2.5 right-2.5 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-700 disabled:opacity-50"
+                >
+                  Send
+                </button>
+              </div>
             </form>
           </div>
         </section>
