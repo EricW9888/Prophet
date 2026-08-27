@@ -1274,6 +1274,9 @@ function MediaCapabilityPanel({
   const capabilityRows = capabilities?.capabilities ?? [];
   const jobActive = Boolean(mediaJob && ["queued", "running"].includes(mediaJob.status));
   const latestEvent = mediaJob?.events[mediaJob.events.length - 1];
+  const investigationPasses = mediaJob?.result?.passes ?? [];
+  const completedPassCount = investigationPasses.filter((item) => item.status === "completed").length;
+  const unresolvedPassCount = investigationPasses.filter((item) => ["blocked", "failed"].includes(item.status)).length;
   return (
     <section className="rounded-lg border border-sky-200 bg-white p-4 dark:border-sky-900 dark:bg-slate-950">
       <div className="flex items-start justify-between gap-3">
@@ -1282,7 +1285,7 @@ function MediaCapabilityPanel({
             <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Video Ingestion</h2>
             <HintMarker label="Video ingestion">
               <p>
-                Prophet separates channel tracking, caption transcript ingestion, no-transcript audio transcription, and frame/OCR extraction. A channel source is not the same as a processed video.
+                Prophet tracks channels separately from evidence. It reads captions first, then deepens only when a material gap calls for an available audio or verification pass. Unavailable visual coverage remains explicit.
               </p>
             </HintMarker>
           </div>
@@ -1415,11 +1418,19 @@ function MediaCapabilityPanel({
             <div className="min-w-0">
               <p className="font-medium text-slate-700 dark:text-slate-200">{latestEvent?.message || "Video ingestion queued."}</p>
               {mediaJob.result?.ok ? (
-                <p className="mt-1 text-emerald-700 dark:text-emerald-300">
-                  {mediaJob.result.already_ingested
-                    ? "This video was already present in the selected source."
-                    : `Saved ${mediaJob.result.transcript_length?.toLocaleString() ?? 0} transcript characters via ${mediaJob.result.ingest_mode?.replaceAll("_", " ")}.`}
-                </p>
+                <div className="mt-1 space-y-1">
+                  <p className="text-emerald-700 dark:text-emerald-300">
+                    {mediaJob.result.already_ingested
+                      ? "This video was already present in the selected source."
+                      : `Saved ${mediaJob.result.transcript_length?.toLocaleString() ?? 0} transcript characters via ${mediaJob.result.ingest_mode?.replaceAll("_", " ")}.`}
+                  </p>
+                  {investigationPasses.length > 0 ? (
+                    <p className="text-slate-500 dark:text-slate-400">
+                      {completedPassCount} investigation {completedPassCount === 1 ? "pass" : "passes"} completed
+                      {unresolvedPassCount > 0 ? `; ${unresolvedPassCount} unavailable or failed` : ""}.
+                    </p>
+                  ) : null}
+                </div>
               ) : mediaJob.result?.error ? (
                 <p className="mt-1 text-rose-700 dark:text-rose-300">{mediaJob.result.error}</p>
               ) : null}

@@ -89,16 +89,24 @@ evidence link. These observations support provenance and later pattern review;
 they are not `RawEvidence` and cannot satisfy corroboration or accepted-state
 promotion.
 Neither search provider is Prophet's retrieval system. YouTube ingestion is
-caption-first. If captions are unavailable, an explicitly enabled local adapter
-can invoke installed `yt-dlp`, `ffmpeg`, and OpenAI Whisper CLI tools inside the
-same bounded, disposable media workspace used by cleanup automation. Prophet
-persists the transcript, timestamp segments, extraction mode, model, and source
-provenance rather than raw media. A tracked channel can expose a bounded,
-metadata-only list of recent videos through the same optional `yt-dlp` adapter;
-the operator chooses which video enters the existing ingestion job, and evidence
-is bound to the channel source. Prophet does not infer information from frames or
-automatically crawl a channel. The current media boundary is documented in
-`limitations.md`.
+caption-first. A structured assessment of the available representation records
+resolved points, material gaps, and requested follow-up capabilities. It may run
+one bounded audio pass through explicitly enabled `yt-dlp`, `ffmpeg`, and OpenAI
+Whisper CLI tools, or route one specific verification question through the
+existing research service. Every pass retains its representation, trigger,
+assessment, parent evidence, and source provenance; raw media remains temporary.
+
+An independently enabled frame adapter can sample bounded frames and pass
+Tesseract OCR text back through the same assessment and evidence path. It does
+not provide general scene, expression, demonstration, or chart-geometry
+understanding.
+
+Automation can review explicitly operator-trusted YouTube channel sources. It
+stores upload metadata as `ResearchDiscoveryObservation` before attempting a
+bounded number of real transcript ingestions. Failed fetches remain provisional
+and retryable; metadata alone never becomes evidence. An unavailable frame/OCR
+request remains an explicit coverage gap. The current media boundary is
+documented in `limitations.md`.
 
 ## Durable State
 

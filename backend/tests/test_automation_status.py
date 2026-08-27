@@ -58,6 +58,10 @@ def test_start_schedules_sequential_calibration_catchup_jobs():
 
     coordinator.start()
 
+    registered_names = [
+        call.args[0] for call in coordinator._register_job.call_args_list
+    ]
+    assert "youtube_channel_review" in registered_names
     coordinator._schedule_startup_sequence.assert_called_once()
     jobs = coordinator._schedule_startup_sequence.call_args.args[0]
     assert [name for name, _func in jobs] == [

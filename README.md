@@ -134,17 +134,21 @@ only returns key-presence flags. Environment-based deployments may instead set
 `NVIDIA_API_KEY` and `TAVILY_API_KEY`. SearXNG endpoint and provider order are
 runtime settings; an optional local Tavily credit budget can bound fallback use.
 
-YouTube ingestion uses an individual video's existing captions first. For a
-video without captions, an optional free local fallback can use separately
-installed `yt-dlp`, `ffmpeg`, and the OpenAI Whisper CLI. It is disabled by
-default and must be enabled with `YOUTUBE_LOCAL_TRANSCRIPTION_ENABLED=true`.
-Downloads stay in bounded temporary workspaces and raw media is removed after
-transcript extraction. This path transcribes speech; it does not inspect charts,
-slides, expressions, or other video frames. See `.env.example` for its operator
-settings. When `yt-dlp` is installed, Sources can also show a bounded,
-metadata-only review of recent uploads from a tracked YouTube channel. Prophet
-does not crawl or ingest the channel automatically; a selected video follows the
-same caption-first ingestion path and remains attributed to that channel source.
+YouTube ingestion reads an individual video's existing captions first, then
+assesses what material questions remain unresolved. A bounded deeper pass can
+verify a specific claim through the normal research pipeline or, when explicitly
+enabled, use separately installed `yt-dlp`, `ffmpeg`, and the OpenAI Whisper CLI
+for missing or materially incomplete speech. A separately enabled Tesseract
+adapter can sample bounded frames when on-screen text is material. Raw media
+stays in disposable temporary workspaces and is removed after extraction.
+Neither OCR nor speech transcription implies complete visual understanding.
+
+With `yt-dlp` installed, automation periodically reviews operator-trusted
+YouTube channel sources. New-upload metadata is first stored as a provisional
+discovery observation, not evidence. A bounded number of unseen uploads then
+enter the same caption-first pipeline and remain attributed to the tracked
+channel. Channel review and automatic ingestion are independently bounded and
+configurable in `.env.example`.
 
 ## Verification
 

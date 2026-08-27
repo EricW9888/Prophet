@@ -43,6 +43,7 @@ from investos.services.runtime_settings import RuntimeSettingsStore
 from investos.services.shadow import ShadowService
 from investos.services.source import SourceService
 from investos.services.theme_hygiene import ThemeHygieneService
+from investos.services.youtube import YouTubeService
 from investos.workers.extraction import ExtractionWorker
 
 
@@ -120,6 +121,12 @@ class AutomationCoordinator:
         self._register_job("entity_hygiene", self._run_entity_hygiene, 21600, True)
         self._register_job("theme_hygiene", self._run_theme_hygiene, 21600, True)
         self._register_job("media_cleanup", self._run_media_cleanup, 21600, True)
+        self._register_job(
+            "youtube_channel_review",
+            self._run_youtube_channel_review,
+            settings.YOUTUBE_CHANNEL_REVIEW_INTERVAL_SECONDS,
+            settings.YOUTUBE_CHANNEL_REVIEW_ENABLED,
+        )
         self._register_job(
             "source_claim_assessment",
             self._run_source_claim_assessment,
@@ -224,6 +231,7 @@ class AutomationCoordinator:
             "entity_hygiene": self._run_entity_hygiene,
             "theme_hygiene": self._run_theme_hygiene,
             "media_cleanup": self._run_media_cleanup,
+            "youtube_channel_review": self._run_youtube_channel_review,
             "source_claim_assessment": self._run_source_claim_assessment,
             "market_setup_assessment": self._run_market_setup_assessment,
             "fundamental_freshness": self._run_fundamental_freshness,
@@ -1142,6 +1150,43 @@ class AutomationCoordinator:
                 status="error",
                 summary=f"Media cleanup failed: {exc}",
             )
+
+    async def _run_youtube_channel_review(self) -> None:
+        telemetry = self.telemetry["youtube_channel_review"]
+        telemetry.last_run_at = datetime.now(UTC)
+        telemetry.last_status = "running"
+        async with async_session_maker() as session:
+            try:
+                result = await YouTubeService(session).review_tracked_channels()
+                telemetry.last_status = self._result_telemetry_status(result)
+                telemetry.detail = (
+                    f"sources={result.get('sources_reviewed', 0)} "
+                    f"observed={result.get('uploads_observed', 0)} "
+                    f"ingested={result.get('uploads_ingested', 0)} "
+                    f"known={result.get('uploads_already_known', 0)} "
+                    f"failed={result.get('uploads_failed', 0)}"
+                )
+                if result.get("reason"):
+                    telemetry.detail += f" reason={result['reason']}"
+                self._log_job_action(
+                    job_name="youtube_channel_review",
+                    status=telemetry.last_status,
+                    summary=(
+                        "YouTube channel review checked "
+                        f"{result.get('sources_reviewed', 0)} tracked source(s), "
+                        f"observed {result.get('uploads_observed', 0)} new upload(s), "
+                        f"and ingested {result.get('uploads_ingested', 0)} attributable transcript(s)."
+                    ),
+                    metadata=result,
+                )
+            except Exception as exc:
+                telemetry.last_status = "error"
+                telemetry.detail = str(exc)
+                self._log_job_action(
+                    job_name="youtube_channel_review",
+                    status="error",
+                    summary=f"YouTube channel review failed: {exc}",
+                )
 
     async def _run_source_claim_assessment(self) -> None:
         telemetry = self.telemetry["source_claim_assessment"]
