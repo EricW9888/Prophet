@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import AppNav from "@/components/AppNav";
 import FloatingNotice from "@/components/FloatingNotice";
+import PageHeader from "@/components/PageHeader";
 import { API_BASE, apiFetch, AutomationStatus, ShadowExperiment } from "@/lib/api";
 
 
@@ -262,12 +263,12 @@ export default function ShadowPage() {
         {!error && notice ? (
           <FloatingNotice tone="success" message={notice} onDismiss={() => setNotice(null)} />
         ) : null}
-        <header className="border-b border-slate-200 pb-5 dark:border-slate-800 xl:col-span-2">
-          <h1 className="text-3xl font-semibold">Shadow Lab</h1>
-          <p className="mt-2 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
-            Run a parallel portfolio experiment from the current live book, then review what it tried, why it tried it, and how it compared against the real portfolio.
-          </p>
-        </header>
+        <PageHeader
+          className="xl:col-span-2"
+          eyebrow="Simulation"
+          title="Shadow lab"
+          description="Run a parallel portfolio experiment from the live book, then review what changed, why, and how the result compared with the real portfolio."
+        />
 
         <section className="self-start space-y-6 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto xl:pr-1">
 

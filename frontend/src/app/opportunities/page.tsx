@@ -15,7 +15,6 @@ import {
   Play,
   Plus,
   RefreshCw,
-  Search,
   Settings2,
   Trash2,
   X,
@@ -24,6 +23,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 import AppNav from "@/components/AppNav";
 import FloatingNotice from "@/components/FloatingNotice";
+import PageHeader from "@/components/PageHeader";
 import {
   apiFetch,
   AutomationStatus,
@@ -375,17 +375,12 @@ export default function OpportunitiesPage() {
       {!error && notice ? <FloatingNotice tone="success" message={notice} onDismiss={() => setNotice(null)} /> : null}
 
       <main className="mx-auto min-w-0 w-full max-w-[1440px] px-4 py-7 sm:px-6 lg:px-8">
-        <header className="flex flex-col gap-4 border-b border-slate-200 pb-5 dark:border-slate-800 lg:flex-row lg:items-end lg:justify-between">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase text-slate-500">
-              <Search className="h-4 w-4" /> Discovery
-            </div>
-            <h1 className="mt-2 break-words text-2xl font-semibold sm:text-3xl">Opportunity Queue</h1>
-            <p className="mt-2 max-w-3xl break-words text-sm text-slate-500 dark:text-slate-400">
-              Prophet scans only the investable universe you define, under explicit time and provider budgets. Candidates remain provisional until you monitor, reject, expire, or test them in Shadow Lab.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+        <PageHeader
+          eyebrow="Discovery"
+          title="Opportunity queue"
+          description="Review provisional candidates from the investable universe you define, then monitor, reject, expire, or test them before they affect a view."
+          actions={(
+            <>
             <button
               type="button"
               onClick={() => void loadState()}
@@ -402,8 +397,9 @@ export default function OpportunitiesPage() {
               {busy === "run" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
               Run bounded scan
             </button>
-          </div>
-        </header>
+            </>
+          )}
+        />
 
         <section className="grid grid-cols-2 gap-px border-b border-slate-200 bg-slate-200 sm:grid-cols-4 dark:border-slate-800 dark:bg-slate-800">
           {[

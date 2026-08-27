@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import AppNav from "@/components/AppNav";
+import PageHeader from "@/components/PageHeader";
 import ReconcilePanel from "@/components/ReconcilePanel";
 import { apiFetch, AutomationStatus, correctTransaction, PortfolioOverview, Position, Transaction, TransactionCorrectionRecord } from "@/lib/api";
 import { automationJobHealth } from "@/lib/automation";
@@ -145,17 +146,12 @@ export default function HistoryPage() {
       <AppNav active="history" />
 
       <div className="mx-auto w-full max-w-[1440px] px-4 py-8 sm:px-6 lg:px-8">
-        <header className="mb-12">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-sky-100 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 rounded-lg">
-              <History className="w-5 h-5" />
-            </div>
-            <h1 className="text-3xl font-bold tracking-tight">Portfolio History</h1>
-          </div>
-          <p className="text-slate-500 dark:text-slate-400 max-w-2xl leading-relaxed">
-            Review the closed-position archive, recent transactions, and how the live book has changed over time without losing sight of what is still held right now.
-          </p>
-        </header>
+        <PageHeader
+          className="mb-8"
+          eyebrow="Portfolio records"
+          title="Portfolio history"
+          description="Review closed positions, transactions, corrections, and how the live book changed over time without losing sight of what is still held."
+        />
 
         <div className="mb-8">
           <div className="rounded-lg border border-line bg-panel p-5">
