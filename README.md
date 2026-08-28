@@ -68,46 +68,44 @@ Requirements:
 - [Poetry](https://python-poetry.org/docs/#installation) 2.3.2, installed in
   its own environment (prefer `pipx install poetry==2.3.2`)
 - Node.js 24 LTS and npm
-- Docker with Compose
+- Docker with Compose, or an existing reachable PostgreSQL 16 server
+
+Start Prophet from the repository root:
 
 ```bash
-cp .env.example .env
-# Set POSTGRES_PASSWORD in .env before starting PostgreSQL. If port 5432 is
-# already in use, choose another loopback port with POSTGRES_PORT.
-docker compose up -d db
-
-cd backend
-poetry config virtualenvs.in-project true --local
-poetry install --with dev
-poetry run alembic upgrade head
-cd ../frontend
-npm ci
-cd ..
-
+python scripts/prophet.py
 ```
+
+On Windows, use `py -3.11 scripts\prophet.py`. The same command handles first
+run and ordinary startup: it checks prerequisites, creates a private `.env`
+with a generated local database password when needed, reuses the configured
+PostgreSQL server or starts the local Compose service when none is listening,
+installs lockfile-pinned dependencies, applies migrations, rebuilds changed
+frontend code, waits for readiness, and opens [Prophet](http://127.0.0.1:3000).
+It never installs or starts Ollama or another model provider.
+
+Keep the launcher window open while using Prophet. Press `Ctrl+C` there to stop
+the backend and frontend processes it started; PostgreSQL remains available for
+the next run. Diagnose setup or inspect a running stack with:
+
+```bash
+python scripts/prophet.py doctor
+python scripts/prophet.py status
+```
+
+Use `python scripts/prophet.py --dev` for frontend hot reload. The launcher will
+not kill an unknown process when ports 3000 or 8000 are occupied; it reports the
+conflict so the owning process can be handled deliberately. Logs live in the
+ignored `.prophet-local/runtime/` directory.
 
 Do not install Poetry into `backend/.venv`; Poetry must remain isolated from the
-environment it manages.
+environment it manages. The older `dev_up.sh`, `stable_up.sh`, and status
+commands remain as macOS/Linux compatibility aliases, but delegate to the same
+launcher rather than maintaining a second service-orchestration path.
 
-Start the services in separate terminals on any supported platform, including
-Windows:
-
-```bash
-cd backend
-poetry run uvicorn investos.main:app --host 127.0.0.1 --port 8000
-```
-
-```bash
-cd frontend
-npm run dev -- --hostname 127.0.0.1 --port 3000
-```
-
-On macOS or Linux, `./scripts/dev_up.sh` and `./scripts/dev_status.sh` provide a
-convenience wrapper around detached `screen` sessions. They are optional and are
-not the cross-platform runtime contract.
-
-Open [Prophet](http://127.0.0.1:3000). The API health endpoint is
-`http://127.0.0.1:8000/health`.
+The API health endpoint is `http://127.0.0.1:8000/health`. If the database port
+is already in use, set another loopback `POSTGRES_PORT` in the private `.env`
+before retrying.
 
 Configure model and research integrations from **Settings > Research**.
 Prophet's implemented LLM provider registry currently contains:
