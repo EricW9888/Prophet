@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import {
   CartesianGrid,
@@ -15,6 +15,7 @@ import {
 
 import { apiFetch, DashboardSummary } from "@/lib/api";
 import { automationJobHealth, type AutomationHealth } from "@/lib/automation";
+import WorkspaceState from "@/components/WorkspaceState";
 import {
   safeFormatCurrency,
   safeFormatSignedCurrency,
@@ -85,7 +86,7 @@ export default function DashboardOverview() {
     infrastructure: false,
   });
 
-  async function loadSummary() {
+  const loadSummary = useCallback(async () => {
     try {
       const data = await apiFetch<DashboardSummary>("/dashboard/summary");
       setSummary(data);
@@ -95,7 +96,7 @@ export default function DashboardOverview() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     void loadSummary();
@@ -103,26 +104,29 @@ export default function DashboardOverview() {
       void loadSummary();
     }, 15000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [loadSummary]);
 
   if (loading) {
     return (
-      <div className="animate-pulse space-y-6">
-        <div className="h-24 rounded-lg bg-slate-100 dark:bg-slate-900" />
-        <div className="grid grid-cols-3 gap-6">
-           <div className="h-96 rounded-lg bg-slate-100 dark:bg-slate-900" />
-           <div className="h-96 rounded-lg bg-slate-100 dark:bg-slate-900" />
-           <div className="h-96 rounded-lg bg-slate-100 dark:bg-slate-900" />
-        </div>
-      </div>
+      <WorkspaceState
+        kind="loading"
+        title="Loading your portfolio workspace"
+        description="Prophet is reconciling the live book, research queue, and automation status."
+        className="min-h-72"
+      />
     );
   }
 
-  if (error || !summary) {
+  if (!summary) {
     return (
-      <Panel className="border-red-100 bg-red-50/10">
-        <p className="text-sm text-red-500 font-medium">{error ?? "Dashboard summary unavailable."}</p>
-      </Panel>
+      <WorkspaceState
+        kind="error"
+        title="Portfolio workspace unavailable"
+        description={error ?? "Prophet could not load the dashboard summary."}
+        actionLabel="Retry"
+        onAction={() => void loadSummary()}
+        className="min-h-72"
+      />
     );
   }
 
@@ -141,6 +145,16 @@ export default function DashboardOverview() {
 
   return (
     <div className="space-y-6">
+      {error ? (
+        <WorkspaceState
+          kind="degraded"
+          title="Dashboard refresh is delayed"
+          description={`${error} The last successfully loaded portfolio state remains visible below.`}
+          actionLabel="Retry refresh"
+          onAction={() => void loadSummary()}
+          compact
+        />
+      ) : null}
       {/* Hero Stats */}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <HeroMetric
