@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BookmarkPlus, CheckCircle2, ExternalLink, FileText, RotateCcw, ThumbsDown, ThumbsUp, Trash2, Video } from "lucide-react";
 
 import {
@@ -21,6 +21,7 @@ import {
 import { normalizeSourceOrigin } from "@/lib/sourceOrigin";
 import HintMarker from "@/components/HintMarker";
 import PageHeader from "@/components/PageHeader";
+import WorkspaceState from "@/components/WorkspaceState";
 
 type NoteForm = {
   title: string;
@@ -93,6 +94,8 @@ export default function SourcesWorkspace() {
   const [channelPreview, setChannelPreview] = useState<YouTubeChannelPreview | null>(null);
   const [channelLoading, setChannelLoading] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadedOnce, setLoadedOnce] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -112,6 +115,7 @@ export default function SourcesWorkspace() {
   const [disclosureForm, setDisclosureForm] = useState<DisclosureForm>(emptyDisclosureForm);
   const [feedbackNotes, setFeedbackNotes] = useState<Record<string, string>>({});
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceTab>("review");
+  const loadedOnceRef = useRef(false);
 
   const trustedSources = useMemo(() => sources.filter((source) => source.is_trusted), [sources]);
   const operatorTrustedSources = useMemo(
@@ -131,7 +135,7 @@ export default function SourcesWorkspace() {
   const noisyFlags = feedback.filter((item) => item.rating === "not_useful");
 
   async function loadWorkspace(showSpinner = true) {
-    if (showSpinner) setLoading(true);
+    if (showSpinner && !loadedOnceRef.current) setLoading(true);
     try {
       const [sourceData, evidenceData, discoveryData, feedbackData, noteData, aliasData, mediaCapabilityData] = await Promise.all([
         apiFetch<SourceRecord[]>("/sources/"),
@@ -160,9 +164,11 @@ export default function SourcesWorkspace() {
         const preferred = sourceData.find((source) => source.is_trusted) ?? sourceData[0];
         return { ...current, sourceId: preferred.id };
       });
-      setError(null);
+      loadedOnceRef.current = true;
+      setLoadedOnce(true);
+      setLoadError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load source workspace.");
+      setLoadError(err instanceof Error ? err.message : "Unable to load source workspace.");
     } finally {
       setLoading(false);
     }
@@ -512,6 +518,18 @@ export default function SourcesWorkspace() {
         </div>
       ) : null}
 
+      {loadedOnce && loadError ? (
+        <WorkspaceState
+          kind="degraded"
+          compact
+          className="mb-4"
+          title="Source refresh is delayed"
+          description={`${loadError} The last loaded source library remains available.`}
+          actionLabel="Retry refresh"
+          onAction={() => void loadWorkspace(false)}
+        />
+      ) : null}
+
       <div className="mb-6 flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950">
         <WorkspaceTabButton
           active={activeWorkspace === "review"}
@@ -539,10 +557,20 @@ export default function SourcesWorkspace() {
         />
       </div>
 
-      {loading ? (
-        <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950">
-          Loading source workspace...
-        </div>
+      {!loadedOnce && loading ? (
+        <WorkspaceState
+          kind="loading"
+          title="Loading source workspace"
+          description="Retrieving source trust, evidence, feedback, and media-ingestion status."
+        />
+      ) : !loadedOnce && loadError ? (
+        <WorkspaceState
+          kind="error"
+          title="Source workspace is unavailable"
+          description={loadError}
+          actionLabel="Retry"
+          onAction={() => void loadWorkspace()}
+        />
       ) : activeWorkspace === "review" ? (
         <section className="space-y-6">
           <SourceSection

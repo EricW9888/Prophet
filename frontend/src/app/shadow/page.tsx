@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import AppNav from "@/components/AppNav";
 import FloatingNotice from "@/components/FloatingNotice";
 import PageHeader from "@/components/PageHeader";
+import WorkspaceState from "@/components/WorkspaceState";
 import { API_BASE, apiFetch, AutomationStatus, ShadowExperiment } from "@/lib/api";
 
 
@@ -18,6 +19,8 @@ export default function ShadowPage() {
   const [accountBasis, setAccountBasis] = useState<"clone_portfolio" | "cash_only">("clone_portfolio");
   const [startingCash, setStartingCash] = useState("100000");
   const [loading, setLoading] = useState(true);
+  const [loadedOnce, setLoadedOnce] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [runningJob, setRunningJob] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -25,6 +28,7 @@ export default function ShadowPage() {
   const [expandedZones, setExpandedZones] = useState<Set<string>>(new Set());
   const [loadingDetailIds, setLoadingDetailIds] = useState<Set<string>>(new Set());
   const detailedExperimentIds = useRef<Set<string>>(new Set());
+  const loadedOnceRef = useRef(false);
 
   function toggleZone(key: string) {
     setExpandedZones(prev => {
@@ -36,7 +40,7 @@ export default function ShadowPage() {
   }
 
   async function loadState(options?: { background?: boolean }) {
-    if (!options?.background) {
+    if (!options?.background && !loadedOnceRef.current) {
       setLoading(true);
     }
     try {
@@ -63,9 +67,11 @@ export default function ShadowPage() {
         }),
       );
       setAutomation(automationData);
-      setError(null);
+      loadedOnceRef.current = true;
+      setLoadedOnce(true);
+      setLoadError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load shadow lab.");
+      setLoadError(err instanceof Error ? err.message : "Unable to load shadow lab.");
     } finally {
       if (!options?.background) {
         setLoading(false);
@@ -418,12 +424,36 @@ export default function ShadowPage() {
             <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Experiment runs</h2>
             <span className="text-xs text-slate-500 dark:text-slate-400">{experiments.length} total</span>
           </div>
-          {loading ? (
-            <div className="text-sm text-slate-500 animate-pulse">Loading experiments...</div>
+          {loadedOnce && loadError ? (
+            <WorkspaceState
+              kind="degraded"
+              compact
+              title="Experiment refresh is delayed"
+              description={`${loadError} The last loaded experiment state remains visible.`}
+              actionLabel="Retry refresh"
+              onAction={() => void loadState({ background: true })}
+            />
+          ) : null}
+          {!loadedOnce && loading ? (
+            <WorkspaceState
+              kind="loading"
+              title="Loading shadow experiments"
+              description="Retrieving paper accounts, experiment checkpoints, and automation status."
+            />
+          ) : !loadedOnce && loadError ? (
+            <WorkspaceState
+              kind="error"
+              title="Shadow lab is unavailable"
+              description={loadError}
+              actionLabel="Retry"
+              onAction={() => void loadState()}
+            />
           ) : experiments.length === 0 ? (
-            <div className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950 text-slate-500 dark:text-slate-400">
-              No experiments yet.
-            </div>
+            <WorkspaceState
+              kind="empty"
+              title="No shadow experiments yet"
+              description="Define a policy above to compare a simulated portfolio path with the live book."
+            />
           ) : (
             experiments.map((experiment) => (
               <article key={experiment.id} className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-5 [overflow-wrap:anywhere] dark:border-slate-800 dark:bg-slate-950">
