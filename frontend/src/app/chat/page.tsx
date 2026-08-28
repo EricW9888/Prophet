@@ -1584,18 +1584,18 @@ export default function ChatPage() {
                 >
                   <span
                     aria-hidden="true"
-                    className={`relative h-4 w-7 rounded-full transition-colors ${
+                    className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${
                       executionActive ? "bg-emerald-600" : "bg-slate-300 dark:bg-slate-700"
                     }`}
                   >
                     <span
-                      className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${
-                        executionActive ? "translate-x-3.5" : "translate-x-0.5"
+                      className={`absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${
+                        executionActive ? "translate-x-3" : "translate-x-0"
                       }`}
                     />
                   </span>
                   Agent actions
-                  <span className="text-muted">{executionActive ? "On" : "Off"}</span>
+                  <span className="w-5 text-left text-muted">{executionActive ? "On" : "Off"}</span>
                 </button>
                 {activeJob && isActiveTurnJob(activeJob) ? (
                   <span className="truncate text-xs text-muted">Turn running in background</span>
