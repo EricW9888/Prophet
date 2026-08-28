@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Pencil, X } from "lucide-react";
+import { Check, ChevronDown, PanelLeftOpen, Pencil, X } from "lucide-react";
 
 import AppNav from "@/components/AppNav";
 import {
@@ -452,12 +452,20 @@ export default function ChatPage() {
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
+  const [mobileWorkspaceOpen, setMobileWorkspaceOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const lastPrefillRef = useRef<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const activeJobsRef = useRef<AgentTurnJob[]>([]);
   const loadActiveJobsRef = useRef<() => Promise<void>>(async () => undefined);
+  const mobileWorkspacePanelRef = useRef<HTMLElement>(null);
+  const mobileWorkspaceTriggerRef = useRef<HTMLButtonElement>(null);
+
+  const closeMobileWorkspace = useCallback(() => {
+    setMobileWorkspaceOpen(false);
+    window.requestAnimationFrame(() => mobileWorkspaceTriggerRef.current?.focus());
+  }, []);
 
   function resizeComposer(nextValue?: string) {
     if (!composerRef.current) return;
@@ -620,6 +628,47 @@ export default function ChatPage() {
       document.body.style.height = previousBodyHeight;
     };
   }, []);
+
+  useEffect(() => {
+    if (!mobileWorkspaceOpen) return;
+
+    const desktopMedia = window.matchMedia("(min-width: 1024px)");
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeMobileWorkspace();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+      const focusable = mobileWorkspacePanelRef.current?.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    function closeAtDesktopWidth(event: MediaQueryListEvent) {
+      if (event.matches) {
+        setMobileWorkspaceOpen(false);
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    desktopMedia.addEventListener("change", closeAtDesktopWidth);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      desktopMedia.removeEventListener("change", closeAtDesktopWidth);
+    };
+  }, [closeMobileWorkspace, mobileWorkspaceOpen]);
 
   useEffect(() => {
     // Local job restoration remains in useEffect
@@ -1032,20 +1081,64 @@ export default function ChatPage() {
       <AppNav active="research" />
 
       <main className="flex min-h-0 w-full flex-1 overflow-hidden">
-        <aside className="hidden h-full min-h-0 w-[320px] shrink-0 flex-col border-r border-slate-200 bg-white/70 dark:border-slate-800 dark:bg-slate-950/70 lg:flex">
+        {mobileWorkspaceOpen ? (
+          <button
+            type="button"
+            aria-label="Close chats and watches"
+            onClick={closeMobileWorkspace}
+            className="fixed inset-0 z-[60] bg-slate-950/45 backdrop-blur-[1px] lg:hidden"
+          />
+        ) : null}
+        <aside
+          ref={mobileWorkspacePanelRef}
+          id="research-workspace-panel"
+          role={mobileWorkspaceOpen ? "dialog" : undefined}
+          aria-modal={mobileWorkspaceOpen ? true : undefined}
+          aria-label="Chats and watches"
+          className={`${
+            mobileWorkspaceOpen
+              ? "fixed inset-y-0 left-0 z-[70] flex w-[min(88vw,360px)] shadow-2xl"
+              : "hidden"
+          } h-full min-h-0 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950 lg:relative lg:inset-auto lg:z-auto lg:flex lg:w-[320px] lg:shadow-none`}
+        >
+          {mobileWorkspaceOpen ? (
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800 lg:hidden">
+              <p className="text-sm font-semibold">Chats and watches</p>
+              <button
+                type="button"
+                autoFocus
+                onClick={closeMobileWorkspace}
+                className="inline-flex h-9 w-9 items-center justify-center rounded border border-slate-200 text-slate-500 dark:border-slate-800 dark:text-slate-400"
+                title="Close chats and watches"
+              >
+                <X className="h-4 w-4" />
+                <span className="sr-only">Close chats and watches</span>
+              </button>
+            </div>
+          ) : null}
           <div className="border-b border-slate-200 p-4 dark:border-slate-800">
             <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
               Saved chats
             </p>
             <button
               type="button"
-              onClick={startNewChat}
+              onClick={() => {
+                startNewChat();
+                setMobileWorkspaceOpen(false);
+              }}
               className="w-full rounded-lg bg-sky-600 px-4 py-3 text-sm font-medium text-white"
             >
               Start new chat
             </button>
           </div>
-          <RunningChats jobs={activeJobs} onFocus={focusJob} onCancel={(jobId) => void cancelJob(jobId)} />
+          <RunningChats
+            jobs={activeJobs}
+            onFocus={(job) => {
+              focusJob(job);
+              setMobileWorkspaceOpen(false);
+            }}
+            onCancel={(jobId) => void cancelJob(jobId)}
+          />
           <LiveWatchers />
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {conversations.length === 0 ? (
@@ -1110,7 +1203,10 @@ export default function ChatPage() {
                       <div className="flex items-start gap-2">
                         <button
                           type="button"
-                          onClick={() => setActiveSessionId(conversation.session_id)}
+                          onClick={() => {
+                            setActiveSessionId(conversation.session_id);
+                            setMobileWorkspaceOpen(false);
+                          }}
                           className="min-w-0 flex-1 text-left"
                         >
                           <div className="flex items-start justify-between gap-2">
@@ -1220,9 +1316,20 @@ export default function ChatPage() {
               </div>
               <div className="flex flex-wrap gap-2 lg:hidden">
                 <button
+                  ref={mobileWorkspaceTriggerRef}
+                  type="button"
+                  onClick={() => setMobileWorkspaceOpen(true)}
+                  className="inline-flex items-center gap-2 rounded border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700"
+                  aria-expanded={mobileWorkspaceOpen}
+                  aria-controls="research-workspace-panel"
+                >
+                  <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
+                  Chats and watches
+                </button>
+                <button
                   type="button"
                   onClick={startNewChat}
-                  className="rounded-full border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700"
+                  className="rounded border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700"
                 >
                   New chat
                 </button>
