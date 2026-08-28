@@ -6,6 +6,7 @@ import AppNav from "@/components/AppNav";
 import FloatingNotice from "@/components/FloatingNotice";
 import FloatingSaveBar from "@/components/FloatingSaveBar";
 import PageHeader from "@/components/PageHeader";
+import WorkspaceState from "@/components/WorkspaceState";
 import {
   API_BASE,
   apiFetch,
@@ -40,6 +41,8 @@ export default function SettingsPage() {
   const [automation, setAutomation] = useState<AutomationStatus | null>(null);
   const [portfolioOverview, setPortfolioOverview] = useState<PortfolioOverview | null>(null);
   const [riskSummary, setRiskSummary] = useState<RiskSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [isDirty, setIsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -76,15 +79,19 @@ export default function SettingsPage() {
 
       if (setRes.status === "fulfilled") {
         setSettings(prev => (prev && dirtyRef.current ? prev : setRes.value));
+        setLoadError(null);
+      } else {
+        setLoadError(setRes.reason instanceof Error ? setRes.reason.message : "Unable to load integration settings.");
       }
       if (sRes.status === "fulfilled") setSetup(sRes.value);
       if (autoRes.status === "fulfilled") setAutomation(autoRes.value);
       if (portRes.status === "fulfilled") setPortfolioOverview(portRes.value);
       if (riskRes.status === "fulfilled") setRiskSummary(riskRes.value);
 
-      setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load settings.");
+      setLoadError(err instanceof Error ? err.message : "Unable to load settings.");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -231,7 +238,37 @@ export default function SettingsPage() {
   }
 
   if (!settings) {
-    return <div className="p-12 animate-pulse text-slate-500">Loading your configuration...</div>;
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <AppNav active="settings" />
+        <main className="mx-auto w-full max-w-[1440px] px-4 py-8 sm:px-6 lg:px-8">
+          <PageHeader
+            className="mb-8"
+            eyebrow="Configuration"
+            title="Settings"
+            description="Manage portfolio inputs, data connections, research providers, model access, automation, and system state."
+          />
+          {loading ? (
+            <WorkspaceState
+              kind="loading"
+              title="Loading configuration"
+              description="Retrieving integration readiness, automation status, and portfolio defaults."
+            />
+          ) : (
+            <WorkspaceState
+              kind="error"
+              title="Settings are unavailable"
+              description={loadError ?? "Prophet could not load the required integration settings."}
+              actionLabel="Retry"
+              onAction={() => {
+                setLoading(true);
+                void loadState();
+              }}
+            />
+          )}
+        </main>
+      </div>
+    );
   }
   const activeLlmCapability = (settings.llm.available_providers ?? []).find(
     capability => capability.provider === settings.llm.provider,
@@ -244,6 +281,18 @@ export default function SettingsPage() {
       <main className="mx-auto w-full max-w-[1440px] px-4 py-8 sm:px-6 lg:px-8">
         {error && <FloatingNotice tone="error" message={error} onDismiss={() => setError(null)} />}
         {notice && <FloatingNotice tone="success" message={notice} onDismiss={() => setNotice(null)} />}
+
+        {loadError ? (
+          <WorkspaceState
+            kind="degraded"
+            compact
+            className="mb-4"
+            title="Some settings status is delayed"
+            description={`${loadError} Your last loaded configuration remains available.`}
+            actionLabel="Retry refresh"
+            onAction={() => void loadState()}
+          />
+        ) : null}
 
         <PageHeader
           className="mb-8"
