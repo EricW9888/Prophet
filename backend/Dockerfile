@@ -31,4 +31,4 @@ USER prophet
 EXPOSE 8000
 
 # Runtime config (DB host, storage paths) is supplied by docker-compose env.
-CMD ["python", "-m", "uvicorn", "investos.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "investos.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]
