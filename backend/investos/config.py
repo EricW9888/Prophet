@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Prophet"
     API_V1_STR: str = "/api"
     FRONTEND_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+    PROPHET_REMOTE_ACCESS_USER: str | None = None
     API_ALLOW_NON_LOOPBACK: bool = False
     ENVIRONMENT: str = "development"
 

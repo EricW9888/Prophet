@@ -50,6 +50,19 @@ def test_settings_load_the_repository_root_env_file():
     assert Settings.model_config["env_file"] == PROJECT_ROOT / ".env"
 
 
+def test_settings_accept_the_documented_frontend_remote_identity(tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "POSTGRES_PASSWORD=unit-test-placeholder\n"
+        "PROPHET_REMOTE_ACCESS_USER=owner@example.com\n",
+        encoding="utf-8",
+    )
+
+    isolated = Settings(_env_file=env_path)
+
+    assert isolated.PROPHET_REMOTE_ACCESS_USER == "owner@example.com"
+
+
 @pytest.mark.asyncio
 async def test_reset_route_is_hidden_when_disabled(monkeypatch):
     monkeypatch.setattr(settings, "DEV_RESET_ENABLED", False)
