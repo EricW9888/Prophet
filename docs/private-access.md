@@ -48,6 +48,25 @@ This is owner access, not a general multi-user authentication system.
 5. Open the reported HTTPS URL on the authorized device. The browser can then
    install Prophet with **Add to Home Screen** or **Install app**.
 
+## Mobile notifications
+
+After opening the installed app over HTTPS, go to **Settings > System > Owner
+notifications** and enable the current device. Permission is requested only from
+that explicit action. On iPhone and iPad, Web Push requires a Home Screen web
+app; a normal browser tab does not expose the same permission path.
+
+Prophet creates one private VAPID identity under its ignored storage directory
+and keeps each browser subscription in the local database. A durable delivery
+outbox deduplicates watcher transitions, retries temporary push-service
+failures, and retires subscriptions rejected as permanently invalid. Use **Send
+test** in Settings to verify a device after enabling it.
+
+Lock-screen messages deliberately omit tickers, positions, values, objectives,
+and adjustment plans. They say only that a monitored condition needs review and
+link back to Prophet. Notification delivery still depends on the host being on,
+Prophet automation running, and the host having network access; the phone does
+not run the research system itself.
+
 An unconfigured identity, a missing Tailscale identity header, or a different
 login receives HTTP 403. To remove access, run `tailscale serve reset`, remove
 the two remote-access values from `.env`, and restart Prophet.
@@ -64,6 +83,7 @@ the two remote-access values from `.env`, and restart Prophet.
 - The PWA does not make background automation run on the phone. Automation,
   connectors, data, and secrets remain on the Prophet host.
 - If the host is asleep, stopped, offline, or disconnected from Tailscale, the
-  client shows the static offline notice and no live state.
+  client shows the static offline notice and no live state. New alerts also
+  wait until the host and its push dispatcher are running again.
 - Compromise of the host or the operator's tailnet identity is outside this
   boundary. Revoke the device/session and rotate affected credentials.

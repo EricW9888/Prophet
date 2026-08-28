@@ -26,6 +26,13 @@ another device is supported only through the loopback-preserving, identity-gated
 Tailscale Serve boundary documented in [Private access](private-access.md). This
 remains owner-only access rather than a multi-user authorization system.
 
+Opt-in Web Push notifications contain generic advisory text rather than
+portfolio details. Delivery depends on the browser and operating-system push
+service, network availability, the Prophet host remaining online, and the
+background dispatcher running. A notification is a prompt to inspect current
+state, not proof that a condition was interpreted correctly or delivered at an
+exact time.
+
 ## Data and Connector Coverage
 
 Gmail or IMAP ingestion depends on the configured mailbox scope and the formats

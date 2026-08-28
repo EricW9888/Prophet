@@ -26,6 +26,7 @@ greenlet = "^3.3.2"
 plaid-python = "^39.0.0"
 youtube-transcript-api = "^1.2.4"
 fastjsonschema = "^2.21.2"
+pywebpush = "^2.4.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.1.1"
