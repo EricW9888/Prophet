@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import AppNav from "@/components/AppNav";
 import PageHeader from "@/components/PageHeader";
+import WorkspaceState from "@/components/WorkspaceState";
 import { AgentActionLogItem, apiFetch } from "@/lib/api";
 import { formatUserLabel } from "@/lib/formatting";
 
@@ -221,14 +222,37 @@ export default function ActivityPage() {
           )}
         />
 
-        {error ? (
-          <div className="mt-8 rounded-lg border border-red-200 bg-red-50/70 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
-            {error}
-          </div>
+        {error && items.length > 0 ? (
+          <WorkspaceState
+            kind="degraded"
+            title="Activity refresh is delayed"
+            description={`${error} The last successfully loaded activity remains visible, and Prophet will retry automatically.`}
+            compact
+            className="mt-8"
+          />
         ) : null}
 
         {loading && items.length === 0 ? (
-          <div className="mt-8 text-sm text-slate-500 dark:text-slate-400">Loading activity…</div>
+          <WorkspaceState
+            kind="loading"
+            title="Loading recent activity"
+            description="Prophet is collecting dated research, reasoning, and automation actions."
+            className="mt-8 min-h-48"
+          />
+        ) : error && items.length === 0 ? (
+          <WorkspaceState
+            kind="error"
+            title="Activity unavailable"
+            description={`${error} Prophet will retry automatically.`}
+            className="mt-8 min-h-48"
+          />
+        ) : groups.length === 0 ? (
+          <WorkspaceState
+            kind="empty"
+            title="No activity matches this view"
+            description="Change the source or status filters, or return after Prophet has completed more work."
+            className="mt-8 min-h-48"
+          />
         ) : null}
 
         <div className="mt-8 space-y-8">

@@ -4,6 +4,7 @@ import { type ReactNode, useCallback, useEffect, useState } from "react";
 
 import AddResearchObjectModal from "./AddResearchObjectModal";
 import AddTransactionModal from "./AddTransactionModal";
+import WorkspaceState from "./WorkspaceState";
 import { apiFetch, PortfolioBuildPoint, PortfolioOverview } from "@/lib/api";
 import { safeFormatCurrency, safeFormatSignedCurrency, formatUserLabel } from "@/lib/formatting";
 
@@ -44,19 +45,56 @@ export default function PositionsTable() {
   const watchlist = overview?.watchlist ?? [];
   const considering = overview?.considering ?? [];
 
+  if (loading && !overview) {
+    return (
+      <WorkspaceState
+        kind="loading"
+        title="Loading the portfolio ledger"
+        description="Prophet is reading current holdings, tracked names, and recent transactions."
+        className="min-h-64"
+      />
+    );
+  }
+
+  if (!overview) {
+    return (
+      <WorkspaceState
+        kind="error"
+        title="Portfolio ledger unavailable"
+        description={error ?? "Prophet could not load the current portfolio ledger."}
+        actionLabel="Retry"
+        onAction={() => {
+          setLoading(true);
+          void loadOverview();
+        }}
+        className="min-h-64"
+      />
+    );
+  }
+
   return (
     <>
       <AddTransactionModal isOpen={isTransactionModalOpen} onClose={() => setIsTransactionModalOpen(false)} onSaved={loadOverview} />
       <AddResearchObjectModal isOpen={isResearchModalOpen} onClose={() => setIsResearchModalOpen(false)} onSaved={handleResearchSaved} />
 
       <section className="space-y-6">
+        {error ? (
+          <WorkspaceState
+            kind="degraded"
+            title="Portfolio refresh is delayed"
+            description={`${error} The last successfully loaded ledger remains visible.`}
+            actionLabel="Retry refresh"
+            onAction={() => void loadOverview()}
+            compact
+          />
+        ) : null}
         <div className="grid min-w-0 gap-6 2xl:grid-cols-[1.35fr_0.65fr]">
           <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 sm:p-6 dark:border-slate-800 dark:bg-slate-950">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Live holdings</p>
                 <h2 className="mt-1 text-2xl font-semibold tracking-tight">
-                  {loading ? "Loading..." : `${holdings.length} active holdings`}
+                  {`${holdings.length} active holdings`}
                 </h2>
                 <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
                   The book comes first. Track holdings here, then let research objects orbit around the real portfolio.
@@ -72,13 +110,16 @@ export default function PositionsTable() {
               </div>
             </div>
 
-            {error ? <p className="mt-4 text-sm text-red-500">{error}</p> : null}
-            {loading ? (
-              <p className="mt-6 text-sm text-slate-400 animate-pulse">Loading holdings...</p>
-            ) : holdings.length === 0 ? (
-              <div className="mt-6 rounded-lg border border-dashed border-slate-300 p-6 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                No active holdings yet. Add a transaction or import a CSV from Setup.
-              </div>
+            {holdings.length === 0 ? (
+              <WorkspaceState
+                kind="empty"
+                title="No active holdings"
+                description="Add a transaction here or import transaction history from Settings to establish the live book."
+                actionLabel="Add holding"
+                onAction={() => setIsTransactionModalOpen(true)}
+                compact
+                className="mt-6"
+              />
             ) : (
               <div className="mt-6 max-w-full overflow-x-auto">
                 <table className="min-w-[620px] w-full text-sm text-left">
