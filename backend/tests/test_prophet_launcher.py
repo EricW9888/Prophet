@@ -156,6 +156,34 @@ def test_launcher_has_no_implicit_local_model_prerequisite():
     }
 
 
+def test_frontend_environment_receives_only_its_remote_access_setting():
+    result = prophet.frontend_process_environment(
+        {
+            "PROPHET_REMOTE_ACCESS_USER": "owner@example.com",
+            "POSTGRES_PASSWORD": "database-secret",
+            "NVIDIA_API_KEY": "provider-secret",
+        },
+        {"PATH": "/usr/bin"},
+    )
+
+    assert result == {
+        "PATH": "/usr/bin",
+        "PROPHET_REMOTE_ACCESS_USER": "owner@example.com",
+    }
+
+
+def test_process_environment_overrides_remote_access_file_setting():
+    result = prophet.frontend_process_environment(
+        {"PROPHET_REMOTE_ACCESS_USER": "file@example.com"},
+        {
+            "PATH": "/usr/bin",
+            "PROPHET_REMOTE_ACCESS_USER": "process@example.com",
+        },
+    )
+
+    assert result["PROPHET_REMOTE_ACCESS_USER"] == "process@example.com"
+
+
 def test_configured_database_endpoint_validates_port():
     assert prophet.configured_database_endpoint(
         {"POSTGRES_SERVER": "db.internal", "POSTGRES_PORT": "5544"}
