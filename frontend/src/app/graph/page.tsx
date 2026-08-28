@@ -2146,7 +2146,7 @@ export default function GraphPage() {
                   </div>
                 </div>
               ) : !activeGraph ? (
-                <div className="flex h-[800px] flex-col items-center justify-center px-8 text-center">
+                <div className="flex h-[min(68dvh,520px)] min-h-[360px] flex-col items-center justify-center px-6 text-center sm:h-[800px] sm:px-8">
                   {error && error.includes("graph_node_not_found") ? (
                     <>
                       <svg className="h-12 w-12 text-slate-300 dark:text-slate-700 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
@@ -2162,8 +2162,8 @@ export default function GraphPage() {
               ) : (
                 <div
                   ref={graphViewportRef}
-                  className="relative h-[clamp(620px,72vh,840px)] w-full overflow-hidden rounded-lg border border-white/5 bg-slate-950/20 touch-none select-none"
-                  style={{ overscrollBehavior: "contain", touchAction: "none" }}
+                  className="relative h-[min(68dvh,520px)] min-h-[360px] w-full touch-pan-y select-none overflow-hidden rounded-lg border border-white/5 bg-slate-950/20 sm:h-[clamp(620px,72vh,840px)] sm:touch-none"
+                  style={{ overscrollBehavior: "contain" }}
                   onPointerDown={handleCanvasPointerDown}
                   onPointerMove={handleCanvasPointerMove}
                   onPointerUp={handleCanvasPointerUp}
@@ -2180,8 +2180,7 @@ export default function GraphPage() {
                   <svg
                     ref={svgRef}
                     viewBox={`${graphViewBox.x} ${graphViewBox.y} ${graphViewBox.width} ${graphViewBox.height}`}
-                    className="h-full w-full"
-                    style={{ touchAction: "none" }}
+                    className="h-full w-full touch-pan-y sm:touch-none"
                   >
                     <defs>
                       <filter id="graph-glow" x="-50%" y="-50%" width="200%" height="200%">

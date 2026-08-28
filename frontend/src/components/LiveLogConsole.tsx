@@ -11,6 +11,7 @@ interface LiveLogConsoleProps {
 export default function LiveLogConsole({ onClose }: LiveLogConsoleProps) {
   const [logs, setLogs] = useState<string[]>([]);
   const [isMaximized, setIsMaximized] = useState(false);
+  const [connectionState, setConnectionState] = useState<"connecting" | "live" | "reconnecting">("connecting");
   const scrollRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -18,11 +19,17 @@ export default function LiveLogConsole({ onClose }: LiveLogConsoleProps) {
     const es = new EventSource(`${API_BASE}/integrations/gmail/backfill/logs`);
     eventSourceRef.current = es;
 
+    es.onopen = () => {
+      setConnectionState("live");
+    };
+
     es.onmessage = (event) => {
+      setConnectionState("live");
       setLogs((prev) => [...prev.slice(-100), event.data]);
     };
 
     es.onerror = () => {
+      setConnectionState("reconnecting");
       setLogs((prev) => [...prev, "[SYSTEM] Connection to log stream lost. Retrying..."]);
     };
 
@@ -37,12 +44,20 @@ export default function LiveLogConsole({ onClose }: LiveLogConsoleProps) {
     }
   }, [logs]);
 
+  const statusLabel = connectionState === "live"
+    ? "Live stream active"
+    : connectionState === "reconnecting"
+      ? "Reconnecting"
+      : "Connecting";
+
   return (
-    <div className={`fixed bottom-8 right-8 z-[100] bg-black border border-slate-800 rounded-lg shadow-lg overflow-hidden transition-all duration-300 flex flex-col ${
-      isMaximized ? "inset-8" : "w-[500px] h-[400px]"
+    <div className={`fixed z-[100] flex flex-col overflow-hidden rounded-lg border border-slate-800 bg-black shadow-lg transition-all duration-300 ${
+      isMaximized
+        ? "inset-3 sm:inset-8"
+        : "inset-x-4 bottom-4 h-[min(400px,calc(100dvh-2rem))] sm:inset-x-auto sm:bottom-8 sm:right-8 sm:h-[400px] sm:w-[500px]"
     }`}>
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 bg-slate-900/50 border-b border-slate-800">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-800 bg-slate-900/50 px-4 py-3 sm:px-6 sm:py-4">
         <div className="flex items-center gap-3">
           <Terminal className="w-4 h-4 text-emerald-500" />
           <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Backfill Monitor</span>
@@ -52,18 +67,21 @@ export default function LiveLogConsole({ onClose }: LiveLogConsoleProps) {
             onClick={() => setLogs([])}
             className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors"
             title="Clear Console"
+            aria-label="Clear console"
           >
             <Trash2 className="w-4 h-4 text-slate-500" />
           </button>
           <button
             onClick={() => setIsMaximized(!isMaximized)}
             className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors"
+            aria-label={isMaximized ? "Restore log console" : "Maximize log console"}
           >
             {isMaximized ? <Minimize2 className="w-4 h-4 text-slate-500" /> : <Maximize2 className="w-4 h-4 text-slate-500" />}
           </button>
           <button
             onClick={onClose}
             className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors"
+            aria-label="Close log console"
           >
             <X className="w-4 h-4 text-slate-500" />
           </button>
@@ -73,7 +91,7 @@ export default function LiveLogConsole({ onClose }: LiveLogConsoleProps) {
       {/* Logs */}
       <div
         ref={scrollRef}
-        className="flex-1 p-6 overflow-y-auto font-mono text-sm space-y-1.5 bg-black scrollbar-thin scrollbar-thumb-slate-800"
+        className="flex-1 space-y-1.5 overflow-y-auto bg-black p-4 font-mono text-xs scrollbar-thin scrollbar-thumb-slate-800 sm:p-6 sm:text-sm"
       >
         {logs.length === 0 && (
           <p className="text-slate-600 animate-pulse">Waiting for logs...</p>
@@ -95,12 +113,14 @@ export default function LiveLogConsole({ onClose }: LiveLogConsoleProps) {
       </div>
 
       {/* Footer / Status */}
-      <div className="px-6 py-3 bg-slate-900/30 border-t border-slate-800 flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 bg-slate-900/30 px-4 py-3 sm:px-6">
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Live Stream Active</span>
+          <div className={`h-2 w-2 rounded-full ${
+            connectionState === "live" ? "animate-pulse bg-emerald-500" : "bg-amber-500"
+          }`} />
+          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{statusLabel}</span>
         </div>
-        <span className="text-[10px] font-mono text-slate-600 italic">Ollama-accelerated</span>
+        <span className="text-[10px] font-mono text-slate-600">Gmail backfill</span>
       </div>
     </div>
   );

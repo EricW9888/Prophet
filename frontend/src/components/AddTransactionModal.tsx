@@ -63,7 +63,7 @@ export default function AddTransactionModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-slate-900 rounded-lg shadow-xl w-full max-w-md border border-slate-200 dark:border-slate-800 overflow-hidden animate-in zoom-in-95 duration-200">
+      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl animate-in zoom-in-95 duration-200 dark:border-slate-800 dark:bg-slate-900">
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
           <div>
             <h3 className="font-semibold text-lg text-slate-900 dark:text-slate-100">Add Holding Transaction</h3>
@@ -82,7 +82,7 @@ export default function AddTransactionModal({
             <input value={ticker} onChange={(e) => setTicker(e.target.value.toUpperCase())} type="text" placeholder="e.g. EXMPL" className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-md focus:ring-2 focus:ring-sky-500 focus:border-sky-500 dark:bg-slate-950 dark:text-slate-100" />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1">
               <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Type</label>
               <select value={action} onChange={(e) => setAction(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-md focus:ring-2 focus:ring-sky-500 focus:border-sky-500 dark:bg-slate-950 dark:text-slate-100">
@@ -96,7 +96,7 @@ export default function AddTransactionModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1">
               <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Quantity</label>
               <input value={quantity} onChange={(e) => setQuantity(e.target.value)} type="number" step="0.0001" placeholder="0.00" className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-md focus:ring-2 focus:ring-sky-500 focus:border-sky-500 dark:bg-slate-950 dark:text-slate-100" />
