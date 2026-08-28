@@ -9,7 +9,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint && node --check public/sw.js"
   },
   "dependencies": {
     "@tailwindcss/typography": "^0.5.20",

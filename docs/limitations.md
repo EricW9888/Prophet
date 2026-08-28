@@ -18,6 +18,12 @@ and backups are local sensitive state. Repository checks reduce the chance of
 committing them; they do not replace careful secret handling or credential
 rotation after exposure.
 
+The frontend can be installed as a PWA from a secure origin, but this does not
+change Prophet's security model or make the application safe to expose publicly.
+Its service worker caches only a static offline notice and app icons; it does not
+cache portfolio, evidence, chat, source, or API responses. Private access from
+another device still requires an explicit authenticated-network threat model.
+
 ## Data and Connector Coverage
 
 Gmail or IMAP ingestion depends on the configured mailbox scope and the formats
