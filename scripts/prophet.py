@@ -261,6 +261,18 @@ def env_values(env_path: Path = ROOT / ".env") -> dict[str, str]:
     return values
 
 
+def frontend_process_environment(
+    values: dict[str, str] | None = None,
+    base_environment: dict[str, str] | None = None,
+) -> dict[str, str]:
+    current = values if values is not None else env_values()
+    environment = dict(os.environ if base_environment is None else base_environment)
+    configured_identity = current.get("PROPHET_REMOTE_ACCESS_USER", "").strip()
+    if configured_identity and not environment.get("PROPHET_REMOTE_ACCESS_USER"):
+        environment["PROPHET_REMOTE_ACCESS_USER"] = configured_identity
+    return environment
+
+
 def configured_database_endpoint(
     values: dict[str, str] | None = None,
 ) -> tuple[str, int]:
@@ -503,6 +515,7 @@ def child_process(
     *,
     cwd: Path,
     log_path: Path,
+    environment: dict[str, str] | None = None,
 ) -> ChildProcess:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_handle = log_path.open("ab", buffering=0)
@@ -511,6 +524,8 @@ def child_process(
         "stdout": log_handle,
         "stderr": subprocess.STDOUT,
     }
+    if environment is not None:
+        kwargs["env"] = environment
     if os.name == "nt":
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     else:
@@ -655,6 +670,7 @@ def start(*, development: bool, open_browser: bool) -> None:
                     frontend_command,
                     cwd=FRONTEND_DIR,
                     log_path=FRONTEND_LOG,
+                    environment=frontend_process_environment(),
                 )
             )
         wait_for_services(children)

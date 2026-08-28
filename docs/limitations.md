@@ -22,7 +22,9 @@ The frontend can be installed as a PWA from a secure origin, but this does not
 change Prophet's security model or make the application safe to expose publicly.
 Its service worker caches only a static offline notice and app icons; it does not
 cache portfolio, evidence, chat, source, or API responses. Private access from
-another device still requires an explicit authenticated-network threat model.
+another device is supported only through the loopback-preserving, identity-gated
+Tailscale Serve boundary documented in [Private access](private-access.md). This
+remains owner-only access rather than a multi-user authorization system.
 
 ## Data and Connector Coverage
 
