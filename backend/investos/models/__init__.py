@@ -33,6 +33,11 @@ from .knowledge_mutation import KnowledgeMutation
 from .lesson import Lesson, LessonObservation
 from .market_calendar import MarketCalendar
 from .market_setup import MarketSetupSignal
+from .notification import (
+    PushNotificationDelivery,
+    PushNotificationEvent,
+    PushSubscription,
+)
 from .opportunity import (
     OpportunityCandidate,
     OpportunityCandidateObservation,
@@ -111,6 +116,9 @@ __all__ = [
     "LessonObservation",
     "MarketSetupSignal",
     "MarketCalendar",
+    "PushSubscription",
+    "PushNotificationEvent",
+    "PushNotificationDelivery",
     "ManualOverride",
     "OpportunityCandidate",
     "OpportunityCandidateObservation",

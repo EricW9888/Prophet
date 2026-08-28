@@ -12,6 +12,7 @@ from investos.models.watcher import ActiveWatcher
 from investos.services.agent_action_log import AgentActionLogService
 from investos.services.knowledge_audit import KnowledgeAuditService
 from investos.services.market_data import MarketDataService
+from investos.services.push_notification import PushNotificationService
 
 
 class WatcherService:
@@ -284,70 +285,69 @@ class WatcherService:
         triggered_count = 0
         now = datetime.now(UTC)
 
-        # Group watchers by ticker to minimize market data calls
-        by_ticker: dict[str, list[ActiveWatcher]] = {}
+        # Resolve each ticker once, but evaluate every watcher so deadline-only
+        # reminders are not skipped just because they have no market symbol.
+        prices: dict[str, float | None] = {}
         for w in active:
-            if w.ticker:
-                by_ticker.setdefault(w.ticker, []).append(w)
-
-        for ticker, watchers in by_ticker.items():
-            # Get live price
+            if not w.ticker or w.ticker in prices:
+                continue
             try:
                 price_data = await MarketDataService(self.session).get_live_price(
-                    ticker
+                    w.ticker
                 )
-                price = price_data.get("price") if price_data else None
+                prices[w.ticker] = price_data.get("price") if price_data else None
             except Exception:
-                price = None
+                prices[w.ticker] = None
 
-            for w in watchers:
-                triggered = False
-                trigger_detail = ""
+        for w in active:
+            triggered = False
+            trigger_detail = ""
+            price = prices.get(w.ticker) if w.ticker else None
 
-                # 1. Check Deadline
-                if w.deadline and now >= w.deadline:
-                    w.status = "expired"
-                    w.is_active = False
-                    w.trigger_detail = f"Deadline reached: {w.deadline.isoformat()}"
+            # 1. Check Deadline
+            if w.deadline and now >= w.deadline:
+                w.status = "expired"
+                w.is_active = False
+                w.trigger_detail = f"Deadline reached: {w.deadline.isoformat()}"
+                triggered = True
+
+            # 2. Check Price Conditions
+            elif price is not None and w.condition_type in self.PRICE_CONDITIONS:
+                threshold, error = self._price_threshold(w.condition_params_json)
+                if error:
+                    self._fail_invalid_watcher(w, error, now)
+                    continue
+
+                if w.condition_type == "price_above" and price >= threshold:
                     triggered = True
+                    trigger_detail = f"Price {price} hit threshold >= {threshold}"
+                elif w.condition_type == "price_below" and price <= threshold:
+                    triggered = True
+                    trigger_detail = f"Price {price} hit threshold <= {threshold}"
 
-                # 2. Check Price Conditions
-                elif price is not None and w.condition_type in self.PRICE_CONDITIONS:
-                    threshold, error = self._price_threshold(w.condition_params_json)
-                    if error:
-                        self._fail_invalid_watcher(w, error, now)
-                        continue
+            if triggered:
+                if w.status == "pending":  # Only set if not already expired.
+                    w.status = "triggered"
+                w.is_active = False
+                w.triggered_at = now
+                w.trigger_detail = trigger_detail or w.trigger_detail
 
-                    if w.condition_type == "price_above" and price >= threshold:
-                        triggered = True
-                        trigger_detail = f"Price {price} hit threshold >= {threshold}"
-                    elif w.condition_type == "price_below" and price <= threshold:
-                        triggered = True
-                        trigger_detail = f"Price {price} hit threshold <= {threshold}"
+                AgentActionLogService.append(
+                    source="watcher",
+                    action_type="trigger",
+                    status="ok",
+                    summary=f"Watcher triggered for {w.ticker}: {w.objective}",
+                    subject_id=str(w.id),
+                    subject_type="watcher",
+                    metadata={
+                        "trigger_detail": w.trigger_detail,
+                        "adjustment_plan": w.adjustment_plan,
+                    },
+                )
+                await PushNotificationService(self.session).enqueue_watch_transition(w)
+                triggered_count += 1
 
-                if triggered:
-                    if w.status == "pending":  # Only set if not already expired.
-                        w.status = "triggered"
-                    w.is_active = False
-                    w.triggered_at = now
-                    w.trigger_detail = trigger_detail or w.trigger_detail
-
-                    # Log the trigger
-                    AgentActionLogService.append(
-                        source="watcher",
-                        action_type="trigger",
-                        status="ok",
-                        summary=f"Watcher triggered for {w.ticker}: {w.objective}",
-                        subject_id=str(w.id),
-                        subject_type="watcher",
-                        metadata={
-                            "trigger_detail": w.trigger_detail,
-                            "adjustment_plan": w.adjustment_plan,
-                        },
-                    )
-                    triggered_count += 1
-
-                w.last_checked_at = now
+            w.last_checked_at = now
 
         await self.session.commit()
         return triggered_count

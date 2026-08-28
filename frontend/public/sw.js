@@ -24,3 +24,36 @@ self.addEventListener("fetch", (event) => {
 
   event.respondWith(fetch(request).catch(() => caches.match(OFFLINE_URL)));
 });
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data?.json() ?? {};
+  } catch {
+    payload = {};
+  }
+  const title = payload.title || "Prophet needs review";
+  const options = {
+    body: payload.body || "A monitored condition changed. Open Prophet to review it.",
+    icon: "/icon-192.png",
+    badge: "/icon-192.png",
+    tag: payload.tag || "prophet-owner-notification",
+    data: { url: payload.url || "/timeline" },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = new URL(event.notification.data?.url || "/timeline", self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ("focus" in client) {
+          return client.navigate(target).then(() => client.focus());
+        }
+      }
+      return self.clients.openWindow(target);
+    }),
+  );
+});

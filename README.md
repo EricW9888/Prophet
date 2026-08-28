@@ -29,6 +29,9 @@ exposed.
   historical analogies, contradictions, and portfolio-level transmission paths.
 - Runs bounded research, verification, monitoring, reminders, integrity review,
   and source-learning workflows in the background.
+- Can deliver opt-in, generic owner notifications when a durable watch or
+  reminder changes state; the full evidence and action plan remain inside
+  Prophet.
 - Surveys an operator-defined investable universe assembled manually or from
   tracked positions, researched entities, and latest stored benchmark snapshots,
   for provisional opportunities,
@@ -106,7 +109,8 @@ use. The default launcher remains loopback-only, so installation on another
 device requires a separately secured private HTTPS access path rather than
 exposing ports 3000 or 8000 to the LAN or public internet.
 See [Private access](docs/private-access.md) for the supported Tailscale Serve
-boundary, exact operator-identity gate, configuration, and threat model.
+boundary, exact operator-identity gate, mobile installation, notifications,
+configuration, and threat model.
 
 Do not install Poetry into `backend/.venv`; Poetry must remain isolated from the
 environment it manages. The older `dev_up.sh`, `stable_up.sh`, and status

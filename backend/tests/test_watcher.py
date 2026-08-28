@@ -281,3 +281,94 @@ async def test_evaluate_disables_legacy_invalid_price_watcher(monkeypatch):
     assert watcher.is_active is False
     assert watcher.last_checked_at is not None
     assert "missing numeric threshold" in watcher.trigger_detail
+
+
+async def test_triggered_watcher_enqueues_owner_notification(monkeypatch):
+    watcher = SimpleNamespace(
+        id=uuid4(),
+        ticker="AUTO",
+        condition_type="price_above",
+        condition_params_json={"threshold": 250},
+        objective="Review the breakout",
+        adjustment_plan="Reassess the evidence",
+        deadline=None,
+        status="pending",
+        is_active=True,
+        last_checked_at=None,
+        triggered_at=None,
+        trigger_detail=None,
+    )
+    service = WatcherService(_FakeEvalSession())
+    enqueued: list = []
+
+    async def list_active():
+        return [watcher]
+
+    async def get_live_price(_self, _ticker):
+        return {"price": 300.0}
+
+    async def enqueue(_self, transitioned_watcher):
+        enqueued.append(transitioned_watcher)
+        return 1
+
+    service.list_active = list_active
+    monkeypatch.setattr(
+        "investos.services.market_data.MarketDataService.get_live_price", get_live_price
+    )
+    monkeypatch.setattr(
+        "investos.services.watcher.PushNotificationService.enqueue_watch_transition",
+        enqueue,
+    )
+    monkeypatch.setattr(
+        "investos.services.watcher.AgentActionLogService.append", lambda **_kwargs: None
+    )
+
+    count = await service.evaluate_watchers()
+
+    assert count == 1
+    assert watcher.status == "triggered"
+    assert watcher.is_active is False
+    assert enqueued == [watcher]
+
+
+async def test_deadline_only_reminder_expires_and_enqueues_notification(monkeypatch):
+    watcher = SimpleNamespace(
+        id=uuid4(),
+        ticker=None,
+        condition_type="reminder",
+        condition_params_json={},
+        objective="Review the pending evidence",
+        adjustment_plan="Reconcile the accepted view",
+        deadline=datetime.now(UTC) - timedelta(minutes=1),
+        status="pending",
+        is_active=True,
+        last_checked_at=None,
+        triggered_at=None,
+        trigger_detail=None,
+    )
+    service = WatcherService(_FakeEvalSession())
+    enqueued: list = []
+
+    async def list_active():
+        return [watcher]
+
+    async def enqueue(_self, transitioned_watcher):
+        enqueued.append(transitioned_watcher)
+        return 1
+
+    service.list_active = list_active
+    monkeypatch.setattr(
+        "investos.services.watcher.PushNotificationService.enqueue_watch_transition",
+        enqueue,
+    )
+    monkeypatch.setattr(
+        "investos.services.watcher.AgentActionLogService.append", lambda **_kwargs: None
+    )
+
+    count = await service.evaluate_watchers()
+
+    assert count == 1
+    assert watcher.status == "expired"
+    assert watcher.is_active is False
+    assert watcher.triggered_at is not None
+    assert enqueued == [watcher]

@@ -6,6 +6,7 @@ import AppNav from "@/components/AppNav";
 import FloatingNotice from "@/components/FloatingNotice";
 import FloatingSaveBar from "@/components/FloatingSaveBar";
 import PageHeader from "@/components/PageHeader";
+import PushNotificationSettings from "@/components/PushNotificationSettings";
 import WorkspaceState from "@/components/WorkspaceState";
 import {
   API_BASE,
@@ -966,6 +967,7 @@ export default function SettingsPage() {
 
           {activeTab === "system" && (
             <div className="max-w-4xl space-y-6">
+              <PushNotificationSettings />
               <section className="rounded-lg border border-red-200 bg-white p-6 dark:border-red-900/40 dark:bg-slate-950">
                 <div className="flex items-center gap-3 mb-8">
                   <div className="rounded-md border border-red-200 p-2 dark:border-red-900/40">
@@ -1228,6 +1230,7 @@ const AUTOMATION_JOB_COPY: Record<string, { label: string; description: string }
   shadow_discovery: { label: "Paper idea discovery", description: "Looks for evidence-backed ideas worth testing in the shadow portfolio." },
   pattern_discovery: { label: "Pattern and cycle review", description: "Looks across independently sourced signals, portfolio relationships, the current regime, and historical rhymes to create provisional hypotheses with falsifiers and next checks." },
   watcher_loop: { label: "Catalyst monitors", description: "Evaluates active event, price, filing, and thesis-change monitors." },
+  owner_notifications: { label: "Owner notifications", description: "Delivers opt-in private alerts when a durable monitor changes state." },
   entity_hygiene: { label: "Entity reconciliation", description: "Reconciles duplicate entities and reclassifies non-investable artifacts while preserving audit history." },
   theme_hygiene: { label: "Theme reconciliation", description: "Reconciles duplicate or placeholder themes while preserving useful evidence and progression." },
   media_cleanup: { label: "Temporary media cleanup", description: "Removes expired temporary media files while preserving extracted evidence and provenance." },

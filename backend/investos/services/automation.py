@@ -35,6 +35,7 @@ from investos.services.market_setup import MarketSetupSignalService
 from investos.services.media_workspace import MediaIngestionPolicy
 from investos.services.opportunity import OpportunityDiscoveryService
 from investos.services.pattern_discovery import PatternDiscoveryService
+from investos.services.push_notification import PushNotificationService
 from investos.services.relation_review import RelationReviewService
 from investos.services.research import ResearchService
 from investos.services.review import ReviewService
@@ -118,6 +119,12 @@ class AutomationCoordinator:
             settings.AUTOMATION_POLL_SECONDS or 300,
             True,
         )
+        self._register_job(
+            "owner_notifications",
+            self._run_owner_notifications,
+            max(30, settings.WEB_PUSH_DISPATCH_INTERVAL_SECONDS),
+            settings.WEB_PUSH_ENABLED,
+        )
         self._register_job("entity_hygiene", self._run_entity_hygiene, 21600, True)
         self._register_job("theme_hygiene", self._run_theme_hygiene, 21600, True)
         self._register_job("media_cleanup", self._run_media_cleanup, 21600, True)
@@ -173,6 +180,7 @@ class AutomationCoordinator:
         self._schedule_startup_run("market_data_refresh", self._run_market_data_refresh)
         self._schedule_startup_run("risk_refresh", self._run_risk_refresh)
         self._schedule_startup_run("gmail_sync", self._run_gmail_sync)
+        self._schedule_startup_run("owner_notifications", self._run_owner_notifications)
         catchup_jobs = [
             ("source_claim_assessment", self._run_source_claim_assessment),
             ("market_setup_assessment", self._run_market_setup_assessment),
@@ -228,6 +236,7 @@ class AutomationCoordinator:
             "strategist_cycle": self._run_strategist_cycle,
             "pattern_discovery": self._run_pattern_discovery,
             "watcher_loop": self._run_watcher_loop,
+            "owner_notifications": self._run_owner_notifications,
             "entity_hygiene": self._run_entity_hygiene,
             "theme_hygiene": self._run_theme_hygiene,
             "media_cleanup": self._run_media_cleanup,
@@ -1907,4 +1916,35 @@ class AutomationCoordinator:
                     job_name="watcher_loop",
                     status="error",
                     summary=f"Watcher loop failed: {exc}",
+                )
+
+    async def _run_owner_notifications(self) -> None:
+        telemetry = self.telemetry["owner_notifications"]
+        telemetry.last_run_at = datetime.now(UTC)
+        async with async_session_maker() as session:
+            try:
+                result = await PushNotificationService(session).dispatch_pending()
+                telemetry.last_status = "ok"
+                telemetry.detail = " ".join(
+                    f"{key}={value}" for key, value in result.items()
+                )
+                if result["selected"]:
+                    self._log_job_action(
+                        job_name="owner_notifications",
+                        status="ok" if not result["failed"] else "warning",
+                        summary=(
+                            f"Owner notifications sent {result['sent']} alert(s), "
+                            f"scheduled {result['retrying']} retry/retries, retired "
+                            f"{result['retired']} subscription(s), and stopped "
+                            f"{result['failed']} exhausted delivery/deliveries."
+                        ),
+                        metadata=result,
+                    )
+            except Exception as exc:
+                telemetry.last_status = "error"
+                telemetry.detail = str(exc)
+                self._log_job_action(
+                    job_name="owner_notifications",
+                    status="error",
+                    summary=f"Owner notification delivery failed: {exc}",
                 )
