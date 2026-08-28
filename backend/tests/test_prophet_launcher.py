@@ -156,6 +156,13 @@ def test_launcher_has_no_implicit_local_model_prerequisite():
     }
 
 
+def test_backend_uses_the_loopback_socket_peer_not_forwarded_client_headers():
+    command = prophet.backend_command()
+
+    assert command[-1] == "--no-proxy-headers"
+    assert command[command.index("--host") + 1] == "127.0.0.1"
+
+
 def test_frontend_environment_receives_only_its_remote_access_setting():
     result = prophet.frontend_process_environment(
         {

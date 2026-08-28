@@ -194,6 +194,22 @@ def backend_python_path() -> Path:
     )
 
 
+def backend_command() -> list[str]:
+    # Next.js owns the trusted proxy boundary. FastAPI is loopback-only and must
+    # use the socket peer rather than reinterpret forwarded client headers.
+    return [
+        str(backend_python_path()),
+        "-m",
+        "uvicorn",
+        "investos.main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(BACKEND_PORT),
+        "--no-proxy-headers",
+    ]
+
+
 def run_command(
     command: Sequence[str],
     *,
@@ -638,16 +654,7 @@ def start(*, development: bool, open_browser: bool) -> None:
             children.append(
                 child_process(
                     "Backend",
-                    [
-                        str(backend_python_path()),
-                        "-m",
-                        "uvicorn",
-                        "investos.main:app",
-                        "--host",
-                        "127.0.0.1",
-                        "--port",
-                        str(BACKEND_PORT),
-                    ],
+                    backend_command(),
                     cwd=BACKEND_DIR,
                     log_path=BACKEND_LOG,
                 )

@@ -9,7 +9,7 @@ From `backend/`, after installing dependencies and applying migrations:
 
 ```bash
 poetry run alembic upgrade head
-poetry run uvicorn investos.main:app --host 127.0.0.1 --port 8000
+poetry run uvicorn investos.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers
 ```
 
 The health endpoint is `http://127.0.0.1:8000/health`. The Next.js frontend
