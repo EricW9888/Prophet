@@ -748,6 +748,150 @@ async def test_fresh_research_query_planner_generates_event_specific_setup_query
 
 
 @pytest.mark.asyncio
+async def test_question_research_planner_scopes_macro_comparison_before_retrieval(
+    monkeypatch,
+):
+    service = AgentService.__new__(AgentService)
+
+    async def fake_call_llm_json(**kwargs):
+        payload = json.loads(kwargs["user_prompt"])
+        assert "Roaring 20s" in payload["question"]
+        assert "before retrieval" in kwargs["system_prompt"]
+        return {
+            "research_objective": "Compare the causal macro channels, asset setup, and investable implications of the named eras.",
+            "retrieval_query": "Roaring Twenties Great Depression dot-com AI boom causal comparison valuation credit capex productivity",
+            "information_needs": [
+                "pre-crash credit, valuation, and investment conditions",
+                "what actually ended each boom",
+                "current AI profitability, capex, and financing differences",
+            ],
+            "external_research_required": True,
+            "research_mode": "focused_external",
+            "portfolio_context_role": "secondary_read_through",
+            "use_historical_analogies": True,
+            "reason": "The question is historical and macro, not primarily about existing holdings.",
+        }
+
+    monkeypatch.setattr("investos.services.agent.call_llm_json", fake_call_llm_json)
+
+    plan = await service._plan_question_research(
+        message="Is AI more like the Roaring 20s before the Great Depression or dot-com?",
+        subject_name="Portfolio",
+        subject_type="portfolio",
+    )
+
+    assert plan["research_mode"] == "focused_external"
+    assert plan["external_research_required"] is True
+    assert plan["portfolio_context_role"] == "secondary_read_through"
+    assert plan["use_historical_analogies"] is True
+    assert "current AI profitability" in " ".join(plan["information_needs"])
+
+
+@pytest.mark.asyncio
+async def test_question_research_planner_routes_opportunity_request_to_universe(
+    monkeypatch,
+):
+    service = AgentService.__new__(AgentService)
+
+    async def fake_call_llm_json(**_kwargs):
+        return {
+            "research_objective": "Canvass the configured investable universe for source-backed asymmetric setups.",
+            "retrieval_query": "current opportunity universe candidates",
+            "information_needs": ["fresh universe coverage", "candidate falsifiers"],
+            "external_research_required": True,
+            "research_mode": "opportunity_universe",
+            "portfolio_context_role": "secondary_read_through",
+            "use_historical_analogies": False,
+            "reason": "A new-opportunity request requires a universe scan, not a holdings recap.",
+        }
+
+    monkeypatch.setattr("investos.services.agent.call_llm_json", fake_call_llm_json)
+
+    plan = await service._plan_question_research(
+        message="Any opportunities?",
+        subject_name="Portfolio",
+        subject_type="portfolio",
+    )
+
+    assert plan["research_mode"] == "opportunity_universe"
+    assert plan["portfolio_context_role"] == "secondary_read_through"
+    assert plan["use_historical_analogies"] is False
+
+
+def test_question_plan_removes_unrequested_historical_analogies():
+    packet = {
+        "historical_analogies": [{"name": "Dot-com bust"}],
+        "historical_analogy_context": "Dot-com context",
+        "historical_analogy_lenses": [{"name": "Dot-com bust"}],
+    }
+
+    AgentService._apply_question_research_plan(
+        packet,
+        {"use_historical_analogies": False, "research_mode": "stored_context"},
+    )
+
+    assert packet["historical_analogies"] == []
+    assert packet["historical_analogy_lenses"] == []
+
+
+def test_question_plan_fallback_preserves_capability_routes_during_provider_outage():
+    service = AgentService.__new__(AgentService)
+
+    opportunity = service._fallback_question_research_plan(
+        message="Any opportunities?",
+        subject_name="Portfolio",
+        subject_type="portfolio",
+        freshness_requirement=None,
+    )
+    comparison = service._fallback_question_research_plan(
+        message="Compare the AI boom with the dot-com era.",
+        subject_name="Portfolio",
+        subject_type="portfolio",
+        freshness_requirement=None,
+    )
+
+    assert opportunity["research_mode"] == "opportunity_universe"
+    assert opportunity["portfolio_context_role"] == "secondary_read_through"
+    assert "configured opportunity universe" in " ".join(
+        opportunity["information_needs"]
+    )
+    assert comparison["research_mode"] == "focused_external"
+    assert comparison["external_research_required"] is True
+    assert comparison["use_historical_analogies"] is True
+
+
+def test_inadequate_blind_scope_review_supersedes_off_topic_candidate():
+    result = {
+        "stance": "bullish",
+        "confidence_band": "high",
+        "thesis_summary": "Tesla FSD is improving.",
+        "reasoning": "Portfolio context contains Tesla evidence.",
+        "corroboration": {"status": "corroborated", "can_promote": True},
+    }
+    AgentService._apply_independent_answerability_gate(
+        result,
+        {
+            "question_answerability": "inadequate",
+            "answerability_reason": "Tesla evidence does not answer the requested macro comparison.",
+            "missing_information": [
+                "historical macro evidence",
+                "current AI comparison data",
+            ],
+        },
+        question_research_plan={"research_objective": "compare the named macro eras"},
+    )
+
+    assert result["stance"] == "no_view"
+    assert result["confidence_band"] == "very_low"
+    assert result["superseded_candidate"]["thesis_summary"] == "Tesla FSD is improving."
+    assert result["state_update_blocked_reason"] == "question_scope_inadequate"
+    assert result["what_would_strengthen"] == [
+        "historical macro evidence",
+        "current AI comparison data",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_fresh_research_query_planner_rejects_placeholder_query(monkeypatch):
     service = AgentService.__new__(AgentService)
 
@@ -888,6 +1032,101 @@ def test_compact_packet_context_carries_fresh_research_separately_from_evidence(
     assert fresh["required"] is True
     assert fresh["status"] == "ok"
     assert fresh["results"][0]["url"] == "https://example.com/memory beta"
+
+
+def test_compact_packet_context_carries_question_plan_and_opportunity_universe():
+    compact = compact_packet_context(
+        {
+            "query_text": "configured opportunity universe scan",
+            "subject_type": "portfolio",
+            "subject_id": uuid4(),
+            "subject_name": "Portfolio",
+            "research_plan": {
+                "original_question": "Any opportunities?",
+                "research_objective": "Canvass the configured universe.",
+                "retrieval_query": "configured opportunity universe scan",
+                "information_needs": ["fresh coverage", "candidate falsifiers"],
+                "external_research_required": True,
+                "research_mode": "opportunity_universe",
+                "portfolio_context_role": "secondary_read_through",
+                "use_historical_analogies": False,
+                "reason": "A holdings recap is not a universe scan.",
+            },
+            "opportunity_context": {
+                "universe_size": 120,
+                "enabled_universe_size": 100,
+                "scan_started": True,
+                "scan_status": "completed",
+                "candidate_count": 1,
+                "candidates": [
+                    {
+                        "id": uuid4(),
+                        "ticker": "IDEA",
+                        "title": "Idea Corp. margin inflection",
+                        "status": "new",
+                        "priority_score": 0.82,
+                        "signal_stage": "early",
+                        "why_now": "A new filing indicates margin inflection.",
+                        "investable_thesis": "Source-backed setup with a defined falsifier.",
+                        "falsification_tests": ["Margins fail to expand next quarter."],
+                        "evidence_refs": [{"url": "https://example.com/filing"}],
+                    }
+                ],
+            },
+        }
+    )
+
+    assert compact["research_plan"]["original_question"] == "Any opportunities?"
+    assert compact["research_plan"]["research_mode"] == "opportunity_universe"
+    assert compact["opportunity_context"]["universe_size"] == 120
+    assert compact["opportunity_context"]["candidates"][0]["ticker"] == "IDEA"
+    assert compact["opportunity_context"]["candidates"][0]["signal_stage"] == "early"
+    assert compact["opportunity_context"]["candidates"][0]["evidence_ref_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_external_question_check_uses_configured_research_router_without_tavily_key(
+    monkeypatch,
+):
+    service = AgentService.__new__(AgentService)
+    service.session = SimpleNamespace()
+    calls = []
+
+    async def fake_search(_research_service, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            searched=True,
+            reason="ok",
+            query=kwargs["query"],
+            results=[
+                {
+                    "title": "Macro comparison",
+                    "url": "https://example.com/macro",
+                    "content": "A source-backed comparison.",
+                    "published_date": "2026-08-29",
+                }
+            ],
+            variants_tried=[kwargs["query"]],
+        )
+
+    monkeypatch.setattr(ResearchService, "search", fake_search)
+
+    context = await service._maybe_fresh_research_context(
+        message="Compare the current AI boom with dot-com.",
+        subject_name="Portfolio",
+        subject_type="portfolio",
+        question_research_plan={
+            "external_research_required": True,
+            "research_mode": "focused_external",
+            "retrieval_query": "AI boom dot-com comparison",
+            "information_needs": ["valuation and capex comparison"],
+            "reason": "The answer requires external historical and current data.",
+        },
+    )
+
+    assert calls[0]["query"] == "AI boom dot-com comparison"
+    assert context["status"] == "ok"
+    assert context["results"][0]["url"] == "https://example.com/macro"
 
 
 def test_fresh_research_merge_keeps_source_snippets_out_of_main_answer():
@@ -1585,6 +1824,9 @@ def test_analysis_lens_prompts_reject_persona_roleplay():
     assert "job titles" in dispatch
     assert "role-play" in dispatch
     assert "historical_analogy_lenses" in dispatch
+    assert "business-model value capture" in dispatch
+    assert "material externalities" in dispatch
+    assert "not as mandatory dimensions" in dispatch
     assert "causal-channel checks" in dispatch
     assert "systemic risk quant" not in dispatch
     assert "strategic synthesizer" not in synthesis
@@ -1605,6 +1847,9 @@ async def test_blind_review_persists_only_supported_critique_run_fields(monkeypa
             "candidate_stance": "uncertain",
             "confidence_band": "low",
             "independent_summary": "The packet leaves the causal claim unresolved.",
+            "question_answerability": "partial",
+            "answerability_reason": "The packet covers timing but not the causal channel.",
+            "missing_information": ["independent causal evidence"],
             "material_assertions": [],
             "assumptions": [],
             "alternative_hypotheses": [],
@@ -1629,6 +1874,8 @@ async def test_blind_review_persists_only_supported_critique_run_fields(monkeypa
     )
 
     assert review["candidate_stance"] == "uncertain"
+    assert review["question_answerability"] == "partial"
+    assert review["missing_information"] == ["independent causal evidence"]
     assert len(session.added) == 1
     assert (
         session.added[0].critique_text
@@ -2104,3 +2351,34 @@ def test_review_label_key_matches_theme_and_security_duplicates():
     assert ReviewService._label_key("Tradr 2X Long MEMA Daily ETF") == (
         ReviewService._label_key("tradr 2x long mema daily etf")
     )
+
+
+def test_shadow_review_tags_do_not_render_priced_in_analysis_as_a_tag():
+    service = ReviewService(session=None)
+    item = SimpleNamespace(
+        item_type="shadow_experiment",
+        trigger_reason="Autonomous shadow opportunity",
+        coverage_weakness=0.0,
+        contradiction_pressure=0.0,
+        thesis_drift=0.0,
+        catalyst_proximity=6.0,
+    )
+    assessment = (
+        "The valuation implies a large earnings inflection that still needs "
+        "source-backed confirmation."
+    )
+    context = {
+        "opportunity_profile": {
+            "signal_stage": "early_inflection_unconfirmed",
+            "priced_in_assessment": assessment,
+        }
+    }
+
+    tags = service._signal_tags(item, context)
+
+    assert tags == [
+        "shadow opportunity",
+        "early inflection unconfirmed",
+        "catalyst nearby",
+    ]
+    assert assessment not in tags

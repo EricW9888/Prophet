@@ -61,6 +61,7 @@ class AgentActionLogService:
         action_type: str | None = None,
         status: str | None = None,
         session_id: str | None = None,
+        include_internal: bool = False,
     ) -> list[dict[str, Any]]:
         path = cls._log_path()
         if not path.exists():
@@ -73,7 +74,7 @@ class AgentActionLogService:
             logging.getLogger(__name__).exception("Masked failure caught")
             return []
         entries: list[dict[str, Any]] = []
-        for line in lines[-limit:]:
+        for line in reversed(lines):
             raw = line.strip()
             if not raw:
                 continue
@@ -89,8 +90,17 @@ class AgentActionLogService:
                 continue
             if session_id and str(entry.get("session_id") or "") != session_id:
                 continue
+            metadata = entry.get("metadata")
+            if (
+                not include_internal
+                and isinstance(metadata, dict)
+                and metadata.get("internal_state") is True
+            ):
+                continue
             entries.append(entry)
-        return list(reversed(entries))
+            if len(entries) >= limit:
+                break
+        return entries
 
     @classmethod
     def has_recent_question_attempt(
@@ -102,7 +112,7 @@ class AgentActionLogService:
         limit: int = 400,
     ) -> bool:
         cutoff = datetime.now(UTC) - timedelta(seconds=within_seconds)
-        for entry in cls.recent(limit=limit):
+        for entry in cls.recent(limit=limit, include_internal=True):
             metadata = entry.get("metadata")
             if not isinstance(metadata, dict):
                 continue
@@ -135,7 +145,7 @@ class AgentActionLogService:
         limit: int = 400,
     ) -> bool:
         cutoff = datetime.now(UTC) - timedelta(seconds=within_seconds)
-        for entry in cls.recent(limit=limit):
+        for entry in cls.recent(limit=limit, include_internal=True):
             if action_type and str(entry.get("action_type") or "") != action_type:
                 continue
             if statuses is not None and str(entry.get("status") or "") not in statuses:
@@ -150,6 +160,42 @@ class AgentActionLogService:
             if entry_subject_id != subject_id:
                 continue
             if subject_type is not None and entry_subject_type != subject_type:
+                continue
+            raw_timestamp = str(entry.get("timestamp") or "").strip()
+            if not raw_timestamp:
+                continue
+            try:
+                timestamp = datetime.fromisoformat(raw_timestamp)
+            except ValueError:
+                continue
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=UTC)
+            if timestamp >= cutoff:
+                return True
+        return False
+
+    @classmethod
+    def has_recent_fingerprint(
+        cls,
+        fingerprint: str,
+        *,
+        action_type: str,
+        within_seconds: int,
+        limit: int = 400,
+    ) -> bool:
+        clean_fingerprint = str(fingerprint or "").strip()
+        if not clean_fingerprint:
+            return False
+        cutoff = datetime.now(UTC) - timedelta(seconds=within_seconds)
+        for entry in cls.recent(
+            limit=limit,
+            action_type=action_type,
+            include_internal=True,
+        ):
+            metadata = entry.get("metadata")
+            if not isinstance(metadata, dict):
+                continue
+            if str(metadata.get("decision_fingerprint") or "") != clean_fingerprint:
                 continue
             raw_timestamp = str(entry.get("timestamp") or "").strip()
             if not raw_timestamp:

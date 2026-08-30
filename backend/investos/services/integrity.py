@@ -5,10 +5,11 @@ import os
 from collections import Counter, defaultdict
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, exists, func, or_, select
+from sqlalchemy import and_, delete, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.config import settings
+from investos.core.dates import parse_explicit_calendar_datetime
 from investos.core.storage import LocalStorage
 from investos.models.conclusion import ConclusionRevision, ConclusionState
 from investos.models.coverage import (
@@ -40,6 +41,10 @@ from investos.services.artifact_hygiene import (
 from investos.services.corroboration import near_duplicate_signature
 from investos.services.graph_registry import durable_graph_model_map
 from investos.services.knowledge_audit import KnowledgeAuditService
+from investos.services.knowledge_time import (
+    assess_knowledge_time,
+    infer_expired_forecast_time,
+)
 
 # Substrings that mark a "thesis" that is actually an echoed LLM prompt or a
 # deterministic fallback — never a real conclusion. Matching summaries are
@@ -520,6 +525,10 @@ class IntegrityService:
         # Negative share counts can only come from a replay bug (oversell against
         # missing lots). Never silently rewrite money state — surface for review.
         negative_qty_count = await self._count(Position, Position.quantity < 0)
+        temporal_repairs = await self._repair_legacy_knowledge_time(
+            limit=500,
+            dry_run=dry_run,
+        )
 
         actions = {
             "orphan_edges_removed": len(orphan_edge_ids),
@@ -529,6 +538,7 @@ class IntegrityService:
             "duplicate_coverage_maps_removed": len(dup_coverage_ids),
             "duplicate_conclusions_removed": len(dup_conclusion_ids),
             "stale_zero_holdings_closed": len(stale_holding_ids),
+            "legacy_knowledge_times_repaired": temporal_repairs["repaired"],
         }
 
         if not dry_run:
@@ -655,10 +665,83 @@ class IntegrityService:
                 "orphan_edge_ids": [str(i) for i in orphan_edge_ids[:25]],
                 "corrupt_conclusion_ids": [str(i) for i in corrupt_conclusion_ids[:25]],
                 "artifact_question_ids": [str(i) for i in artifact_question_ids[:25]],
+                "knowledge_time_node_ids": temporal_repairs["node_ids"][:25],
             },
         }
         self._write_repair_audit(summary)
         return summary
+
+    async def _repair_legacy_knowledge_time(
+        self,
+        *,
+        limit: int,
+        dry_run: bool,
+    ) -> dict:
+        """Remove the former ingest-time-as-event-time fallback from facts and claims."""
+
+        clean_limit = max(1, min(int(limit or 1), 2500))
+        rows: list[tuple[str, Fact | Claim]] = []
+        per_type_limit = max(1, clean_limit // 2)
+        for node_type, model in (("fact", Fact), ("claim", Claim)):
+            remaining = clean_limit - len(rows)
+            if remaining <= 0:
+                break
+            candidates = (
+                (
+                    await self.session.execute(
+                        select(model)
+                        .where(
+                            model.event_time.is_not(None),
+                            or_(
+                                model.event_time == model.ingest_time,
+                                and_(
+                                    model.public_time.is_not(None),
+                                    model.event_time == model.public_time,
+                                ),
+                            ),
+                        )
+                        .order_by(model.created_at.desc(), model.id)
+                        .limit(min(remaining, per_type_limit))
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            rows.extend((node_type, row) for row in candidates)
+
+        result = {
+            "scanned": len(rows),
+            "repaired": len(rows),
+            "node_ids": [str(row.id) for _, row in rows],
+        }
+        if dry_run or not rows:
+            return result
+
+        for node_type, row in rows:
+            text = row.statement
+            reference_time = row.public_time or row.ingest_time or datetime.now(UTC)
+            explicit_event_time = parse_explicit_calendar_datetime(
+                text,
+                reference_time=reference_time,
+            )
+            valid_until = row.valid_until
+            if node_type == "claim" and valid_until is None:
+                valid_until = infer_expired_forecast_time(
+                    text,
+                    reference_time=reference_time,
+                )
+            temporal = assess_knowledge_time(
+                text,
+                event_time=explicit_event_time,
+                public_time=row.public_time,
+                ingest_time=row.ingest_time,
+                valid_until=valid_until,
+                item_type=node_type,
+            )
+            row.event_time = explicit_event_time
+            row.valid_until = valid_until
+            row.novelty = temporal.novelty
+        return result
 
     async def _duplicate_edge_ids(self) -> list:
         rows = (

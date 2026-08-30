@@ -251,6 +251,7 @@ function VisibleNodeProperties({ node }: { node: GraphNodeDetail }) {
 
 export default function TimelinePage() {
   const [items, setItems] = useState<TimelineItem[]>([]);
+  const [feedMode, setFeedMode] = useState<"attention" | "history" | "all">("attention");
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -300,7 +301,7 @@ export default function TimelinePage() {
 
   useEffect(() => {
     void loadTimeline();
-    void apiFetch<SourceRecord[]>("/sources/")
+    void apiFetch<SourceRecord[]>("/sources")
       .then((data) => {
         setSources(data);
         if (data[0]) {
@@ -382,6 +383,39 @@ export default function TimelinePage() {
     return parts.join(" · ") || null;
   };
 
+  const temporalTone = (status: string) => {
+    if (status === "current") return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200";
+    if (status === "scheduled") return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-200";
+    if (status === "outcome_due") return "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200";
+    return "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300";
+  };
+
+  const outcomeLabel = (status?: string | null) => {
+    if (!status) return null;
+    const labels: Record<string, string> = {
+      pending: "Outcome review due",
+      scheduled: "Outcome review scheduled",
+      correct: "Later evidence supported this",
+      incorrect: "Later evidence challenged this",
+      partially_correct: "Later evidence was mixed",
+      indeterminate: "Outcome remains inconclusive",
+    };
+    return labels[status] ?? status.replaceAll("_", " ");
+  };
+
+  const scoreLabel = (item: TimelineItem) => {
+    if (item.temporal_status === "historical") return "context relevance";
+    if (item.temporal_status === "outcome_due") return "review priority";
+    return "signal";
+  };
+
+  const visibleItems = items.filter((item) => {
+    const resolvedOutcome = item.outcome_status && !["pending", "scheduled"].includes(item.outcome_status);
+    if (feedMode === "history") return item.temporal_status === "historical" || Boolean(resolvedOutcome);
+    if (feedMode === "attention") return item.temporal_status !== "historical" || item.outcome_status === "pending";
+    return true;
+  });
+
   const connectedWeb = selectedNode?.connections.slice(0, 10) ?? [];
   const groupedConnections = connectedWeb.reduce<Record<string, GraphConnection[]>>((groups, connection) => {
     const key = connection.direction;
@@ -430,15 +464,49 @@ export default function TimelinePage() {
             description="Review dated facts, claims, and events ranked by current usefulness, then open an item to inspect its sources, relevance, and connected knowledge."
           />
 
+          <section className="border-y border-slate-200 py-3 dark:border-slate-800">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex w-full rounded border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-950 sm:w-auto">
+                {([
+                  ["attention", "Needs attention"],
+                  ["history", "History & outcomes"],
+                  ["all", "All evidence"],
+                ] as const).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setFeedMode(mode)}
+                    className={`min-w-0 flex-1 rounded px-3 py-2 text-xs font-semibold sm:flex-none ${
+                      feedMode === mode
+                        ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950"
+                        : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400 sm:max-w-md sm:text-right">
+                Old evidence is retained for outcome learning and historical comparison, but ingestion time is never presented as when it happened.
+              </p>
+            </div>
+          </section>
+
           <section className="relative border-l border-slate-200 dark:border-slate-800 ml-3 md:ml-4 space-y-8 py-4">
             {loading ? (
               <div className="pl-6 text-sm text-slate-500 animate-pulse">Loading intelligence stream...</div>
             ) : error ? (
               <div className="pl-6 text-sm text-red-500">{error}</div>
-            ) : items.length === 0 ? (
-              <div className="pl-6 text-sm text-slate-500">No evidence processed yet.</div>
+            ) : visibleItems.length === 0 ? (
+              <div className="pl-6 text-sm text-slate-500">
+                {feedMode === "attention"
+                  ? "Nothing in the loaded research feed currently needs attention. Historical evidence remains available under History & outcomes."
+                  : feedMode === "history"
+                    ? "No historical or outcome-scored evidence is available in the loaded feed yet."
+                    : "No evidence has been processed yet."}
+              </div>
             ) : (
-              items.map((item) => (
+              visibleItems.map((item) => (
                 <div key={item.id} className="relative pl-8 md:pl-10 group">
                   <div className="absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full ring-4 ring-slate-50 dark:ring-[#0a0a0a] bg-sky-500 group-hover:bg-sky-400 transition-colors" />
                   <div className="flex flex-col gap-2">
@@ -457,6 +525,9 @@ export default function TimelinePage() {
                       {describeContext(item) ? (
                         <span className="text-xs text-slate-400">{describeContext(item)}</span>
                       ) : null}
+                      <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${temporalTone(item.temporal_status)}`}>
+                        {item.temporal_status.replaceAll("_", " ")}
+                      </span>
                     </div>
                     <button
                       type="button"
@@ -467,7 +538,7 @@ export default function TimelinePage() {
                     >
                       <div className="mb-3 flex flex-wrap items-center gap-2">
                         <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider ${getSignalTone(item.signal_score)}`}>
-                          signal {item.signal_score.toFixed(2)}
+                          {scoreLabel(item)} {item.signal_score.toFixed(2)}
                         </span>
                         <span className="text-xs text-slate-500 dark:text-slate-400">
                           {describeWhyItMatters(item)}
@@ -479,12 +550,34 @@ export default function TimelinePage() {
                         ) : null}
                       </div>
                       <p className="text-slate-800 dark:text-slate-200 font-medium leading-relaxed">{item.text}</p>
+                      <div className="mt-3 grid gap-2 border-t border-slate-100 pt-3 text-xs dark:border-slate-800/60 sm:grid-cols-2">
+                        <div>
+                          <div className="font-semibold uppercase tracking-wider text-slate-400">Time context</div>
+                          <p className="mt-1 leading-relaxed text-slate-600 dark:text-slate-300">{item.temporal_explanation}</p>
+                        </div>
+                        {outcomeLabel(item.outcome_status) ? (
+                          <div className="border-l-2 border-amber-300 pl-3 dark:border-amber-700">
+                            <div className="font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-300">Learning loop</div>
+                            <p className="mt-1 font-medium text-slate-700 dark:text-slate-200">{outcomeLabel(item.outcome_status)}</p>
+                            {item.outcome_assessed_at ? (
+                              <p className="mt-1 text-slate-400">Assessed {formatDateTime(item.outcome_assessed_at)}</p>
+                            ) : item.outcome_due_at ? (
+                              <p className="mt-1 text-slate-400">Due {formatDateTime(item.outcome_due_at)}</p>
+                            ) : null}
+                            {item.outcome_notes ? (
+                              <p className="mt-2 leading-relaxed text-slate-600 dark:text-slate-300">
+                                {item.outcome_notes}
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
                       {describeContext(item) ? (
                         <div className="mt-2 text-sm text-slate-500 dark:text-slate-400">
                           Context: {describeContext(item)}
                         </div>
                       ) : null}
-                      <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between">
+                      <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/60 flex flex-wrap items-center justify-between gap-2">
                         <span className="text-xs font-mono text-slate-400 truncate max-w-[200px]">Node ID: {item.id.split("-")[0]}</span>
                         <span className="text-xs text-slate-400">{item.tier} · Open graph</span>
                       </div>

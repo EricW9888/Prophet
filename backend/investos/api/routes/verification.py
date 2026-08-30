@@ -8,7 +8,7 @@ from investos.services.verification import VerificationService
 router = APIRouter(prefix="/verification", tags=["verification"])
 
 
-@router.post("/", response_model=VerificationResponse)
+@router.post("", response_model=VerificationResponse)
 async def run_verification(
     payload: VerificationRequest,
     session: AsyncSession = Depends(get_session),

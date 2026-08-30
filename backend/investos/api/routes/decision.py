@@ -13,12 +13,12 @@ from investos.services.decision import DecisionService
 router = APIRouter(prefix="/decisions", tags=["decisions"])
 
 
-@router.get("/", response_model=list[DecisionJournalResponse])
+@router.get("", response_model=list[DecisionJournalResponse])
 async def list_decisions(session: AsyncSession = Depends(get_session)):
     return await DecisionService(session).list_decisions()
 
 
-@router.post("/", response_model=DecisionJournalResponse)
+@router.post("", response_model=DecisionJournalResponse)
 async def create_decision(
     payload: DecisionJournalCreate,
     session: AsyncSession = Depends(get_session),

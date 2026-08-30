@@ -1,3 +1,8 @@
+from types import SimpleNamespace
+from uuid import uuid4
+
+import pytest
+
 from investos.core.prompting import compact_packet_context
 from investos.services.historical import (
     DEFAULT_EPISODES,
@@ -28,6 +33,33 @@ def test_ai_capex_query_overlaps_dotcom_episode():
     q = _tokens("Is the AI capex buildout an overcapacity bubble?")
     assert {"capex", "buildout", "overcapacity"} & hay
     assert q & hay  # the matcher would score this episode > 0
+
+
+@pytest.mark.asyncio
+async def test_historical_match_requires_more_than_one_generic_token(monkeypatch):
+    service = HistoricalEpisodeService(None)
+    episode = SimpleNamespace(
+        id=uuid4(),
+        name="Dot-com bust (1999-2001)",
+        description="Technology valuation collapse",
+        affected_sectors=["technology", "telecom"],
+        affected_themes=["internet buildout", "capex supercycle"],
+        dominant_channel="Overcapacity and capital reversal",
+        notes="Demand arrived after the equity peak.",
+        start_time=SimpleNamespace(year=1999),
+        end_time=SimpleNamespace(year=2001),
+        episode_type="regime_shift",
+    )
+
+    async def list_episodes():
+        return [episode]
+
+    monkeypatch.setattr(service, "list_episodes", list_episodes)
+
+    assert await service.find_analogies("technology opportunities") == []
+    analogies = await service.find_analogies("compare AI capex with dot com")
+    assert analogies[0]["name"] == "Dot-com bust (1999-2001)"
+    assert analogies[0]["match_score"] >= 2
 
 
 def test_context_text_is_empty_without_analogies():

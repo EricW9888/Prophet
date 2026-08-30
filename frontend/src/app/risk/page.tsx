@@ -35,7 +35,7 @@ export default function RiskPage() {
     try {
       const [riskSummary, benchmarkRows] = await Promise.all([
         apiFetch<RiskSummary>(`/risk/summary?refresh=${refresh ? "true" : "false"}`),
-        apiFetch<BenchmarkRecord[]>("/benchmarks/"),
+        apiFetch<BenchmarkRecord[]>("/benchmarks"),
       ]);
       setSummary(riskSummary);
       setBenchmarks(benchmarkRows);
@@ -77,7 +77,7 @@ export default function RiskPage() {
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE}/benchmarks/`, {
+      const response = await fetch(`${API_BASE}/benchmarks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

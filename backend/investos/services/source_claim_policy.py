@@ -35,6 +35,10 @@ def days_between(start: datetime | None, end: datetime | None) -> float:
 
 
 def source_claim_due_at(record: Any, claim: Any | None = None) -> datetime | None:
+    valid_until = as_utc(getattr(claim, "valid_until", None))
+    if valid_until is not None:
+        return valid_until
+
     explicit_days = getattr(record, "horizon_days", None)
     claim_time = as_utc(getattr(record, "claim_time", None))
     if explicit_days is not None and explicit_days > 0 and claim_time is not None:

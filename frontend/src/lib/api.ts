@@ -116,6 +116,14 @@ export type TimelineItem = {
   ingest_time?: string | null;
   display_time: string;
   display_time_label: string;
+  temporal_status: "current" | "scheduled" | "historical" | "undated" | "outcome_due" | string;
+  temporal_explanation: string;
+  referenced_years: number[];
+  valid_until?: string | null;
+  outcome_status?: "pending" | "scheduled" | "correct" | "incorrect" | "partially_correct" | "indeterminate" | string | null;
+  outcome_due_at?: string | null;
+  outcome_assessed_at?: string | null;
+  outcome_notes?: string | null;
   created_at: string;
 };
 

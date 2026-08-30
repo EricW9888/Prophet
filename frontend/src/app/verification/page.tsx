@@ -26,7 +26,7 @@ export default function VerificationPage() {
     setLoading(true);
     try {
       const [items, queueItems] = await Promise.all([
-        apiFetch<ProfileListItem[]>("/profiles/"),
+        apiFetch<ProfileListItem[]>("/profiles"),
         apiFetch<ReviewQueueItem[]>("/review/queue"),
       ]);
       setProfiles(items);
@@ -78,7 +78,7 @@ export default function VerificationPage() {
     setError(null);
     setResult(null);
     try {
-      const response = await fetch(`${API_BASE}/verification/`, {
+      const response = await fetch(`${API_BASE}/verification`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -167,7 +167,6 @@ export default function VerificationPage() {
                         priority {item.priority_score.toFixed(1)}
                       </span>
                     </div>
-                    <p className="mt-3 text-sm text-slate-700 dark:text-slate-200">{item.why_now_summary}</p>
                     <div className="mt-2 rounded-lg border border-sky-100 bg-sky-50/60 px-3 py-2 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-200">
                       Next best move: {item.next_action}
                     </div>
@@ -191,14 +190,19 @@ export default function VerificationPage() {
                       }
                       className="mt-3 text-xs font-bold uppercase tracking-wider text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
                     >
-                      {expandedSignals[item.id] ? "Hide signal detail" : "View signal detail"}
+                      {expandedSignals[item.id] ? "Hide rationale and signals" : "View rationale and signals"}
                     </button>
                     {expandedSignals[item.id] ? (
-                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
-                        <span>priority {item.priority_score.toFixed(1)}</span>
-                        <span>contradiction {item.contradiction_pressure.toFixed(1)}</span>
-                        <span>coverage pressure {item.coverage_weakness.toFixed(1)}</span>
-                        <span>drift {item.thesis_drift.toFixed(1)}</span>
+                      <div className="mt-3 space-y-3 border-t border-slate-200 pt-3 dark:border-slate-800">
+                        <p className="break-words text-sm leading-6 text-slate-700 dark:text-slate-200">
+                          {item.why_now_summary}
+                        </p>
+                        <div className="flex flex-wrap gap-2 text-xs text-slate-400">
+                          <span>priority {item.priority_score.toFixed(1)}</span>
+                          <span>contradiction {item.contradiction_pressure.toFixed(1)}</span>
+                          <span>coverage pressure {item.coverage_weakness.toFixed(1)}</span>
+                          <span>drift {item.thesis_drift.toFixed(1)}</span>
+                        </div>
                       </div>
                     ) : null}
                   </div>

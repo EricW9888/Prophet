@@ -1149,10 +1149,12 @@ class ResearchService:
 
                     content_origin = "direct_page"
                     fetch_error: str | None = None
+                    document_public_time = None
                     try:
                         document = await self.ingestion.fetch_url_document(source_url)
                         content = document.content
                         canonical_source_url = document.canonical_url
+                        document_public_time = document.public_time
                     except (UnsafeUrlError, UrlFetchNetworkError, ValueError) as exc:
                         fetch_error = f"{type(exc).__name__}: {exc}"
                         raw_content = str(candidate.get("raw_content") or "").strip()
@@ -1188,6 +1190,9 @@ class ResearchService:
                         "discovery_result_rank": rank,
                         "content_origin": content_origin,
                         "canonical_source_url": canonical_source_url,
+                        "publication_time_source": (
+                            "document_metadata" if document_public_time else None
+                        ),
                         "direct_fetch_error": fetch_error,
                         "provider_attempts": provider_attempts,
                     }
@@ -1197,6 +1202,7 @@ class ResearchService:
                             source_id=source_context.source.id,
                             source_item_type=source_context.inferred_type,
                             url=source_url,
+                            public_time=document_public_time,
                             metadata_json=evidence_metadata,
                             content=content[:20000],
                         ),

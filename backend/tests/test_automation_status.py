@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from investos.config import settings
+from investos.services.agent import AgentService
+from investos.services.agent_action_log import AgentActionLogService
 from investos.services.automation import AutomationCoordinator, JobTelemetry
 from investos.services.research import ResearchRunResult
 
@@ -24,6 +26,100 @@ def test_unknown_success_result_defaults_to_ok():
         )
         == "ok"
     )
+
+
+def test_internal_automation_state_does_not_displace_visible_activity(
+    monkeypatch, tmp_path
+):
+    log_path = tmp_path / "agent-actions.jsonl"
+    monkeypatch.setattr(
+        AgentActionLogService,
+        "_log_path",
+        staticmethod(lambda: log_path),
+    )
+    AgentActionLogService.append(
+        source="automation",
+        action_type="research_loop",
+        status="ok",
+        summary="Material evidence was added.",
+    )
+    for index in range(5):
+        AgentActionLogService.append(
+            source="automation",
+            action_type="strategist_cycle",
+            status="idle",
+            summary=f"No-op checkpoint {index}",
+            metadata={"internal_state": True},
+        )
+
+    visible = AgentActionLogService.recent(limit=2)
+    all_entries = AgentActionLogService.recent(limit=10, include_internal=True)
+
+    assert [entry["summary"] for entry in visible] == ["Material evidence was added."]
+    assert len(all_entries) == 6
+
+
+def test_strategist_fingerprint_reads_hidden_checkpoint(monkeypatch, tmp_path):
+    log_path = tmp_path / "agent-actions.jsonl"
+    monkeypatch.setattr(
+        AgentActionLogService,
+        "_log_path",
+        staticmethod(lambda: log_path),
+    )
+    AgentActionLogService.append(
+        source="automation",
+        action_type="strategist_cycle",
+        status="idle",
+        summary="Unchanged operating state.",
+        metadata={
+            "internal_state": True,
+            "decision_fingerprint": "packet-123",
+        },
+    )
+
+    assert AgentActionLogService.has_recent_fingerprint(
+        "packet-123",
+        action_type="strategist_cycle",
+        within_seconds=60,
+    )
+    assert AgentActionLogService.recent(limit=5) == []
+
+
+def test_strategist_planning_signal_is_not_triggered_by_inventory_alone():
+    quiet_packet = {
+        "review_queue": [],
+        "priority_monitor": [],
+        "recent_research_ids": [],
+        "recent_lessons": [],
+        "active_themes": ["AI infrastructure"],
+        "tracked_tickers": ["MEMA"],
+    }
+    pressured_packet = {
+        **quiet_packet,
+        "review_queue": [{"item_type": "position", "priority_score": 82.0}],
+    }
+
+    assert not AgentService._has_strategic_planning_signal(quiet_packet)
+    assert AgentService._has_strategic_planning_signal(pressured_packet)
+    assert AgentService._strategic_planning_fingerprint(quiet_packet) == (
+        AgentService._strategic_planning_fingerprint(dict(quiet_packet))
+    )
+
+
+@pytest.mark.asyncio
+async def test_reflection_without_review_pressure_does_not_start_agent_turn():
+    service = AgentService.__new__(AgentService)
+    service._select_autonomous_candidate = AsyncMock(return_value=None)
+    service.handle_turn = AsyncMock()
+
+    result = await service.run_reflection_cycle()
+
+    assert result == {
+        "status": "idle",
+        "detail": "no_autonomous_candidate",
+        "actions": 0,
+    }
+    service.handle_turn.assert_not_awaited()
 
 
 @pytest.mark.parametrize(

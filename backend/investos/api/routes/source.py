@@ -74,12 +74,12 @@ def _media_job_response(
     )
 
 
-@router.get("/", response_model=list[SourceResponse])
+@router.get("", response_model=list[SourceResponse])
 async def list_sources(session: AsyncSession = Depends(get_session)):
     return await SourceService(session).list_sources()
 
 
-@router.post("/", response_model=SourceResponse)
+@router.post("", response_model=SourceResponse)
 async def create_source(
     payload: SourceCreate,
     session: AsyncSession = Depends(get_session),

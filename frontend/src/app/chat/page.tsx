@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Check, ChevronDown, PanelLeftOpen, Pencil, X } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import AppNav from "@/components/AppNav";
 import {
@@ -98,6 +100,20 @@ type StructuredReasoningSummary = {
   contradictions: string[];
   gapFlags: string[];
   retrievalLayers: string[];
+  researchPlan: {
+    objective: string;
+    mode: string;
+    retrievalQuery: string;
+    informationNeeds: string[];
+    externalRequired: boolean;
+    portfolioRole: string;
+    reason: string;
+  } | null;
+  answerability: {
+    status: string;
+    reason: string;
+    missingInformation: string[];
+  } | null;
   corroboration: {
     status: string;
     independentSources: number;
@@ -107,8 +123,10 @@ type StructuredReasoningSummary = {
     assertions: Array<{
       statement: string;
       status: string;
+      evidenceBasis: string;
       sourceCount: number;
       contradictionCount: number;
+      contextPathCount: number;
     }>;
     assumptions: Array<{ statement: string; status: string; falsifier: string | null }>;
   } | null;
@@ -117,6 +135,8 @@ type StructuredReasoningSummary = {
     stance: string;
     summary: string;
     disagrees: boolean;
+    answerability: string;
+    answerabilityReason: string;
   } | null;
 };
 
@@ -136,6 +156,8 @@ function summarizeReasoningTrace(trace?: ReasoningTrace): StructuredReasoningSum
   const structured = trace?.structured_output_json ?? {};
   const corroboration = asRecord(structured.corroboration);
   const independentReview = asRecord(structured.independent_review);
+  const researchPlan = asRecord(structured.research_plan);
+  const answerability = asRecord(structured.answerability);
   return {
     stance: typeof structured.stance === "string" ? structured.stance : null,
     confidenceBand:
@@ -154,6 +176,46 @@ function summarizeReasoningTrace(trace?: ReasoningTrace): StructuredReasoningSum
       : [],
     gapFlags: trace?.evidence_packet?.gap_flags ?? [],
     retrievalLayers: trace?.evidence_packet?.retrieval_layers_used ?? [],
+    researchPlan: researchPlan
+      ? {
+          objective:
+            typeof researchPlan.research_objective === "string"
+              ? researchPlan.research_objective
+              : "",
+          mode:
+            typeof researchPlan.research_mode === "string"
+              ? researchPlan.research_mode
+              : "stored_context",
+          retrievalQuery:
+            typeof researchPlan.retrieval_query === "string"
+              ? researchPlan.retrieval_query
+              : "",
+          informationNeeds: Array.isArray(researchPlan.information_needs)
+            ? researchPlan.information_needs.filter(
+                (item): item is string => typeof item === "string",
+              )
+            : [],
+          externalRequired: researchPlan.external_research_required === true,
+          portfolioRole:
+            typeof researchPlan.portfolio_context_role === "string"
+              ? researchPlan.portfolio_context_role
+              : "not_needed",
+          reason: typeof researchPlan.reason === "string" ? researchPlan.reason : "",
+        }
+      : null,
+    answerability: answerability
+      ? {
+          status:
+            typeof answerability.status === "string" ? answerability.status : "unknown",
+          reason:
+            typeof answerability.reason === "string" ? answerability.reason : "",
+          missingInformation: Array.isArray(answerability.missing_information)
+            ? answerability.missing_information.filter(
+                (item): item is string => typeof item === "string",
+              )
+            : [],
+        }
+      : null,
     corroboration: corroboration
       ? {
           status:
@@ -174,6 +236,10 @@ function summarizeReasoningTrace(trace?: ReasoningTrace): StructuredReasoningSum
           assertions: asRecordArray(corroboration.assertions).map((item) => ({
             statement: typeof item.statement === "string" ? item.statement : "Unlabeled assertion",
             status: typeof item.status === "string" ? item.status : "unknown",
+            evidenceBasis:
+              typeof item.evidence_basis === "string"
+                ? item.evidence_basis
+                : "retrieved_source",
             sourceCount:
               typeof item.independent_supporting_source_count === "number"
                 ? item.independent_supporting_source_count
@@ -182,6 +248,9 @@ function summarizeReasoningTrace(trace?: ReasoningTrace): StructuredReasoningSum
               typeof item.independent_contradicting_source_count === "number"
                 ? item.independent_contradicting_source_count
                 : 0,
+            contextPathCount: Array.isArray(item.valid_supporting_context_paths)
+              ? item.valid_supporting_context_paths.length
+              : 0,
           })),
           assumptions: asRecordArray(corroboration.material_assumptions).map((item) => ({
             statement: typeof item.statement === "string" ? item.statement : "Unlabeled assumption",
@@ -203,6 +272,14 @@ function summarizeReasoningTrace(trace?: ReasoningTrace): StructuredReasoningSum
           summary:
             typeof independentReview.summary === "string" ? independentReview.summary : "",
           disagrees: independentReview.stance_disagrees === true,
+          answerability:
+            typeof independentReview.question_answerability === "string"
+              ? independentReview.question_answerability
+              : "unknown",
+          answerabilityReason:
+            typeof independentReview.answerability_reason === "string"
+              ? independentReview.answerability_reason
+              : "",
         }
       : null,
   };
@@ -241,7 +318,12 @@ function CorroborationPanel({ summary }: { summary: StructuredReasoningSummary }
                 <span className="text-xs uppercase opacity-75">{formatUserLabel(assertion.status)}</span>
               </div>
               <p className="mt-1 text-xs opacity-75">
-                {assertion.sourceCount} independent support · {assertion.contradictionCount} contradiction
+                {assertion.evidenceBasis === "portfolio_ledger"
+                  ? `${assertion.contextPathCount} account-data reference${assertion.contextPathCount === 1 ? "" : "s"}`
+                  : assertion.evidenceBasis === "market_data_calculation"
+                    ? `${assertion.contextPathCount} calculation input reference${assertion.contextPathCount === 1 ? "" : "s"}`
+                    : `${assertion.sourceCount} independent support`}
+                {` · ${assertion.contradictionCount} contradiction${assertion.contradictionCount === 1 ? "" : "s"}`}
               </p>
             </div>
           ))}
@@ -266,9 +348,17 @@ function CorroborationPanel({ summary }: { summary: StructuredReasoningSummary }
           <p className="text-xs font-medium uppercase tracking-wider">
             Independent review · {formatUserLabel(summary.independentReview.stance)}
             {summary.independentReview.disagrees ? " · disagrees" : ""}
+            {summary.independentReview.answerability !== "unknown"
+              ? ` · ${formatUserLabel(summary.independentReview.answerability)} scope`
+              : ""}
           </p>
           {summary.independentReview.summary ? (
             <p className="mt-1 opacity-80">{summary.independentReview.summary}</p>
+          ) : null}
+          {summary.independentReview.answerabilityReason ? (
+            <p className="mt-1 opacity-80">
+              Scope check: {summary.independentReview.answerabilityReason}
+            </p>
           ) : null}
         </div>
       ) : null}
@@ -1422,6 +1512,12 @@ export default function ChatPage() {
                               Enable state updates
                             </button>
                           </div>
+                        ) : m.role === "assistant" ? (
+                          <div className="prose prose-slate max-w-none break-words text-sm leading-7 dark:prose-invert md:text-base prose-headings:mb-2 prose-headings:mt-5 prose-headings:text-current prose-p:my-3 prose-li:my-1 prose-strong:text-current prose-a:text-sky-600 dark:prose-a:text-sky-400">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {m.content}
+                            </ReactMarkdown>
+                          </div>
                         ) : (
                           <div className="whitespace-pre-wrap break-words leading-7">{m.content}</div>
                         )}
@@ -1444,30 +1540,34 @@ export default function ChatPage() {
                               ) : null}
                             </div>
                             {m.meta.actions && m.meta.actions.length > 0 ? (
-                              <div className="space-y-2">
-                                <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                  Agent actions
-                                </p>
+                              <details className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+                                <summary className="cursor-pointer text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                  Agent actions · {m.meta.actions.length}
+                                </summary>
+                                <div className="mt-3 space-y-2">
                                 {m.meta.actions.map((action, actionIndex) => (
                                   <div key={`${action.action_type}-${actionIndex}`} className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800">
                                     <p className="font-medium">{action.action_type.replaceAll("_", " ")}</p>
                                     <p className="mt-1 text-slate-500 dark:text-slate-400">{action.summary}</p>
                                   </div>
                                 ))}
-                              </div>
+                                </div>
+                              </details>
                             ) : null}
                             {m.meta.subagents && Object.keys(m.meta.subagents).length > 0 ? (
-                              <div className="space-y-2">
-                                <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                  Independent analysis lenses
-                                </p>
+                              <details className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+                                <summary className="cursor-pointer text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                  Independent analysis lenses · {Object.keys(m.meta.subagents).length}
+                                </summary>
+                                <div className="mt-3 space-y-2">
                                 {Object.entries(m.meta.subagents).map(([label, insight]) => (
                                   <div key={label} className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800">
                                     <p className="font-medium">{label.replaceAll("_", " ")}</p>
                                     <p className="mt-1 text-slate-500 dark:text-slate-400">{insight}</p>
                                   </div>
                                 ))}
-                              </div>
+                                </div>
+                              </details>
                             ) : null}
                             {m.meta.reasoning_run_id ? (
                               <div className="space-y-2">
@@ -1649,6 +1749,8 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
     contradictions,
     gapFlags,
     retrievalLayers,
+    researchPlan,
+    answerability,
     alternativeHypotheses,
   } =
     summarizeReasoningTrace(trace);
@@ -1662,6 +1764,32 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
         <span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-800">{trace.output_tokens ?? 0} out</span>
         <span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-800">{trace.duration_ms ?? 0}ms</span>
       </div>
+      {researchPlan ? (
+        <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-medium">Question research plan</p>
+            <span className="rounded-full border border-slate-200 px-2 py-1 text-xs dark:border-slate-800">
+              {formatUserLabel(researchPlan.mode)}
+            </span>
+          </div>
+          {researchPlan.objective ? (
+            <p className="mt-2 text-slate-600 dark:text-slate-300">{researchPlan.objective}</p>
+          ) : null}
+          {researchPlan.informationNeeds.length > 0 ? (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-500 dark:text-slate-400">
+              {researchPlan.informationNeeds.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          ) : null}
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            {researchPlan.externalRequired ? "External check required" : "Stored context may be sufficient"}
+            {researchPlan.portfolioRole
+              ? ` · portfolio ${formatUserLabel(researchPlan.portfolioRole)}`
+              : ""}
+          </p>
+        </div>
+      ) : null}
       {trace.evidence_packet ? (
         <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
           <p className="font-medium">Evidence packet</p>
@@ -1674,6 +1802,27 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
         </div>
       ) : null}
       <CorroborationPanel summary={summarizeReasoningTrace(trace)} />
+      {answerability ? (
+        <div
+          className={`rounded-lg border p-3 ${
+            answerability.status === "adequate"
+              ? "border-emerald-300 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/20"
+              : "border-amber-300 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/20"
+          }`}
+        >
+          <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Question scope · {formatUserLabel(answerability.status)}
+          </p>
+          {answerability.reason ? <p className="mt-2">{answerability.reason}</p> : null}
+          {answerability.missingInformation.length > 0 ? (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-600 dark:text-slate-300">
+              {answerability.missingInformation.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
       <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
         <p className="font-medium">Readable summary</p>
         <div className="mt-2 space-y-3 text-sm text-slate-600 dark:text-slate-300">
@@ -1783,8 +1932,11 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
         </div>
         <details className="mt-3 rounded-lg border border-dashed border-slate-200 px-3 py-2 dark:border-slate-800">
           <summary className="cursor-pointer text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            View raw analysis payload
+            View structured analysis record
           </summary>
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            Auditable evidence, assumptions, alternatives, scope checks, and actions. This is not a private token-by-token thought stream.
+          </p>
           <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-slate-500 dark:text-slate-400">
             {JSON.stringify(trace.structured_output_json, null, 2)}
           </pre>
@@ -1860,6 +2012,42 @@ function ActualProcessSummary({
           </p>
         ) : null}
       </div>
+      {summary.researchPlan ? (
+        <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Research scope
+            </p>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              {formatUserLabel(summary.researchPlan.mode)}
+            </span>
+          </div>
+          {summary.researchPlan.objective ? (
+            <p className="mt-2 text-slate-700 dark:text-slate-200">
+              {summary.researchPlan.objective}
+            </p>
+          ) : null}
+          {summary.researchPlan.informationNeeds.length > 0 ? (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-600 dark:text-slate-300">
+              {summary.researchPlan.informationNeeds.slice(0, 4).map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+      {summary.answerability ? (
+        <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+          <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Scope verdict · {formatUserLabel(summary.answerability.status)}
+          </p>
+          {summary.answerability.reason ? (
+            <p className="mt-2 text-slate-700 dark:text-slate-200">
+              {summary.answerability.reason}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       <CorroborationPanel summary={summary} />
       {historicalLens ? (
         <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">

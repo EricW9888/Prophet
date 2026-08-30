@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 from collections import OrderedDict
@@ -30,13 +31,13 @@ from investos.core.prompting import (
 from investos.core.storage import LocalStorage
 from investos.models.conclusion import ConclusionState
 from investos.models.coverage import UnresolvedQuestion
-from investos.models.decision import DecisionJournal
 from investos.models.entity import Entity, Security
 from investos.models.evidence import RawEvidence, SourceItem
 from investos.models.lesson import Lesson
 from investos.models.portfolio import Position
 from investos.models.profile import Profile
-from investos.models.shadow import ExperimentResult, ShadowExperiment
+from investos.models.review import ReviewQueueItem
+from investos.models.shadow import ExperimentResult
 from investos.models.source import Source
 from investos.models.theme import Theme
 from investos.schemas.agent import (
@@ -67,7 +68,6 @@ from investos.services.research import ResearchService
 from investos.services.retrieval import RetrievalService
 from investos.services.review import ReviewService
 from investos.services.risk import RiskService
-from investos.services.runtime_settings import RuntimeSettingsStore
 from investos.services.shadow import ShadowService
 from investos.services.subject_alias import SubjectAliasService
 from investos.services.verification import VerificationService
@@ -377,6 +377,41 @@ FRESH_RESEARCH_QUERY_SCHEMA = {
         "reason": {"type": "string"},
     },
     "required": ["query", "information_needs", "reason"],
+}
+
+QUESTION_RESEARCH_PLAN_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "research_objective": {"type": "string"},
+        "retrieval_query": {"type": "string"},
+        "information_needs": {
+            "type": "array",
+            "items": {"type": "string"},
+            "maxItems": 8,
+        },
+        "external_research_required": {"type": "boolean"},
+        "research_mode": {
+            "type": "string",
+            "enum": ["stored_context", "focused_external", "opportunity_universe"],
+        },
+        "portfolio_context_role": {
+            "type": "string",
+            "enum": ["primary_evidence", "secondary_read_through", "not_needed"],
+        },
+        "use_historical_analogies": {"type": "boolean"},
+        "reason": {"type": "string"},
+    },
+    "required": [
+        "research_objective",
+        "retrieval_query",
+        "information_needs",
+        "external_research_required",
+        "research_mode",
+        "portfolio_context_role",
+        "use_historical_analogies",
+        "reason",
+    ],
 }
 
 CONVERSATIONAL_HANDOFF_SCHEMA = {
@@ -929,6 +964,45 @@ class AgentService:
                 responded_at=datetime.now(UTC),
             )
 
+        await self._emit_progress(
+            progress_callback,
+            "planning",
+            "Deriving the evidence requirements from the question before retrieval.",
+        )
+        question_research_plan = await self._plan_question_research(
+            message=payload.message,
+            subject_name=resolved.subject_name,
+            subject_type=resolved.subject_type,
+            freshness_requirement=turn_intent,
+        )
+        await self._emit_progress(
+            progress_callback,
+            "planning",
+            str(
+                question_research_plan.get("research_objective")
+                or "Research scope planned."
+            ),
+            {
+                "research_mode": question_research_plan.get("research_mode"),
+                "information_needs": question_research_plan.get("information_needs")
+                or [],
+                "external_research_required": bool(
+                    question_research_plan.get("external_research_required")
+                ),
+            },
+        )
+
+        opportunity_context = None
+        if question_research_plan.get("research_mode") == "opportunity_universe":
+            await self._emit_progress(
+                progress_callback,
+                "research",
+                "Checking Prophet's opportunity universe instead of treating the current portfolio as the search universe.",
+            )
+            opportunity_context = await self._question_opportunity_context(
+                run_due_scan=payload.auto_execute
+            )
+
         retrieval = RetrievalService(self.session)
         await self._emit_progress(
             progress_callback,
@@ -936,12 +1010,15 @@ class AgentService:
             "Assembling direct, connected, historical, and contradiction evidence.",
         )
         packet = await retrieval.retrieve_evidence(
-            query=payload.message,
+            query=str(question_research_plan.get("retrieval_query") or payload.message),
             subject_id=resolved.subject_id,
             subject_type=resolved.subject_type,
             max_depth=6,
         )
         packet_context = await retrieval.hydrate_packet(packet)
+        self._apply_question_research_plan(packet_context, question_research_plan)
+        if opportunity_context is not None:
+            packet_context["opportunity_context"] = opportunity_context
         conversation_context = self._build_conversation_context(
             recent_turns=recent_turns,
             current_message=payload.message,
@@ -956,6 +1033,7 @@ class AgentService:
             subject_type=resolved.subject_type,
             packet_context=packet_context,
             freshness_requirement=turn_intent,
+            question_research_plan=question_research_plan,
         )
         if fresh_research_context:
             packet_context["fresh_research_context"] = fresh_research_context
@@ -963,9 +1041,9 @@ class AgentService:
                 progress_callback,
                 "research",
                 (
-                    "Fresh/current-event language detected, so Prophet checked external research before reasoning."
+                    "The question required an external source check, which completed before reasoning."
                     if fresh_research_context.get("status") == "ok"
-                    else "Fresh/current-event language detected, but external research did not return usable fresh context."
+                    else "The question required an external source check, but no usable context was returned."
                 ),
                 {
                     "required": bool(fresh_research_context.get("required")),
@@ -1004,6 +1082,18 @@ class AgentService:
             )
 
         supplemental_context: dict[str, Any] = {}
+        supplemental_context["research_plan"] = question_research_plan
+        supplemental_context["historical_analogies"] = (
+            packet_context.get("historical_analogies") or []
+        )
+        supplemental_context["historical_analogy_context"] = (
+            packet_context.get("historical_analogy_context") or ""
+        )
+        supplemental_context["historical_analogy_lenses"] = (
+            packet_context.get("historical_analogy_lenses") or []
+        )
+        if opportunity_context is not None:
+            supplemental_context["opportunity_context"] = opportunity_context
         if conversation_context:
             supplemental_context["conversation_context"] = conversation_context
         if fresh_research_context:
@@ -1033,6 +1123,9 @@ class AgentService:
         reasoning_result = await self._synthesize_and_refine(
             payload, resolved, packet_context, reasoning_result, subagent_insights
         )
+        reasoning_result["research_plan"] = question_research_plan
+        if opportunity_context is not None:
+            reasoning_result["opportunity_context"] = opportunity_context
 
         corroboration = CorroborationService(
             minimum_independent_sources=settings.CORROBORATION_MIN_INDEPENDENT_SOURCES,
@@ -1045,6 +1138,11 @@ class AgentService:
             reasoning_result,
         )
         corroboration.apply_independent_review(reasoning_result, independent_review)
+        self._apply_independent_answerability_gate(
+            reasoning_result,
+            independent_review,
+            question_research_plan=question_research_plan,
+        )
         if self._state_updates_allowed(
             auto_execute=payload.auto_execute,
             has_fresh_research=bool(fresh_research_context),
@@ -1062,12 +1160,12 @@ class AgentService:
                     reasoning_result,
                 )
         elif fresh_research_context:
-            reasoning_result["state_update_blocked_reason"] = (
-                "fresh_search_context_not_promoted"
+            reasoning_result.setdefault(
+                "state_update_blocked_reason", "fresh_search_context_not_promoted"
             )
         else:
-            reasoning_result["state_update_blocked_reason"] = (
-                "user_disabled_state_updates"
+            reasoning_result.setdefault(
+                "state_update_blocked_reason", "user_disabled_state_updates"
             )
         reasoning_run.output_text = reasoning_result.get("reasoning")
         reasoning_run.output_tokens = estimate_tokens_from_payload(reasoning_result)
@@ -1176,6 +1274,18 @@ class AgentService:
                     resource_type=(
                         "raw_evidence" if auto_research.get("evidence_id") else None
                     ),
+                )
+            )
+        if opportunity_context and opportunity_context.get("scan_started"):
+            actions.append(
+                AgentActionResponse(
+                    action_type="opportunity_discovery",
+                    status=str(opportunity_context.get("scan_status") or "executed"),
+                    summary=str(
+                        opportunity_context.get("scan_detail")
+                        or "Canvassed the due opportunity universe before answering."
+                    ),
+                    resource_type="opportunity_discovery_run",
                 )
             )
 
@@ -1387,6 +1497,8 @@ class AgentService:
             f"Return up to {lens_limit} independent analysis lenses that would materially improve this investment question. "
             "Each lens must be a precise inspection task derived from the query, target, and portfolio context. "
             "Prefer non-overlapping causal questions, contradiction checks, bottleneck analysis, or portfolio transmission paths. "
+            "Use business-model value capture or material externalities as lenses when the evidence makes them decision-relevant, "
+            "not as mandatory dimensions for every subject. "
             "When historical_analogy_lenses are supplied, use them to form present-day causal-channel checks rather than treating history as a prediction. "
             "The lens cap is an execution and latency budget, not a closed ontology of investor dimensions. "
             "Do not treat examples as complete; add any material missing dimension implied by the evidence, setup, or portfolio exposure. "
@@ -1891,18 +2003,20 @@ class AgentService:
             candidates=merged[:5],
         )
 
-    async def run_reflection_cycle(self) -> dict[str, str | int]:
+    async def run_reflection_cycle(self) -> dict[str, object]:
         candidate = await self._select_autonomous_candidate()
         if candidate is None:
             return {"status": "idle", "detail": "no_autonomous_candidate", "actions": 0}
 
-        position, security = candidate
+        position, security, review_item = candidate
         payload = AgentTurnRequest(
             subject_id=security.entity_id,
             subject_type="entity",
             message=(
-                f"Autonomous reflection cycle for {security.ticker}. "
-                "Review the accepted state, refresh journal memory if needed, and run a useful shadow experiment."
+                f"Autonomous review for {security.ticker}, prompted by this unresolved review signal: "
+                f"{review_item.trigger_reason}. Determine whether the supplied evidence can reduce that uncertainty or change "
+                "the accepted view. Take no action when the packet adds no material information. Start research, a watch, or a "
+                "shadow experiment only when it closes a concrete gap or tests a falsifiable decision-relevant claim."
             ),
             auto_execute=True,
         )
@@ -1913,6 +2027,11 @@ class AgentService:
             "status": "ok",
             "detail": f"{security.ticker} actions={len(response.actions)} stance={response.stance}",
             "actions": len(response.actions),
+            "subject_id": str(security.entity_id),
+            "subject_type": "entity",
+            "subject_name": security.ticker,
+            "review_item_id": str(review_item.id),
+            "review_priority": float(review_item.priority_score or 0.0),
         }
 
     async def run_strategic_planning_cycle(self) -> dict[str, object]:
@@ -1946,6 +2065,43 @@ class AgentService:
             for item in portfolio.get("top_holdings", [])
             if item.get("ticker")
         ]
+
+        decision_packet = {
+            "review_queue": review_queue.get("top_items", []),
+            "priority_monitor": monitor.get("priority_review_items", []),
+            "recent_research_ids": [
+                item.get("id") for item in monitor.get("recent_research_items", [])
+            ],
+            "recent_lessons": [
+                {
+                    "title": item.get("title"),
+                    "maturity_status": item.get("maturity_status"),
+                    "created_at": item.get("created_at"),
+                }
+                for item in lessons_data.get("recent_lessons", [])[:8]
+            ],
+            "active_themes": themes,
+            "tracked_tickers": tracked_tickers,
+        }
+        decision_fingerprint = self._strategic_planning_fingerprint(decision_packet)
+        if not self._has_strategic_planning_signal(decision_packet):
+            return {
+                "status": "idle",
+                "detail": "no_material_planning_signal",
+                "decision_fingerprint": decision_fingerprint,
+                "actions_taken": 0,
+            }
+        if AgentActionLogService.has_recent_fingerprint(
+            decision_fingerprint,
+            action_type="strategist_cycle",
+            within_seconds=6 * 60 * 60,
+        ):
+            return {
+                "status": "idle",
+                "detail": "unchanged_operating_state",
+                "decision_fingerprint": decision_fingerprint,
+                "actions_taken": 0,
+            }
 
         # 2. Call Strategist LLM
         strategist_system_prompt = (
@@ -2061,7 +2217,32 @@ class AgentService:
                 )
             ),
             "goals": goals,
+            "actions_taken": len(actions_taken),
+            "decision_fingerprint": decision_fingerprint,
         }
+
+    @staticmethod
+    def _strategic_planning_fingerprint(packet: dict[str, object]) -> str:
+        encoded = json.dumps(
+            packet,
+            sort_keys=True,
+            ensure_ascii=True,
+            default=str,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @staticmethod
+    def _has_strategic_planning_signal(packet: dict[str, object]) -> bool:
+        return any(
+            bool(packet.get(key))
+            for key in (
+                "review_queue",
+                "priority_monitor",
+                "recent_research_ids",
+                "recent_lessons",
+            )
+        )
 
     async def conversation_history(
         self,
@@ -3016,53 +3197,42 @@ class AgentService:
             return None if security is None else security.ticker
         return None
 
-    async def _select_autonomous_candidate(self) -> tuple[Position, Security] | None:
+    async def _select_autonomous_candidate(
+        self,
+    ) -> tuple[Position, Security, ReviewQueueItem] | None:
         rows = (
             await self.session.execute(
-                select(Position, Security)
+                select(Position, Security, ReviewQueueItem)
                 .join(Security, Position.security_id == Security.id)
-                .where(Position.list_type == "holding", Position.quantity > 0)
-                .order_by(desc(Position.market_value))
+                .join(
+                    ReviewQueueItem,
+                    or_(
+                        (ReviewQueueItem.item_type == "position")
+                        & (ReviewQueueItem.item_id == Position.id),
+                        (ReviewQueueItem.item_type == "entity")
+                        & (ReviewQueueItem.item_id == Security.entity_id),
+                    ),
+                )
+                .where(
+                    Position.list_type == "holding",
+                    Position.quantity > 0,
+                    ReviewQueueItem.status.in_(["pending", "in_review"]),
+                )
+                .order_by(
+                    desc(ReviewQueueItem.priority_score),
+                    desc(Position.market_value),
+                )
             )
         ).all()
-        cutoff = datetime.now(UTC).replace(microsecond=0)
-        for position, security in rows:
-            recent_decision = (
-                (
-                    await self.session.execute(
-                        select(DecisionJournal)
-                        .where(DecisionJournal.position_id == position.id)
-                        .order_by(desc(DecisionJournal.created_at))
-                        .limit(1)
-                    )
-                )
-                .scalars()
-                .first()
-            )
-            recent_shadow = (
-                (
-                    await self.session.execute(
-                        select(ShadowExperiment)
-                        .where(
-                            ShadowExperiment.name
-                            == f"Autonomous review: {security.ticker}"
-                        )
-                        .order_by(desc(ShadowExperiment.created_at))
-                        .limit(1)
-                    )
-                )
-                .scalars()
-                .first()
-            )
-            if recent_decision is None:
-                return position, security
-            if (cutoff - recent_decision.created_at).total_seconds() > 86400:
-                return position, security
-            if (
-                recent_shadow is None
-                or (cutoff - recent_shadow.created_at).total_seconds() > 86400
+        for position, security, review_item in rows:
+            if AgentActionLogService.has_recent_subject_attempt(
+                str(security.entity_id),
+                subject_type="entity",
+                action_type="agent_reflection",
+                within_seconds=24 * 60 * 60,
             ):
-                return position, security
+                continue
+            return position, security, review_item
         return None
 
     async def _subject_candidates(
@@ -4083,6 +4253,347 @@ class AgentService:
             "title": title,
         }
 
+    async def _plan_question_research(
+        self,
+        *,
+        message: str,
+        subject_name: str,
+        subject_type: str,
+        freshness_requirement: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Derive the evidence requirements before retrieval chooses a packet."""
+        normalized = " ".join((message or "").split()).strip()
+        fallback = self._fallback_question_research_plan(
+            message=normalized,
+            subject_name=subject_name,
+            subject_type=subject_type,
+            freshness_requirement=freshness_requirement,
+        )
+        if not normalized:
+            return fallback
+        payload = {
+            "question": normalized,
+            "resolved_subject": subject_name,
+            "subject_type": subject_type,
+            "freshness_requirement": {
+                "required": bool(
+                    (freshness_requirement or {}).get("requires_fresh_research")
+                ),
+                "reason": str(
+                    (freshness_requirement or {}).get("freshness_reason") or ""
+                ),
+            },
+        }
+        try:
+            result = await asyncio.wait_for(
+                call_llm_json(
+                    system_prompt=self._question_research_planner_system_prompt(),
+                    user_prompt=json.dumps(payload, ensure_ascii=True),
+                    schema=QUESTION_RESEARCH_PLAN_SCHEMA,
+                    timeout_seconds=6,
+                ),
+                timeout=6,
+            )
+        except Exception as exc:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Question research planner fell back after LLM failure: %s",
+                self._compact_exception(exc),
+            )
+            return fallback
+        return self._normalize_question_research_plan(
+            result,
+            message=normalized,
+            subject_name=subject_name,
+            subject_type=subject_type,
+            freshness_requirement=freshness_requirement,
+        )
+
+    @staticmethod
+    def _question_research_planner_system_prompt() -> str:
+        return (
+            "Plan the evidence acquisition for one investment-research question before retrieval. "
+            "Start from what the question requires, not from whatever Prophet may already know. "
+            "State one research objective, a retrieval query, and the concrete information needs that would make the answer defensible. "
+            "Set external_research_required when answering requires a current fact, a comparison dataset, a universe scan, or evidence unlikely to be established by stored context alone. "
+            "Use opportunity_universe only when the user is asking Prophet to canvass for new investable opportunities; this mode is a capability route, not a conclusion that an opportunity exists. "
+            "Use focused_external for a bounded company, industry, macro, event, or historical question that needs outside evidence. "
+            "Use stored_context only when durable stored evidence can reasonably answer the question without pretending that retrieval coverage is complete. "
+            "Describe whether portfolio data is the primary evidence, a secondary read-through after the question is answered, or unnecessary. "
+            "Enable historical analogies only when the user asks for a historical comparison or a causal historical channel is part of the actual research objective. "
+            "Do not force a fixed investor checklist. Derive dimensions from this question and leave irrelevant dimensions out. "
+            "Do not answer the question or reveal chain of thought. Output the structured plan only."
+        )
+
+    def _normalize_question_research_plan(
+        self,
+        result: dict[str, Any],
+        *,
+        message: str,
+        subject_name: str,
+        subject_type: str,
+        freshness_requirement: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        fallback = self._fallback_question_research_plan(
+            message=message,
+            subject_name=subject_name,
+            subject_type=subject_type,
+            freshness_requirement=freshness_requirement,
+        )
+        objective = " ".join(str(result.get("research_objective") or "").split())
+        query = " ".join(str(result.get("retrieval_query") or "").split())
+        if self._fresh_query_is_low_information(query):
+            query = fallback["retrieval_query"]
+        if (
+            subject_type == "entity"
+            and subject_name
+            and subject_name.lower() not in query.lower()
+        ):
+            query = f"{subject_name}: {query}"
+        if len(query) > 320:
+            query = query[:320].rsplit(" ", 1)[0].strip()
+        needs = [
+            " ".join(str(item).split())
+            for item in (result.get("information_needs") or [])
+            if str(item).strip()
+        ][:8]
+        mode = str(result.get("research_mode") or "stored_context")
+        if mode not in {"stored_context", "focused_external", "opportunity_universe"}:
+            mode = (
+                "focused_external"
+                if result.get("external_research_required")
+                else "stored_context"
+            )
+        portfolio_role = str(
+            result.get("portfolio_context_role") or fallback["portfolio_context_role"]
+        )
+        if portfolio_role not in {
+            "primary_evidence",
+            "secondary_read_through",
+            "not_needed",
+        }:
+            portfolio_role = fallback["portfolio_context_role"]
+        external_required = bool(result.get("external_research_required")) or mode in {
+            "focused_external",
+            "opportunity_universe",
+        }
+        if bool((freshness_requirement or {}).get("requires_fresh_research")):
+            external_required = True
+            if mode == "stored_context":
+                mode = "focused_external"
+        return {
+            "research_objective": objective or fallback["research_objective"],
+            "retrieval_query": query or fallback["retrieval_query"],
+            "information_needs": needs or fallback["information_needs"],
+            "external_research_required": external_required,
+            "research_mode": mode,
+            "portfolio_context_role": portfolio_role,
+            "use_historical_analogies": bool(result.get("use_historical_analogies")),
+            "reason": str(result.get("reason") or fallback["reason"]),
+            "planner_fallback": False,
+            "original_question": message,
+        }
+
+    def _fallback_question_research_plan(
+        self,
+        *,
+        message: str,
+        subject_name: str,
+        subject_type: str,
+        freshness_requirement: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        query = " ".join((message or "").split()).strip()
+        if (
+            subject_type == "entity"
+            and subject_name
+            and subject_name.lower() not in query.lower()
+        ):
+            query = f"{subject_name}: {query}"
+        freshness_required = bool(
+            (freshness_requirement or {}).get("requires_fresh_research")
+        )
+        normalized = query.lower()
+        use_history = bool(
+            re.search(
+                r"\b(histor(?:y|ic|ical)|analogy|rhyme|cycle|era|depression|recession|crisis|versus|vs\.?|compare)\b",
+                normalized,
+            )
+        )
+        from investos.services.opportunity import OpportunityDiscoveryService
+
+        opportunity_request = OpportunityDiscoveryService.looks_like_discovery_request(
+            query
+        )
+        external_required = freshness_required or use_history or opportunity_request
+        research_mode = (
+            "opportunity_universe"
+            if opportunity_request
+            else "focused_external" if external_required else "stored_context"
+        )
+        return {
+            "research_objective": (
+                "Canvass Prophet's configured investable universe and report only source-backed active candidates."
+                if opportunity_request
+                else f"Answer the user's question about {subject_name or subject_type} with evidence matched to its actual scope."
+            ),
+            "retrieval_query": query or subject_name or message,
+            "information_needs": (
+                [
+                    "coverage of the configured opportunity universe",
+                    "active candidate evidence, valuation or setup, and explicit falsifiers",
+                    "whether the latest scan completed or coverage remains incomplete",
+                ]
+                if opportunity_request
+                else [
+                    "evidence that directly addresses the question rather than adjacent stored context"
+                ]
+            ),
+            "external_research_required": external_required,
+            "research_mode": research_mode,
+            "portfolio_context_role": (
+                "secondary_read_through"
+                if opportunity_request
+                else (
+                    "primary_evidence"
+                    if subject_type == "portfolio"
+                    else "secondary_read_through"
+                )
+            ),
+            "use_historical_analogies": use_history,
+            "reason": (
+                "The explicit opportunity request was routed to Prophet's existing universe-discovery capability while the planner was unavailable."
+                if opportunity_request
+                else "Deterministic fallback preserved the question scope because the research planner was unavailable."
+            ),
+            "planner_fallback": True,
+            "original_question": message,
+        }
+
+    @staticmethod
+    def _apply_question_research_plan(
+        packet_context: dict[str, Any], plan: dict[str, Any]
+    ) -> None:
+        packet_context["research_plan"] = plan
+        if plan.get("use_historical_analogies"):
+            return
+        packet_context["historical_analogies"] = []
+        packet_context["historical_analogy_context"] = ""
+        packet_context["historical_analogy_lenses"] = []
+
+    async def _question_opportunity_context(
+        self, *, run_due_scan: bool
+    ) -> dict[str, Any]:
+        """Use Prophet's durable opportunity universe instead of the held book."""
+        from investos.services.opportunity import OpportunityDiscoveryService
+
+        service = OpportunityDiscoveryService(self.session)
+        universe = await service.list_universe()
+        scan_result: dict[str, Any] | None = None
+        scan_error: str | None = None
+        if run_due_scan and universe:
+            try:
+                scan_result = await service.run_discovery()
+            except Exception as exc:
+                scan_error = self._compact_exception(exc)
+        runs = await service.list_runs(limit=3)
+        candidates = [
+            item
+            for item in await service.list_candidates(limit=20)
+            if str(item.get("status") or "") in {"new", "monitoring", "shadow_tested"}
+        ][:10]
+        latest_run = runs[0] if runs else None
+        return {
+            "universe_size": len(universe),
+            "enabled_universe_size": sum(
+                1 for item in universe if item.get("enabled") is not False
+            ),
+            "scan_started": scan_result is not None,
+            "scan_status": (
+                str(scan_result.get("status") or "completed")
+                if scan_result
+                else "failed" if scan_error else "not_run"
+            ),
+            "scan_detail": (
+                str(scan_result.get("detail") or "Opportunity universe scan completed.")
+                if scan_result
+                else (
+                    f"Opportunity universe scan failed: {scan_error}"
+                    if scan_error
+                    else "State updates are off, so Prophet inspected prior opportunity results without starting a new scan."
+                )
+            ),
+            "latest_run": latest_run,
+            "candidate_count": len(candidates),
+            "candidates": candidates,
+            "coverage_note": (
+                "A completed scan found no active candidates."
+                if scan_result
+                and str(scan_result.get("status") or "") == "completed"
+                and not candidates
+                else (
+                    "No current universe scan was completed for this turn."
+                    if not scan_result
+                    else "Active candidates came from the durable opportunity pipeline."
+                )
+            ),
+        }
+
+    @staticmethod
+    def _apply_independent_answerability_gate(
+        reasoning_result: dict[str, Any],
+        independent_review: dict[str, Any] | None,
+        *,
+        question_research_plan: dict[str, Any],
+    ) -> None:
+        """Let a blind scope review narrow an answer the packet cannot support."""
+        if not independent_review:
+            return
+        answerability = str(
+            independent_review.get("question_answerability") or "partial"
+        )
+        reason = str(independent_review.get("answerability_reason") or "").strip()
+        missing = [
+            str(item).strip()
+            for item in (independent_review.get("missing_information") or [])
+            if str(item).strip()
+        ][:6]
+        reasoning_result["answerability"] = {
+            "status": answerability,
+            "reason": reason,
+            "missing_information": missing,
+        }
+        if answerability != "inadequate":
+            return
+
+        original = {
+            "stance": reasoning_result.get("stance"),
+            "confidence_band": reasoning_result.get("confidence_band"),
+            "thesis_summary": reasoning_result.get("thesis_summary"),
+            "reasoning": reasoning_result.get("reasoning"),
+        }
+        objective = str(
+            question_research_plan.get("research_objective") or "the user's question"
+        ).strip()
+        reasoning_result["superseded_candidate"] = original
+        reasoning_result["stance"] = "no_view"
+        reasoning_result["confidence_band"] = "very_low"
+        reasoning_result["thesis_summary"] = (
+            "I do not have a defensible answer yet because the evidence packet does not cover "
+            f"the information needed to {objective.rstrip('.').lower()}."
+        )
+        reasoning_result["reasoning"] = reason or str(
+            independent_review.get("summary")
+            or "The blind review found that the retrieved evidence does not answer the question."
+        )
+        if missing:
+            reasoning_result["what_would_strengthen"] = missing[:3]
+        corroboration = reasoning_result.setdefault("corroboration", {})
+        corroboration["status"] = "question_scope_inadequate"
+        corroboration["can_promote"] = False
+        corroboration["confidence_cap"] = "very_low"
+        reasoning_result["state_update_blocked_reason"] = "question_scope_inadequate"
+
     async def _maybe_fresh_research_context(
         self,
         *,
@@ -4091,6 +4602,7 @@ class AgentService:
         subject_type: str,
         packet_context: dict[str, Any] | None = None,
         freshness_requirement: dict[str, Any] | None = None,
+        question_research_plan: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         requirement = (
             {
@@ -4102,11 +4614,19 @@ class AgentService:
             if freshness_requirement is not None
             else self._fallback_fresh_context_requirement(message)
         )
-        if not requirement["required"]:
+        plan_requires_external = bool(
+            (question_research_plan or {}).get("external_research_required")
+        )
+        if (question_research_plan or {}).get(
+            "research_mode"
+        ) == "opportunity_universe":
+            return None
+        if not requirement["required"] and not plan_requires_external:
             return None
         if not requirement["reason"]:
-            requirement["reason"] = (
-                "The answer depends on current external information."
+            requirement["reason"] = str(
+                (question_research_plan or {}).get("reason")
+                or "The answer requires external evidence matched to the question."
             )
 
         fallback_query = self._fresh_research_query(
@@ -4115,23 +4635,24 @@ class AgentService:
             subject_type=subject_type,
             packet_context=packet_context,
         )
-        if not RuntimeSettingsStore.load().research.api_key:
-            return {
-                "required": True,
-                "reason": requirement["reason"],
-                "searched": False,
-                "status": "research_provider_not_configured",
-                "query": fallback_query,
-                "checked_at": datetime.now(UTC).isoformat(),
-                "results": [],
+        if question_research_plan:
+            query_plan = {
+                "query": str(
+                    question_research_plan.get("retrieval_query") or fallback_query
+                ),
+                "information_needs": question_research_plan.get("information_needs")
+                or [],
+                "reason": question_research_plan.get("reason"),
+                "planner_fallback": question_research_plan.get("planner_fallback"),
             }
-        query_plan = await self._fresh_research_query_plan(
-            message=message,
-            subject_name=subject_name,
-            subject_type=subject_type,
-            fallback_query=fallback_query,
-            packet_context=packet_context,
-        )
+        else:
+            query_plan = await self._fresh_research_query_plan(
+                message=message,
+                subject_name=subject_name,
+                subject_type=subject_type,
+                fallback_query=fallback_query,
+                packet_context=packet_context,
+            )
         query = query_plan["query"]
 
         result = await ResearchService(self.session).search(
@@ -4457,7 +4978,9 @@ class AgentService:
         normalized_message = " ".join((payload.message or "").lower().split())
         if self._is_low_value_prompt(normalized_message):
             return None
-        if not RuntimeSettingsStore.load().research.api_key:
+        if (reasoning_result.get("research_plan") or {}).get(
+            "research_mode"
+        ) == "opportunity_universe":
             return None
         # Fire research for any thin-evidence, low-confidence result
         stance = reasoning_result.get("stance") or "no_view"

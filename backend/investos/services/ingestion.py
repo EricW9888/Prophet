@@ -1,7 +1,9 @@
 import hashlib
 import io
+import json
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
 from typing import Optional
 from urllib.parse import urljoin, urlsplit
@@ -12,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.config import settings
+from investos.core.dates import parse_explicit_calendar_datetime, parse_iso_datetime
 from investos.core.storage import LocalStorage
 from investos.core.uploads import read_upload_limited
 from investos.core.url_security import fetch_public_text
@@ -30,6 +33,7 @@ class FetchedUrlDocument:
     canonical_url: str
     title: str | None
     content: str
+    public_time: datetime | None = None
 
 
 class IngestionService:
@@ -148,11 +152,15 @@ class IngestionService:
                 source_item_type=source_item_type,
                 url=url,
                 author=author,
+                public_time=document.public_time,
                 metadata_json={
                     **(metadata_json or {}),
                     "content_type": "text/html",
                     "fetched_url": url,
                     "canonical_source_url": document.canonical_url,
+                    "publication_time_source": (
+                        "document_metadata" if document.public_time else None
+                    ),
                 },
                 content=document.content[:20000],
             ),
@@ -169,6 +177,7 @@ class IngestionService:
             canonical_url=_extract_canonical_url(html, url),
             title=_extract_title(html),
             content=text_content,
+            public_time=_extract_public_time(html),
         )
 
     async def _fetch_url_text(self, url: str) -> str:
@@ -219,6 +228,19 @@ TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
 SCRIPT_STYLE_RE = re.compile(r"<(script|style)[^>]*>.*?</\\1>", re.I | re.S)
 TAG_RE = re.compile(r"<[^>]+>")
 WHITESPACE_RE = re.compile(r"\s+")
+PUBLICATION_META_KEYS = {
+    "article:published_time",
+    "date",
+    "datecreated",
+    "datepublished",
+    "dc.date",
+    "dcterms.date",
+    "og:published_time",
+    "parsely-pub-date",
+    "pubdate",
+    "publishdate",
+    "sailthru.date",
+}
 
 
 class _CanonicalUrlParser(HTMLParser):
@@ -226,6 +248,9 @@ class _CanonicalUrlParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.canonical_url: str | None = None
         self.open_graph_url: str | None = None
+        self.public_time_candidates: list[str] = []
+        self._json_ld_parts: list[str] | None = None
+        self.json_ld_documents: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = {str(key).casefold(): value for key, value in attrs}
@@ -243,6 +268,32 @@ class _CanonicalUrlParser(HTMLParser):
                 and not self.open_graph_url
             ):
                 self.open_graph_url = str(values["content"])
+            date_key = str(
+                values.get("property")
+                or values.get("name")
+                or values.get("itemprop")
+                or ""
+            ).casefold()
+            if date_key in PUBLICATION_META_KEYS and values.get("content"):
+                self.public_time_candidates.append(str(values["content"]))
+        elif tag.casefold() == "time":
+            itemprop = str(values.get("itemprop") or "").casefold()
+            if itemprop in {"datecreated", "datepublished"} and values.get("datetime"):
+                self.public_time_candidates.append(str(values["datetime"]))
+        elif (
+            tag.casefold() == "script"
+            and str(values.get("type") or "").casefold() == "application/ld+json"
+        ):
+            self._json_ld_parts = []
+
+    def handle_data(self, data: str) -> None:
+        if self._json_ld_parts is not None:
+            self._json_ld_parts.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.casefold() == "script" and self._json_ld_parts is not None:
+            self.json_ld_documents.append("".join(self._json_ld_parts))
+            self._json_ld_parts = None
 
 
 def _extract_canonical_url(html: str, base_url: str) -> str:
@@ -260,6 +311,53 @@ def _extract_canonical_url(html: str, base_url: str) -> str:
     if parsed.scheme.casefold() not in {"http", "https"} or not parsed.hostname:
         return base_url
     return resolved
+
+
+def _extract_public_time(html: str, *, now: datetime | None = None) -> datetime | None:
+    parser = _CanonicalUrlParser()
+    try:
+        parser.feed(html)
+    except (TypeError, ValueError):
+        return None
+
+    candidates = list(parser.public_time_candidates)
+    for document in parser.json_ld_documents:
+        try:
+            payload = json.loads(document)
+        except (TypeError, ValueError):
+            continue
+        candidates.extend(_json_publication_dates(payload))
+
+    reference_time = now or datetime.now(UTC)
+    latest = reference_time + timedelta(days=1)
+    for value in candidates:
+        parsed = parse_iso_datetime(value) or parse_explicit_calendar_datetime(
+            value,
+            reference_time=reference_time,
+            latest=latest,
+        )
+        if parsed is not None and parsed <= latest:
+            return parsed
+    return None
+
+
+def _json_publication_dates(value: object) -> list[str]:
+    if isinstance(value, list):
+        dates: list[str] = []
+        for item in value:
+            dates.extend(_json_publication_dates(item))
+        return dates
+    if not isinstance(value, dict):
+        return []
+    dates = []
+    for key, item in value.items():
+        if str(key).casefold() in {"datecreated", "datepublished"} and isinstance(
+            item, str
+        ):
+            dates.append(item)
+        elif isinstance(item, (dict, list)):
+            dates.extend(_json_publication_dates(item))
+    return dates
 
 
 def _extract_title(html: str) -> str | None:

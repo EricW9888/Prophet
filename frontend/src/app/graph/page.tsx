@@ -307,9 +307,12 @@ function nodeVisualRadius(node: GraphWebNode, state: { selected: boolean; compar
           : 1;
   const tierBump = node.tier === "critical" ? 5 : node.tier === "high" ? 3 : 0;
   const degreeBump = degree >= 8 ? 5 : degree >= 4 ? 2 : 0;
-  if (node.is_root) return (42 + degreeBump) * Math.max(0.7, densityScale);
-  if (state.compare) return (30 + tierBump) * Math.max(0.65, densityScale);
-  return Math.max(9, (22 + tierBump + degreeBump) * densityScale);
+  const radius = node.is_root
+    ? (42 + degreeBump) * Math.max(0.7, densityScale)
+    : state.compare
+      ? (30 + tierBump) * Math.max(0.65, densityScale)
+      : Math.max(9, (22 + tierBump + degreeBump) * densityScale);
+  return state.selected ? Math.max(38, radius) : radius;
 }
 
 function shouldShowNodeLabel(
@@ -1063,7 +1066,7 @@ export default function GraphPage() {
   }, [stableGraph]);
 
   const loadSeeds = useCallback(async () => {
-    const items = await apiFetch<ProfileListItem[]>("/profiles/?show_all=false");
+    const items = await apiFetch<ProfileListItem[]>("/profiles?show_all=false");
     setSeedItems(items);
     return items;
   }, []);
@@ -1165,7 +1168,7 @@ export default function GraphPage() {
   }, [buildGraphFromSeeds]);
 
   const buildAllKnowledgeGraph = useCallback(async () => {
-    const items = await apiFetch<ProfileListItem[]>("/profiles/?show_all=true");
+    const items = await apiFetch<ProfileListItem[]>("/profiles?show_all=true");
     const portfolioProfile = items.find((item) => item.subject_type === "portfolio");
     return buildGraphFromSeeds(
       items.slice(0, ALL_KNOWLEDGE_SEED_LIMIT).map((item) => ({
@@ -1590,6 +1593,7 @@ export default function GraphPage() {
     }
     return map;
   }, [displayedNodes]);
+  const selectedNode = selectedKey ? nodeByKey[selectedKey] ?? null : null;
   const displayedEdges = useMemo(() => visibleGraph?.edges ?? [], [visibleGraph]);
   const activeEdge = useMemo(
     () => displayedEdges.find((edge) => graphEdgeIdentity(edge) === selectedEdgeId) ?? null,
@@ -1599,9 +1603,11 @@ export default function GraphPage() {
     const toViewportPercent = (x: number, y: number) => {
       const transformedX = x * viewTransform.k + viewTransform.x;
       const transformedY = y * viewTransform.k + viewTransform.y;
+      const horizontalPercent = ((transformedX - graphViewBox.x) / graphViewBox.width) * 100;
+      const verticalPercent = ((transformedY - graphViewBox.y) / graphViewBox.height) * 100;
       return {
-        left: `${Math.max(5, Math.min(95, ((transformedX - graphViewBox.x) / graphViewBox.width) * 100))}%`,
-        top: `${Math.max(7, Math.min(93, ((transformedY - graphViewBox.y) / graphViewBox.height) * 100))}%`,
+        left: `clamp(152px, ${horizontalPercent}%, calc(100% - 152px))`,
+        top: `clamp(96px, ${verticalPercent}%, calc(100% - 132px))`,
       };
     };
 
@@ -1663,6 +1669,9 @@ export default function GraphPage() {
   const handleNodeClick = useCallback(
     (node: { key: string; node_type: string; id: string }) => {
       const generation = ++selectionGenerationRef.current;
+      setSelectedKey(node.key);
+      setSelectedEdgeId(null);
+      setSelectedDetail(null);
       void loadDetail(node.node_type, node.id, generation);
     },
     [loadDetail],
@@ -1902,9 +1911,9 @@ export default function GraphPage() {
     <div className="min-h-screen bg-background text-foreground font-sans">
       <AppNav active="knowledge" />
 
-      <main className="mx-auto grid w-full max-w-[1760px] grid-cols-1 gap-8 px-4 py-8 sm:px-6 lg:px-8 2xl:grid-cols-[minmax(0,1fr)_380px]">
-        <section className="min-w-0 space-y-6">
-          <header className="flex items-start justify-between gap-6">
+      <main className="mx-auto grid w-full max-w-[1920px] grid-cols-1 gap-5 px-3 py-5 sm:gap-8 sm:px-6 sm:py-8 lg:px-8 2xl:grid-cols-[minmax(0,1fr)_360px]">
+        <section className="min-w-0 space-y-4 sm:space-y-6">
+          <header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-6">
             <div className="min-w-0">
               <h1 className="text-3xl font-bold tracking-tight">Knowledge Web</h1>
               <div className="mt-3 inline-flex rounded-full border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950">
@@ -1936,7 +1945,7 @@ export default function GraphPage() {
                 </button>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex max-w-full flex-wrap items-center gap-2">
               {selectedDetail && selectedKey !== activeRootKey ? (
                 <button
                   type="button"
@@ -1959,7 +1968,7 @@ export default function GraphPage() {
             </div>
           </header>
 
-          <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+          <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-3 sm:p-6 dark:border-slate-800 dark:bg-slate-950">
             {graphNotice ? (
               <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-200">
                 {graphNotice}
@@ -1973,24 +1982,6 @@ export default function GraphPage() {
                 <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-900">
                   {visibleEdgeCount} connections
                 </span>
-                {graphStats ? (
-                  <span
-                    className="rounded-full bg-sky-50 px-3 py-1 text-sky-700 dark:bg-sky-950/30 dark:text-sky-300"
-                    title={[
-                      `${formatCount(graphStats.raw_evidence)} raw evidence rows`,
-                      `${formatCount(graphStats.source_items)} source items`,
-                      `${formatCount(graphStats.fundamental_metrics)} fundamental metrics`,
-                      `${formatCount(graphStats.market_setup_signals)} market setup signals`,
-                      `${formatCount(graphStats.profiles)} profiles`,
-                      `${formatCount(graphStats.sources)} sources`,
-                    ].join(" · ")}
-                  >
-                    Stored {formatCount(graphStats.active_knowledge_nodes)} active +{" "}
-                    {formatCount(graphStats.fundamental_metrics)} metrics /{" "}
-                    {formatCount(graphStats.market_setup_signals)} setup /{" "}
-                    {formatCount(graphStats.total_edges)} links
-                  </span>
-                ) : null}
                 <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-900">
                   {modeLabel}
                 </span>
@@ -2061,70 +2052,94 @@ export default function GraphPage() {
               </div>
             </div>
 
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setActiveNodeTypes([])}
-                className={[
-                  "rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors",
-                  activeNodeTypes.length === 0
-                    ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-300"
-                    : "border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:text-slate-300",
-                ].join(" ")}
-              >
-                All types
-              </button>
-              {availableNodeTypes.map(({ type, count }) => {
-                const active = activeNodeTypes.length === 0 || activeNodeTypes.includes(type);
-                return (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => toggleNodeTypeFilter(type)}
-                    className={[
-                      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors",
-                      active
-                        ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-300"
-                        : "border-slate-200 text-slate-500 hover:border-slate-300 dark:border-slate-800 dark:text-slate-400",
-                    ].join(" ")}
-                  >
-                    <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ backgroundColor: getNodeStyle(type).fill }}
-                    />
-                    <span>{nodeTypeLabel(type)} · {count}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
-              <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 dark:border-slate-800 dark:bg-slate-950">
-                <input
-                  type="checkbox"
-                  checked={showDuplicateNodes}
-                  onChange={(event) => setShowDuplicateNodes(event.target.checked)}
-                  className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                />
-                <span>Show duplicate labels</span>
-              </label>
-              <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 dark:border-slate-800 dark:bg-slate-950">
-                <input
-                  type="checkbox"
-                  checked={showSystemNodes}
-                  onChange={(event) => {
-                    resetGraphCachesForScopeChange();
-                    setShowSystemNodes(event.target.checked);
-                  }}
-                  className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                />
-                <span>Include internal memory</span>
-              </label>
-              <span>
-                Portfolio Web is scoped to active holdings. Use Expanded Web or search to open broader neighborhoods.
-              </span>
-            </div>
+            <details className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
+              <summary className="cursor-pointer text-xs font-semibold text-slate-600 dark:text-slate-300">
+                Filters{activeNodeTypes.length > 0 ? ` · ${activeNodeTypes.length} active` : ""}
+              </summary>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveNodeTypes([])}
+                  className={[
+                    "rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors",
+                    activeNodeTypes.length === 0
+                      ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-300"
+                      : "border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:text-slate-300",
+                  ].join(" ")}
+                >
+                  All types
+                </button>
+                {availableNodeTypes.map(({ type, count }) => {
+                  const active = activeNodeTypes.length === 0 || activeNodeTypes.includes(type);
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => toggleNodeTypeFilter(type)}
+                      className={[
+                        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors",
+                        active
+                          ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-300"
+                          : "border-slate-200 text-slate-500 hover:border-slate-300 dark:border-slate-800 dark:text-slate-400",
+                      ].join(" ")}
+                    >
+                      <span
+                        className="h-2 w-2 rounded-full"
+                        style={{ backgroundColor: getNodeStyle(type).fill }}
+                      />
+                      <span>{nodeTypeLabel(type)} · {count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+                <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 dark:border-slate-800 dark:bg-slate-950">
+                  <input
+                    type="checkbox"
+                    checked={showDuplicateNodes}
+                    onChange={(event) => setShowDuplicateNodes(event.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                  />
+                  <span>Show duplicate labels</span>
+                </label>
+                <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 dark:border-slate-800 dark:bg-slate-950">
+                  <input
+                    type="checkbox"
+                    checked={showSystemNodes}
+                    onChange={(event) => {
+                      resetGraphCachesForScopeChange();
+                      setShowSystemNodes(event.target.checked);
+                    }}
+                    className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                  />
+                  <span>Include internal memory</span>
+                </label>
+                <span>
+                  Portfolio Web is scoped to active holdings. Use Expanded Web or search to open broader neighborhoods.
+                </span>
+              </div>
+            </details>
 
-            <div className="relative mt-6 min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-[radial-gradient(circle_at_center,rgba(14,165,233,0.1),transparent_48%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(241,245,249,0.94))] dark:border-slate-800 dark:bg-[radial-gradient(circle_at_center,rgba(14,165,233,0.14),transparent_48%),linear-gradient(180deg,rgba(8,15,22,0.98),rgba(5,8,13,0.98))]">
+            {graphStats ? (
+              <details className="mt-4 border-t border-slate-200 pt-4 dark:border-slate-800">
+                <summary className="cursor-pointer text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Knowledge inventory
+                </summary>
+                <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-6">
+                  <InventoryMetric label="Active knowledge" value={graphStats.active_knowledge_nodes} />
+                  <InventoryMetric label="Evidence" value={graphStats.raw_evidence} />
+                  <InventoryMetric label="Source items" value={graphStats.source_items} />
+                  <InventoryMetric label="Metrics" value={graphStats.fundamental_metrics} />
+                  <InventoryMetric label="Market setups" value={graphStats.market_setup_signals} />
+                  <InventoryMetric label="Stored links" value={graphStats.total_edges} />
+                </dl>
+                <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                  The canvas shows a bounded neighborhood of the stored knowledge base, so the visible node count is intentionally smaller than the inventory.
+                </p>
+              </details>
+            ) : null}
+
+            <div className="relative mt-4 min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-[radial-gradient(circle_at_center,rgba(14,165,233,0.1),transparent_48%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(241,245,249,0.94))] sm:mt-6 dark:border-slate-800 dark:bg-[radial-gradient(circle_at_center,rgba(14,165,233,0.14),transparent_48%),linear-gradient(180deg,rgba(8,15,22,0.98),rgba(5,8,13,0.98))]">
               {error && !activeGraph ? (
                 <div className="absolute inset-0 flex items-center justify-center bg-slate-50/10 backdrop-blur-[2px] z-10">
                   <div className="max-w-md p-6 bg-white rounded-lg border border-rose-100 shadow-xl text-center">
@@ -2146,7 +2161,7 @@ export default function GraphPage() {
                   </div>
                 </div>
               ) : !activeGraph ? (
-                <div className="flex h-[min(68dvh,520px)] min-h-[360px] flex-col items-center justify-center px-6 text-center sm:h-[800px] sm:px-8">
+                <div className="flex h-[72dvh] min-h-[460px] max-h-[720px] flex-col items-center justify-center px-6 text-center sm:h-[calc(100dvh-11rem)] sm:min-h-[620px] sm:max-h-[980px] sm:px-8">
                   {error && error.includes("graph_node_not_found") ? (
                     <>
                       <svg className="h-12 w-12 text-slate-300 dark:text-slate-700 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
@@ -2162,13 +2177,17 @@ export default function GraphPage() {
               ) : (
                 <div
                   ref={graphViewportRef}
-                  className="relative h-[min(68dvh,520px)] min-h-[360px] w-full touch-pan-y select-none overflow-hidden rounded-lg border border-white/5 bg-slate-950/20 sm:h-[clamp(620px,72vh,840px)] sm:touch-none"
+                  data-pull-refresh-ignore
+                  className="relative h-[72dvh] min-h-[460px] max-h-[720px] w-full touch-pan-y select-none overflow-hidden rounded-lg border border-white/5 bg-slate-950/20 sm:h-[calc(100dvh-11rem)] sm:min-h-[620px] sm:max-h-[980px] sm:touch-none"
                   style={{ overscrollBehavior: "contain" }}
                   onPointerDown={handleCanvasPointerDown}
                   onPointerMove={handleCanvasPointerMove}
                   onPointerUp={handleCanvasPointerUp}
                   onPointerCancel={handleCanvasPointerUp}
                 >
+                  <div className="pointer-events-none absolute left-3 top-3 z-10 rounded border border-white/10 bg-slate-950/72 px-2.5 py-1.5 text-[10px] text-slate-300 backdrop-blur-sm">
+                    Pinch or scroll to zoom · tap a node for its full label
+                  </div>
                   {loading && (
                     <div className="absolute inset-0 flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px] z-20 pointer-events-none">
                       <div className="flex flex-col items-center gap-4">
@@ -2223,7 +2242,12 @@ export default function GraphPage() {
 	                              stroke="transparent" strokeWidth={15}
 	                              onMouseEnter={() => setHoveredEdgeId(edgeKey)}
 	                              onMouseLeave={() => setHoveredEdgeId((current) => current === edgeKey ? null : current)}
-	                              onClick={(e) => { e.stopPropagation(); setSelectedEdgeId(edgeKey); }}
+	                              onClick={(e) => {
+                                  e.stopPropagation();
+                                  setHoveredEdgeId(null);
+                                  setSelectedKey(null);
+                                  setSelectedEdgeId(edgeKey);
+                                }}
 	                            />
                           </g>
                         );
@@ -2239,12 +2263,14 @@ export default function GraphPage() {
                           compare: isCompareNode,
                         });
                         const style = getNodeStyle(node.node_type);
-                        const labelVisible = shouldShowNodeLabel(node, {
-                          selected: isSelected,
-                          connected: Boolean(isConnected),
-                          hovered: isHovered,
-                          zoom: viewTransform.k,
-                        });
+                        const labelVisible =
+                          (radius >= 20 || isSelected || isHovered || node.is_root) &&
+                          shouldShowNodeLabel(node, {
+                            selected: isSelected,
+                            connected: Boolean(isConnected),
+                            hovered: isHovered,
+                            zoom: viewTransform.k,
+                          });
                         const labelLines = labelVisible ? compactNodeLabel(node.label, radius) : [];
                         const fontSize = radius >= 46 ? 8.25 : radius >= 38 ? 7.5 : 6.75;
                         const clipId = `node-clip-${svgSafeId(node.key)}`;
@@ -2324,16 +2350,6 @@ export default function GraphPage() {
                                 </g>
                               </>
                             ) : null}
-                            {node.subtitle && (isSelected || node.is_root) ? (
-                              <text
-                                x={0}
-                                y={radius + 16}
-                                textAnchor="middle"
-                                className="pointer-events-none fill-current text-[10px] text-slate-500 dark:text-slate-400"
-                              >
-                                {node.subtitle.slice(0, 26)}
-                              </text>
-                            ) : null}
                           </g>
                         );
                       })}
@@ -2341,7 +2357,7 @@ export default function GraphPage() {
                   </svg>
                   {hoverPreview ? (
                     <div
-                      className="pointer-events-none absolute z-30 max-w-[300px] rounded-lg border border-white/15 bg-slate-950/88 px-3 py-2 text-white shadow-lg backdrop-blur-md"
+                      className="pointer-events-none absolute z-30 w-[min(300px,calc(100%-1.5rem))] rounded-lg border border-white/15 bg-slate-950/88 px-3 py-2 text-white shadow-lg backdrop-blur-md"
                       style={{
                         left: hoverPreview.left,
                         top: hoverPreview.top,
@@ -2351,14 +2367,68 @@ export default function GraphPage() {
                       <div className="text-[10px] font-semibold uppercase tracking-wider text-sky-200">
                         {hoverPreview.eyebrow}
                       </div>
-                      <div className="mt-1 line-clamp-3 text-xs font-semibold leading-snug">
+                      <div className="mt-1 break-words text-xs font-semibold leading-snug [overflow-wrap:anywhere]">
                         {hoverPreview.title}
                       </div>
                       {hoverPreview.detail ? (
-                        <div className="mt-1 line-clamp-2 text-[11px] leading-snug text-slate-300">
+                        <div className="mt-1 break-words text-[11px] leading-snug text-slate-300 [overflow-wrap:anywhere]">
                           {hoverPreview.detail}
                         </div>
                       ) : null}
+                    </div>
+                  ) : null}
+                  {activeEdge ? (
+                    <div className="absolute inset-x-3 bottom-3 z-30 flex min-w-0 items-start justify-between gap-3 rounded-lg border border-white/15 bg-slate-950/92 px-3 py-3 text-white shadow-xl backdrop-blur-md sm:inset-x-auto sm:left-4 sm:max-w-[520px]">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-semibold uppercase text-amber-200">
+                          Connection · {Math.round(activeEdge.confidence * 100)}% confidence
+                        </p>
+                        <p className="mt-1 break-words text-sm font-semibold leading-5 [overflow-wrap:anywhere]">
+                          {describeEdge(activeEdge)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          document.getElementById("knowledge-connection-detail")?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "start",
+                          });
+                        }}
+                        className="shrink-0 rounded border border-amber-300/50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-100 hover:border-amber-200 hover:text-white"
+                      >
+                        Details
+                      </button>
+                    </div>
+                  ) : selectedNode && selectedKey !== activeRootKey ? (
+                    <div className="absolute inset-x-3 bottom-3 z-30 flex min-w-0 items-start justify-between gap-3 rounded-lg border border-white/15 bg-slate-950/92 px-3 py-3 text-white shadow-xl backdrop-blur-md sm:inset-x-auto sm:left-4 sm:max-w-[420px]">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-semibold uppercase text-sky-200">
+                          {nodeTypeLabel(selectedNode.node_type)} · {layerLabel(selectedNode.layer)}
+                        </p>
+                        <p className="mt-1 break-words text-sm font-semibold leading-5 [overflow-wrap:anywhere]">
+                          {selectedNode.label}
+                        </p>
+                        {selectedNode.subtitle ? (
+                          <p className="mt-1 break-words text-xs leading-4 text-slate-300 [overflow-wrap:anywhere]">
+                            {selectedNode.subtitle}
+                          </p>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          document.getElementById("knowledge-node-detail")?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "start",
+                          });
+                        }}
+                        className="shrink-0 rounded border border-sky-300/50 px-2.5 py-1.5 text-[11px] font-semibold text-sky-100 hover:border-sky-200 hover:text-white"
+                      >
+                        Details
+                      </button>
                     </div>
                   ) : null}
                 </div>
@@ -2366,63 +2436,11 @@ export default function GraphPage() {
             </div>
           </section>
 
-          <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                Tracked research subjects
-              </h2>
-              <label className="flex w-full items-center gap-2 border-b border-slate-300 px-1 py-1.5 text-sm sm:w-auto sm:min-w-[260px] dark:border-slate-700">
-                <Search size={15} className="shrink-0 text-slate-400" aria-hidden="true" />
-                <input
-                  value={knowledgeQuery}
-                  onChange={(event) => setKnowledgeQuery(event.target.value)}
-                  placeholder="Search all knowledge"
-                  className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-slate-400"
-                />
-              </label>
-            </div>
-            <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2">
-              {(knowledgeQuery.trim().length >= 2 ? knowledgeResults : visibleSeedItems).map((item) => {
-                const nodeType = "node_type" in item ? item.node_type : item.subject_type;
-                const nodeId = "node_id" in item ? item.node_id : item.subject_id;
-                const label = "label" in item ? item.label : item.subject_name;
-                const subtitle = "subtitle" in item ? item.subtitle : null;
-                return (
-                <button
-                  key={`${nodeType}:${nodeId}`}
-                  type="button"
-                  onClick={() => void openGraph(nodeType, nodeId)}
-                  className="h-20 min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs text-slate-700 hover:border-sky-400 hover:bg-white dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-sky-600 dark:hover:bg-slate-950"
-                >
-                  <span className="flex min-w-0 items-center justify-between gap-2">
-                    <span className="shrink-0 text-[9px] font-semibold uppercase text-slate-400">
-                      {formatUserLabel(nodeType)}
-                    </span>
-                    {subtitle ? (
-                      <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[10px] text-slate-400">
-                        {subtitle}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="mt-1 block h-10 overflow-hidden font-medium leading-5">
-                    {label}
-                  </span>
-                </button>
-                );
-              })}
-              {knowledgeSearching ? (
-                <span className="py-1.5 text-xs text-slate-400">Searching...</span>
-              ) : null}
-              {!knowledgeSearching && knowledgeQuery.trim().length >= 2 && knowledgeResults.length === 0 ? (
-                <span className="py-1.5 text-xs text-slate-400">No matching knowledge</span>
-              ) : null}
-            </div>
-          </section>
         </section>
 
         <aside className="min-w-0 space-y-6 self-start 2xl:sticky 2xl:top-24 2xl:max-h-[calc(100vh-7rem)] 2xl:overflow-y-auto 2xl:pr-2">
           {activeEdge ? (
-            <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+            <section id="knowledge-connection-detail" className="min-w-0 scroll-mt-24 rounded-lg border border-slate-200 bg-white p-4 sm:p-6 dark:border-slate-800 dark:bg-slate-950">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Connection detail</h2>
@@ -2481,7 +2499,7 @@ export default function GraphPage() {
             </section>
           ) : null}
 
-          <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+          <section id="knowledge-node-detail" className="min-w-0 scroll-mt-24 rounded-lg border border-slate-200 bg-white p-4 sm:p-6 dark:border-slate-800 dark:bg-slate-950">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Node detail</h2>
@@ -2823,8 +2841,72 @@ export default function GraphPage() {
               </div>
             )}
           </section>
+
+          <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 sm:p-6 dark:border-slate-800 dark:bg-slate-950">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Tracked research subjects
+              </h2>
+              <label className="flex w-full items-center gap-2 border-b border-slate-300 px-1 py-1.5 text-sm dark:border-slate-700">
+                <Search size={15} className="shrink-0 text-slate-400" aria-hidden="true" />
+                <input
+                  value={knowledgeQuery}
+                  onChange={(event) => setKnowledgeQuery(event.target.value)}
+                  placeholder="Search all knowledge"
+                  className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-slate-400"
+                />
+              </label>
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-2">
+              {(knowledgeQuery.trim().length >= 2 ? knowledgeResults : visibleSeedItems).map((item) => {
+                const nodeType = "node_type" in item ? item.node_type : item.subject_type;
+                const nodeId = "node_id" in item ? item.node_id : item.subject_id;
+                const label = "label" in item ? item.label : item.subject_name;
+                const subtitle = "subtitle" in item ? item.subtitle : null;
+                return (
+                  <button
+                    key={`${nodeType}:${nodeId}`}
+                    type="button"
+                    onClick={() => void openGraph(nodeType, nodeId)}
+                    className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs text-slate-700 hover:border-sky-400 hover:bg-white dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-sky-600 dark:hover:bg-slate-950"
+                  >
+                    <span className="flex min-w-0 items-start justify-between gap-2">
+                      <span className="shrink-0 text-[9px] font-semibold uppercase text-slate-400">
+                        {formatUserLabel(nodeType)}
+                      </span>
+                      {subtitle ? (
+                        <span className="min-w-0 break-words text-right text-[10px] text-slate-400 [overflow-wrap:anywhere]">
+                          {subtitle}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="mt-1 block break-words font-medium leading-5 [overflow-wrap:anywhere]">
+                      {label}
+                    </span>
+                  </button>
+                );
+              })}
+              {knowledgeSearching ? (
+                <span className="py-1.5 text-xs text-slate-400">Searching...</span>
+              ) : null}
+              {!knowledgeSearching && knowledgeQuery.trim().length >= 2 && knowledgeResults.length === 0 ? (
+                <span className="py-1.5 text-xs text-slate-400">No matching knowledge</span>
+              ) : null}
+            </div>
+          </section>
         </aside>
       </main>
+    </div>
+  );
+}
+
+function InventoryMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="min-w-0 border-l-2 border-slate-200 pl-3 dark:border-slate-700">
+      <dt className="text-[11px] text-slate-500 dark:text-slate-400">{label}</dt>
+      <dd className="mt-1 text-sm font-semibold text-slate-800 dark:text-slate-100">
+        {formatCount(value)}
+      </dd>
     </div>
   );
 }

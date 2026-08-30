@@ -25,15 +25,15 @@ import {
 
 function HeroMetric({ label, value, detail, href }: { label: string; value: string; detail: string; href?: string }) {
   const content = (
-    <div className="cursor-default border-t-2 border-line bg-panel px-1 py-4 transition-colors hover:border-line-strong">
+    <div className="h-full min-w-0 cursor-default border-t-2 border-line bg-panel px-1 py-3 transition-colors hover:border-line-strong sm:py-4">
       <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</p>
-      <p className="mt-1.5 text-2xl font-semibold text-slate-900 dark:text-slate-100">{value}</p>
-      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 line-clamp-1">{detail}</p>
+      <p className="mt-1.5 break-words text-xl font-semibold text-slate-900 dark:text-slate-100 sm:text-2xl">{value}</p>
+      <p className="mt-1 break-words text-[11px] leading-4 text-slate-500 dark:text-slate-400 sm:text-xs">{detail}</p>
     </div>
   );
 
   return href ? (
-    <Link href={href} className="block group">
+    <Link href={href} className="group block min-w-0">
        {content}
     </Link>
   ) : content;
@@ -42,7 +42,7 @@ function HeroMetric({ label, value, detail, href }: { label: string; value: stri
 function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
     <div
-      className={`rounded-lg border border-line bg-panel p-4 md:p-5 ${className}`}
+      className={`min-w-0 rounded-lg border border-line bg-panel p-4 md:p-5 ${className}`}
     >
       {children}
     </div>
@@ -59,8 +59,8 @@ function SectionTitle({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between mb-4">
-      <div>
+    <div className="mb-4 flex min-w-0 flex-wrap items-start justify-between gap-3">
+      <div className="min-w-0">
         {subtitle && (
           <div className="mb-1 text-xs font-medium text-slate-500 dark:text-slate-400">
             {subtitle}
@@ -70,7 +70,7 @@ function SectionTitle({
           {title}
         </h2>
       </div>
-      {action && <div>{action}</div>}
+      {action && <div className="shrink-0">{action}</div>}
     </div>
   );
 }
@@ -144,7 +144,7 @@ export default function DashboardOverview() {
   const scannerItems = reviewItems.slice(0, 5);
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       {error ? (
         <WorkspaceState
           kind="degraded"
@@ -156,7 +156,7 @@ export default function DashboardOverview() {
         />
       ) : null}
       {/* Hero Stats */}
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-3 lg:grid-cols-4">
           <HeroMetric
             label="Total Equity"
             value={safeFormatCurrency(summary?.total_value, 2)}
@@ -560,7 +560,7 @@ function TransactionCapturePanel({
           {visibleTransactions.map((txn) => (
             <div
               key={txn.id}
-              className="rounded-md border border-slate-200 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/50"
+              className="min-w-0 rounded-md border border-slate-200 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/50"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -572,7 +572,7 @@ function TransactionCapturePanel({
                       {txn.action}
                     </span>
                   </div>
-                  <p className="mt-1 truncate text-[11px] text-slate-500 dark:text-slate-400">
+                  <p className="mt-1 break-words text-[11px] text-slate-500 dark:text-slate-400">
                     {txn.entity_name || "Portfolio transaction"}
                   </p>
                 </div>
@@ -580,12 +580,12 @@ function TransactionCapturePanel({
                   {formatShortDateTime(txn.executed_at)}
                 </div>
               </div>
-              <div className="mt-3 flex items-end justify-between gap-3">
-                <div>
+              <div className="mt-3 grid min-w-0 grid-cols-2 items-end gap-3">
+                <div className="min-w-0">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
                     Quantity
                   </p>
-                  <p className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                  <p className="break-words text-sm font-bold text-slate-900 dark:text-slate-100">
                     {formatQuantity(txn.quantity)} @ {safeFormatCurrency(txn.price, 2)}
                   </p>
                 </div>
@@ -593,7 +593,7 @@ function TransactionCapturePanel({
                   <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
                     Source
                   </p>
-                  <p className="truncate text-xs font-bold text-slate-700 dark:text-slate-300">
+                  <p className="break-words text-xs font-bold text-slate-700 dark:text-slate-300 [overflow-wrap:anywhere]">
                     {txn.source_label || "Manual/API"}
                     {txn.source_confidence != null ? ` · ${Math.round(txn.source_confidence * 100)}%` : ""}
                   </p>

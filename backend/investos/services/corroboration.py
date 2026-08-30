@@ -182,7 +182,10 @@ class CorroborationService:
     def assess_result(self, result: dict, packet_context: dict) -> dict:
         node_index = self._node_index(packet_context)
         assertions = self._material_assertions(result)
-        assessed = [self._assess_assertion(item, node_index) for item in assertions]
+        assessed = [
+            self._assess_assertion(item, node_index, packet_context)
+            for item in assertions
+        ]
         material_assumptions = self._assess_material_assumptions(result, node_index)
 
         unresolved_assumptions = [
@@ -190,7 +193,11 @@ class CorroborationService:
         ]
         promotable = (
             bool(assessed)
-            and all(item["status"] == "corroborated" for item in assessed)
+            and all(
+                item["status"]
+                in {"corroborated", "account_evidence", "calculated_evidence"}
+                for item in assessed
+            )
             and not unresolved_assumptions
         )
         statuses = {item["status"] for item in assessed}
@@ -217,12 +224,17 @@ class CorroborationService:
             int(item.get("duplicate_copy_count") or 0) for item in assessed
         )
         assessment = {
-            "policy": "independent_source_corroboration_v1",
+            "policy": "evidence_basis_corroboration_v2",
             "status": status,
             "minimum_independent_sources": self.minimum_independent_sources,
             "independent_supporting_source_count": len(unique_sources),
             "duplicate_copy_count": duplicate_count,
             "material_assertion_count": len(assessed),
+            "structured_context_assertion_count": sum(
+                1
+                for item in assessed
+                if item["status"] in {"account_evidence", "calculated_evidence"}
+            ),
             "unresolved_material_assumption_count": len(unresolved_assumptions),
             "can_promote": promotable,
             "confidence_cap": confidence_cap,
@@ -249,6 +261,18 @@ class CorroborationService:
             and primary_stance != review_stance
         )
         review["stance_disagrees"] = disagreement
+        answerability = str(review.get("question_answerability") or "adequate")
+        if answerability in {"partial", "inadequate"}:
+            assessment = result.setdefault("corroboration", {})
+            assessment["status"] = f"question_scope_{answerability}"
+            assessment["can_promote"] = False
+            confidence_cap = "very_low" if answerability == "inadequate" else "low"
+            assessment["confidence_cap"] = confidence_cap
+            result["confidence_band"] = self._cap_confidence(
+                result.get("confidence_band"), confidence_cap
+            )
+            if answerability == "inadequate":
+                return
         if not disagreement:
             return
         assessment = result.setdefault("corroboration", {})
@@ -259,7 +283,12 @@ class CorroborationService:
             result.get("confidence_band"), "low"
         )
 
-    def _assess_assertion(self, assertion: dict, node_index: dict[str, dict]) -> dict:
+    def _assess_assertion(
+        self,
+        assertion: dict,
+        node_index: dict[str, dict],
+        packet_context: dict,
+    ) -> dict:
         support_nodes = self._nodes_for_ids(
             assertion.get("supporting_evidence_ids") or [], node_index
         )
@@ -269,11 +298,34 @@ class CorroborationService:
         support_groups, duplicate_count = self._independent_groups(support_nodes)
         contradiction_groups, _ = self._independent_groups(contradiction_nodes)
         scope_status = str(assertion.get("scope_consistency") or "unknown")
+        evidence_basis = str(
+            assertion.get("evidence_basis") or "retrieved_source"
+        ).strip()
+        context_paths = [
+            str(path).strip()
+            for path in (assertion.get("supporting_context_paths") or [])
+            if str(path).strip()
+        ]
+        valid_context_paths = [
+            path
+            for path in context_paths
+            if self._context_path_exists(packet_context, path)
+        ]
 
         if scope_status == "mixed":
             status = "scope_mismatch"
         elif contradiction_groups:
             status = "disputed"
+        elif evidence_basis == "portfolio_ledger" and valid_context_paths:
+            status = "account_evidence"
+        elif evidence_basis == "market_data_calculation" and valid_context_paths:
+            status = "calculated_evidence"
+        elif evidence_basis in {
+            "portfolio_ledger",
+            "market_data_calculation",
+            "model_assumption",
+        }:
+            status = "unsupported"
         elif len(support_groups) >= self.minimum_independent_sources:
             status = "corroborated"
         elif support_groups:
@@ -295,7 +347,10 @@ class CorroborationService:
             "time_scope": str(assertion.get("time_scope") or "").strip() or None,
             "scope_consistency": scope_status,
             "scope_notes": str(assertion.get("scope_notes") or "").strip() or None,
+            "evidence_basis": evidence_basis,
             "status": status,
+            "supporting_context_paths": context_paths,
+            "valid_supporting_context_paths": valid_context_paths,
             "supporting_evidence_ids": [str(node.get("id")) for node in support_nodes],
             "contradicting_evidence_ids": [
                 str(node.get("id")) for node in contradiction_nodes
@@ -306,6 +361,29 @@ class CorroborationService:
             "duplicate_copy_count": duplicate_count,
             "independent_support_keys": sorted(support_groups),
         }
+
+    @staticmethod
+    def _context_path_exists(packet_context: dict, path: str) -> bool:
+        parts = [part for part in path.split(".") if part]
+        if parts and parts[0] in {"packet", "packet_context"}:
+            parts = parts[1:]
+        if not parts:
+            return False
+        current: object = packet_context
+        for part in parts:
+            if isinstance(current, dict):
+                if part not in current:
+                    return False
+                current = current[part]
+                continue
+            if isinstance(current, list) and part.isdigit():
+                index = int(part)
+                if index >= len(current):
+                    return False
+                current = current[index]
+                continue
+            return False
+        return current not in (None, "", [], {})
 
     def _assess_material_assumptions(
         self, result: dict, node_index: dict[str, dict]
@@ -353,6 +431,8 @@ class CorroborationService:
                 "time_scope": None,
                 "scope_consistency": "unknown",
                 "scope_notes": "Legacy aggregate evidence list; assertion scope was not supplied.",
+                "evidence_basis": "retrieved_source",
+                "supporting_context_paths": [],
                 "supporting_evidence_ids": support_ids,
                 "contradicting_evidence_ids": contradiction_ids,
             }

@@ -26,6 +26,10 @@ from investos.services.corroboration import source_authority
 from investos.services.fundamentals import FundamentalMetricService
 from investos.services.graph_edge_state import GraphEdgeStateService
 from investos.services.knowledge_audit import KnowledgeAuditService
+from investos.services.knowledge_time import (
+    assess_knowledge_time,
+    infer_expired_forecast_time,
+)
 from investos.services.market_setup import MarketSetupSignalService
 from investos.services.operating_loop import OperatingLoopService
 from investos.services.source_learning import SourceLearningService
@@ -102,11 +106,13 @@ EXTRACTION_SCHEMA = {
                     "tier": {"type": "string"},
                     "importance": {"type": "string"},
                     "contradiction_role": {"type": "string"},
+                    "event_time_raw": {"type": ["string", "null"]},
                     "target_horizon": {
                         "type": "string",
                         "enum": ["tactical", "strategic", "visionary"],
                     },
                     "horizon_reasoning": {"type": "string"},
+                    "valid_until_raw": {"type": ["string", "null"]},
                 },
                 "required": [
                     "statement",
@@ -115,8 +121,10 @@ EXTRACTION_SCHEMA = {
                     "tier",
                     "importance",
                     "contradiction_role",
+                    "event_time_raw",
                     "target_horizon",
                     "horizon_reasoning",
+                    "valid_until_raw",
                 ],
             },
         },
@@ -133,6 +141,7 @@ EXTRACTION_SCHEMA = {
                     "importance": {"type": "string"},
                     "contradiction_role": {"type": "string"},
                     "sentiment": {"type": ["string", "null"]},
+                    "event_time_raw": {"type": ["string", "null"]},
                     "target_horizon": {
                         "type": "string",
                         "enum": ["tactical", "strategic", "visionary"],
@@ -148,6 +157,7 @@ EXTRACTION_SCHEMA = {
                     "importance",
                     "contradiction_role",
                     "sentiment",
+                    "event_time_raw",
                     "target_horizon",
                     "horizon_reasoning",
                     "valid_until_raw",
@@ -437,25 +447,36 @@ class ExtractionWorker:
             )
 
         for payload in extracted["facts"]:
+            event_time = self._event_time_from_payload(payload, evidence)
+            valid_until = self._valid_until_from_payload(payload, evidence)
+            temporal = assess_knowledge_time(
+                payload["statement"],
+                event_time=event_time,
+                public_time=evidence.public_time,
+                ingest_time=evidence.ingest_time,
+                valid_until=valid_until,
+                item_type="fact",
+            )
             fact = Fact(
                 statement=payload["statement"],
                 fact_type=payload["fact_type"],
                 confidence=payload["confidence"],
                 source_item_id=source_item.id,
-                event_time=evidence.public_time or evidence.ingest_time,
+                event_time=event_time,
                 public_time=evidence.public_time,
                 ingest_time=evidence.ingest_time,
                 eligible_action_time=evidence.public_time or evidence.ingest_time,
                 tier=payload["tier"],
                 importance=payload["importance"],
                 directness=evidence_directness,
-                novelty="breaking",
+                novelty=temporal.novelty,
                 contradiction_role=payload["contradiction_role"],
                 # Extraction records what a source said. Promotion is a later,
                 # source-independent corroboration decision.
                 promotion_eligible=False,
                 target_horizon=payload.get("target_horizon", "strategic"),
                 horizon_reasoning=payload.get("horizon_reasoning"),
+                valid_until=valid_until,
             )
             self.session.add(fact)
             await self.session.flush()
@@ -487,6 +508,16 @@ class ExtractionWorker:
             )
 
         for payload in extracted["claims"]:
+            event_time = self._event_time_from_payload(payload, evidence)
+            valid_until = self._valid_until_from_payload(payload, evidence)
+            temporal = assess_knowledge_time(
+                payload["statement"],
+                event_time=event_time,
+                public_time=evidence.public_time,
+                ingest_time=evidence.ingest_time,
+                valid_until=valid_until,
+                item_type="claim",
+            )
             claim = Claim(
                 statement=payload["statement"],
                 claim_type=payload["claim_type"],
@@ -494,19 +525,20 @@ class ExtractionWorker:
                 confidence=payload["confidence"],
                 sentiment=payload.get("sentiment"),
                 source_item_id=source_item.id,
-                event_time=evidence.public_time or evidence.ingest_time,
+                event_time=event_time,
                 public_time=evidence.public_time,
                 ingest_time=evidence.ingest_time,
                 eligible_action_time=evidence.public_time or evidence.ingest_time,
                 tier=payload["tier"],
                 importance=payload["importance"],
                 directness=evidence_directness,
-                novelty="breaking",
+                novelty=temporal.novelty,
                 contradiction_role=payload["contradiction_role"],
                 promotion_eligible=False,
                 is_original=bool(evidence.author),
                 target_horizon=payload.get("target_horizon", "strategic"),
                 horizon_reasoning=payload.get("horizon_reasoning"),
+                valid_until=valid_until,
             )
             self.session.add(claim)
             await self.session.flush()
@@ -544,7 +576,7 @@ class ExtractionWorker:
                 SourceClaimRecord(
                     source_id=source_item.source_id,
                     claim_id=claim.id,
-                    claim_time=evidence.public_time or evidence.ingest_time,
+                    claim_time=claim.public_time or claim.ingest_time,
                     assessment="pending",
                     ticker=subject_name if subject_type == "entity" else None,
                 )
@@ -800,9 +832,12 @@ class ExtractionWorker:
             "- 'strategic': Multi-year targets, cycle views, major capital plans. Stable for 1-3 years.\n"
             "- 'visionary': Permanent thesis anchors, long-term projections (e.g. AGI 2040, Mars colony). These stay relevant forever regardless of age.\n"
             "If an object has a specific target date (e.g. 'Revenue doubling by 2028'), provide it in valid_until_raw. "
-            "For events, set event_time_raw to the actual event date/time only when the evidence states or directly implies "
-            "a dated event (e.g. an earnings report on June 24, 2026); otherwise use null. Do not use the article "
-            "publication date or ingestion time as event_time_raw. "
+            "For every event, fact, and claim, set event_time_raw to the actual underlying event or assertion date only when "
+            "the evidence states or directly implies it (e.g. an earnings report on June 24, 2026); otherwise use null. "
+            "Do not use the article publication date or ingestion time as event_time_raw. For facts and claims, set "
+            "valid_until_raw only when the evidence states a deadline, forecast target, or period after which the assertion "
+            "can be outcome-tested; otherwise use null. Historical quotations and old metrics must retain their original "
+            "period and must never be labeled as current merely because they were ingested today. "
             "For earnings, guidance, deals, announcements, or other market events, do not collapse the source into a generic event node. "
             "When present, extract separate facts or claims for the pre-event expectation/hurdle, actual result or deal terms, "
             "price reaction, analyst estimate or guidance revisions, investor positioning, market sentiment, institutional or ownership flows, "
@@ -813,6 +848,10 @@ class ExtractionWorker:
             "interest coverage, dilution, capital intensity, estimate revisions, competitive positioning, peer comparisons, "
             "and sector-specific operating KPIs; this is an illustrative ontology, not a closed checklist, so keep any "
             "company- or industry-specific metric that helps explain demand, supply, margins, financing, valuation, or timing. "
+            "When the source materially describes a business model, preserve source-backed facts and claims about who pays, the value "
+            "delivered, revenue and cost drivers, customer or supplier dependencies, reinvestment needs, and where value is captured. "
+            "Likewise preserve material externalities or second-order effects only when the source supports a concrete transmission route "
+            "to demand, cost, regulation, reputation, stakeholder behavior, or valuation; do not invent or moralize them. "
             "Also return those concrete measurements in fundamental_metrics so they become first-class source-dated records. "
             "For every metric and market-setup signal, identify the actual measured subject in subject_name and ticker when available, "
             "and describe its open-ended relationship_to_primary_subject. Do not attach a peer, index, sector, or macro measurement "
@@ -839,6 +878,25 @@ class ExtractionWorker:
         )
         return parse_explicit_calendar_datetime(
             payload.get("event_time_raw"),
+            reference_time=reference_time,
+        )
+
+    @staticmethod
+    def _valid_until_from_payload(
+        payload: dict,
+        evidence: RawEvidence,
+    ) -> datetime | None:
+        reference_time = (
+            evidence.public_time or evidence.ingest_time or datetime.now(UTC)
+        )
+        explicit = parse_explicit_calendar_datetime(
+            payload.get("valid_until_raw"),
+            reference_time=reference_time,
+        )
+        if explicit is not None:
+            return explicit
+        return infer_expired_forecast_time(
+            payload.get("statement"),
             reference_time=reference_time,
         )
 

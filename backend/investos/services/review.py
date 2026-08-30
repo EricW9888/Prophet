@@ -926,8 +926,6 @@ class ReviewService:
                 tags.append("shadow opportunity")
                 if profile.get("signal_stage"):
                     tags.append(str(profile["signal_stage"]).replace("_", " "))
-                if profile.get("priced_in_assessment"):
-                    tags.append(str(profile["priced_in_assessment"]).replace("_", " "))
             else:
                 tags.append("shadow divergence")
         if item.trigger_reason.startswith("Open research question:"):

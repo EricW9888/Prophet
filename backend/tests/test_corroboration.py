@@ -43,6 +43,8 @@ def _result(support_ids: list[str], contradiction_ids: list[str] | None = None) 
                 "time_scope": "current quarter",
                 "scope_consistency": "matched",
                 "scope_notes": "Same issuer and reporting period.",
+                "evidence_basis": "retrieved_source",
+                "supporting_context_paths": [],
                 "supporting_evidence_ids": support_ids,
                 "contradicting_evidence_ids": contradiction_ids or [],
             }
@@ -211,6 +213,64 @@ def test_blind_analyst_disagreement_prevents_promotion():
     assert result["corroboration"]["status"] == "analyst_disagreement"
     assert result["corroboration"]["can_promote"] is False
     assert result["confidence_band"] == "low"
+
+
+def test_portfolio_ledger_assertion_uses_structured_context_not_publication():
+    result = _result([])
+    result["material_assertions"][0].update(
+        statement="The position is 24% of the account.",
+        evidence_basis="portfolio_ledger",
+        supporting_context_paths=["portfolio_context.top_holdings.0.weight_pct"],
+    )
+    packet = {
+        **_packet(),
+        "portfolio_context": {"top_holdings": [{"ticker": "MEMA", "weight_pct": 24}]},
+    }
+
+    assessment = CorroborationService().assess_result(result, packet)
+
+    assertion = assessment["assertions"][0]
+    assert assertion["status"] == "account_evidence"
+    assert assertion["valid_supporting_context_paths"] == [
+        "portfolio_context.top_holdings.0.weight_pct"
+    ]
+    assert assessment["can_promote"] is True
+    assert assessment["independent_supporting_source_count"] == 0
+
+
+def test_structured_context_assertion_fails_closed_for_missing_path():
+    result = _result([])
+    result["material_assertions"][0].update(
+        evidence_basis="market_data_calculation",
+        supporting_context_paths=[
+            "portfolio_context.performance_attribution.total_return"
+        ],
+    )
+
+    assessment = CorroborationService().assess_result(result, _packet())
+
+    assert assessment["assertions"][0]["status"] == "unsupported"
+    assert assessment["can_promote"] is False
+
+
+def test_inadequate_question_scope_overrides_stance_agreement():
+    first = _node(publisher="issuer.example", content_hash="a")
+    second = _node(publisher="wire.example", content_hash="b")
+    result = _result([first["id"], second["id"]])
+    service = CorroborationService()
+    service.assess_result(result, _packet(first, second))
+
+    review = {
+        "candidate_stance": "bullish",
+        "confidence_band": "medium",
+        "question_answerability": "inadequate",
+        "answerability_reason": "The evidence covers a held company, not the requested opportunity universe.",
+    }
+    service.apply_independent_review(result, review)
+
+    assert result["corroboration"]["status"] == "question_scope_inadequate"
+    assert result["corroboration"]["can_promote"] is False
+    assert result["confidence_band"] == "very_low"
 
 
 def test_missing_source_provenance_never_counts_as_corroboration():
