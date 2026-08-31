@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ActiveWatcherResponse(BaseModel):
@@ -25,3 +25,7 @@ class ActiveWatcherResponse(BaseModel):
     countdown_seconds: int | None = None
     is_overdue: bool = False
     reminder_kind: str = "condition"
+    evaluation_status: str | None = None
+    evaluation_detail: str | None = None
+    evaluation_evidence_refs: list[dict[str, str]] = Field(default_factory=list)
+    evaluation_error: str | None = None

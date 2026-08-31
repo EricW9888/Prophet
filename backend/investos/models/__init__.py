@@ -65,7 +65,7 @@ from .subject_alias import SubjectAlias
 from .theme import Theme
 from .thesis import Thesis
 from .verification import VerificationRun
-from .watcher import ActiveWatcher
+from .watcher import ActiveWatcher, WatcherEvidenceEvaluation
 
 __all__ = [
     "Base",
@@ -150,4 +150,5 @@ __all__ = [
     "Thesis",
     "VerificationRun",
     "ActiveWatcher",
+    "WatcherEvidenceEvaluation",
 ]

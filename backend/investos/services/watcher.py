@@ -8,11 +8,12 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from investos.models.watcher import ActiveWatcher
+from investos.models.watcher import ActiveWatcher, WatcherEvidenceEvaluation
 from investos.services.agent_action_log import AgentActionLogService
 from investos.services.knowledge_audit import KnowledgeAuditService
 from investos.services.market_data import MarketDataService
 from investos.services.push_notification import PushNotificationService
+from investos.services.watcher_evidence import WatcherEvidenceService
 
 
 class WatcherService:
@@ -47,8 +48,17 @@ class WatcherService:
 
     async def list_active_with_countdowns(self) -> list[dict[str, Any]]:
         now = datetime.now(UTC)
+        watchers = await self.list_active()
+        evaluations = await WatcherEvidenceService(self.session).latest_evaluations(
+            watchers
+        )
         return [
-            self.to_response(watcher, now=now) for watcher in await self.list_active()
+            self.to_response(
+                watcher,
+                now=now,
+                evaluation=evaluations.get(watcher.id),
+            )
+            for watcher in watchers
         ]
 
     async def list_reminders(self) -> list[dict[str, Any]]:
@@ -61,7 +71,11 @@ class WatcherService:
 
     @classmethod
     def to_response(
-        cls, watcher: ActiveWatcher, *, now: datetime | None = None
+        cls,
+        watcher: ActiveWatcher,
+        *,
+        now: datetime | None = None,
+        evaluation: WatcherEvidenceEvaluation | None = None,
     ) -> dict[str, Any]:
         now = now or datetime.now(UTC)
         deadline = cls._aware_datetime(watcher.deadline)
@@ -104,6 +118,12 @@ class WatcherService:
             "countdown_seconds": countdown_seconds,
             "is_overdue": is_overdue,
             "reminder_kind": reminder_kind,
+            "evaluation_status": evaluation.status if evaluation else None,
+            "evaluation_detail": evaluation.detail if evaluation else None,
+            "evaluation_evidence_refs": (
+                evaluation.evidence_refs_json if evaluation else []
+            ),
+            "evaluation_error": evaluation.error if evaluation else None,
         }
 
     @staticmethod
@@ -303,6 +323,7 @@ class WatcherService:
             triggered = False
             trigger_detail = ""
             price = prices.get(w.ticker) if w.ticker else None
+            evaluated = False
 
             # 1. Check Deadline
             if w.deadline and now >= w.deadline:
@@ -310,6 +331,7 @@ class WatcherService:
                 w.is_active = False
                 w.trigger_detail = f"Deadline reached: {w.deadline.isoformat()}"
                 triggered = True
+                evaluated = True
 
             # 2. Check Price Conditions
             elif price is not None and w.condition_type in self.PRICE_CONDITIONS:
@@ -317,6 +339,7 @@ class WatcherService:
                 if error:
                     self._fail_invalid_watcher(w, error, now)
                     continue
+                evaluated = True
 
                 if w.condition_type == "price_above" and price >= threshold:
                     triggered = True
@@ -347,10 +370,30 @@ class WatcherService:
                 await PushNotificationService(self.session).enqueue_watch_transition(w)
                 triggered_count += 1
 
-            w.last_checked_at = now
+            if evaluated:
+                w.last_checked_at = now
 
         await self.session.commit()
+        triggered_count += await self.retry_deferred_evidence_evaluations(limit=6)
         return triggered_count
+
+    async def evaluate_new_evidence(
+        self,
+        *,
+        subject_id: UUID,
+        subject_type: str,
+        raw_evidence_id: UUID,
+    ) -> int:
+        return await WatcherEvidenceService(self.session).evaluate_new_evidence(
+            subject_id=subject_id,
+            subject_type=subject_type,
+            raw_evidence_id=raw_evidence_id,
+        )
+
+    async def retry_deferred_evidence_evaluations(self, *, limit: int = 6) -> int:
+        return await WatcherEvidenceService(self.session).retry_deferred_evaluations(
+            limit=limit
+        )
 
     @classmethod
     def _price_threshold(

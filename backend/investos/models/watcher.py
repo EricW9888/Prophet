@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -69,4 +69,41 @@ class ActiveWatcher(Base):
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
+    )
+
+
+class WatcherEvidenceEvaluation(Base):
+    """Auditable result of checking one stored source against one watch."""
+
+    __tablename__ = "watcher_evidence_evaluations"
+    __table_args__ = (
+        UniqueConstraint(
+            "watcher_id",
+            "raw_evidence_id",
+            name="uq_watcher_evaluations_watcher_evidence",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    watcher_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("active_watchers.id", ondelete="CASCADE"), index=True
+    )
+    raw_evidence_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("raw_evidence.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[str] = mapped_column(String, default="pending", index=True)
+    evidence_refs_json: Mapped[list] = mapped_column(JSONB, default=list)
+    detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    confidence: Mapped[Optional[float]] = mapped_column(nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    evaluated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )

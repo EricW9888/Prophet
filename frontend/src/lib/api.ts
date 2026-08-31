@@ -1080,6 +1080,10 @@ export type ActiveWatcher = {
   countdown_seconds?: number | null;
   is_overdue?: boolean;
   reminder_kind?: "condition" | "deadline" | "deadline_and_condition" | string;
+  evaluation_status?: "pending" | "deferred" | "no_match" | "triggered" | string | null;
+  evaluation_detail?: string | null;
+  evaluation_evidence_refs?: Array<{ type: string; id: string }>;
+  evaluation_error?: string | null;
 };
 
 export type IntegrationSettings = {

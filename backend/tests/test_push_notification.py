@@ -199,7 +199,9 @@ async def test_subscription_upsert_reactivates_one_device(monkeypatch) -> None:
                 user_agent="updated agent",
             )
             count = await session.scalar(
-                select(func.count()).select_from(PushSubscription)
+                select(func.count())
+                .select_from(PushSubscription)
+                .where(PushSubscription.endpoint == endpoint)
             )
 
         assert first.id == second.id
@@ -242,21 +244,32 @@ async def test_watcher_transition_enqueues_one_generic_delivery(monkeypatch) -> 
                 auth=encoded_bytes(16),
                 user_agent="test",
             )
+            expected_delivery_count = await session.scalar(
+                select(func.count())
+                .select_from(PushSubscription)
+                .where(PushSubscription.is_active.is_(True))
+            )
             first = await service.enqueue_watch_transition(watcher)
             second = await service.enqueue_watch_transition(watcher)
             await session.commit()
-            event = await session.scalar(select(PushNotificationEvent))
+            event = await session.scalar(
+                select(PushNotificationEvent).where(
+                    PushNotificationEvent.event_key == f"watcher:{watcher.id}:triggered"
+                )
+            )
             delivery_count = await session.scalar(
-                select(func.count()).select_from(PushNotificationDelivery)
+                select(func.count())
+                .select_from(PushNotificationDelivery)
+                .where(PushNotificationDelivery.event_id == event.id)
             )
 
-        assert first == 1
+        assert first == expected_delivery_count
         assert second == 0
         assert event is not None
         assert event.event_key == f"watcher:{watcher.id}:triggered"
         assert "PRIVATE" not in event.title + event.body
         assert "Private" not in event.title + event.body
-        assert delivery_count == 1
+        assert delivery_count == expected_delivery_count
     finally:
         await clean_push_state()
 
