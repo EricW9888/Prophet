@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     BACKUP_KEEP_COUNT: int = 7
     BACKUP_MAX_TOTAL_MB: int = 1024
     WEB_PUSH_ENABLED: bool = True
-    WEB_PUSH_VAPID_SUBJECT: str = "https://github.com/EricW9888/Prophet"
+    WEB_PUSH_VAPID_SUBJECT: str | None = None
     WEB_PUSH_DISPATCH_INTERVAL_SECONDS: int = 60
     WEB_PUSH_TIMEOUT_SECONDS: float = 10.0
     WEB_PUSH_MAX_ATTEMPTS: int = 5

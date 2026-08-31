@@ -19,6 +19,8 @@ class PushSubscriptionEndpointRequest(BaseModel):
 
 class PushNotificationStatusResponse(BaseModel):
     enabled: bool
+    ready: bool
+    configuration_error: str | None = None
     application_server_key: str | None = None
     active_subscription_count: int
 

@@ -19,6 +19,7 @@ from investos.models.notification import (
 )
 from investos.models.watcher import ActiveWatcher
 from investos.services.push_notification import (
+    PushConfigurationError,
     PushNotificationService,
     PushSubscriptionError,
 )
@@ -26,6 +27,53 @@ from investos.services.push_notification import (
 
 def encoded_bytes(length: int) -> str:
     return base64.urlsafe_b64encode(bytes(range(length))).rstrip(b"=").decode("ascii")
+
+
+@pytest.fixture(autouse=True)
+def valid_vapid_contact(monkeypatch) -> None:
+    monkeypatch.setattr(
+        settings,
+        "WEB_PUSH_VAPID_SUBJECT",
+        "mailto:prophet-tests@example.com",
+    )
+    monkeypatch.setattr(settings, "PROPHET_REMOTE_ACCESS_USER", None)
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        ("mailto:owner@example.com", "mailto:owner@example.com"),
+        ("https://example.com", "https://example.com"),
+        ("https://example.com/", "https://example.com"),
+    ],
+)
+def test_vapid_subject_accepts_contact_uris(
+    monkeypatch, configured: str, expected: str
+) -> None:
+    monkeypatch.setattr(settings, "WEB_PUSH_VAPID_SUBJECT", configured)
+
+    assert PushNotificationService._vapid_subject() == expected
+
+
+def test_vapid_subject_uses_owner_email_when_not_explicit(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "WEB_PUSH_VAPID_SUBJECT", None)
+    monkeypatch.setattr(settings, "PROPHET_REMOTE_ACCESS_USER", "owner@example.com")
+
+    assert PushNotificationService._vapid_subject() == "mailto:owner@example.com"
+
+
+@pytest.mark.parametrize(
+    "configured",
+    [None, "https://github.com/EricW9888/Prophet", "owner@example.com"],
+)
+def test_vapid_subject_rejects_missing_or_invalid_contact(
+    monkeypatch, configured: str | None
+) -> None:
+    monkeypatch.setattr(settings, "WEB_PUSH_VAPID_SUBJECT", configured)
+    monkeypatch.setattr(settings, "PROPHET_REMOTE_ACCESS_USER", None)
+
+    with pytest.raises(PushConfigurationError, match="WEB_PUSH_VAPID_SUBJECT"):
+        PushNotificationService._vapid_subject()
 
 
 def test_vapid_identity_is_private_and_stable(tmp_path, monkeypatch) -> None:
@@ -47,9 +95,43 @@ async def public_endpoint(*_args, **_kwargs):
 
 async def clean_push_state() -> None:
     async with async_session_maker() as session:
-        await session.execute(delete(PushNotificationDelivery))
-        await session.execute(delete(PushNotificationEvent))
-        await session.execute(delete(PushSubscription))
+        subscription_ids = list(
+            (
+                await session.scalars(
+                    select(PushSubscription.id).where(
+                        PushSubscription.endpoint.like("https://push.example.test/%")
+                    )
+                )
+            ).all()
+        )
+        if subscription_ids:
+            event_ids = list(
+                (
+                    await session.scalars(
+                        select(PushNotificationDelivery.event_id).where(
+                            PushNotificationDelivery.subscription_id.in_(
+                                subscription_ids
+                            )
+                        )
+                    )
+                ).all()
+            )
+            await session.execute(
+                delete(PushNotificationDelivery).where(
+                    PushNotificationDelivery.subscription_id.in_(subscription_ids)
+                )
+            )
+            if event_ids:
+                await session.execute(
+                    delete(PushNotificationEvent).where(
+                        PushNotificationEvent.id.in_(event_ids)
+                    )
+                )
+            await session.execute(
+                delete(PushSubscription).where(
+                    PushSubscription.id.in_(subscription_ids)
+                )
+            )
         await session.commit()
 
 
@@ -216,6 +298,45 @@ async def test_dispatch_marks_success_without_exposing_payload(monkeypatch) -> N
         assert len(sent_payloads) == 1
         assert "portfolio" not in sent_payloads[0].lower()
         assert "trade" not in sent_payloads[0].lower()
+    finally:
+        await clean_push_state()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_invalid_vapid_contact_fails_without_retrying(monkeypatch) -> None:
+    await clean_push_state()
+    monkeypatch.setattr(
+        "investos.services.push_notification.resolve_public_url", public_endpoint
+    )
+    monkeypatch.setattr(
+        PushNotificationService,
+        "application_server_key",
+        classmethod(lambda cls: "test-public-key"),
+    )
+    try:
+        async with async_session_maker() as session:
+            service = PushNotificationService(session)
+            subscription = await service.subscribe(
+                endpoint="https://push.example.test/subscription/configuration",
+                p256dh=encoded_bytes(65),
+                auth=encoded_bytes(16),
+                user_agent="test",
+            )
+            delivery_id = await service.enqueue_test(endpoint=subscription.endpoint)
+            monkeypatch.setattr(
+                settings,
+                "WEB_PUSH_VAPID_SUBJECT",
+                "https://github.com/EricW9888/Prophet",
+            )
+            result = await service.dispatch_pending(delivery_id=delivery_id)
+            delivery = await session.get(PushNotificationDelivery, delivery_id)
+
+        assert result["configuration_failed"] == 1
+        assert result["retrying"] == 0
+        assert delivery is not None
+        assert delivery.status == "failed"
+        assert delivery.next_attempt_at is not None
+        assert "WEB_PUSH_VAPID_SUBJECT" in (delivery.last_error or "")
     finally:
         await clean_push_state()
 

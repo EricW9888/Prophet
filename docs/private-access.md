@@ -34,6 +34,8 @@ This is owner access, not a general multi-user authentication system.
    ```dotenv
    PROPHET_REMOTE_ACCESS_USER=owner@example.com
    FRONTEND_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,https://prophet-host.example-tailnet.ts.net
+   # Optional when the remote-access login is an email address:
+   # WEB_PUSH_VAPID_SUBJECT=mailto:owner@example.com
    ```
 
    Use the exact login shown by `tailscale status` and the exact HTTPS origin
@@ -60,6 +62,12 @@ and keeps each browser subscription in the local database. A durable delivery
 outbox deduplicates watcher transitions, retries temporary push-service
 failures, and retires subscriptions rejected as permanently invalid. Use **Send
 test** in Settings to verify a device after enabling it.
+
+Web Push also requires a valid VAPID contact URI. Prophet uses the configured
+remote-access email as a `mailto:` contact by default. If that login is not an
+email address, set `WEB_PUSH_VAPID_SUBJECT` explicitly to a contact such as
+`mailto:owner@example.com`. Invalid sender configuration is reported in
+Settings and fails immediately rather than being retried as a network outage.
 
 Lock-screen messages deliberately omit tickers, positions, values, objectives,
 and adjustment plans. They say only that a monitored condition needs review and
