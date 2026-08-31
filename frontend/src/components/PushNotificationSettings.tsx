@@ -11,6 +11,7 @@ import {
   pushNotificationsSupported,
   PushNotificationServerStatus,
   sendTestPushNotification,
+  syncPushSubscription,
 } from "@/lib/push-notifications";
 
 function permissionLabel(permission: NotificationPermission | "unsupported"): string {
@@ -33,11 +34,22 @@ export default function PushNotificationSettings() {
   async function refresh() {
     const supported = pushNotificationsSupported();
     setPermission(supported ? Notification.permission : "unsupported");
-    const serverStatus = await apiFetch<PushNotificationServerStatus>(
+    let serverStatus = await apiFetch<PushNotificationServerStatus>(
       "/notifications/status",
     );
+    const currentSubscription = supported ? await currentPushSubscription() : null;
+    if (
+      currentSubscription &&
+      Notification.permission === "granted" &&
+      serverStatus.ready
+    ) {
+      await syncPushSubscription(currentSubscription);
+      serverStatus = await apiFetch<PushNotificationServerStatus>(
+        "/notifications/status",
+      );
+    }
     setStatus(serverStatus);
-    setSubscription(supported ? await currentPushSubscription() : null);
+    setSubscription(currentSubscription);
   }
 
   useEffect(() => {
@@ -112,6 +124,11 @@ export default function PushNotificationSettings() {
       } else if (result.status === "subscription_retired") {
         setSubscription(null);
         setError("The browser push service retired this subscription. Enable it again.");
+      } else if (result.status === "configuration_error") {
+        setError(
+          status?.configuration_error ??
+            "Owner notifications are not configured correctly on the Prophet host.",
+        );
       } else {
         setError("The test notification could not be delivered after its retry limit.");
       }
@@ -199,6 +216,12 @@ export default function PushNotificationSettings() {
         </p>
       )}
 
+      {status?.configuration_error && (
+        <p className="mt-4 border-l-2 border-red-500 pl-3 text-sm text-red-600 dark:text-red-300">
+          {status.configuration_error}
+        </p>
+      )}
+
       {error && <p className="mt-4 text-sm text-red-600 dark:text-red-300">{error}</p>}
       {message && (
         <p className="mt-4 text-sm text-emerald-700 dark:text-emerald-300">{message}</p>
@@ -214,6 +237,7 @@ export default function PushNotificationSettings() {
               !supported ||
               permission === "denied" ||
               !status?.enabled ||
+              !status.ready ||
               !status.application_server_key
             }
             className="rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950"

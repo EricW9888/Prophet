@@ -2,6 +2,8 @@ import { apiFetch } from "@/lib/api";
 
 export type PushNotificationServerStatus = {
   enabled: boolean;
+  ready: boolean;
+  configuration_error?: string | null;
   application_server_key?: string | null;
   active_subscription_count: number;
 };

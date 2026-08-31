@@ -9,10 +9,11 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-from py_vapid import Vapid
+from py_vapid import Vapid, VapidException
 from pywebpush import WebPushException, webpush
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -29,6 +30,10 @@ from investos.models.watcher import ActiveWatcher
 
 
 class PushSubscriptionError(ValueError):
+    pass
+
+
+class PushConfigurationError(RuntimeError):
     pass
 
 
@@ -66,6 +71,39 @@ class PushNotificationService:
         )
         return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
+    @staticmethod
+    def _vapid_subject() -> str:
+        configured = (settings.WEB_PUSH_VAPID_SUBJECT or "").strip()
+        if not configured:
+            owner = (settings.PROPHET_REMOTE_ACCESS_USER or "").strip()
+            if "@" in owner and not any(character.isspace() for character in owner):
+                configured = f"mailto:{owner}"
+
+        parsed = urlparse(configured)
+        valid_mailto = (
+            parsed.scheme == "mailto"
+            and bool(parsed.path)
+            and "@" in parsed.path
+            and not parsed.query
+            and not parsed.fragment
+        )
+        valid_https_origin = (
+            parsed.scheme == "https"
+            and bool(parsed.hostname)
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.path in {"", "/"}
+            and not parsed.params
+            and not parsed.query
+            and not parsed.fragment
+        )
+        if not (valid_mailto or valid_https_origin):
+            raise PushConfigurationError(
+                "Owner notifications need WEB_PUSH_VAPID_SUBJECT set to a contact "
+                "URI such as mailto:owner@example.com."
+            )
+        return configured.rstrip("/") if valid_https_origin else configured
+
     async def status(self) -> dict[str, Any]:
         active_count = int(
             await self.session.scalar(
@@ -75,11 +113,19 @@ class PushNotificationService:
             )
             or 0
         )
+        configuration_error = None
+        ready = False
+        if settings.WEB_PUSH_ENABLED:
+            try:
+                self._vapid_subject()
+                ready = True
+            except PushConfigurationError as exc:
+                configuration_error = str(exc)
         return {
             "enabled": settings.WEB_PUSH_ENABLED,
-            "application_server_key": (
-                self.application_server_key() if settings.WEB_PUSH_ENABLED else None
-            ),
+            "ready": ready,
+            "configuration_error": configuration_error,
+            "application_server_key": self.application_server_key() if ready else None,
             "active_subscription_count": active_count,
         }
 
@@ -93,6 +139,7 @@ class PushNotificationService:
     ) -> PushSubscription:
         if not settings.WEB_PUSH_ENABLED:
             raise PushSubscriptionError("Owner notifications are disabled.")
+        self._vapid_subject()
         self.application_server_key()
         endpoint = endpoint.strip()
         if len(endpoint) > 2048:
@@ -249,6 +296,7 @@ class PushNotificationService:
                 "retrying": 0,
                 "retired": 0,
                 "failed": 0,
+                "configuration_failed": 0,
             }
 
         now = datetime.now(UTC)
@@ -299,6 +347,7 @@ class PushNotificationService:
                 "retrying": 0,
                 "retired": 0,
                 "failed": 0,
+                "configuration_failed": 0,
             }
 
         for delivery, _event, _subscription in rows:
@@ -313,6 +362,7 @@ class PushNotificationService:
             "retrying": 0,
             "retired": 0,
             "failed": 0,
+            "configuration_failed": 0,
         }
         for delivery, event, subscription in rows:
             outcome = await self._send(delivery, event, subscription)
@@ -335,20 +385,26 @@ class PushNotificationService:
             },
             separators=(",", ":"),
         )
-        request = partial(
-            webpush,
-            subscription_info={
-                "endpoint": subscription.endpoint,
-                "keys": {"p256dh": subscription.p256dh, "auth": subscription.auth},
-            },
-            data=payload,
-            vapid_private_key=str(self._vapid_path()),
-            vapid_claims={"sub": settings.WEB_PUSH_VAPID_SUBJECT},
-            timeout=settings.WEB_PUSH_TIMEOUT_SECONDS,
-            ttl=300,
-        )
         try:
+            request = partial(
+                webpush,
+                subscription_info={
+                    "endpoint": subscription.endpoint,
+                    "keys": {"p256dh": subscription.p256dh, "auth": subscription.auth},
+                },
+                data=payload,
+                vapid_private_key=str(self._vapid_path()),
+                vapid_claims={"sub": self._vapid_subject()},
+                timeout=settings.WEB_PUSH_TIMEOUT_SECONDS,
+                ttl=300,
+            )
             await asyncio.to_thread(request)
+        except (PushConfigurationError, VapidException) as exc:
+            return self._record_configuration_failure(
+                delivery,
+                reason=str(exc),
+                now=datetime.now(UTC),
+            )
         except WebPushException as exc:
             status_code = getattr(getattr(exc, "response", None), "status_code", None)
             return self._record_failure(
@@ -373,6 +429,18 @@ class PushNotificationService:
         subscription.last_success_at = now
         subscription.updated_at = now
         return "sent"
+
+    @staticmethod
+    def _record_configuration_failure(
+        delivery: PushNotificationDelivery,
+        *,
+        reason: str,
+        now: datetime,
+    ) -> str:
+        delivery.status = "failed"
+        delivery.last_error = f"Push configuration is invalid: {reason}"
+        delivery.updated_at = now
+        return "configuration_failed"
 
     @staticmethod
     def _record_failure(

@@ -1953,14 +1953,17 @@ class AutomationCoordinator:
                     f"{key}={value}" for key, value in result.items()
                 )
                 if result["selected"]:
+                    stopped = result["failed"] + result["configuration_failed"]
                     self._log_job_action(
                         job_name="owner_notifications",
-                        status="ok" if not result["failed"] else "warning",
+                        status="ok" if not stopped else "warning",
                         summary=(
                             f"Owner notifications sent {result['sent']} alert(s), "
                             f"scheduled {result['retrying']} retry/retries, retired "
                             f"{result['retired']} subscription(s), and stopped "
-                            f"{result['failed']} exhausted delivery/deliveries."
+                            f"{result['failed']} exhausted and "
+                            f"{result['configuration_failed']} misconfigured "
+                            "delivery/deliveries."
                         ),
                         metadata=result,
                     )

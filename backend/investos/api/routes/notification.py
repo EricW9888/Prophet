@@ -11,6 +11,7 @@ from investos.schemas.notification import (
     PushSubscriptionResponse,
 )
 from investos.services.push_notification import (
+    PushConfigurationError,
     PushNotificationService,
     PushSubscriptionError,
 )
@@ -36,7 +37,7 @@ async def subscribe_device(
             auth=payload.keys.auth,
             user_agent=request.headers.get("user-agent"),
         )
-    except (PushSubscriptionError, UrlFetchError) as exc:
+    except (PushSubscriptionError, PushConfigurationError, UrlFetchError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return PushSubscriptionResponse(
         subscription_id=subscription.id,
@@ -73,6 +74,8 @@ async def test_notification(
         status = "retry_scheduled"
     elif result["retired"]:
         status = "subscription_retired"
+    elif result["configuration_failed"]:
+        status = "configuration_error"
     else:
         status = "failed"
     return PushNotificationTestResponse(status=status, sent=sent)
