@@ -10,6 +10,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import desc, select
 
 from investos.config import settings
+from investos.core.research_providers import configured_research_providers
 from investos.db import async_session_maker
 from investos.models.coverage import CoverageMap, UnresolvedQuestion
 from investos.models.entity import Entity, Security
@@ -425,7 +426,11 @@ class AutomationCoordinator:
         subject_type: str | None = None,
         subject_name: str | None = None,
         metadata: dict | None = None,
+        visible: bool = True,
     ) -> None:
+        action_metadata = dict(metadata or {})
+        if not visible:
+            action_metadata["internal_state"] = True
         AgentActionLogService.append(
             source="automation",
             action_type=job_name,
@@ -434,7 +439,7 @@ class AutomationCoordinator:
             subject_id=subject_id,
             subject_type=subject_type,
             subject_name=subject_name,
-            metadata=metadata or {},
+            metadata=action_metadata,
         )
 
     @staticmethod
@@ -453,14 +458,11 @@ class AutomationCoordinator:
                     telemetry.last_status = "ok"
                     telemetry.detail = "no_open_questions"
                     return
-                if not RuntimeSettingsStore.load().research.api_key:
+                if not configured_research_providers(
+                    RuntimeSettingsStore.load().research
+                ):
                     telemetry.last_status = "waiting_for_config"
                     telemetry.detail = "research_provider_not_configured"
-                    self._log_job_action(
-                        job_name="research_loop",
-                        status="blocked",
-                        summary="Research loop skipped because the research provider is not configured.",
-                    )
                     return
                 result = await ResearchService(session).run_targeted_question(question)
                 telemetry.last_status = result.telemetry_status
@@ -1387,12 +1389,23 @@ class AutomationCoordinator:
                 result = await AgentService(session).run_reflection_cycle()
                 telemetry.last_status = "ok"
                 telemetry.detail = f"{result['detail']}"
-                self._log_job_action(
-                    job_name="agent_reflection",
-                    status=str(result.get("status") or "ok"),
-                    summary=str(result.get("detail") or "Reflection cycle completed."),
-                    metadata={"actions": result.get("actions")},
-                )
+                if result.get("subject_id") or result.get("actions"):
+                    self._log_job_action(
+                        job_name="agent_reflection",
+                        status=str(result.get("status") or "ok"),
+                        summary=str(
+                            result.get("detail") or "Reflection cycle completed."
+                        ),
+                        subject_id=str(result.get("subject_id") or "") or None,
+                        subject_type=str(result.get("subject_type") or "") or None,
+                        subject_name=str(result.get("subject_name") or "") or None,
+                        metadata={
+                            "actions": result.get("actions"),
+                            "review_item_id": result.get("review_item_id"),
+                            "review_priority": result.get("review_priority"),
+                        },
+                        visible=bool(result.get("actions")),
+                    )
             except Exception as exc:
                 telemetry.last_status = "error"
                 telemetry.detail = str(exc)
@@ -1412,19 +1425,23 @@ class AutomationCoordinator:
                 telemetry.detail = str(
                     result.get("detail") or "relation_review_complete"
                 )
-                self._log_job_action(
-                    job_name="relation_review",
-                    status=str(result.get("status") or "ok"),
-                    summary=(
-                        f"Relation review revisited {result.get('subject_name')} and added {result.get('links_added', 0)} links."
-                        if result.get("subject_name")
-                        else str(result.get("detail") or "Relation review completed.")
-                    ),
-                    subject_id=str(result.get("subject_id") or "") or None,
-                    subject_type=str(result.get("subject_type") or "") or None,
-                    subject_name=str(result.get("subject_name") or "") or None,
-                    metadata=result,
-                )
+                if result.get("subject_id") or result.get("links_added"):
+                    self._log_job_action(
+                        job_name="relation_review",
+                        status=str(result.get("status") or "ok"),
+                        summary=(
+                            f"Relation review revisited {result.get('subject_name')} and added {result.get('links_added', 0)} links."
+                            if result.get("subject_name")
+                            else str(
+                                result.get("detail") or "Relation review completed."
+                            )
+                        ),
+                        subject_id=str(result.get("subject_id") or "") or None,
+                        subject_type=str(result.get("subject_type") or "") or None,
+                        subject_name=str(result.get("subject_name") or "") or None,
+                        metadata=result,
+                        visible=bool(result.get("links_added")),
+                    )
             except Exception as exc:
                 telemetry.last_status = "error"
                 telemetry.detail = str(exc)
@@ -1781,11 +1798,22 @@ class AutomationCoordinator:
                 result = await AgentService(session).run_strategic_planning_cycle()
                 telemetry.last_status = self._result_telemetry_status(result)
                 telemetry.detail = str(result["detail"])
-                self._log_job_action(
-                    job_name="strategist_cycle",
-                    status=str(result.get("status") or "ok"),
-                    summary=str(result.get("detail") or "Strategist cycle completed."),
-                )
+                if result.get("detail") not in {
+                    "no_material_planning_signal",
+                    "unchanged_operating_state",
+                }:
+                    self._log_job_action(
+                        job_name="strategist_cycle",
+                        status=str(result.get("status") or "ok"),
+                        summary=str(
+                            result.get("detail") or "Strategist cycle completed."
+                        ),
+                        metadata={
+                            "decision_fingerprint": result.get("decision_fingerprint"),
+                            "actions_taken": result.get("actions_taken", 0),
+                        },
+                        visible=bool(result.get("actions_taken")),
+                    )
             except Exception as exc:
                 telemetry.last_status = "error"
                 telemetry.detail = str(exc)
@@ -1805,20 +1833,16 @@ class AutomationCoordinator:
                 telemetry.detail = str(
                     result.get("detail") or "pattern_discovery_complete"
                 )
-                self._log_job_action(
-                    job_name="pattern_discovery",
-                    status=str(result.get("status") or "ok"),
-                    summary=(
-                        f"Pattern discovery created a provisional hypothesis across "
-                        f"{', '.join(result.get('affected_tickers') or [])}."
-                        if result.get("created")
-                        else str(
-                            result.get("detail")
-                            or "Pattern discovery found no supported hypothesis."
-                        )
-                    ),
-                    metadata=result,
-                )
+                if result.get("created"):
+                    self._log_job_action(
+                        job_name="pattern_discovery",
+                        status=str(result.get("status") or "ok"),
+                        summary=(
+                            "Pattern discovery created a provisional hypothesis across "
+                            f"{', '.join(result.get('affected_tickers') or [])}."
+                        ),
+                        metadata=result,
+                    )
             except Exception as exc:
                 telemetry.last_status = "error"
                 telemetry.detail = str(exc)

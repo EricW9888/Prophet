@@ -1,30 +1,65 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.db import get_session
+from investos.models.catalog import SourceClaimRecord
 from investos.models.evidence import RawEvidence, SourceItem
 from investos.models.knowledge import Claim, Event, Fact
 from investos.models.knowledge_mutation import KnowledgeMutation
 from investos.models.source import Source
+from investos.services.knowledge_time import (
+    KnowledgeTemporalContext,
+    assess_knowledge_time,
+    is_legacy_synthetic_event_time,
+)
 from investos.services.operating_state import OperatingStateService
+from investos.services.source_claim_policy import source_claim_due_at
 
 router = APIRouter(prefix="/timeline", tags=["timeline"])
 
 
 def _display_time(item) -> tuple[datetime, str]:
-    if getattr(item, "event_time", None) is not None:
-        return item.event_time, "happened"
+    event_time = _effective_event_time(item)
+    if event_time is not None:
+        return event_time, "happened"
     if getattr(item, "public_time", None) is not None:
         return item.public_time, "published"
     if getattr(item, "ingest_time", None) is not None:
         return item.ingest_time, "ingested"
     return item.created_at, "recorded"
+
+
+def _effective_event_time(item) -> datetime | None:
+    event_time = getattr(item, "event_time", None)
+    if isinstance(item, (Fact, Claim)) and is_legacy_synthetic_event_time(
+        event_time,
+        public_time=getattr(item, "public_time", None),
+        ingest_time=getattr(item, "ingest_time", None),
+    ):
+        return None
+    return event_time
+
+
+def _temporal_context(item, *, item_type: str) -> KnowledgeTemporalContext:
+    text = (
+        getattr(item, "statement", None)
+        or getattr(item, "description", None)
+        or getattr(item, "title", None)
+    )
+    return assess_knowledge_time(
+        text,
+        event_time=_effective_event_time(item),
+        public_time=getattr(item, "public_time", None),
+        ingest_time=getattr(item, "ingest_time", None),
+        valid_until=getattr(item, "valid_until", None),
+        item_type=item_type,
+    )
 
 
 class TimelineItemResponse(BaseModel):
@@ -45,6 +80,14 @@ class TimelineItemResponse(BaseModel):
     ingest_time: datetime | None = None
     display_time: datetime
     display_time_label: str
+    temporal_status: str
+    temporal_explanation: str
+    referenced_years: list[int] = Field(default_factory=list)
+    valid_until: datetime | None = None
+    outcome_status: str | None = None
+    outcome_due_at: datetime | None = None
+    outcome_assessed_at: datetime | None = None
+    outcome_notes: str | None = None
     created_at: datetime
 
 
@@ -99,6 +142,7 @@ NOVELTY_SCORE = {
     "confirming": 0.55,
     "redundant": 0.2,
     "stale": 0.1,
+    "historical": 0.1,
 }
 
 CONTRADICTION_BONUS = {
@@ -109,11 +153,15 @@ CONTRADICTION_BONUS = {
 }
 
 
-def _fact_signal_score(item: Fact | Claim) -> float:
+def _fact_signal_score(
+    item: Fact | Claim,
+    temporal: KnowledgeTemporalContext | None = None,
+) -> float:
+    novelty = temporal.novelty if temporal is not None else item.novelty
     return round(
         (IMPORTANCE_SCORE.get(item.importance, 0.35) * 0.45)
         + (DIRECTNESS_SCORE.get(item.directness, 0.35) * 0.25)
-        + (NOVELTY_SCORE.get(item.novelty, 0.2) * 0.2)
+        + (NOVELTY_SCORE.get(novelty, 0.2) * 0.2)
         + CONTRADICTION_BONUS.get(item.contradiction_role, 0.0)
         + (0.1 if item.tier in {"hard_fact", "strong_derived"} else 0.0),
         3,
@@ -375,7 +423,7 @@ async def get_knowledge_changes(
     )
 
 
-@router.get("/", response_model=list[TimelineItemResponse])
+@router.get("", response_model=list[TimelineItemResponse])
 async def get_timeline(
     limit: int = 50,
     item_type: Optional[str] = None,  # fact|claim|event
@@ -396,6 +444,7 @@ async def get_timeline(
         )
         for e in events:
             display_time, display_time_label = _display_time(e)
+            temporal = _temporal_context(e, item_type="event")
             items.append(
                 TimelineItemResponse(
                     id=e.id,
@@ -404,7 +453,7 @@ async def get_timeline(
                     tier="event",
                     importance="high" if e.is_evolving else "medium",
                     directness="primary",
-                    novelty="breaking" if e.is_evolving else "confirming",
+                    novelty=temporal.novelty,
                     contradiction_role="neutral",
                     signal_score=_event_signal_score(e),
                     event_time=e.event_time,
@@ -412,6 +461,10 @@ async def get_timeline(
                     ingest_time=e.ingest_time,
                     display_time=display_time,
                     display_time_label=display_time_label,
+                    temporal_status=temporal.status,
+                    temporal_explanation=temporal.explanation,
+                    referenced_years=list(temporal.referenced_years),
+                    valid_until=e.valid_until,
                     created_at=e.created_at,
                 )
             )
@@ -432,6 +485,7 @@ async def get_timeline(
                 source_item_id=fact.source_item_id,
             )
             display_time, display_time_label = _display_time(fact)
+            temporal = _temporal_context(fact, item_type="fact")
             items.append(
                 TimelineItemResponse(
                     id=fact.id,
@@ -440,17 +494,21 @@ async def get_timeline(
                     tier=fact.tier,
                     importance=fact.importance,
                     directness=fact.directness,
-                    novelty=fact.novelty,
+                    novelty=temporal.novelty,
                     contradiction_role=fact.contradiction_role,
-                    signal_score=_fact_signal_score(fact),
+                    signal_score=_fact_signal_score(fact, temporal),
                     subject_name=subject_name,
                     source_name=source_name,
                     source_type=source_type,
-                    event_time=fact.event_time,
+                    event_time=_effective_event_time(fact),
                     public_time=fact.public_time,
                     ingest_time=fact.ingest_time,
                     display_time=display_time,
                     display_time_label=display_time_label,
+                    temporal_status=temporal.status,
+                    temporal_explanation=temporal.explanation,
+                    referenced_years=list(temporal.referenced_years),
+                    valid_until=fact.valid_until,
                     created_at=fact.created_at,
                 )
             )
@@ -465,12 +523,38 @@ async def get_timeline(
             .scalars()
             .all()
         )
+        claim_records = {
+            record.claim_id: record
+            for record in (
+                (
+                    await session.execute(
+                        select(SourceClaimRecord).where(
+                            SourceClaimRecord.claim_id.in_(
+                                [claim.id for claim in claims]
+                            )
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        }
         for claim in claims:
             subject_name, source_name, source_type = await _source_context(
                 session,
                 source_item_id=claim.source_item_id,
             )
             display_time, display_time_label = _display_time(claim)
+            temporal = _temporal_context(claim, item_type="claim")
+            outcome = claim_records.get(claim.id)
+            outcome_due_at = source_claim_due_at(outcome, claim) if outcome else None
+            outcome_status = outcome.assessment if outcome else None
+            if (
+                outcome_status == "pending"
+                and outcome_due_at is not None
+                and outcome_due_at > datetime.now(UTC)
+            ):
+                outcome_status = "scheduled"
             items.append(
                 TimelineItemResponse(
                     id=claim.id,
@@ -479,17 +563,25 @@ async def get_timeline(
                     tier=claim.tier,
                     importance=claim.importance,
                     directness=claim.directness,
-                    novelty=claim.novelty,
+                    novelty=temporal.novelty,
                     contradiction_role=claim.contradiction_role,
-                    signal_score=_fact_signal_score(claim),
+                    signal_score=_fact_signal_score(claim, temporal),
                     subject_name=subject_name,
                     source_name=source_name,
                     source_type=source_type,
-                    event_time=claim.event_time,
+                    event_time=_effective_event_time(claim),
                     public_time=claim.public_time,
                     ingest_time=claim.ingest_time,
                     display_time=display_time,
                     display_time_label=display_time_label,
+                    temporal_status=temporal.status,
+                    temporal_explanation=temporal.explanation,
+                    referenced_years=list(temporal.referenced_years),
+                    valid_until=claim.valid_until,
+                    outcome_status=outcome_status,
+                    outcome_due_at=outcome_due_at,
+                    outcome_assessed_at=(outcome.assessment_time if outcome else None),
+                    outcome_notes=(outcome.notes if outcome else None),
                     created_at=claim.created_at,
                 )
             )

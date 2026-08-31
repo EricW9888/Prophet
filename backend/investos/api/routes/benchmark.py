@@ -8,12 +8,12 @@ from investos.services.risk import BenchmarkService
 router = APIRouter(prefix="/benchmarks", tags=["benchmarks"])
 
 
-@router.get("/", response_model=list[BenchmarkResponse])
+@router.get("", response_model=list[BenchmarkResponse])
 async def list_benchmarks(session: AsyncSession = Depends(get_session)):
     return await BenchmarkService(session).list_benchmarks()
 
 
-@router.post("/", response_model=BenchmarkResponse)
+@router.post("", response_model=BenchmarkResponse)
 async def create_benchmark(
     payload: BenchmarkCreate,
     session: AsyncSession = Depends(get_session),

@@ -248,6 +248,118 @@ def compact_packet_context(
         "portfolio_context": portfolio_context,
         "source_feedback_context": source_feedback_context,
         "fresh_research_context": compact_fresh_research,
+        "research_plan": (
+            {
+                "original_question": compact_context_text(
+                    (packet_context.get("research_plan") or {}).get(
+                        "original_question"
+                    ),
+                    max_chars=260,
+                ),
+                "research_objective": compact_context_text(
+                    (packet_context.get("research_plan") or {}).get(
+                        "research_objective"
+                    ),
+                    max_chars=260,
+                ),
+                "retrieval_query": compact_context_text(
+                    (packet_context.get("research_plan") or {}).get("retrieval_query"),
+                    max_chars=260,
+                ),
+                "information_needs": [
+                    compact_context_text(item, max_chars=180)
+                    for item in (
+                        (packet_context.get("research_plan") or {}).get(
+                            "information_needs"
+                        )
+                        or []
+                    )[:6]
+                ],
+                "external_research_required": (
+                    packet_context.get("research_plan") or {}
+                ).get("external_research_required"),
+                "research_mode": (packet_context.get("research_plan") or {}).get(
+                    "research_mode"
+                ),
+                "portfolio_context_role": (
+                    packet_context.get("research_plan") or {}
+                ).get("portfolio_context_role"),
+                "use_historical_analogies": (
+                    packet_context.get("research_plan") or {}
+                ).get("use_historical_analogies"),
+                "reason": compact_context_text(
+                    (packet_context.get("research_plan") or {}).get("reason"),
+                    max_chars=220,
+                ),
+            }
+            if packet_context.get("research_plan")
+            else {}
+        ),
+        "opportunity_context": (
+            {
+                "universe_size": (packet_context.get("opportunity_context") or {}).get(
+                    "universe_size"
+                ),
+                "enabled_universe_size": (
+                    packet_context.get("opportunity_context") or {}
+                ).get("enabled_universe_size"),
+                "scan_started": (packet_context.get("opportunity_context") or {}).get(
+                    "scan_started"
+                ),
+                "scan_status": (packet_context.get("opportunity_context") or {}).get(
+                    "scan_status"
+                ),
+                "scan_detail": compact_context_text(
+                    (packet_context.get("opportunity_context") or {}).get(
+                        "scan_detail"
+                    ),
+                    max_chars=220,
+                ),
+                "candidate_count": (
+                    packet_context.get("opportunity_context") or {}
+                ).get("candidate_count"),
+                "coverage_note": compact_context_text(
+                    (packet_context.get("opportunity_context") or {}).get(
+                        "coverage_note"
+                    ),
+                    max_chars=220,
+                ),
+                "candidates": [
+                    {
+                        "id": str(item.get("id")) if item.get("id") else None,
+                        "ticker": item.get("ticker"),
+                        "title": compact_context_text(item.get("title"), max_chars=160),
+                        "status": item.get("status"),
+                        "priority_score": item.get("priority_score"),
+                        "signal_stage": item.get("signal_stage"),
+                        "why_now": compact_context_text(
+                            item.get("why_now"), max_chars=220
+                        ),
+                        "investable_thesis": compact_context_text(
+                            item.get("investable_thesis"),
+                            max_chars=220,
+                        ),
+                        "portfolio_transmission": compact_context_text(
+                            item.get("portfolio_transmission"), max_chars=180
+                        ),
+                        "falsification_tests": [
+                            compact_context_text(test, max_chars=160)
+                            for test in (item.get("falsification_tests") or [])[:3]
+                        ],
+                        "evidence_ref_count": len(item.get("evidence_refs") or []),
+                    }
+                    for item in (
+                        (packet_context.get("opportunity_context") or {}).get(
+                            "candidates"
+                        )
+                        or []
+                    )[:8]
+                    if isinstance(item, dict)
+                ],
+            }
+            if packet_context.get("opportunity_context")
+            else {}
+        ),
         "conversation_context": (
             {
                 "subject_name": (packet_context.get("conversation_context") or {}).get(

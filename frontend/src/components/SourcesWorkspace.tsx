@@ -138,7 +138,7 @@ export default function SourcesWorkspace() {
     if (showSpinner && !loadedOnceRef.current) setLoading(true);
     try {
       const [sourceData, evidenceData, discoveryData, feedbackData, noteData, aliasData, mediaCapabilityData] = await Promise.all([
-        apiFetch<SourceRecord[]>("/sources/"),
+        apiFetch<SourceRecord[]>("/sources"),
         apiFetch<SourceEvidenceSummary[]>("/sources/recent-evidence?limit=80"),
         apiFetch<ResearchDiscoveryObservation[]>("/sources/discoveries?limit=40"),
         apiFetch<SourceFeedbackRecord[]>("/sources/feedback?limit=80"),
@@ -221,7 +221,7 @@ export default function SourcesWorkspace() {
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE}/sources/`, {
+      const response = await fetch(`${API_BASE}/sources`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

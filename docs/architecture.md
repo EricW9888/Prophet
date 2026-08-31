@@ -147,7 +147,13 @@ be promoted or demoted as their measured record changes.
 Evidence models use event, publication, ingestion, and eligible-action times
 from `models/base.py`. These timestamps preserve what happened, when it became
 public, when Prophet learned it, and when it could have influenced a simulated
-action.
+action. Ingestion is never a substitute for an unknown event date. The research
+feed classifies evidence as current, scheduled, historical, undated, or due for
+outcome review; historical evidence remains queryable for analogies and source
+calibration without competing with current attention. Claims with an explicit
+target date use that date for later outcome assessment, with horizon-based
+review timing only as a fallback. Assessed outcomes update source-performance
+history while the original claim and its provenance remain unchanged.
 
 ## Retrieval and Reasoning
 
@@ -201,7 +207,12 @@ enabled and their intervals. The implemented jobs cover:
 - database backup and job telemetry.
 
 Jobs call the same domain services used by the API. Automation is not a bypass
-around portfolio truth or accepted-state policy.
+around portfolio truth or accepted-state policy. Interval and startup triggers
+only initiate cheap eligibility checks: model-backed work and user-facing
+activity must still earn execution through due state, changed evidence,
+portfolio relevance, unresolved uncertainty, or another concrete expected
+information gain. Unchanged/no-op checkpoints may support deduplication and
+telemetry, but are not presented as meaningful agent activity.
 
 ## Frontend Surfaces
 

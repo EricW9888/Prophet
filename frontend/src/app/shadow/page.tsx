@@ -276,6 +276,8 @@ export default function ShadowPage() {
           description="Run a parallel portfolio experiment from the live book, then review what changed, why, and how the result compared with the real portfolio."
         />
 
+        <ShadowLabProcess />
+
         <section className="self-start space-y-6 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto xl:pr-1">
 
           <form onSubmit={createExperiment} className="space-y-5 rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-950">
@@ -476,6 +478,8 @@ export default function ShadowPage() {
                   ) : null}
                 </div>
 
+                <ExperimentJourney experiment={experiment} />
+
                 <div className="mt-5 grid gap-4 md:grid-cols-2">
                   <InfoCard
                     label="Why it exists"
@@ -505,6 +509,8 @@ export default function ShadowPage() {
 
                 <OpportunitySummary profile={experiment.report?.opportunity_summary ?? experiment.discovery_profile} />
 
+                <ExperimentOutcomeSummary experiment={experiment} />
+
                 {experiment.operator_prompt ? (
                   <details
                     className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800"
@@ -525,10 +531,8 @@ export default function ShadowPage() {
                 ) : null}
 
                 {experiment.run_status === "completed" && experiment.result ? (
-                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
-                    <Metric label="Shadow Return" value={formatPct(experiment.result.shadow_return)} />
-                    <Metric label="Real Book Baseline" value={formatPct(experiment.result.actual_return)} />
-                    <Metric label="Out/Underperformance" value={formatPct(experiment.result.alpha)} />
+                  <div className="mt-4">
+                    <ShadowComparisonChart experiment={experiment} />
                   </div>
                 ) : null}
 
@@ -644,43 +648,6 @@ export default function ShadowPage() {
                       Loading the full checkpoint, order, and decision history...
                     </p>
                   ) : null}
-                  {experiment.run_status === "completed" && experiment.result ? (
-                    <div className="mt-4">
-                      <ShadowComparisonChart experiment={experiment} />
-                    </div>
-                  ) : null}
-
-                  {experiment.report?.policy_summary?.objective ||
-                  experiment.report?.expected_outcome?.summary ||
-                  experiment.report?.actual_outcome?.summary ? (
-                    <div className="mt-4 grid gap-4 lg:grid-cols-3">
-                      {experiment.report?.policy_summary?.objective ? (
-                        <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
-                          <p className="text-xs uppercase tracking-wider text-slate-400">What it was trying to do</p>
-                          <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-                            {experiment.report.policy_summary.objective}
-                          </p>
-                        </div>
-                      ) : null}
-                      {experiment.report?.expected_outcome?.summary ? (
-                        <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-4 dark:border-amber-900 dark:bg-amber-950/20">
-                          <p className="text-xs uppercase tracking-wider text-amber-600 dark:text-amber-300">What it expected</p>
-                          <p className="mt-3 text-sm text-slate-700 dark:text-slate-200">
-                            {experiment.report.expected_outcome.summary}
-                          </p>
-                        </div>
-                      ) : null}
-                      {experiment.report?.actual_outcome?.summary ? (
-                        <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900 dark:bg-emerald-950/20">
-                          <p className="text-xs uppercase tracking-wider text-emerald-600 dark:text-emerald-300">What actually happened</p>
-                          <p className="mt-3 text-sm text-slate-700 dark:text-slate-200">
-                            {experiment.report.actual_outcome.summary}
-                          </p>
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-
                   {experiment.report?.learning_summary ? (
                     <div className="mt-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
                       <p className="text-xs uppercase tracking-wider text-slate-400">How the system should learn from this</p>
@@ -1325,6 +1292,133 @@ function OpportunitySummary({
         </details>
       ) : null}
     </div>
+  );
+}
+
+function ShadowLabProcess() {
+  const steps = [
+    ["1", "Snapshot", "Freeze the starting portfolio and evidence state."],
+    ["2", "Policy", "State the behavior, expected edge, and guardrails."],
+    ["3", "Paper path", "Simulate orders through the paper broker only."],
+    ["4", "Observe", "Record checkpoints, evidence changes, and decisions."],
+    ["5", "Compare", "Measure against the live book and retain the lesson."],
+  ];
+  return (
+    <section className="border-y border-slate-200 py-5 dark:border-slate-800 xl:col-span-2">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+            Experiment journey
+          </p>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+            Every run preserves its starting point, simulated decisions, comparison, and learning trail.
+          </p>
+        </div>
+        <p className="text-xs text-slate-500 dark:text-slate-400">No real orders or money movement</p>
+      </div>
+      <ol className="mt-5 grid grid-cols-5 gap-1 sm:gap-4">
+        {steps.map(([number, label, detail]) => (
+          <li key={label} className="min-w-0 border-l-2 border-slate-300 pl-2 sm:pl-3 dark:border-slate-700">
+            <p className="text-[11px] font-semibold text-slate-400">{number}</p>
+            <p className="mt-1 break-words text-[10px] font-semibold leading-4 text-slate-800 sm:text-sm dark:text-slate-100">{label}</p>
+            <p className="mt-1 hidden text-xs leading-5 text-slate-500 lg:block dark:text-slate-400">{detail}</p>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function ExperimentJourney({ experiment }: { experiment: ShadowExperiment }) {
+  const normalized = experiment.run_status === "pending" ? "queued" : experiment.run_status;
+  const activeIndex =
+    normalized === "completed"
+      ? 4
+      : normalized === "running"
+        ? 3
+        : normalized === "failed" || normalized === "skipped"
+          ? 2
+          : 1;
+  const labels = ["Snapshot", "Policy", "Paper path", "Checkpoints", "Review"];
+  const progress = experiment.run_details?.progress ?? {};
+  const statusDetail =
+    normalized === "completed"
+      ? `Comparison complete${experiment.result ? ` · ${formatPct(experiment.result.alpha)} versus the live book` : ""}`
+      : normalized === "running"
+        ? `${progress.step_count ?? 0} of ${progress.target_steps ?? "?"} checkpoints${progress.next_checkpoint_at ? ` · next ${formatDate(progress.next_checkpoint_at)}` : ""}`
+        : normalized === "failed" || normalized === "skipped"
+          ? `Stopped at the paper path · ${experiment.skip_reason ?? describeStatus(normalized)}`
+          : "Starting portfolio and policy stored · waiting for the first checkpoint";
+
+  return (
+    <section className="mt-5 border-y border-slate-200 py-4 dark:border-slate-800">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">Current experiment stage</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400">{statusDetail}</p>
+      </div>
+      <ol className="mt-4 grid grid-cols-5 gap-1" aria-label="Experiment progress">
+        {labels.map((label, index) => {
+          const reached = index <= activeIndex;
+          const current = index === activeIndex;
+          return (
+            <li key={label} className="min-w-0">
+              <div className={`h-1.5 w-full ${reached ? "bg-sky-500" : "bg-slate-200 dark:bg-slate-800"}`} />
+              <p
+                className={`mt-2 text-[10px] leading-4 sm:text-xs ${
+                  current
+                    ? "font-semibold text-sky-700 dark:text-sky-300"
+                    : reached
+                      ? "text-slate-700 dark:text-slate-200"
+                      : "text-slate-400 dark:text-slate-600"
+                }`}
+              >
+                {label}
+              </p>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+function ExperimentOutcomeSummary({ experiment }: { experiment: ShadowExperiment }) {
+  const objective = experiment.report?.policy_summary?.objective;
+  const expected = experiment.report?.expected_outcome;
+  const actual = experiment.report?.actual_outcome;
+  if (!objective && !expected?.summary && !actual?.summary) return null;
+
+  return (
+    <section className="mt-4 grid gap-4 border-t border-slate-200 pt-4 dark:border-slate-800 lg:grid-cols-3">
+      {objective ? (
+        <div className="border-l-2 border-slate-300 pl-3 dark:border-slate-700">
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Objective</p>
+          <p className="mt-2 text-sm leading-6 text-slate-700 dark:text-slate-200">{objective}</p>
+        </div>
+      ) : null}
+      {expected?.summary ? (
+        <div className="border-l-2 border-amber-400 pl-3">
+          <p className="text-xs font-medium text-amber-700 dark:text-amber-300">Expected outcome</p>
+          <p className="mt-2 text-sm leading-6 text-slate-700 dark:text-slate-200">{expected.summary}</p>
+          {expected.expected_alpha_vs_baseline != null ? (
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              Expected edge {formatPct(expected.expected_alpha_vs_baseline)}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      {actual?.summary ? (
+        <div className="border-l-2 border-emerald-500 pl-3">
+          <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Observed outcome</p>
+          <p className="mt-2 text-sm leading-6 text-slate-700 dark:text-slate-200">{actual.summary}</p>
+          {actual.alpha_vs_real_portfolio != null ? (
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              Observed edge {formatPct(actual.alpha_vs_real_portfolio)}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
   );
 }
 

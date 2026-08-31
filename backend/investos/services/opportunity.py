@@ -68,6 +68,29 @@ class OpportunityDiscoveryService:
     ELIGIBLE_ASSET_CLASSES = {"equity", "etf"}
     DEFAULT_UNIVERSE_PRIORITY = 0.5
 
+    @staticmethod
+    def looks_like_discovery_request(text: str) -> bool:
+        """Recognize explicit requests to canvass beyond the current holdings.
+
+        This is a provider-outage fallback for capability routing. Candidate
+        selection remains owned by the configured universe and discovery
+        pipeline; this method never decides that an opportunity exists.
+        """
+        normalized = " ".join((text or "").casefold().split())
+        if not normalized:
+            return False
+        target = r"(?:opportunit(?:y|ies)|investment ideas?|stock ideas?)"
+        return bool(
+            re.search(
+                rf"\b(?:any|what|which|where are|are there)\b.{{0,60}}\b{target}\b",
+                normalized,
+            )
+            or re.search(
+                rf"\b(?:find|scan|surface|identify|show|canvass|look for)\b.{{0,80}}\b{target}\b",
+                normalized,
+            )
+        )
+
     def __init__(self, session: AsyncSession):
         self.session = session
         self.runtime_settings = RuntimeSettingsStore.load()

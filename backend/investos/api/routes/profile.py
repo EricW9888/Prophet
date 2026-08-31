@@ -10,7 +10,7 @@ from investos.services.profile import ProfileService
 router = APIRouter(prefix="/profiles", tags=["profiles"])
 
 
-@router.get("/", response_model=list[ProfileListItem])
+@router.get("", response_model=list[ProfileListItem])
 async def list_profiles(
     show_all: bool = False,
     pinnable: bool = False,

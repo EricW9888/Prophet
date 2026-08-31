@@ -188,7 +188,11 @@ class HistoricalEpisodeService:
                 )
             )
             overlap = len(query_tokens & hay)
-            if overlap > 0:
+            # One generic token (for example "technology" or "growth") is not
+            # enough to justify injecting a historical frame into the answer.
+            # Require at least two independent lexical anchors; the question
+            # research planner can still explicitly opt into the resulting lens.
+            if overlap >= 2:
                 scored.append((overlap, ep))
 
         scored.sort(key=lambda pair: pair[0], reverse=True)

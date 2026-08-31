@@ -12,6 +12,7 @@ import {
   Menu,
   Network,
   Radar,
+  RefreshCw,
   Scale,
   Search,
   Settings,
@@ -170,8 +171,8 @@ export default function AppNav({ active }: { active: NavKey }) {
   }, []);
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-line bg-panel/95 backdrop-blur-md">
-      <nav aria-label="Primary" className="mx-auto w-full max-w-[1440px] px-4 sm:px-6 lg:px-8">
+    <header className="sticky inset-x-0 top-0 z-50 w-full max-w-[100vw] overflow-x-clip border-b border-line bg-panel/95 backdrop-blur-md">
+      <nav aria-label="Primary" className="mx-auto w-full min-w-0 max-w-[1440px] px-4 sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-center gap-3 py-2">
           <Link
             href="/"
@@ -255,8 +256,18 @@ export default function AppNav({ active }: { active: NavKey }) {
 
           <button
             type="button"
+            onClick={() => window.location.reload()}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded border border-line text-muted transition-colors hover:border-line-strong hover:bg-panel-muted hover:text-foreground xl:hidden"
+            aria-label="Refresh current view"
+            title="Refresh"
+          >
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+          </button>
+
+          <button
+            type="button"
             onClick={() => setMobileOpen((current) => !current)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded border border-line text-muted transition-colors hover:border-line-strong hover:bg-panel-muted hover:text-foreground xl:hidden"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded border border-line text-muted transition-colors hover:border-line-strong hover:bg-panel-muted hover:text-foreground xl:hidden"
             aria-label={mobileOpen ? "Close navigation" : "Open navigation"}
             aria-expanded={mobileOpen}
             aria-controls="prophet-mobile-navigation"
@@ -312,7 +323,7 @@ export default function AppNav({ active }: { active: NavKey }) {
           </div>
         ) : null}
 
-        <p className="border-t border-line py-1.5 text-[11px] leading-4 text-muted">
+        <p className="break-words border-t border-line py-1.5 text-[11px] leading-4 text-muted [overflow-wrap:anywhere]">
           AI can be incomplete or wrong. Verify cited evidence and reconcile portfolio data before acting.
         </p>
       </nav>

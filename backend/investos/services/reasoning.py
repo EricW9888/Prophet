@@ -42,6 +42,23 @@ MATERIAL_ASSERTION_SCHEMA = {
             "enum": ["matched", "mixed", "unknown"],
         },
         "scope_notes": {"type": "string"},
+        "evidence_basis": {
+            "type": "string",
+            "enum": [
+                "retrieved_source",
+                "portfolio_ledger",
+                "market_data_calculation",
+                "model_assumption",
+            ],
+        },
+        "supporting_context_paths": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": (
+                "Exact dot-separated paths into the supplied packet, using numeric list indexes, "
+                "for example portfolio_context.top_holdings.0.weight_pct."
+            ),
+        },
         "supporting_evidence_ids": {"type": "array", "items": {"type": "string"}},
         "contradicting_evidence_ids": {"type": "array", "items": {"type": "string"}},
     },
@@ -51,6 +68,8 @@ MATERIAL_ASSERTION_SCHEMA = {
         "time_scope",
         "scope_consistency",
         "scope_notes",
+        "evidence_basis",
+        "supporting_context_paths",
         "supporting_evidence_ids",
         "contradicting_evidence_ids",
     ],
@@ -186,6 +205,16 @@ CRITIQUE_SCHEMA = {
             "enum": ["very_low", "low", "medium", "high", "very_high"],
         },
         "independent_summary": {"type": "string"},
+        "question_answerability": {
+            "type": "string",
+            "enum": ["adequate", "partial", "inadequate"],
+        },
+        "answerability_reason": {"type": "string"},
+        "missing_information": {
+            "type": "array",
+            "items": {"type": "string"},
+            "maxItems": 6,
+        },
         "material_assertions": {
             "type": "array",
             "items": MATERIAL_ASSERTION_SCHEMA,
@@ -208,6 +237,9 @@ CRITIQUE_SCHEMA = {
         "candidate_stance",
         "confidence_band",
         "independent_summary",
+        "question_answerability",
+        "answerability_reason",
+        "missing_information",
         "material_assertions",
         "assumptions",
         "alternative_hypotheses",
@@ -567,10 +599,16 @@ class ReasoningService:
             return None
         system_prompt = (
             "Independently analyze this investment evidence packet without seeing another analyst's answer. "
+            "First judge whether the packet directly answers the user's original question: adequate, partial, or "
+            "inadequate. Adjacent portfolio facts, a different company, or a historical analogy that does not test "
+            "the named question are not an answer. State exactly what information is missing. "
             "Return a concise candidate stance, material assertions with exact evidence IDs, explicit material "
             "assumptions and falsifiers, plausible alternative hypotheses, and any evidence-quality issues. "
             "Do not invent facts or fill gaps. Distinguish copied coverage from independent sources, check that "
             "the subject/security and time period match, and use uncertain or no_view when the packet cannot decide. "
+            "Portfolio ledger values and deterministic calculations may be supported by exact packet context paths "
+            "instead of external evidence IDs; do not mislabel those account facts as unsupported merely because "
+            "they lack a publication. External factual or causal claims still require retrieved sources. "
             "For a claimed cause of a market move, separate timestamp coincidence from causal evidence and preserve "
             "credible competing explanations until a source, cross-asset pattern, or event sequence discriminates among them. "
             "The summary must be user-safe and must not expose private chain-of-thought."
@@ -588,6 +626,11 @@ class ReasoningService:
             "candidate_stance": critique["candidate_stance"],
             "confidence_band": critique["confidence_band"],
             "summary": critique["independent_summary"],
+            "question_answerability": critique.get(
+                "question_answerability", "inadequate"
+            ),
+            "answerability_reason": critique.get("answerability_reason", ""),
+            "missing_information": critique.get("missing_information", []),
             "material_assertions": critique.get("material_assertions", []),
             "assumptions": critique.get("assumptions", []),
             "alternative_hypotheses": critique.get("alternative_hypotheses", []),
@@ -661,8 +704,14 @@ class ReasoningService:
             "Build a structured investment-research view from the supplied evidence packet. "
             "Use the 'reasoning' field to provide a concise, user-safe rationale summary. "
             "Do not expose private chain-of-thought. Record the answer's material factual and causal assertions in "
-            "material_assertions, with exact evidence IDs, subject/security scope, time/period scope, and whether those "
-            "scopes match. Record every load-bearing inference in assumptions with a falsifier; never treat an assumption "
+            "material_assertions, with their evidence basis, exact evidence IDs or structured context paths, "
+            "subject/security scope, time/period scope, and whether those scopes match. Use retrieved_source for "
+            "externally checkable facts, portfolio_ledger for account-owned facts, market_data_calculation for deterministic "
+            "derived values already present in the packet, and model_assumption only for explicitly unverified propositions. "
+            "A ledger fact or deterministic calculation does not need an outside publication, but it must name a real "
+            "dot-separated supporting_context_path such as portfolio_context.top_holdings.0.weight_pct. External factual "
+            "and causal claims still require evidence IDs. Record every "
+            "load-bearing inference in assumptions with a falsifier; never treat an assumption "
             "as a fact. Generate plausible alternative_hypotheses and the evidence that would discriminate among them. "
             "For causal attribution, distinguish temporal coincidence from evidence of transmission and keep credible "
             "competing explanations open until event timing, cross-asset behavior, or direct reporting discriminates among them. "
@@ -692,6 +741,10 @@ class ReasoningService:
             "When relevant, evaluate source-dated financial and competitive metrics as evidence. Examples include valuation, profitability, "
             "growth, margins, debt/leverage, liquidity, interest coverage, dilution, capital intensity, estimate revisions, peer comparisons, "
             "and sector KPIs, but treat that as an open ontology rather than a closed checklist. "
+            "When it is decision-relevant, trace the business model through who pays, the value delivered, revenue and cost drivers, "
+            "customer and supplier dependencies, reinvestment needs, and where durable value is captured. Also test material externalities "
+            "or second-order effects that could change demand, costs, regulation, reputation, or stakeholder behavior. Do not force these "
+            "dimensions onto every subject, and do not turn unsupported ethical, environmental, or social claims into investment facts. "
             "Treat active_watchers as durable alert rules, not commentary. Return an empty list unless the answer identifies a "
             "concrete future observable, trigger condition, and response that are not already represented in the supplied active "
             "watchers. Use a specific snake_case condition_type for the actual trigger; do not force catalysts, metric checks, "

@@ -449,12 +449,22 @@ def test_source_performance_history_labels_reliability_and_trajectory():
 def test_source_claim_review_due_time_uses_claim_horizon_policy():
     claim_time = datetime(2026, 1, 1, tzinfo=timezone.utc)
     record = SimpleNamespace(claim_time=claim_time, horizon_days=None)
-    tactical_claim = SimpleNamespace(target_horizon="tactical", stale_after=None)
-    strategic_claim = SimpleNamespace(target_horizon="strategic", stale_after=None)
+    tactical_claim = SimpleNamespace(
+        target_horizon="tactical", stale_after=None, valid_until=None
+    )
+    strategic_claim = SimpleNamespace(
+        target_horizon="strategic", stale_after=None, valid_until=None
+    )
     explicit_record = SimpleNamespace(claim_time=claim_time, horizon_days=5)
     stale_claim = SimpleNamespace(
         target_horizon="visionary",
         stale_after=datetime(2026, 2, 1, tzinfo=timezone.utc),
+        valid_until=None,
+    )
+    dated_claim = SimpleNamespace(
+        target_horizon="visionary",
+        stale_after=datetime(2026, 2, 1, tzinfo=timezone.utc),
+        valid_until=datetime(2021, 12, 31, tzinfo=timezone.utc),
     )
 
     assert ReviewService._source_claim_due_at(record, tactical_claim) == datetime(
@@ -468,6 +478,9 @@ def test_source_claim_review_due_time_uses_claim_horizon_policy():
     )
     assert ReviewService._source_claim_due_at(record, stale_claim) == datetime(
         2026, 2, 1, tzinfo=timezone.utc
+    )
+    assert ReviewService._source_claim_due_at(record, dated_claim) == datetime(
+        2021, 12, 31, tzinfo=timezone.utc
     )
 
 

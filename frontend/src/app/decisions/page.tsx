@@ -34,7 +34,7 @@ export default function DecisionsPage() {
     setLoading(true);
     try {
       const [decisionData, positionData] = await Promise.all([
-        apiFetch<DecisionJournal[]>("/decisions/"),
+        apiFetch<DecisionJournal[]>("/decisions"),
         apiFetch<Position[]>("/portfolio/positions?list_type=all"),
       ]);
       setDecisions(decisionData);
@@ -56,7 +56,7 @@ export default function DecisionsPage() {
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE}/decisions/`, {
+      const response = await fetch(`${API_BASE}/decisions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
