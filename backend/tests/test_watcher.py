@@ -1,9 +1,17 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 
-from investos.models.watcher import ActiveWatcher
+import pytest
+import sqlalchemy as sa
+
+from investos.db import async_session_maker, engine
+from investos.models.evidence import RawEvidence
+from investos.models.source import Source
+from investos.models.watcher import ActiveWatcher, WatcherEvidenceEvaluation
 from investos.services.watcher import WatcherService
+from investos.services.watcher_evidence import WatcherEvidenceService
 
 
 class _FakeRegisterSession:
@@ -24,6 +32,9 @@ class _FakeRegisterSession:
 class _FakeEvalSession:
     def __init__(self):
         self.committed = False
+
+    async def execute(self, _stmt):
+        return _FakeScalarRows([])
 
     async def commit(self):
         self.committed = True
@@ -77,6 +88,7 @@ def _watcher(**overrides):
         "deadline": None,
         "is_active": True,
         "status": "pending",
+        "action_taken_json": None,
         "created_at": datetime(2026, 6, 1, tzinfo=UTC),
     }
     data.update(overrides)
@@ -372,3 +384,407 @@ async def test_deadline_only_reminder_expires_and_enqueues_notification(monkeypa
     assert watcher.is_active is False
     assert watcher.triggered_at is not None
     assert enqueued == [watcher]
+
+
+async def test_open_ended_watch_is_not_marked_checked_by_price_poll(monkeypatch):
+    watcher = _watcher(last_checked_at=None)
+    service = WatcherService(_FakeEvalSession())
+
+    async def list_active():
+        return [watcher]
+
+    async def get_live_price(_self, _ticker):
+        return {"price": 300.0}
+
+    async def no_retry(*, limit):
+        assert limit == 6
+        return 0
+
+    service.list_active = list_active
+    service.retry_deferred_evidence_evaluations = no_retry
+    monkeypatch.setattr(
+        "investos.services.market_data.MarketDataService.get_live_price",
+        get_live_price,
+    )
+
+    count = await service.evaluate_watchers()
+
+    assert count == 0
+    assert watcher.last_checked_at is None
+    assert watcher.status == "pending"
+    assert watcher.is_active is True
+
+
+def _candidate_bundle(*, known_at: datetime | None) -> dict:
+    return {
+        "raw_evidence_id": str(uuid4()),
+        "source": {
+            "name": "Issuer filing",
+            "type": "filing",
+            "public_time": known_at,
+        },
+        "objects": [
+            {
+                "type": "fact",
+                "id": str(uuid4()),
+                "text": "Memory Beta reported NAND pricing above its prior guide.",
+                "known_at": known_at,
+            }
+        ],
+    }
+
+
+async def _prepare_evidence_service(service, watcher, evaluation, candidates):
+    async def matching(**_kwargs):
+        return [watcher]
+
+    async def ensure(_watchers, _raw_evidence_id):
+        return {watcher.id: evaluation}
+
+    async def evidence(_raw_evidence_id):
+        return candidates
+
+    service._matching_watchers = matching
+    service._ensure_evaluations = ensure
+    service._evidence_candidates = evidence
+
+
+async def test_source_backed_evidence_triggers_once_with_attribution(monkeypatch):
+    watcher = _watcher(created_at=datetime(2026, 6, 1, tzinfo=UTC))
+    evaluation = SimpleNamespace(
+        id=uuid4(),
+        watcher_id=watcher.id,
+        status="pending",
+        evidence_refs_json=[],
+        detail=None,
+        confidence=None,
+        error=None,
+        evaluated_at=None,
+        updated_at=None,
+    )
+    candidates = _candidate_bundle(known_at=datetime(2026, 6, 2, tzinfo=UTC))
+    evidence_ref = candidates["objects"][0]
+    service = WatcherEvidenceService(_FakeEvalSession())
+    await _prepare_evidence_service(service, watcher, evaluation, candidates)
+    enqueued = []
+
+    async def evaluate(**_kwargs):
+        return {
+            "evaluations": [
+                {
+                    "watcher_id": str(watcher.id),
+                    "outcome": "triggered",
+                    "evidence_refs": [
+                        {"type": evidence_ref["type"], "id": evidence_ref["id"]}
+                    ],
+                    "confidence": 0.94,
+                    "detail": "The filing directly reports the watched NAND pricing result.",
+                }
+            ]
+        }
+
+    async def enqueue(_self, transitioned_watcher):
+        enqueued.append(transitioned_watcher.id)
+        return 1
+
+    monkeypatch.setattr("investos.services.watcher_evidence.call_llm_json", evaluate)
+    monkeypatch.setattr(
+        "investos.services.watcher_evidence.PushNotificationService.enqueue_watch_transition",
+        enqueue,
+    )
+    monkeypatch.setattr(
+        "investos.services.watcher_evidence.AgentActionLogService.append",
+        lambda **_kwargs: None,
+    )
+
+    count = await service.evaluate_new_evidence(
+        subject_id=uuid4(),
+        subject_type="entity",
+        raw_evidence_id=uuid4(),
+    )
+    duplicate_count = await service.evaluate_new_evidence(
+        subject_id=uuid4(),
+        subject_type="entity",
+        raw_evidence_id=uuid4(),
+    )
+
+    assert count == 1
+    assert duplicate_count == 0
+    assert watcher.status == "triggered"
+    assert watcher.is_active is False
+    assert evaluation.status == "triggered"
+    assert evaluation.evidence_refs_json == [
+        {"type": evidence_ref["type"], "id": evidence_ref["id"]}
+    ]
+    assert watcher.action_taken_json["trigger_evidence"]["evidence_refs"]
+    assert enqueued == [watcher.id]
+
+
+async def test_irrelevant_evidence_records_no_match_without_trigger(monkeypatch):
+    watcher = _watcher(created_at=datetime(2026, 6, 1, tzinfo=UTC))
+    evaluation = SimpleNamespace(
+        id=uuid4(),
+        watcher_id=watcher.id,
+        status="pending",
+        evidence_refs_json=[],
+        detail=None,
+        confidence=None,
+        error=None,
+        evaluated_at=None,
+        updated_at=None,
+    )
+    candidates = _candidate_bundle(known_at=datetime(2026, 6, 2, tzinfo=UTC))
+    service = WatcherEvidenceService(_FakeEvalSession())
+    await _prepare_evidence_service(service, watcher, evaluation, candidates)
+
+    async def evaluate(**_kwargs):
+        return {
+            "evaluations": [
+                {
+                    "watcher_id": str(watcher.id),
+                    "outcome": "no_match",
+                    "evidence_refs": [],
+                    "confidence": 0.98,
+                    "detail": "The source does not report an earnings release.",
+                }
+            ]
+        }
+
+    monkeypatch.setattr("investos.services.watcher_evidence.call_llm_json", evaluate)
+
+    count = await service.evaluate_new_evidence(
+        subject_id=uuid4(),
+        subject_type="entity",
+        raw_evidence_id=uuid4(),
+    )
+
+    assert count == 0
+    assert evaluation.status == "no_match"
+    assert watcher.is_active is True
+    assert watcher.last_checked_at is not None
+
+
+async def test_provider_failure_defers_without_false_check(monkeypatch):
+    watcher = _watcher(last_checked_at=None)
+    evaluation = SimpleNamespace(
+        id=uuid4(),
+        watcher_id=watcher.id,
+        status="pending",
+        evidence_refs_json=[],
+        detail=None,
+        confidence=None,
+        error=None,
+        evaluated_at=None,
+        updated_at=None,
+    )
+    candidates = _candidate_bundle(known_at=datetime(2026, 6, 2, tzinfo=UTC))
+    service = WatcherEvidenceService(_FakeEvalSession())
+    await _prepare_evidence_service(service, watcher, evaluation, candidates)
+
+    async def fail(**_kwargs):
+        raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr("investos.services.watcher_evidence.call_llm_json", fail)
+
+    count = await service.evaluate_new_evidence(
+        subject_id=uuid4(),
+        subject_type="entity",
+        raw_evidence_id=uuid4(),
+    )
+
+    assert count == 0
+    assert evaluation.status == "deferred"
+    assert "provider unavailable" in evaluation.error
+    assert watcher.last_checked_at is None
+    assert watcher.is_active is True
+
+
+async def test_stale_source_cannot_trigger_future_watch(monkeypatch):
+    watcher = _watcher(created_at=datetime(2026, 6, 1, tzinfo=UTC))
+    evaluation = SimpleNamespace(
+        id=uuid4(),
+        watcher_id=watcher.id,
+        status="pending",
+        evidence_refs_json=[],
+        detail=None,
+        confidence=None,
+        error=None,
+        evaluated_at=None,
+        updated_at=None,
+    )
+    candidates = _candidate_bundle(known_at=datetime(2020, 6, 2, tzinfo=UTC))
+    evidence_ref = candidates["objects"][0]
+    service = WatcherEvidenceService(_FakeEvalSession())
+    await _prepare_evidence_service(service, watcher, evaluation, candidates)
+
+    async def evaluate(**_kwargs):
+        return {
+            "evaluations": [
+                {
+                    "watcher_id": str(watcher.id),
+                    "outcome": "triggered",
+                    "evidence_refs": [
+                        {"type": evidence_ref["type"], "id": evidence_ref["id"]}
+                    ],
+                    "confidence": 0.99,
+                    "detail": "The condition appears in the source.",
+                }
+            ]
+        }
+
+    monkeypatch.setattr("investos.services.watcher_evidence.call_llm_json", evaluate)
+
+    count = await service.evaluate_new_evidence(
+        subject_id=uuid4(),
+        subject_type="entity",
+        raw_evidence_id=uuid4(),
+    )
+
+    assert count == 0
+    assert evaluation.status == "no_match"
+    assert "lacked timely attributable evidence" in evaluation.detail
+    assert watcher.is_active is True
+
+
+async def test_source_without_verified_public_time_cannot_trigger(monkeypatch):
+    watcher = _watcher(created_at=datetime(2026, 6, 1, tzinfo=UTC))
+    evaluation = SimpleNamespace(
+        id=uuid4(),
+        watcher_id=watcher.id,
+        status="pending",
+        evidence_refs_json=[],
+        detail=None,
+        confidence=None,
+        error=None,
+        evaluated_at=None,
+        updated_at=None,
+    )
+    candidates = _candidate_bundle(known_at=None)
+    evidence_ref = candidates["objects"][0]
+    service = WatcherEvidenceService(_FakeEvalSession())
+    await _prepare_evidence_service(service, watcher, evaluation, candidates)
+
+    async def evaluate(**_kwargs):
+        return {
+            "evaluations": [
+                {
+                    "watcher_id": str(watcher.id),
+                    "outcome": "triggered",
+                    "evidence_refs": [
+                        {"type": evidence_ref["type"], "id": evidence_ref["id"]}
+                    ],
+                    "confidence": 0.99,
+                    "detail": "The source appears to satisfy the condition.",
+                }
+            ]
+        }
+
+    monkeypatch.setattr("investos.services.watcher_evidence.call_llm_json", evaluate)
+
+    count = await service.evaluate_new_evidence(
+        subject_id=uuid4(),
+        subject_type="entity",
+        raw_evidence_id=uuid4(),
+    )
+
+    assert count == 0
+    assert evaluation.status == "no_match"
+    assert "lacked timely attributable evidence" in evaluation.detail
+    assert watcher.is_active is True
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_migrated_schema_owns_watcher_evidence_idempotency() -> None:
+    def inspect_constraints(connection):
+        inspector = sa.inspect(connection)
+        return {
+            constraint["name"]: tuple(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints(
+                "watcher_evidence_evaluations"
+            )
+        }
+
+    async with engine.connect() as connection:
+        constraints = await connection.run_sync(inspect_constraints)
+
+    assert constraints.get("uq_watcher_evaluations_watcher_evidence") == (
+        "watcher_id",
+        "raw_evidence_id",
+    )
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_concurrent_evidence_evaluation_creation_converges_on_one_row() -> None:
+    source_id = uuid4()
+    raw_evidence_id = uuid4()
+    watcher_id = uuid4()
+
+    async with async_session_maker() as session:
+        source = Source(
+            id=source_id,
+            name=f"watcher-evaluation-test-{source_id}",
+            source_type="test",
+        )
+        session.add(source)
+        await session.flush()
+        session.add(
+            RawEvidence(
+                id=raw_evidence_id,
+                source_id=source_id,
+                source_item_type="test",
+            )
+        )
+        session.add(
+            ActiveWatcher(
+                id=watcher_id,
+                source="test",
+                ticker="TEST",
+                condition_type="earnings_release",
+                condition_params_json={},
+                objective="Observe a test event",
+                adjustment_plan="No action",
+                is_active=True,
+                status="pending",
+            )
+        )
+        await session.commit()
+
+    async def ensure_once() -> str:
+        async with async_session_maker() as session:
+            async with session.begin():
+                watcher = await session.get(ActiveWatcher, watcher_id)
+                assert watcher is not None
+                evaluations = await WatcherEvidenceService(session)._ensure_evaluations(
+                    [watcher], raw_evidence_id
+                )
+                return str(evaluations[watcher_id].id)
+
+    try:
+        evaluation_ids = await asyncio.gather(ensure_once(), ensure_once())
+        async with async_session_maker() as session:
+            count = await session.scalar(
+                sa.select(sa.func.count())
+                .select_from(WatcherEvidenceEvaluation)
+                .where(
+                    WatcherEvidenceEvaluation.watcher_id == watcher_id,
+                    WatcherEvidenceEvaluation.raw_evidence_id == raw_evidence_id,
+                )
+            )
+
+        assert len(set(evaluation_ids)) == 1
+        assert count == 1
+    finally:
+        async with async_session_maker() as session:
+            await session.execute(
+                sa.delete(WatcherEvidenceEvaluation).where(
+                    WatcherEvidenceEvaluation.watcher_id == watcher_id
+                )
+            )
+            await session.execute(
+                sa.delete(ActiveWatcher).where(ActiveWatcher.id == watcher_id)
+            )
+            await session.execute(
+                sa.delete(RawEvidence).where(RawEvidence.id == raw_evidence_id)
+            )
+            await session.execute(sa.delete(Source).where(Source.id == source_id))
+            await session.commit()

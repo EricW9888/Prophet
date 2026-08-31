@@ -454,6 +454,21 @@ function LiveWatchers() {
                 If it fires: {w.adjustment_plan}
               </p>
             ) : null}
+            {!w.evaluation_status && !["price_above", "price_below", "deadline", "reminder"].includes(w.condition_type) ? (
+              <p className="mt-1 text-[10px] text-slate-400">
+                Monitoring new source-backed evidence
+              </p>
+            ) : null}
+            {w.evaluation_status === "no_match" && w.last_checked_at ? (
+              <p className="mt-1 text-[10px] text-slate-400" title={w.evaluation_detail ?? undefined}>
+                Last evidence check {formatTimestamp(w.last_checked_at)} · condition not met
+              </p>
+            ) : null}
+            {w.evaluation_status === "deferred" ? (
+              <p className="mt-1 text-[10px] text-amber-600 dark:text-amber-400" title={w.evaluation_error ?? undefined}>
+                Evidence check deferred · retry scheduled
+              </p>
+            ) : null}
             {w.deadline && (
               <p className={`mt-1 text-[10px] font-semibold uppercase tracking-wide ${w.is_overdue ? "text-rose-500" : "text-slate-400"}`}>
                 {w.is_overdue ? "Overdue" : formatCountdown(w.countdown_seconds)}

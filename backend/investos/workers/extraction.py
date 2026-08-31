@@ -33,6 +33,7 @@ from investos.services.knowledge_time import (
 from investos.services.market_setup import MarketSetupSignalService
 from investos.services.operating_loop import OperatingLoopService
 from investos.services.source_learning import SourceLearningService
+from investos.services.watcher import WatcherService
 from investos.workers.coverage import CoverageWorker
 
 FUTURE_SIGNAL_RE = re.compile(
@@ -682,6 +683,13 @@ class ExtractionWorker:
                 payload=payload,
             )
 
+        watcher_trigger_count = await WatcherService(
+            self.session
+        ).evaluate_new_evidence(
+            subject_id=subject_id,
+            subject_type=subject_type,
+            raw_evidence_id=evidence.id,
+        )
         evidence.is_processed = True
         metadata = dict(evidence.metadata_json or {})
         if extraction_degraded:
@@ -706,6 +714,7 @@ class ExtractionWorker:
             trigger_reason=f"new evidence ingested: {evidence.title or evidence.source_item_type}",
             raw_evidence_id=evidence.id,
         )
+        loop_result["watchers_triggered"] = watcher_trigger_count
         return loop_result
 
     async def _upsert_source_item(
