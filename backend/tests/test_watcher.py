@@ -716,9 +716,7 @@ async def test_migrated_schema_owns_watcher_evidence_idempotency() -> None:
         "watcher_id",
         "raw_evidence_id",
     )
-    assert indexes.get("ix_watcher_evidence_evaluations_watcher_id") == (
-        "watcher_id",
-    )
+    assert indexes.get("ix_watcher_evidence_evaluations_watcher_id") == ("watcher_id",)
     assert indexes.get("ix_watcher_evidence_evaluations_raw_evidence_id") == (
         "raw_evidence_id",
     )
