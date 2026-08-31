@@ -2023,13 +2023,13 @@ testing = ["aboutcode-toolkit (>=6.0.0)", "black", "pytest (>=6,!=7.0.0)", "pyte
 
 [[package]]
 name = "plaid-python"
-version = "39.2.0"
+version = "43.0.0"
 description = "Python client library for the Plaid API and Link"
 optional = false
 python-versions = ">=3.6"
 groups = ["main"]
 files = [
-    {file = "plaid_python-39.2.0.tar.gz", hash = "sha256:552aff15f8e4dbbf469fcab224465fa2359e68757b60df9c8ed40e8163aa6c20"},
+    {file = "plaid_python-43.0.0.tar.gz", hash = "sha256:cdca0a8161de3980fbe49fe8081504f63bdda19093915776d1fb06d20ea82c7a"},
 ]
 
 [package.dependencies]
@@ -3222,4 +3222,4 @@ requests = "*"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.15"
-content-hash = "ce860f85bb508ff6de8c86a779a02650422b7f8170339c230c6c89109c31a6fc"
+content-hash = "86c234c5e911f56db426326f79542ee18c4cb9207142d9ef3ca8450237b1d20d"
