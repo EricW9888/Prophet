@@ -63,19 +63,19 @@ def upgrade() -> None:
         ),
     )
     op.create_index(
-        "ix_watcher_evaluations_watcher_id",
+        "ix_watcher_evidence_evaluations_watcher_id",
         "watcher_evidence_evaluations",
         ["watcher_id"],
         unique=False,
     )
     op.create_index(
-        "ix_watcher_evaluations_raw_evidence_id",
+        "ix_watcher_evidence_evaluations_raw_evidence_id",
         "watcher_evidence_evaluations",
         ["raw_evidence_id"],
         unique=False,
     )
     op.create_index(
-        "ix_watcher_evaluations_status",
+        "ix_watcher_evidence_evaluations_status",
         "watcher_evidence_evaluations",
         ["status"],
         unique=False,
@@ -91,15 +91,15 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index(
-        "ix_watcher_evaluations_status",
+        "ix_watcher_evidence_evaluations_status",
         table_name="watcher_evidence_evaluations",
     )
     op.drop_index(
-        "ix_watcher_evaluations_raw_evidence_id",
+        "ix_watcher_evidence_evaluations_raw_evidence_id",
         table_name="watcher_evidence_evaluations",
     )
     op.drop_index(
-        "ix_watcher_evaluations_watcher_id",
+        "ix_watcher_evidence_evaluations_watcher_id",
         table_name="watcher_evidence_evaluations",
     )
     op.drop_table("watcher_evidence_evaluations")

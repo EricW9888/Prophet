@@ -695,22 +695,34 @@ async def test_source_without_verified_public_time_cannot_trigger(monkeypatch):
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_migrated_schema_owns_watcher_evidence_idempotency() -> None:
-    def inspect_constraints(connection):
+    def inspect_schema(connection):
         inspector = sa.inspect(connection)
-        return {
+        constraints = {
             constraint["name"]: tuple(constraint["column_names"])
             for constraint in inspector.get_unique_constraints(
                 "watcher_evidence_evaluations"
             )
         }
+        indexes = {
+            index["name"]: tuple(index["column_names"])
+            for index in inspector.get_indexes("watcher_evidence_evaluations")
+        }
+        return constraints, indexes
 
     async with engine.connect() as connection:
-        constraints = await connection.run_sync(inspect_constraints)
+        constraints, indexes = await connection.run_sync(inspect_schema)
 
     assert constraints.get("uq_watcher_evaluations_watcher_evidence") == (
         "watcher_id",
         "raw_evidence_id",
     )
+    assert indexes.get("ix_watcher_evidence_evaluations_watcher_id") == (
+        "watcher_id",
+    )
+    assert indexes.get("ix_watcher_evidence_evaluations_raw_evidence_id") == (
+        "raw_evidence_id",
+    )
+    assert indexes.get("ix_watcher_evidence_evaluations_status") == ("status",)
 
 
 @pytest.mark.asyncio(loop_scope="session")
