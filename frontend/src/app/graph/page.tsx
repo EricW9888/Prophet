@@ -8,6 +8,7 @@ import remarkGfm from "remark-gfm";
 
 import { Maximize2, RotateCcw, Search, X, ZoomIn, ZoomOut } from "lucide-react";
 import AppNav from "@/components/AppNav";
+import SourceProvenanceLinks from "@/components/SourceProvenanceLinks";
 import {
   apiFetch,
   AgentTurn,
@@ -2780,11 +2781,15 @@ export default function GraphPage() {
                         ) : null}
                         <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-slate-500 dark:text-slate-400">
                           {citation.author ? <span>Author: {citation.author}</span> : null}
-                          {citation.url ? (
-                            <a href={citation.url} target="_blank" rel="noreferrer" className="text-sky-600 hover:text-sky-500 dark:text-sky-400">
-                              Open source
-                            </a>
-                          ) : null}
+                          <SourceProvenanceLinks
+                            evidenceId={citation.raw_evidence_id}
+                            sourceName={citation.source_name}
+                            sourceType={citation.source_type}
+                            url={citation.url}
+                            urlKind={citation.url_kind}
+                            compact
+                            showUnavailable
+                          />
                         </div>
                       </div>
                     ))
@@ -2827,6 +2832,17 @@ export default function GraphPage() {
                                   Origin: {citation.origin_detail}
                                 </div>
                               ) : null}
+                              <div className="mt-3">
+                                <SourceProvenanceLinks
+                                  evidenceId={citation.raw_evidence_id}
+                                  sourceName={citation.source_name}
+                                  sourceType={citation.source_type}
+                                  url={citation.url}
+                                  urlKind={citation.url_kind}
+                                  compact
+                                  showUnavailable
+                                />
+                              </div>
                             </div>
                           ))}
                         </div>

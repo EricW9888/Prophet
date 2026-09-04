@@ -541,7 +541,7 @@ class RetrievalService:
             (
                 await self.session.execute(
                     select(model.id)
-                    .where(text_filter)
+                    .where(model.is_deprecated.is_(False), text_filter)
                     .order_by(desc(model.created_at))
                     .limit(limit)
                 )
@@ -638,7 +638,12 @@ class RetrievalService:
         facts = {
             item.id: item
             for item in (
-                await self.session.execute(select(Fact).where(Fact.id.in_(node_ids)))
+                await self.session.execute(
+                    select(Fact).where(
+                        Fact.id.in_(node_ids),
+                        Fact.is_deprecated.is_(False),
+                    )
+                )
             )
             .scalars()
             .all()
@@ -646,7 +651,12 @@ class RetrievalService:
         claims = {
             item.id: item
             for item in (
-                await self.session.execute(select(Claim).where(Claim.id.in_(node_ids)))
+                await self.session.execute(
+                    select(Claim).where(
+                        Claim.id.in_(node_ids),
+                        Claim.is_deprecated.is_(False),
+                    )
+                )
             )
             .scalars()
             .all()
@@ -654,7 +664,12 @@ class RetrievalService:
         events = {
             item.id: item
             for item in (
-                await self.session.execute(select(Event).where(Event.id.in_(node_ids)))
+                await self.session.execute(
+                    select(Event).where(
+                        Event.id.in_(node_ids),
+                        Event.is_deprecated.is_(False),
+                    )
+                )
             )
             .scalars()
             .all()
@@ -664,6 +679,20 @@ class RetrievalService:
             for item in [*facts.values(), *claims.values()]
             if getattr(item, "source_item_id", None)
         }
+        event_source_item_ids: dict[UUID, list[UUID]] = {}
+        if events:
+            for event_id, source_item_id in (
+                await self.session.execute(
+                    select(Edge.source_id, Edge.target_id).where(
+                        Edge.source_type == "event",
+                        Edge.source_id.in_(events),
+                        Edge.target_type == "source_item",
+                        Edge.relationship_type == "extracted_from",
+                    )
+                )
+            ).all():
+                event_source_item_ids.setdefault(event_id, []).append(source_item_id)
+                source_item_ids.add(source_item_id)
         source_contexts: dict[UUID, dict] = {}
         if source_item_ids:
             source_rows = (
@@ -767,6 +796,11 @@ class RetrievalService:
                 )
             elif node_id in events:
                 event = events[node_id]
+                event_sources = [
+                    source_contexts[source_item_id]
+                    for source_item_id in event_source_item_ids.get(event.id, [])
+                    if source_item_id in source_contexts
+                ]
                 nodes.append(
                     {
                         "id": event.id,
@@ -776,6 +810,8 @@ class RetrievalService:
                         "importance": "medium",
                         "horizon": getattr(event, "target_horizon", "strategic"),
                         "created_at": event.created_at.isoformat(),
+                        "source": event_sources[0] if event_sources else None,
+                        "sources": event_sources,
                     }
                 )
         return nodes

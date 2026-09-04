@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from investos.schemas.provenance import ReasoningEvidenceSourceResponse
+
 
 class EvidencePacketSummaryResponse(BaseModel):
     id: UUID
@@ -18,6 +20,7 @@ class EvidencePacketSummaryResponse(BaseModel):
     connected_evidence_count: int = 0
     historical_evidence_count: int = 0
     contradiction_evidence_count: int = 0
+    sources: list[ReasoningEvidenceSourceResponse] = Field(default_factory=list)
     coverage_snapshot: dict[str, Any] = Field(default_factory=dict)
     portfolio_context: dict[str, Any] = Field(default_factory=dict)
 

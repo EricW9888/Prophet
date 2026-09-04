@@ -89,6 +89,27 @@ def test_youtube_media_capabilities_report_disabled_local_fallback(monkeypatch):
             "model": "base",
         },
     )
+    monkeypatch.setattr(
+        youtube_module.YouTubeChannelEnumerator,
+        "readiness",
+        lambda _self: {
+            "available": False,
+            "downloader_path": None,
+            "missing": ["yt-dlp"],
+        },
+    )
+    monkeypatch.setattr(
+        youtube_module.LocalYouTubeFrameOCR,
+        "readiness",
+        lambda _self: {
+            "enabled": False,
+            "available": False,
+            "downloader_path": None,
+            "ffmpeg_path": None,
+            "ocr_path": None,
+            "missing": ["yt-dlp", "ffmpeg", "tesseract"],
+        },
+    )
     result = YouTubeService.media_capabilities()
 
     assert result["can_extract_without_transcript"] is False

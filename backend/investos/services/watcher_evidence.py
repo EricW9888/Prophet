@@ -251,10 +251,16 @@ class WatcherEvidenceService:
         source_item, evidence, source = source_row
 
         facts = await self._rows(
-            select(Fact).where(Fact.source_item_id == source_item.id)
+            select(Fact).where(
+                Fact.source_item_id == source_item.id,
+                Fact.is_deprecated.is_(False),
+            )
         )
         claims = await self._rows(
-            select(Claim).where(Claim.source_item_id == source_item.id)
+            select(Claim).where(
+                Claim.source_item_id == source_item.id,
+                Claim.is_deprecated.is_(False),
+            )
         )
         event_ids = list(
             (
@@ -269,18 +275,25 @@ class WatcherEvidenceService:
             ).all()
         )
         events = (
-            await self._rows(select(Event).where(Event.id.in_(event_ids)))
+            await self._rows(
+                select(Event).where(
+                    Event.id.in_(event_ids),
+                    Event.is_deprecated.is_(False),
+                )
+            )
             if event_ids
             else []
         )
         metrics = await self._rows(
             select(FundamentalMetric).where(
-                FundamentalMetric.raw_evidence_id == raw_evidence_id
+                FundamentalMetric.raw_evidence_id == raw_evidence_id,
+                FundamentalMetric.is_deprecated.is_(False),
             )
         )
         signals = await self._rows(
             select(MarketSetupSignal).where(
-                MarketSetupSignal.raw_evidence_id == raw_evidence_id
+                MarketSetupSignal.raw_evidence_id == raw_evidence_id,
+                MarketSetupSignal.is_deprecated.is_(False),
             )
         )
 

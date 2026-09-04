@@ -5,6 +5,7 @@ import Link from "next/link";
 
 import AppNav from "@/components/AppNav";
 import PageHeader from "@/components/PageHeader";
+import SourceProvenanceLinks from "@/components/SourceProvenanceLinks";
 import { apiFetch, TimelineItem, API_BASE, SourceRecord, GraphNodeDetail, GraphConnection, KnowledgeChangeSummary } from "@/lib/api";
 
 const HIDDEN_DETAIL_PROPERTY_KEYS = new Set([
@@ -375,14 +376,6 @@ export default function TimelinePage() {
     return parts.join(" · ") || "recent connected knowledge";
   };
 
-  const describeContext = (item: TimelineItem) => {
-    const parts = [
-      item.subject_name ? `about ${item.subject_name}` : null,
-      item.source_name ? `from ${item.source_name}` : null,
-    ].filter(Boolean);
-    return parts.join(" · ") || null;
-  };
-
   const temporalTone = (status: string) => {
     if (status === "current") return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200";
     if (status === "scheduled") return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-200";
@@ -404,9 +397,8 @@ export default function TimelinePage() {
   };
 
   const scoreLabel = (item: TimelineItem) => {
-    if (item.temporal_status === "historical") return "context relevance";
     if (item.temporal_status === "outcome_due") return "review priority";
-    return "signal";
+    return "timeline priority";
   };
 
   const visibleItems = items.filter((item) => {
@@ -522,66 +514,93 @@ export default function TimelinePage() {
                           recorded {formatDateTime(item.created_at)}
                         </span>
                       ) : null}
-                      {describeContext(item) ? (
-                        <span className="text-xs text-slate-400">{describeContext(item)}</span>
+                      {item.subject_name ? (
+                        <span className="text-xs text-slate-400">about {item.subject_name}</span>
                       ) : null}
                       <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${temporalTone(item.temporal_status)}`}>
                         {item.temporal_status.replaceAll("_", " ")}
                       </span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => void openNode(item.item_type, item.id)}
-                      className={`w-full rounded-lg border bg-white p-5 text-left transition-colors hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-600 ${
+                    <article
+                      className={`w-full rounded-lg border bg-white text-left transition-colors dark:border-slate-800 dark:bg-slate-950 ${
                         selectedNodeKey === `${item.item_type}:${item.id}` ? "border-sky-400 dark:border-sky-600" : "border-slate-200"
                       }`}
                     >
-                      <div className="mb-3 flex flex-wrap items-center gap-2">
-                        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider ${getSignalTone(item.signal_score)}`}>
-                          {scoreLabel(item)} {item.signal_score.toFixed(2)}
-                        </span>
-                        <span className="text-xs text-slate-500 dark:text-slate-400">
-                          {describeWhyItMatters(item)}
-                        </span>
-                        {item.subject_name ? (
-                          <span className="text-xs font-medium text-sky-600 dark:text-sky-400">
-                            {item.subject_name}
+                      <div className="p-5">
+                        <div className="mb-3 flex flex-wrap items-center gap-2">
+                          <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider ${getSignalTone(item.signal_score)}`}>
+                            {scoreLabel(item)} {item.signal_score.toFixed(2)}
                           </span>
-                        ) : null}
-                      </div>
-                      <p className="text-slate-800 dark:text-slate-200 font-medium leading-relaxed">{item.text}</p>
-                      <div className="mt-3 grid gap-2 border-t border-slate-100 pt-3 text-xs dark:border-slate-800/60 sm:grid-cols-2">
-                        <div>
-                          <div className="font-semibold uppercase tracking-wider text-slate-400">Time context</div>
-                          <p className="mt-1 leading-relaxed text-slate-600 dark:text-slate-300">{item.temporal_explanation}</p>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            {describeWhyItMatters(item)}
+                          </span>
+                          {item.subject_name ? (
+                            <span className="text-xs font-medium text-sky-600 dark:text-sky-400">
+                              {item.subject_name}
+                            </span>
+                          ) : null}
                         </div>
-                        {outcomeLabel(item.outcome_status) ? (
-                          <div className="border-l-2 border-amber-300 pl-3 dark:border-amber-700">
-                            <div className="font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-300">Learning loop</div>
-                            <p className="mt-1 font-medium text-slate-700 dark:text-slate-200">{outcomeLabel(item.outcome_status)}</p>
-                            {item.outcome_assessed_at ? (
-                              <p className="mt-1 text-slate-400">Assessed {formatDateTime(item.outcome_assessed_at)}</p>
-                            ) : item.outcome_due_at ? (
-                              <p className="mt-1 text-slate-400">Due {formatDateTime(item.outcome_due_at)}</p>
-                            ) : null}
-                            {item.outcome_notes ? (
-                              <p className="mt-2 leading-relaxed text-slate-600 dark:text-slate-300">
-                                {item.outcome_notes}
-                              </p>
-                            ) : null}
+                        <p className="font-medium leading-relaxed text-slate-800 dark:text-slate-200">{item.text}</p>
+                        <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 text-xs dark:border-slate-800/60 sm:grid-cols-2">
+                          <div>
+                            <div className="font-semibold uppercase tracking-wider text-slate-400">Time context</div>
+                            <p className="mt-1 leading-relaxed text-slate-600 dark:text-slate-300">{item.temporal_explanation}</p>
                           </div>
-                        ) : null}
-                      </div>
-                      {describeContext(item) ? (
-                        <div className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                          Context: {describeContext(item)}
+                          {outcomeLabel(item.outcome_status) ? (
+                            <div className="border-l-2 border-amber-300 pl-3 dark:border-amber-700">
+                              <div className="font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-300">Learning loop</div>
+                              <p className="mt-1 font-medium text-slate-700 dark:text-slate-200">{outcomeLabel(item.outcome_status)}</p>
+                              {item.outcome_assessed_at ? (
+                                <p className="mt-1 text-slate-400">Assessed {formatDateTime(item.outcome_assessed_at)}</p>
+                              ) : item.outcome_due_at ? (
+                                <p className="mt-1 text-slate-400">Due {formatDateTime(item.outcome_due_at)}</p>
+                              ) : null}
+                              {item.outcome_notes ? (
+                                <p className="mt-2 leading-relaxed text-slate-600 dark:text-slate-300">
+                                  {item.outcome_notes}
+                                </p>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
-                      ) : null}
-                      <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/60 flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-xs font-mono text-slate-400 truncate max-w-[200px]">Node ID: {item.id.split("-")[0]}</span>
-                        <span className="text-xs text-slate-400">{item.tier} · Open graph</span>
                       </div>
-                    </button>
+                      <div className="flex flex-col gap-3 border-t border-slate-100 px-5 py-3 dark:border-slate-800/60 sm:flex-row sm:items-end sm:justify-between">
+                        <div className="min-w-0 space-y-2">
+                          {(item.sources ?? []).length > 0 ? (
+                            (item.sources ?? []).slice(0, 3).map((source) => (
+                              <div key={source.raw_evidence_id} className="min-w-0">
+                                <div className="mb-1 flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                                  <span className="truncate font-medium text-slate-700 dark:text-slate-200">{source.source_name}</span>
+                                  <span className="rounded border border-slate-200 px-1.5 py-0.5 uppercase tracking-wider dark:border-slate-700">
+                                    {source.origin_label ?? source.source_type.replaceAll("_", " ")}
+                                  </span>
+                                </div>
+                                <SourceProvenanceLinks
+                                  evidenceId={source.raw_evidence_id}
+                                  sourceName={source.source_name}
+                                  sourceType={source.source_type}
+                                  url={source.url}
+                                  urlKind={source.url_kind}
+                                  compact
+                                  showUnavailable
+                                />
+                              </div>
+                            ))
+                          ) : item.source_name ? (
+                            <span className="text-xs text-slate-500 dark:text-slate-400">Source: {item.source_name}</span>
+                          ) : (
+                            <span className="text-xs text-slate-400">No source receipt attached</span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void openNode(item.item_type, item.id)}
+                          className="shrink-0 rounded border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:border-sky-400 hover:text-sky-700 dark:border-slate-700 dark:text-slate-200 dark:hover:border-sky-600 dark:hover:text-sky-300"
+                        >
+                          Inspect connections
+                        </button>
+                      </div>
+                    </article>
                   </div>
                 </div>
               ))
@@ -816,11 +835,14 @@ export default function TimelinePage() {
                           ) : null}
                           <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">
                             {citation.author ? <span>Author: {citation.author}</span> : null}
-                            {citation.url ? (
-                              <a href={citation.url} target="_blank" rel="noreferrer" className="text-sky-600 hover:text-sky-500 dark:text-sky-400">
-                                Open source
-                              </a>
-                            ) : null}
+                            <SourceProvenanceLinks
+                              evidenceId={citation.raw_evidence_id}
+                              sourceName={citation.source_name}
+                              sourceType={citation.source_type}
+                              url={citation.url}
+                              urlKind={citation.url_kind}
+                              showUnavailable
+                            />
                           </div>
                         </div>
                       ))}

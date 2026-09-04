@@ -217,7 +217,10 @@ class DashboardService:
         facts = (
             (
                 await self.session.execute(
-                    select(Fact).order_by(desc(Fact.created_at)).limit(6)
+                    select(Fact)
+                    .where(Fact.is_deprecated.is_(False))
+                    .order_by(desc(Fact.created_at))
+                    .limit(6)
                 )
             )
             .scalars()
@@ -239,7 +242,10 @@ class DashboardService:
         claims = (
             (
                 await self.session.execute(
-                    select(Claim).order_by(desc(Claim.created_at)).limit(6)
+                    select(Claim)
+                    .where(Claim.is_deprecated.is_(False))
+                    .order_by(desc(Claim.created_at))
+                    .limit(6)
                 )
             )
             .scalars()
@@ -261,7 +267,10 @@ class DashboardService:
         events = (
             (
                 await self.session.execute(
-                    select(Event).order_by(desc(Event.created_at)).limit(6)
+                    select(Event)
+                    .where(Event.is_deprecated.is_(False))
+                    .order_by(desc(Event.created_at))
+                    .limit(6)
                 )
             )
             .scalars()

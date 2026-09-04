@@ -44,6 +44,7 @@ from investos.schemas.graph import (
     GraphWebNodeResponse,
 )
 from investos.services.canonical_state import CanonicalStateService
+from investos.services.evidence_provenance import build_evidence_source_reference
 from investos.services.graph_registry import durable_graph_model_map
 from investos.services.source import SourceService
 
@@ -135,7 +136,7 @@ class GraphService:
                     MarketSetupSignal.setup_context,
                     MarketSetupSignal.investment_relevance,
                 ),
-                (),
+                (MarketSetupSignal.is_deprecated.is_(False),),
             ),
             (
                 "fundamental_metric",
@@ -145,7 +146,7 @@ class GraphService:
                     FundamentalMetric.value_text,
                     FundamentalMetric.investment_relevance,
                 ),
-                (),
+                (FundamentalMetric.is_deprecated.is_(False),),
             ),
             ("fact", Fact, (Fact.statement,), (Fact.is_deprecated.is_(False),)),
             ("claim", Claim, (Claim.statement,), (Claim.is_deprecated.is_(False),)),
@@ -623,9 +624,12 @@ class GraphService:
         model = model_map.get(node_type)
         if model is None or not isinstance(node_id, UUID):
             return None
-        return (
+        node = (
             await self.session.execute(select(model).where(model.id == node_id))
         ).scalar_one_or_none()
+        if bool(getattr(node, "is_deprecated", False)):
+            return None
+        return node
 
     async def _connections_for_node(
         self, *, node_type: str, node_id: UUID | str
@@ -930,24 +934,16 @@ class GraphService:
             await self.session.execute(select(Source).where(Source.id == raw.source_id))
         ).scalar_one()
         is_system, system_reason = self._raw_is_system(raw, source)
-        origin = SourceService._evidence_origin_summary(raw, source)
-        return GraphCitationResponse(
-            raw_evidence_id=raw.id,
+        reference = build_evidence_source_reference(
             source_item_id=source_item_id,
-            source_id=source.id,
-            source_name=source.name,
-            source_type=source.source_type,
-            source_item_type=raw.source_item_type,
-            origin_kind=origin["origin_kind"],
-            origin_label=origin["origin_label"],
-            origin_detail=origin["origin_detail"],
+            raw_evidence=raw,
+            source=source,
+        )
+        return GraphCitationResponse(
+            **reference.model_dump(),
             layer="system" if is_system else "knowledge",
             is_system=is_system,
             system_reason=system_reason,
-            title=raw.title,
-            url=raw.url,
-            author=raw.author,
-            created_at=raw.created_at,
         )
 
     def _source_is_system(self, source: Source) -> tuple[bool, str | None]:
@@ -2546,7 +2542,10 @@ class GraphService:
                 (
                     await self.session.execute(
                         select(FundamentalMetric)
-                        .where(FundamentalMetric.subject_type == "portfolio")
+                        .where(
+                            FundamentalMetric.is_deprecated.is_(False),
+                            FundamentalMetric.subject_type == "portfolio",
+                        )
                         .order_by(
                             desc(FundamentalMetric.as_of),
                             desc(FundamentalMetric.public_time),
@@ -2572,7 +2571,10 @@ class GraphService:
                 (
                     await self.session.execute(
                         select(MarketSetupSignal)
-                        .where(MarketSetupSignal.subject_type == "portfolio")
+                        .where(
+                            MarketSetupSignal.is_deprecated.is_(False),
+                            MarketSetupSignal.subject_type == "portfolio",
+                        )
                         .order_by(
                             desc(MarketSetupSignal.public_time),
                             desc(MarketSetupSignal.created_at),
@@ -2754,13 +2756,14 @@ class GraphService:
                     await self.session.execute(
                         select(FundamentalMetric)
                         .where(
+                            FundamentalMetric.is_deprecated.is_(False),
                             or_(
                                 FundamentalMetric.entity_id == subject_id,
                                 (
                                     (FundamentalMetric.subject_type == "entity")
                                     & (FundamentalMetric.subject_id == subject_id)
                                 ),
-                            )
+                            ),
                         )
                         .order_by(
                             desc(FundamentalMetric.as_of),
@@ -2788,13 +2791,14 @@ class GraphService:
                     await self.session.execute(
                         select(MarketSetupSignal)
                         .where(
+                            MarketSetupSignal.is_deprecated.is_(False),
                             or_(
                                 MarketSetupSignal.entity_id == subject_id,
                                 (
                                     (MarketSetupSignal.subject_type == "entity")
                                     & (MarketSetupSignal.subject_id == subject_id)
                                 ),
-                            )
+                            ),
                         )
                         .order_by(
                             desc(MarketSetupSignal.public_time),

@@ -10,9 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from investos.db import get_session
 from investos.models.catalog import SourceClaimRecord
 from investos.models.evidence import RawEvidence, SourceItem
+from investos.models.graph import Edge
 from investos.models.knowledge import Claim, Event, Fact
 from investos.models.knowledge_mutation import KnowledgeMutation
 from investos.models.source import Source
+from investos.schemas.provenance import EvidenceSourceReferenceResponse
+from investos.services.evidence_provenance import build_evidence_source_reference
 from investos.services.knowledge_time import (
     KnowledgeTemporalContext,
     assess_knowledge_time,
@@ -75,6 +78,7 @@ class TimelineItemResponse(BaseModel):
     subject_name: str | None = None
     source_name: str | None = None
     source_type: str | None = None
+    sources: list[EvidenceSourceReferenceResponse] = Field(default_factory=list)
     event_time: datetime | None = None
     public_time: datetime | None = None
     ingest_time: datetime | None = None
@@ -282,27 +286,70 @@ def _mutation_tombstone_payload(mutation: KnowledgeMutation) -> KnowledgeChangeR
 async def _source_context(
     session: AsyncSession,
     *,
+    node_type: str,
+    node_id: UUID,
     source_item_id: UUID | None,
-) -> tuple[str | None, str | None, str | None]:
+) -> tuple[str | None, list[EvidenceSourceReferenceResponse]]:
     if source_item_id is None:
-        return None, None, None
+        source_item_ids = list(
+            (
+                await session.execute(
+                    select(Edge.target_id).where(
+                        Edge.source_type == node_type,
+                        Edge.source_id == node_id,
+                        Edge.target_type == "source_item",
+                        Edge.relationship_type == "extracted_from",
+                    )
+                )
+            ).scalars()
+        )
+    else:
+        source_item_ids = [source_item_id]
+    if not source_item_ids:
+        return None, []
 
-    row = (
+    rows = (
         await session.execute(
             select(SourceItem, RawEvidence, Source)
             .join(RawEvidence, SourceItem.raw_evidence_id == RawEvidence.id)
-            .join(Source, SourceItem.source_id == Source.id)
-            .where(SourceItem.id == source_item_id)
+            .join(Source, RawEvidence.source_id == Source.id)
+            .where(SourceItem.id.in_(source_item_ids))
+        )
+    ).all()
+    if not rows:
+        return None, []
+
+    sources = [
+        build_evidence_source_reference(
+            source_item_id=resolved_source_item.id,
+            raw_evidence=raw_evidence,
+            source=source,
+        )
+        for resolved_source_item, raw_evidence, source in rows
+    ]
+    subject_name = None
+    subject_edge = (
+        await session.execute(
+            select(Edge.target_type, Edge.target_id)
+            .where(
+                Edge.source_type == node_type,
+                Edge.source_id == node_id,
+                Edge.target_type.in_(("entity", "theme")),
+                Edge.relationship_type.in_(("supports", "contradicts", "mentions")),
+            )
+            .order_by(desc(Edge.confidence), Edge.created_at.asc())
+            .limit(1)
         )
     ).first()
-    if row is None:
-        return None, None, None
-
-    _source_item, raw_evidence, source = row
-    metadata = raw_evidence.metadata_json or {}
-    subject_name = None
-    raw_subject_id = metadata.get("subject_id")
-    raw_subject_type = metadata.get("subject_type")
+    raw_subject_type = subject_edge[0] if subject_edge is not None else None
+    raw_subject_id = subject_edge[1] if subject_edge is not None else None
+    if raw_subject_id is None or raw_subject_type is None:
+        for _source_item, raw_evidence, _source in rows:
+            metadata = raw_evidence.metadata_json or {}
+            raw_subject_id = metadata.get("subject_id")
+            raw_subject_type = metadata.get("subject_type")
+            if raw_subject_id and raw_subject_type:
+                break
     if raw_subject_id and raw_subject_type:
         try:
             subject_name = await OperatingStateService(session).subject_name(
@@ -315,7 +362,7 @@ async def _source_context(
             logging.getLogger(__name__).exception("Masked failure caught")
             subject_name = None
 
-    return subject_name, source.name, source.source_type
+    return subject_name, sources
 
 
 async def _knowledge_count(session: AsyncSession, model, deprecated: bool) -> int:
@@ -436,13 +483,23 @@ async def get_timeline(
         events = (
             (
                 await session.execute(
-                    select(Event).order_by(desc(Event.created_at)).limit(limit)
+                    select(Event)
+                    .where(Event.is_deprecated.is_(False))
+                    .order_by(desc(Event.created_at))
+                    .limit(limit)
                 )
             )
             .scalars()
             .all()
         )
         for e in events:
+            subject_name, sources = await _source_context(
+                session,
+                node_type="event",
+                node_id=e.id,
+                source_item_id=None,
+            )
+            primary_source = sources[0] if sources else None
             display_time, display_time_label = _display_time(e)
             temporal = _temporal_context(e, item_type="event")
             items.append(
@@ -456,6 +513,14 @@ async def get_timeline(
                     novelty=temporal.novelty,
                     contradiction_role="neutral",
                     signal_score=_event_signal_score(e),
+                    subject_name=subject_name,
+                    source_name=(
+                        primary_source.source_name if primary_source else None
+                    ),
+                    source_type=(
+                        primary_source.source_type if primary_source else None
+                    ),
+                    sources=sources,
                     event_time=e.event_time,
                     public_time=e.public_time,
                     ingest_time=e.ingest_time,
@@ -473,17 +538,23 @@ async def get_timeline(
         facts = (
             (
                 await session.execute(
-                    select(Fact).order_by(desc(Fact.created_at)).limit(limit)
+                    select(Fact)
+                    .where(Fact.is_deprecated.is_(False))
+                    .order_by(desc(Fact.created_at))
+                    .limit(limit)
                 )
             )
             .scalars()
             .all()
         )
         for fact in facts:
-            subject_name, source_name, source_type = await _source_context(
+            subject_name, sources = await _source_context(
                 session,
+                node_type="fact",
+                node_id=fact.id,
                 source_item_id=fact.source_item_id,
             )
+            primary_source = sources[0] if sources else None
             display_time, display_time_label = _display_time(fact)
             temporal = _temporal_context(fact, item_type="fact")
             items.append(
@@ -498,8 +569,13 @@ async def get_timeline(
                     contradiction_role=fact.contradiction_role,
                     signal_score=_fact_signal_score(fact, temporal),
                     subject_name=subject_name,
-                    source_name=source_name,
-                    source_type=source_type,
+                    source_name=(
+                        primary_source.source_name if primary_source else None
+                    ),
+                    source_type=(
+                        primary_source.source_type if primary_source else None
+                    ),
+                    sources=sources,
                     event_time=_effective_event_time(fact),
                     public_time=fact.public_time,
                     ingest_time=fact.ingest_time,
@@ -517,7 +593,10 @@ async def get_timeline(
         claims = (
             (
                 await session.execute(
-                    select(Claim).order_by(desc(Claim.created_at)).limit(limit)
+                    select(Claim)
+                    .where(Claim.is_deprecated.is_(False))
+                    .order_by(desc(Claim.created_at))
+                    .limit(limit)
                 )
             )
             .scalars()
@@ -540,10 +619,13 @@ async def get_timeline(
             )
         }
         for claim in claims:
-            subject_name, source_name, source_type = await _source_context(
+            subject_name, sources = await _source_context(
                 session,
+                node_type="claim",
+                node_id=claim.id,
                 source_item_id=claim.source_item_id,
             )
+            primary_source = sources[0] if sources else None
             display_time, display_time_label = _display_time(claim)
             temporal = _temporal_context(claim, item_type="claim")
             outcome = claim_records.get(claim.id)
@@ -567,8 +649,13 @@ async def get_timeline(
                     contradiction_role=claim.contradiction_role,
                     signal_score=_fact_signal_score(claim, temporal),
                     subject_name=subject_name,
-                    source_name=source_name,
-                    source_type=source_type,
+                    source_name=(
+                        primary_source.source_name if primary_source else None
+                    ),
+                    source_type=(
+                        primary_source.source_type if primary_source else None
+                    ),
+                    sources=sources,
                     event_time=_effective_event_time(claim),
                     public_time=claim.public_time,
                     ingest_time=claim.ingest_time,

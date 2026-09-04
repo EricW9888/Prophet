@@ -111,6 +111,7 @@ export type TimelineItem = {
   subject_name?: string | null;
   source_name?: string | null;
   source_type?: string | null;
+  sources: EvidenceSourceReference[];
   event_time?: string | null;
   public_time?: string | null;
   ingest_time?: string | null;
@@ -124,6 +125,23 @@ export type TimelineItem = {
   outcome_due_at?: string | null;
   outcome_assessed_at?: string | null;
   outcome_notes?: string | null;
+  created_at: string;
+};
+
+export type EvidenceSourceReference = {
+  raw_evidence_id: string;
+  source_item_id?: string | null;
+  source_id: string;
+  source_name: string;
+  source_type: string;
+  source_item_type?: string | null;
+  origin_kind?: string | null;
+  origin_label?: string | null;
+  origin_detail?: string | null;
+  title?: string | null;
+  url?: string | null;
+  url_kind?: "evidence_item" | "source_home" | "unavailable" | string;
+  author?: string | null;
   created_at: string;
 };
 
@@ -174,6 +192,7 @@ export type GraphCitation = {
   system_reason?: string | null;
   title?: string | null;
   url?: string | null;
+  url_kind?: "evidence_item" | "source_home" | "unavailable" | string;
   author?: string | null;
   created_at: string;
 };
@@ -1731,6 +1750,10 @@ export type ReasoningTrace = {
     connected_evidence_count: number;
     historical_evidence_count: number;
     contradiction_evidence_count: number;
+    sources: Array<EvidenceSourceReference & {
+      evidence_roles: Array<"direct" | "connected" | "historical" | "contradiction" | string>;
+      knowledge_node_ids: string[];
+    }>;
     coverage_snapshot: Record<string, unknown>;
     portfolio_context: Record<string, unknown>;
   } | null;

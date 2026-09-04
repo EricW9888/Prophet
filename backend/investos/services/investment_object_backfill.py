@@ -475,6 +475,7 @@ class InvestmentObjectBackfillService:
                 await self.session.execute(
                     select(MarketSetupSignal)
                     .where(
+                        MarketSetupSignal.is_deprecated.is_(False),
                         MarketSetupSignal.raw_evidence_id == evidence_id,
                         MarketSetupSignal.source_kind == "structured_backfill",
                     )

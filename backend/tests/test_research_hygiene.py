@@ -10,10 +10,11 @@ from investos.models.market_setup import MarketSetupSignal
 from investos.services.artifact_hygiene import label_from_profile_texts
 from investos.services.entity_hygiene import EntityHygieneService
 from investos.services.integrity import IntegrityService
-from investos.services.research import ResearchService
+from investos.services.research import ResearchSearchResult, ResearchService
 from investos.services.review import ReviewService
 from investos.services.theme_hygiene import ThemeHygieneService
 from investos.workers.extraction import (
+    EXTRACTION_SCHEMA,
     ExtractionWorker,
     is_topic_subject_name,
     is_unusable_subject,
@@ -25,6 +26,229 @@ def test_normalize_search_query_strips_recursive_research_wrappers():
     assert ResearchService._normalize_search_query(
         "Research on Research on Unclassified Research: What additional evidence would materially strengthen the current view?"
     ).startswith("Unclassified Research")
+
+
+def test_extraction_schema_requires_document_relevance_and_actual_subjects():
+    assert "relevance_assessment" in EXTRACTION_SCHEMA["required"]
+    relevance = EXTRACTION_SCHEMA["properties"]["relevance_assessment"]
+    assert set(relevance["required"]) == set(relevance["properties"])
+    for object_type in ("events", "facts", "claims"):
+        item_schema = EXTRACTION_SCHEMA["properties"][object_type]["items"]
+        assert "subject_name" in item_schema["required"]
+        assert "subject_type" in item_schema["required"]
+        assert "relationship_to_primary_subject" in item_schema["required"]
+
+
+async def test_irrelevant_near_match_cannot_promote_absence_as_tesla_fact(
+    monkeypatch,
+):
+    async def fake_call_llm_json(**_kwargs):
+        return {
+            "relevance_assessment": {
+                "status": "irrelevant",
+                "target_supported": False,
+                "reason": "The report is about a 2012 Ford recall and does not cover Tesla.",
+                "supported_subjects": ["Ford Motor Company"],
+            },
+            "primary_subject": "Ford Motor Company",
+            "subject_type": "entity",
+            "entity_type": "company",
+            "summary": "A 2012 Ford recall report.",
+            "events": [],
+            "facts": [
+                {
+                    "subject_name": "Tesla",
+                    "subject_type": "entity",
+                    "relationship_to_primary_subject": "absent",
+                    "statement": "The document contains zero mentions of Tesla.",
+                    "fact_type": "absence",
+                    "confidence": 0.98,
+                    "tier": "hard_fact",
+                    "importance": "critical",
+                    "contradiction_role": "contradicts_consensus",
+                    "event_time_raw": None,
+                    "target_horizon": "strategic",
+                    "horizon_reasoning": "Not applicable.",
+                    "valid_until_raw": None,
+                }
+            ],
+            "claims": [],
+            "fundamental_metrics": [],
+            "market_setup_signals": [],
+        }
+
+    monkeypatch.setattr("investos.workers.extraction.call_llm_json", fake_call_llm_json)
+    worker = ExtractionWorker.__new__(ExtractionWorker)
+
+    result = await worker._extract_structured_data(
+        "Research on TSLA recall PE 23-019",
+        "PE12-019 concerns a 2012 Ford vehicle recall.",
+        target_context={
+            "subject_name": "TSLA · Tesla",
+            "subject_type": "entity",
+            "research_question": "What does PE 23-019 establish about Tesla?",
+        },
+    )
+
+    assert result["relevance_assessment"]["status"] == "irrelevant"
+    assert result["relevance_assessment"]["target_supported"] is False
+    assert result["facts"] == []
+    assert result["claims"] == []
+    assert result["events"] == []
+
+
+async def test_adjacent_evidence_keeps_its_supported_subject_without_target_attachment(
+    monkeypatch,
+):
+    async def fake_call_llm_json(**_kwargs):
+        return {
+            "relevance_assessment": {
+                "status": "relevant",
+                "target_supported": False,
+                "reason": "The report supports Ford, not Tesla.",
+                "supported_subjects": ["Ford Motor Company"],
+            },
+            "primary_subject": "Ford Motor Company",
+            "subject_type": "entity",
+            "entity_type": "company",
+            "summary": "Ford recall context.",
+            "events": [],
+            "facts": [
+                {
+                    "subject_name": "Ford Motor Company",
+                    "subject_type": "entity",
+                    "relationship_to_primary_subject": "direct",
+                    "statement": "Ford issued the recall described by PE12-019.",
+                    "fact_type": "regulatory",
+                    "confidence": 0.9,
+                    "tier": "hard_fact",
+                    "importance": "medium",
+                    "contradiction_role": "neutral",
+                    "event_time_raw": "2012-11-30",
+                    "target_horizon": "tactical",
+                    "horizon_reasoning": "Historical recall event.",
+                    "valid_until_raw": None,
+                }
+            ],
+            "claims": [],
+            "fundamental_metrics": [],
+            "market_setup_signals": [],
+        }
+
+    monkeypatch.setattr("investos.workers.extraction.call_llm_json", fake_call_llm_json)
+    worker = ExtractionWorker.__new__(ExtractionWorker)
+
+    result = await worker._extract_structured_data(
+        "Research on Tesla",
+        "A report about Ford Motor Company.",
+        target_context={"subject_name": "Tesla", "subject_type": "entity"},
+    )
+
+    assert result["relevance_assessment"]["status"] == "adjacent"
+    assert result["facts"][0]["subject_name"] == "Ford Motor Company"
+    assert result["facts"][0]["relationship_to_primary_subject"] == "direct"
+
+
+def test_extraction_prompt_treats_absence_as_diagnostic_not_market_knowledge():
+    prompt = ExtractionWorker._structured_extraction_system_prompt()
+
+    assert "context to test" in prompt
+    assert "not a market fact or contradiction" in prompt
+    assert "actual subject supported by that individual object" in prompt
+
+
+async def test_research_continues_after_irrelevant_top_result(monkeypatch):
+    evidence_ids = [uuid4(), uuid4()]
+    session = MagicMock()
+    session.commit = AsyncMock()
+    service = ResearchService(session)
+    service._find_recent_duplicate_research = AsyncMock(return_value=None)
+    service._update_discovery_outcome = AsyncMock()
+    service._append_usage_log = MagicMock()
+    service._log_research_action = MagicMock()
+    service._discover = AsyncMock(
+        return_value=ResearchSearchResult(
+            searched=True,
+            reason="ok",
+            query="TSLA PE 23-019",
+            results=[
+                {"url": "https://example.com/pe12-019", "title": "PE12-019"},
+                {"url": "https://example.com/pe23-019", "title": "PE23-019"},
+            ],
+            request_id="test-request",
+            provider="searxng",
+            provider_attempts=[],
+            variants_tried=["TSLA PE 23-019"],
+            observation_ids_by_url={},
+        )
+    )
+    service.ingestion.fetch_url_document = AsyncMock(
+        side_effect=[
+            SimpleNamespace(
+                content="A Ford recall report.",
+                canonical_url="https://example.com/pe12-019",
+                public_time=None,
+            ),
+            SimpleNamespace(
+                content="A Tesla report.",
+                canonical_url="https://example.com/pe23-019",
+                public_time=None,
+            ),
+        ]
+    )
+    service.ingestion.ingest_text = AsyncMock(
+        side_effect=[SimpleNamespace(id=item) for item in evidence_ids]
+    )
+    service.source_learning.get_or_create_source_for_url = AsyncMock(
+        return_value=SimpleNamespace(
+            source=SimpleNamespace(id=uuid4()),
+            inferred_type="web_research",
+        )
+    )
+
+    class FakeExtractionWorker:
+        calls = 0
+
+        def __init__(self, _session):
+            pass
+
+        async def process_evidence(self, _evidence_id):
+            self.__class__.calls += 1
+            if self.__class__.calls == 1:
+                return {
+                    "quarantined": True,
+                    "relevance_assessment": {"status": "irrelevant"},
+                }
+            return {
+                "quarantined": False,
+                "relevance_assessment": {"status": "relevant"},
+            }
+
+    monkeypatch.setattr(
+        "investos.services.research.configured_research_providers",
+        lambda _settings: ["searxng"],
+    )
+    monkeypatch.setattr(
+        "investos.services.research.ExtractionWorker", FakeExtractionWorker
+    )
+
+    result = await service._search_and_ingest(
+        query="TSLA PE 23-019",
+        title="Tesla recall research",
+        source_item_type="web_research",
+        metadata_json={"subject_name": "Tesla", "subject_type": "entity"},
+        process_after_ingest=True,
+    )
+
+    assert FakeExtractionWorker.calls == 2
+    assert result.started is True
+    assert result.reason == "ok"
+    assert result.evidence_id == evidence_ids[1]
+    outcomes = [
+        call.kwargs["outcome"]
+        for call in service._update_discovery_outcome.await_args_list
+    ]
+    assert "rejected_irrelevant" in outcomes
 
 
 def test_artifact_research_query_detection_blocks_recursive_internal_questions():

@@ -542,11 +542,12 @@ class ResearchService:
                 "content_type": "text/plain",
                 "trigger": "research_loop",
                 "question_id": str(question.id),
+                "research_question": question.question_text,
                 **metadata,
             },
             process_after_ingest=True,
         )
-        if result.evidence_id is not None:
+        if result.started and result.evidence_id is not None:
             question.status = "investigating"
             question.originating_evidence_id = result.evidence_id
             await self.session.commit()
@@ -1091,6 +1092,7 @@ class ResearchService:
         last_reason = "no_result"
         fallback_reason: str | None = None
         provider_attempts: list[dict[str, Any]] = []
+        last_noneligible_result: ResearchRunResult | None = None
         query_variants = self._search_query_variants(query)
         for provider in providers:
             variant_offset = 0
@@ -1222,15 +1224,39 @@ class ResearchService:
                             loop_detail = await ExtractionWorker(
                                 self.session
                             ).process_evidence(evidence.id)
-                            await self.source_learning.learn_from_source(
-                                source_id=source_context.source.id,
-                                subject_name=(metadata_json or {}).get("subject_name"),
-                                subject_type=(metadata_json or {}).get("subject_type"),
-                            )
                         except Exception as exc:
                             processing_error = str(exc)
 
-                    status = "processed_with_errors" if processing_error else "ok"
+                    relevance_status = str(
+                        ((loop_detail or {}).get("relevance_assessment") or {}).get(
+                            "status"
+                        )
+                        or ""
+                    )
+                    if processing_error:
+                        status = "processed_with_errors"
+                    elif bool((loop_detail or {}).get("deferred")):
+                        status = "extraction_deferred"
+                        await self._update_discovery_outcome(
+                            observation_id,
+                            outcome=status,
+                            evidence_id=evidence.id,
+                            error=None,
+                        )
+                    elif bool((loop_detail or {}).get("quarantined")):
+                        status = (
+                            "rejected_irrelevant"
+                            if relevance_status == "irrelevant"
+                            else "quarantined_uncertain"
+                        )
+                        await self._update_discovery_outcome(
+                            observation_id,
+                            outcome=status,
+                            evidence_id=evidence.id,
+                            error=None,
+                        )
+                    else:
+                        status = "ok"
                     self._append_usage_log(
                         {
                             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -1267,18 +1293,33 @@ class ResearchService:
                         },
                     )
                     await self.session.commit()
-                    return ResearchRunResult(
-                        started=True,
+                    run_result = ResearchRunResult(
+                        started=status == "ok",
                         reason=status,
                         evidence_id=evidence.id,
-                        processed=process_after_ingest and processing_error is None,
+                        processed=(
+                            process_after_ingest
+                            and processing_error is None
+                            and not bool((loop_detail or {}).get("deferred"))
+                        ),
                         loop_detail=loop_detail,
                         query=discovery.query,
                         title=title,
                     )
+                    if status in {
+                        "rejected_irrelevant",
+                        "quarantined_uncertain",
+                    }:
+                        last_noneligible_result = run_result
+                        last_reason = status
+                        continue
+                    return run_result
 
                 last_reason = "no_fetchable_source"
             fallback_reason = last_reason
+
+        if last_noneligible_result is not None:
+            return last_noneligible_result
 
         self._log_research_action(
             status=last_reason,
