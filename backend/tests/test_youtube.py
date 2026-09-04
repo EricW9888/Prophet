@@ -108,6 +108,8 @@ def test_youtube_media_capabilities_report_disabled_local_fallback(monkeypatch):
             "ffmpeg_path": None,
             "ocr_path": None,
             "missing": ["yt-dlp", "ffmpeg", "tesseract"],
+            "interval_seconds": 30,
+            "max_frames": 12,
         },
     )
     result = YouTubeService.media_capabilities()

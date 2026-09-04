@@ -61,7 +61,6 @@ class OperatingLoopService:
             subject_name=subject_name,
             trigger_reason=trigger_reason,
             coverage=coverage,
-            raw_evidence_id=raw_evidence_id,
         )
         current_state = await self._conclusion_state(subject_id, subject_type)
         shadow_summary = await self._maybe_trigger_shadow(
@@ -72,6 +71,7 @@ class OperatingLoopService:
             previous_state=previous_state,
             current_state=current_state,
             coverage=coverage,
+            raw_evidence_id=raw_evidence_id,
         )
         queue = await ReviewService(self.session).refresh_queue()
         return {
