@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Float, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Numeric, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -63,5 +63,7 @@ class MarketSetupSignal(TimestampMixin, Base):
     outcome_status: Mapped[str] = mapped_column(String, default="unscored", index=True)
     outcome_notes: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     outcome_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    is_deprecated: Mapped[bool] = mapped_column(Boolean, default=False)
+    deprecated_reason: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     metadata_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)

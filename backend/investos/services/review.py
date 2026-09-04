@@ -362,7 +362,10 @@ class ReviewService:
                 select(SourceClaimRecord, Claim, Source)
                 .join(Claim, SourceClaimRecord.claim_id == Claim.id)
                 .join(Source, SourceClaimRecord.source_id == Source.id)
-                .where(SourceClaimRecord.assessment == "pending")
+                .where(
+                    SourceClaimRecord.assessment == "pending",
+                    Claim.is_deprecated.is_(False),
+                )
                 .order_by(SourceClaimRecord.claim_time)
                 .limit(SOURCE_CLAIM_REVIEW_LIMIT)
             )
@@ -625,7 +628,10 @@ class ReviewService:
             for model in (Fact, Claim):
                 row = (
                     await self.session.execute(
-                        select(model).where(model.id == evidence_id)
+                        select(model).where(
+                            model.id == evidence_id,
+                            model.is_deprecated.is_(False),
+                        )
                     )
                 ).scalar_one_or_none()
                 if row is not None:
@@ -635,7 +641,12 @@ class ReviewService:
                         "tier": (row.tier or "").replace("_", " "),
                     }
             event = (
-                await self.session.execute(select(Event).where(Event.id == evidence_id))
+                await self.session.execute(
+                    select(Event).where(
+                        Event.id == evidence_id,
+                        Event.is_deprecated.is_(False),
+                    )
+                )
             ).scalar_one_or_none()
             if event is not None:
                 return {

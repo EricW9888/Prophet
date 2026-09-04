@@ -248,7 +248,10 @@ class FundamentalMetricService:
             (
                 await self.session.execute(
                     select(FundamentalMetric)
-                    .where(or_(*clauses))
+                    .where(
+                        FundamentalMetric.is_deprecated.is_(False),
+                        or_(*clauses),
+                    )
                     .order_by(
                         desc(FundamentalMetric.as_of),
                         desc(FundamentalMetric.public_time),
@@ -269,6 +272,7 @@ class FundamentalMetricService:
             .where(
                 FundamentalMetric.stale_after.is_not(None),
                 FundamentalMetric.stale_after <= current_time,
+                FundamentalMetric.is_deprecated.is_(False),
                 FundamentalMetric.freshness_status != "stale",
             )
             .values(freshness_status="stale")
@@ -278,6 +282,7 @@ class FundamentalMetricService:
             .where(
                 FundamentalMetric.stale_after.is_not(None),
                 FundamentalMetric.stale_after > current_time,
+                FundamentalMetric.is_deprecated.is_(False),
                 FundamentalMetric.freshness_status == "stale",
             )
             .values(freshness_status="current")
@@ -321,6 +326,7 @@ class FundamentalMetricService:
             select(FundamentalMetric)
             .where(
                 and_(
+                    FundamentalMetric.is_deprecated.is_(False),
                     FundamentalMetric.metric_name == metric.metric_name,
                     FundamentalMetric.metric_family == metric.metric_family,
                     FundamentalMetric.period_label == metric.period_label,

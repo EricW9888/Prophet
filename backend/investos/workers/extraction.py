@@ -23,6 +23,10 @@ from investos.services.artifact_hygiene import (
     normalize_subject_name,
 )
 from investos.services.corroboration import source_authority
+from investos.services.evidence_relevance import (
+    EvidenceRelevanceAssessment,
+    EvidenceRelevanceService,
+)
 from investos.services.fundamentals import FundamentalMetricService
 from investos.services.graph_edge_state import GraphEdgeStateService
 from investos.services.knowledge_audit import KnowledgeAuditService
@@ -54,6 +58,29 @@ EXTRACTION_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
+        "relevance_assessment": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["relevant", "adjacent", "irrelevant", "uncertain"],
+                },
+                "target_supported": {"type": "boolean"},
+                "reason": {"type": "string"},
+                "supported_subjects": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 12,
+                },
+            },
+            "required": [
+                "status",
+                "target_supported",
+                "reason",
+                "supported_subjects",
+            ],
+        },
         "primary_subject": {"type": "string"},
         "subject_type": {"type": "string", "enum": ["entity", "theme"]},
         "entity_type": {
@@ -75,6 +102,12 @@ EXTRACTION_SCHEMA = {
                 "type": "object",
                 "additionalProperties": False,
                 "properties": {
+                    "subject_name": {"type": "string"},
+                    "subject_type": {
+                        "type": "string",
+                        "enum": ["entity", "theme"],
+                    },
+                    "relationship_to_primary_subject": {"type": "string"},
                     "title": {"type": "string"},
                     "description": {"type": "string"},
                     "event_type": {"type": "string"},
@@ -86,6 +119,9 @@ EXTRACTION_SCHEMA = {
                     "horizon_reasoning": {"type": "string"},
                 },
                 "required": [
+                    "subject_name",
+                    "subject_type",
+                    "relationship_to_primary_subject",
                     "title",
                     "description",
                     "event_type",
@@ -101,6 +137,12 @@ EXTRACTION_SCHEMA = {
                 "type": "object",
                 "additionalProperties": False,
                 "properties": {
+                    "subject_name": {"type": "string"},
+                    "subject_type": {
+                        "type": "string",
+                        "enum": ["entity", "theme"],
+                    },
+                    "relationship_to_primary_subject": {"type": "string"},
                     "statement": {"type": "string"},
                     "fact_type": {"type": "string"},
                     "confidence": {"type": "number"},
@@ -116,6 +158,9 @@ EXTRACTION_SCHEMA = {
                     "valid_until_raw": {"type": ["string", "null"]},
                 },
                 "required": [
+                    "subject_name",
+                    "subject_type",
+                    "relationship_to_primary_subject",
                     "statement",
                     "fact_type",
                     "confidence",
@@ -135,6 +180,12 @@ EXTRACTION_SCHEMA = {
                 "type": "object",
                 "additionalProperties": False,
                 "properties": {
+                    "subject_name": {"type": "string"},
+                    "subject_type": {
+                        "type": "string",
+                        "enum": ["entity", "theme"],
+                    },
+                    "relationship_to_primary_subject": {"type": "string"},
                     "statement": {"type": "string"},
                     "claim_type": {"type": "string"},
                     "confidence": {"type": "number"},
@@ -151,6 +202,9 @@ EXTRACTION_SCHEMA = {
                     "valid_until_raw": {"type": ["string", "null"]},
                 },
                 "required": [
+                    "subject_name",
+                    "subject_type",
+                    "relationship_to_primary_subject",
                     "statement",
                     "claim_type",
                     "confidence",
@@ -255,6 +309,7 @@ EXTRACTION_SCHEMA = {
         },
     },
     "required": [
+        "relevance_assessment",
         "primary_subject",
         "subject_type",
         "entity_type",
@@ -319,7 +374,10 @@ class ExtractionWorker:
                 select(SourceItem).where(SourceItem.raw_evidence_id == evidence_id)
             )
         ).scalar_one_or_none()
-        if existing_source_item is not None:
+        if (
+            existing_source_item is not None
+            and existing_source_item.processing_status != "extraction_deferred"
+        ):
             evidence.is_processed = True
             await self.session.commit()
             return None
@@ -357,6 +415,7 @@ class ExtractionWorker:
             extracted = await self._extract_structured_data(
                 evidence.title or "Untitled evidence",
                 text_content,
+                target_context=evidence.metadata_json or {},
             )
         except Exception as exc:
             import logging
@@ -371,15 +430,69 @@ class ExtractionWorker:
             )
             extraction_degraded = True
 
+        relevance = EvidenceRelevanceAssessment.from_payload(
+            extracted.get("relevance_assessment")
+        )
+        evidence_metadata = dict(evidence.metadata_json or {})
+        evidence_metadata["relevance_assessment"] = relevance.as_metadata()
+        evidence_metadata["knowledge_promotion_status"] = (
+            "deferred"
+            if extraction_degraded
+            else "eligible" if relevance.knowledge_eligible else "quarantined"
+        )
+        if extraction_degraded:
+            evidence_metadata["extraction_degraded"] = True
+        evidence.metadata_json = evidence_metadata
+
         source_item = await self._upsert_source_item(
             raw_evidence_id=evidence.id,
             source_id=evidence.source_id,
             extracted_text=text_content[:4000],
             summary=extracted["summary"],
             processing_status=(
-                "processed_with_fallback" if extraction_degraded else "processed"
+                "extraction_deferred"
+                if extraction_degraded
+                else relevance.processing_status
             ),
         )
+
+        await self.edge_state.ensure_edge(
+            source_type="raw_evidence",
+            source_id=evidence.id,
+            target_type="source_item",
+            target_id=source_item.id,
+            relationship_type="processed_into",
+        )
+        if extraction_degraded:
+            await self.session.commit()
+            return {
+                "subject_id": None,
+                "subject_type": None,
+                "subject_name": None,
+                "summary": extracted["summary"],
+                "relevance_assessment": relevance.as_metadata(),
+                "quarantined": False,
+                "deferred": True,
+                "degraded": True,
+            }
+        if not relevance.knowledge_eligible:
+            deprecated = await EvidenceRelevanceService(self.session).apply_quarantine(
+                evidence=evidence,
+                source_item=source_item,
+                assessment=relevance,
+            )
+            evidence.is_processed = True
+            await self.session.commit()
+            return {
+                "subject_id": None,
+                "subject_type": None,
+                "subject_name": None,
+                "summary": extracted["summary"],
+                "relevance_assessment": relevance.as_metadata(),
+                "quarantined": True,
+                "deprecated_knowledge_count": deprecated,
+                "degraded": extraction_degraded,
+            }
 
         subject_name = extracted["primary_subject"]
         subject_type = extracted["subject_type"]
@@ -390,13 +503,6 @@ class ExtractionWorker:
         )
         await self._ensure_profile(subject_type, subject_id, extracted["summary"])
 
-        await self.edge_state.ensure_edge(
-            source_type="raw_evidence",
-            source_id=evidence.id,
-            target_type="source_item",
-            target_id=source_item.id,
-            relationship_type="processed_into",
-        )
         audit = KnowledgeAuditService(self.session)
         audit_metadata = {
             "raw_evidence_id": str(evidence.id),
@@ -406,6 +512,14 @@ class ExtractionWorker:
         reason = f"Extracted from source evidence: {evidence.title or evidence.url or 'untitled evidence'}"
 
         for payload in extracted["events"]:
+            object_subject_type, object_subject_id, _object_subject_name = (
+                await self._resolve_knowledge_object_subject(
+                    payload,
+                    default_subject_type=subject_type,
+                    default_subject_id=subject_id,
+                    default_subject_name=subject_name,
+                )
+            )
             event_time = self._event_time_from_payload(payload, evidence)
             event = Event(
                 title=payload["title"],
@@ -428,8 +542,8 @@ class ExtractionWorker:
                 actor="extraction_worker",
                 source_type="source_item",
                 source_id=source_item.id,
-                subject_type=subject_type,
-                subject_id=subject_id,
+                subject_type=object_subject_type,
+                subject_id=object_subject_id,
                 metadata=audit_metadata,
             )
             await self.edge_state.ensure_edge(
@@ -442,12 +556,22 @@ class ExtractionWorker:
             await self.edge_state.ensure_edge(
                 source_type="event",
                 source_id=event.id,
-                target_type=subject_type,
-                target_id=subject_id,
+                target_type=object_subject_type,
+                target_id=object_subject_id,
                 relationship_type="mentions",
+                reasoning=payload.get("relationship_to_primary_subject"),
+                properties={"origin": "structured_extraction"},
             )
 
         for payload in extracted["facts"]:
+            object_subject_type, object_subject_id, _object_subject_name = (
+                await self._resolve_knowledge_object_subject(
+                    payload,
+                    default_subject_type=subject_type,
+                    default_subject_id=subject_id,
+                    default_subject_name=subject_name,
+                )
+            )
             event_time = self._event_time_from_payload(payload, evidence)
             valid_until = self._valid_until_from_payload(payload, evidence)
             temporal = assess_knowledge_time(
@@ -489,8 +613,8 @@ class ExtractionWorker:
                 actor="extraction_worker",
                 source_type="source_item",
                 source_id=source_item.id,
-                subject_type=subject_type,
-                subject_id=subject_id,
+                subject_type=object_subject_type,
+                subject_id=object_subject_id,
                 metadata=audit_metadata,
             )
             await self.edge_state.ensure_edge(
@@ -503,12 +627,22 @@ class ExtractionWorker:
             await self.edge_state.ensure_edge(
                 source_type="fact",
                 source_id=fact.id,
-                target_type=subject_type,
-                target_id=subject_id,
+                target_type=object_subject_type,
+                target_id=object_subject_id,
                 relationship_type="supports",
+                reasoning=payload.get("relationship_to_primary_subject"),
+                properties={"origin": "structured_extraction"},
             )
 
         for payload in extracted["claims"]:
+            object_subject_type, object_subject_id, object_subject_name = (
+                await self._resolve_knowledge_object_subject(
+                    payload,
+                    default_subject_type=subject_type,
+                    default_subject_id=subject_id,
+                    default_subject_name=subject_name,
+                )
+            )
             event_time = self._event_time_from_payload(payload, evidence)
             valid_until = self._valid_until_from_payload(payload, evidence)
             temporal = assess_knowledge_time(
@@ -551,8 +685,8 @@ class ExtractionWorker:
                 actor="extraction_worker",
                 source_type="source_item",
                 source_id=source_item.id,
-                subject_type=subject_type,
-                subject_id=subject_id,
+                subject_type=object_subject_type,
+                subject_id=object_subject_id,
                 metadata=audit_metadata,
             )
             await self.edge_state.ensure_edge(
@@ -565,13 +699,15 @@ class ExtractionWorker:
             await self.edge_state.ensure_edge(
                 source_type="claim",
                 source_id=claim.id,
-                target_type=subject_type,
-                target_id=subject_id,
+                target_type=object_subject_type,
+                target_id=object_subject_id,
                 relationship_type=(
                     "contradicts"
                     if claim.contradiction_role == "contradicts_consensus"
                     else "supports"
                 ),
+                reasoning=payload.get("relationship_to_primary_subject"),
+                properties={"origin": "structured_extraction"},
             )
             self.session.add(
                 SourceClaimRecord(
@@ -579,7 +715,9 @@ class ExtractionWorker:
                     claim_id=claim.id,
                     claim_time=claim.public_time or claim.ingest_time,
                     assessment="pending",
-                    ticker=subject_name if subject_type == "entity" else None,
+                    ticker=(
+                        object_subject_name if object_subject_type == "entity" else None
+                    ),
                 )
             )
 
@@ -717,6 +855,130 @@ class ExtractionWorker:
         loop_result["watchers_triggered"] = watcher_trigger_count
         return loop_result
 
+    async def reassess_evidence_relevance(self, evidence_id: UUID) -> dict[str, object]:
+        evidence = await self.session.get(RawEvidence, evidence_id)
+        if evidence is None:
+            return {"reviewed": False, "reason": "evidence_not_found"}
+        source_item = (
+            await self.session.execute(
+                select(SourceItem).where(SourceItem.raw_evidence_id == evidence_id)
+            )
+        ).scalar_one_or_none()
+        if source_item is None:
+            return {"reviewed": False, "reason": "source_item_not_found"}
+
+        try:
+            text_content = ""
+            if evidence.raw_content_ref:
+                try:
+                    raw_bytes = await self.storage.get_object(evidence.raw_content_ref)
+                    text_content = raw_bytes.decode("utf-8", errors="ignore")[:12000]
+                except FileNotFoundError:
+                    text_content = (source_item.extracted_text or "")[:12000]
+            else:
+                text_content = (source_item.extracted_text or "")[:12000]
+            if not text_content.strip():
+                return {"reviewed": False, "reason": "source_text_unavailable"}
+            extracted = await self._extract_structured_data(
+                evidence.title or "Untitled evidence",
+                text_content,
+                target_context=evidence.metadata_json or {},
+            )
+        except Exception as exc:
+            return {
+                "reviewed": False,
+                "reason": "relevance_review_deferred",
+                "detail": compact_exception_message(exc),
+            }
+
+        assessment = EvidenceRelevanceAssessment.from_payload(
+            extracted.get("relevance_assessment")
+        )
+        metadata = dict(evidence.metadata_json or {})
+        metadata["relevance_assessment"] = assessment.as_metadata()
+        metadata["knowledge_promotion_status"] = (
+            "eligible" if assessment.knowledge_eligible else "quarantined"
+        )
+        evidence.metadata_json = metadata
+
+        deprecated = 0
+        reextraction_required = False
+        if assessment.knowledge_eligible:
+            source_item.processing_status = assessment.processing_status
+            if not assessment.target_supported:
+                reextraction_required = True
+                metadata["knowledge_promotion_status"] = "reextraction_required"
+                evidence.metadata_json = metadata
+                deprecated = await EvidenceRelevanceService(
+                    self.session
+                ).deprecate_source_derivatives(
+                    evidence=evidence,
+                    source_item=source_item,
+                    assessment=assessment,
+                    reason=(
+                        "target not supported after relevance reassessment: "
+                        f"{assessment.reason}"
+                    ),
+                    actor="evidence_relevance",
+                )
+            await KnowledgeAuditService(self.session).record_change(
+                node_type="source_item",
+                node_id=source_item.id,
+                change_type="relevance_reviewed",
+                reason=assessment.reason,
+                actor="evidence_relevance",
+                source_type="raw_evidence",
+                source_id=evidence.id,
+                metadata={"relevance_assessment": assessment.as_metadata()},
+            )
+        else:
+            deprecated = await EvidenceRelevanceService(self.session).apply_quarantine(
+                evidence=evidence,
+                source_item=source_item,
+                assessment=assessment,
+            )
+        await self.session.commit()
+        return {
+            "reviewed": True,
+            "evidence_id": str(evidence.id),
+            "source_item_id": str(source_item.id),
+            "relevance_assessment": assessment.as_metadata(),
+            "quarantined": not assessment.knowledge_eligible,
+            "deprecated_knowledge_count": deprecated,
+            "reextraction_required": reextraction_required,
+        }
+
+    async def _resolve_knowledge_object_subject(
+        self,
+        payload: dict,
+        *,
+        default_subject_type: str,
+        default_subject_id: UUID,
+        default_subject_name: str,
+    ) -> tuple[str, UUID, str]:
+        subject_name = compact_text(payload.get("subject_name"), max_chars=120)
+        subject_type = str(payload.get("subject_type") or default_subject_type)
+        if subject_type not in {"entity", "theme"}:
+            subject_type = default_subject_type
+        if not subject_name:
+            return default_subject_type, default_subject_id, default_subject_name
+
+        normalized = normalize_subject_name(subject_name).casefold()
+        default_normalized = normalize_subject_name(default_subject_name).casefold()
+        if subject_type == default_subject_type and normalized == default_normalized:
+            return default_subject_type, default_subject_id, default_subject_name
+
+        subject_id = await self._get_or_create_subject(
+            subject_name,
+            subject_type,
+            (
+                self._fallback_entity_type(subject_name, subject_name)
+                if subject_type == "entity"
+                else None
+            ),
+        )
+        return subject_type, subject_id, subject_name
+
     async def _upsert_source_item(
         self,
         *,
@@ -754,14 +1016,32 @@ class ExtractionWorker:
         ).scalar_one()
         return source_item
 
-    async def _extract_structured_data(self, title: str, text_content: str) -> dict:
+    async def _extract_structured_data(
+        self,
+        title: str,
+        text_content: str,
+        *,
+        target_context: dict | None = None,
+    ) -> dict:
         truncated = bounded_document_excerpt(
             text_content, head_chars=2600, tail_chars=1000
         )
         fallback_subject = self._detect_subject(title, text_content)
         fallback_type = self._subject_type(fallback_subject, title)
         system_prompt = self._structured_extraction_system_prompt()
+        target_context = target_context or {}
+        target_subject = compact_text(target_context.get("subject_name"), max_chars=120)
+        target_type = compact_text(target_context.get("subject_type"), max_chars=32)
+        target_question = compact_text(
+            target_context.get("research_question")
+            or target_context.get("question_text"),
+            max_chars=500,
+        )
         user_prompt = (
+            "Research intent is context to test, not evidence:\n"
+            f"- intended subject: {target_subject or 'not specified'}"
+            f" ({target_type or 'not specified'})\n"
+            f"- intended question: {target_question or title}\n"
             f"Fallback subject guess: {fallback_subject} ({fallback_type})\n"
             f"Evidence title: {title}\n\n"
             f"Evidence text:\n{truncated}"
@@ -784,6 +1064,24 @@ class ExtractionWorker:
         extracted["summary"] = compact_text(
             extracted.get("summary") or title, max_chars=900
         )
+        relevance = EvidenceRelevanceAssessment.from_payload(
+            extracted.get("relevance_assessment")
+        )
+        if (
+            target_subject
+            and relevance.status == "relevant"
+            and not relevance.target_supported
+        ):
+            relevance = EvidenceRelevanceAssessment(
+                status="adjacent",
+                target_supported=False,
+                reason=(
+                    "The source may contain investment context, but the extraction did not "
+                    f"support the intended subject {target_subject}. {relevance.reason}"
+                ),
+                supported_subjects=relevance.supported_subjects,
+            )
+        extracted["relevance_assessment"] = relevance.as_metadata()
         extracted["events"] = extracted.get("events", [])[:5]
         extracted["facts"] = extracted.get("facts", [])[:8]
         extracted["claims"] = extracted.get("claims", [])[:6]
@@ -793,6 +1091,26 @@ class ExtractionWorker:
         extracted["market_setup_signals"] = extracted.get("market_setup_signals", [])[
             :MAX_MARKET_SETUP_SIGNALS
         ]
+        if not relevance.knowledge_eligible:
+            extracted["events"] = []
+            extracted["facts"] = []
+            extracted["claims"] = []
+            extracted["fundamental_metrics"] = []
+            extracted["market_setup_signals"] = []
+        else:
+            for key in ("events", "facts", "claims"):
+                for payload in extracted[key]:
+                    payload["subject_name"] = compact_text(
+                        payload.get("subject_name") or extracted["primary_subject"],
+                        max_chars=120,
+                    )
+                    payload["subject_type"] = (
+                        payload.get("subject_type") or extracted["subject_type"]
+                    )
+                    payload["relationship_to_primary_subject"] = compact_text(
+                        payload.get("relationship_to_primary_subject") or "direct",
+                        max_chars=240,
+                    )
         return extracted
 
     async def extract_investment_objects(self, title: str, text_content: str) -> dict:
@@ -830,6 +1148,14 @@ class ExtractionWorker:
     def _structured_extraction_system_prompt() -> str:
         return (
             "Extract atomic market research objects from stored evidence for Prophet. "
+            "Begin by assessing the supplied document itself against the stated research intent. The research title, intended "
+            "subject, query, ticker, or fallback guess are context to test and are not evidence that the document supports them. "
+            "Set relevance_assessment.status to relevant only when the document directly supports the intended subject or question; "
+            "adjacent when it contains attributable investment context about another named subject; irrelevant when it does not "
+            "materially address the intent; and uncertain when the available text cannot establish relevance. Set target_supported "
+            "false when the intended subject is absent or unsupported. A statement that the document does not mention the target is "
+            "an extraction/relevance diagnostic, not a market fact or contradiction, and must not appear in facts or claims. For an "
+            "irrelevant or uncertain document, return empty event, fact, claim, fundamental-metric, and market-setup arrays. "
             "Preserve the distinction between event, fact, and claim. "
             "Facts should reflect stronger evidence than claims. "
             "When subject_type is entity, also classify entity_type as company, person, organization, index, commodity, or currency. "
@@ -867,6 +1193,9 @@ class ExtractionWorker:
             "to the primary company merely because it appeared in research about that company. "
             "When a source provides material investment objects for multiple named subjects, cover each named subject before adding "
             "secondary detail for any one subject. Rank objects by source materiality and portfolio relevance rather than source order. "
+            "For every event, fact, and claim, identify the actual subject supported by that individual object in subject_name and "
+            "subject_type, and explain its relationship_to_primary_subject. Do not attach an object to the research target merely "
+            "because the search was run for that target. "
             "metric_name and metric_family are open-ended labels, not fixed enums. Only include a metric when the source provides "
             "a concrete value or clearly stated measurement; never invent a number. State why it matters and the next falsifiable check. "
             "Return pre-event expectations, investor hurdles, positioning, sentiment, implied moves, ownership/flow context, actual result, "
@@ -921,6 +1250,12 @@ class ExtractionWorker:
             else f"Prophet stored this evidence for {fallback_subject}, but structured extraction could not complete."
         )
         return {
+            "relevance_assessment": {
+                "status": "uncertain",
+                "target_supported": False,
+                "reason": "Structured extraction did not complete, so relevance could not be established.",
+                "supported_subjects": [],
+            },
             "primary_subject": compact_text(fallback_subject, max_chars=120),
             "subject_type": fallback_type,
             "entity_type": (

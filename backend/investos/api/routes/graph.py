@@ -93,8 +93,16 @@ async def get_graph_stats(
         sources=await _count(session, Source),
         raw_evidence=await _count(session, RawEvidence),
         source_items=await _count(session, SourceItem),
-        fundamental_metrics=await _count(session, FundamentalMetric),
-        market_setup_signals=await _count(session, MarketSetupSignal),
+        fundamental_metrics=await _count(
+            session,
+            FundamentalMetric,
+            FundamentalMetric.is_deprecated.is_(False),
+        ),
+        market_setup_signals=await _count(
+            session,
+            MarketSetupSignal,
+            MarketSetupSignal.is_deprecated.is_(False),
+        ),
         active_knowledge_nodes=active_knowledge_nodes,
         total_knowledge_nodes=active_knowledge_nodes + deprecated_knowledge_nodes,
     )

@@ -396,7 +396,10 @@ class ProfileService:
             if edge.source_type == "fact":
                 node = (
                     await self.session.execute(
-                        select(Fact).where(Fact.id == edge.source_id)
+                        select(Fact).where(
+                            Fact.id == edge.source_id,
+                            Fact.is_deprecated.is_(False),
+                        )
                     )
                 ).scalar_one_or_none()
                 if node:
@@ -412,7 +415,10 @@ class ProfileService:
             elif edge.source_type == "claim":
                 node = (
                     await self.session.execute(
-                        select(Claim).where(Claim.id == edge.source_id)
+                        select(Claim).where(
+                            Claim.id == edge.source_id,
+                            Claim.is_deprecated.is_(False),
+                        )
                     )
                 ).scalar_one_or_none()
                 if node:
@@ -428,7 +434,10 @@ class ProfileService:
             elif edge.source_type == "event":
                 node = (
                     await self.session.execute(
-                        select(Event).where(Event.id == edge.source_id)
+                        select(Event).where(
+                            Event.id == edge.source_id,
+                            Event.is_deprecated.is_(False),
+                        )
                     )
                 ).scalar_one_or_none()
                 if node:

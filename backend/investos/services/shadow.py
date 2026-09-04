@@ -1058,7 +1058,7 @@ class ShadowService:
             kind = None
             for model, label in ((Fact, "fact"), (Claim, "claim"), (Event, "event")):
                 item = await self.session.get(model, evidence_id)
-                if item is not None:
+                if item is not None and not bool(getattr(item, "is_deprecated", False)):
                     resolved = item
                     kind = label
                     break

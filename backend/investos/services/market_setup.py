@@ -263,7 +263,10 @@ class MarketSetupSignalService:
     ) -> dict[str, Any] | None:
         signal = (
             await self.session.execute(
-                select(MarketSetupSignal).where(MarketSetupSignal.id == signal_id)
+                select(MarketSetupSignal).where(
+                    MarketSetupSignal.id == signal_id,
+                    MarketSetupSignal.is_deprecated.is_(False),
+                )
             )
         ).scalar_one_or_none()
         if signal is None:
@@ -444,6 +447,7 @@ class MarketSetupSignalService:
                     select(func.count())
                     .select_from(MarketSetupSignal)
                     .where(
+                        MarketSetupSignal.is_deprecated.is_(False),
                         MarketSetupSignal.outcome_status == "unscored",
                         due_clause,
                         retry_at_text.is_not(None),
@@ -458,6 +462,7 @@ class MarketSetupSignalService:
                 await self.session.execute(
                     select(MarketSetupSignal)
                     .where(
+                        MarketSetupSignal.is_deprecated.is_(False),
                         MarketSetupSignal.outcome_status == "unscored",
                         due_clause,
                         retry_ready_clause,
@@ -820,7 +825,10 @@ class MarketSetupSignalService:
         if not clauses:
             return []
 
-        stmt = select(MarketSetupSignal).where(or_(*clauses))
+        stmt = select(MarketSetupSignal).where(
+            MarketSetupSignal.is_deprecated.is_(False),
+            or_(*clauses),
+        )
         # Do not hard-filter by query terms here. Once a signal is tied to the
         # subject or portfolio, phrasing drift should not make it disappear from
         # the analyst packet; the reasoning pass can decide whether it matters.

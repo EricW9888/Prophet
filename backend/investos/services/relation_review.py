@@ -350,17 +350,32 @@ class RelationReviewService:
     async def _source_node_text(self, node_type: str, node_id: UUID) -> str | None:
         if node_type == "fact":
             node = (
-                await self.session.execute(select(Fact).where(Fact.id == node_id))
+                await self.session.execute(
+                    select(Fact).where(
+                        Fact.id == node_id,
+                        Fact.is_deprecated.is_(False),
+                    )
+                )
             ).scalar_one_or_none()
             return None if node is None else node.statement
         if node_type == "claim":
             node = (
-                await self.session.execute(select(Claim).where(Claim.id == node_id))
+                await self.session.execute(
+                    select(Claim).where(
+                        Claim.id == node_id,
+                        Claim.is_deprecated.is_(False),
+                    )
+                )
             ).scalar_one_or_none()
             return None if node is None else node.statement
         if node_type == "event":
             node = (
-                await self.session.execute(select(Event).where(Event.id == node_id))
+                await self.session.execute(
+                    select(Event).where(
+                        Event.id == node_id,
+                        Event.is_deprecated.is_(False),
+                    )
+                )
             ).scalar_one_or_none()
             return None if node is None else node.description or node.title
         return None

@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import AppNav from "@/components/AppNav";
+import SourceProvenanceLinks from "@/components/SourceProvenanceLinks";
 import {
   API_BASE,
   AgentConversationHistory,
@@ -1814,6 +1815,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
           {trace.evidence_packet.gap_flags.length > 0 ? (
             <p className="mt-1 text-slate-500 dark:text-slate-400">gaps: {trace.evidence_packet.gap_flags.join(", ")}</p>
           ) : null}
+          <EvidenceSourceList sources={trace.evidence_packet.sources ?? []} />
         </div>
       ) : null}
       <CorroborationPanel summary={summarizeReasoningTrace(trace)} />
@@ -1974,6 +1976,61 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
   );
 }
 
+function EvidenceSourceList({
+  sources,
+  compact = false,
+}: {
+  sources: NonNullable<ReasoningTrace["evidence_packet"]>["sources"];
+  compact?: boolean;
+}) {
+  if (sources.length === 0) {
+    return (
+      <p className="mt-2 text-xs text-slate-400">
+        No attributable source receipt is available for the stored packet items.
+      </p>
+    );
+  }
+
+  return (
+    <details className="mt-3 border-t border-slate-200 pt-3 dark:border-slate-800" open={!compact}>
+      <summary className="cursor-pointer text-xs font-medium text-slate-600 dark:text-slate-300">
+        {sources.length} attributable source {sources.length === 1 ? "record" : "records"}
+      </summary>
+      <div className="mt-3 max-h-80 divide-y divide-slate-200 overflow-y-auto pr-1 dark:divide-slate-800">
+        {sources.map((source) => (
+          <div key={source.raw_evidence_id} className="py-3 first:pt-0 last:pb-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold text-slate-800 dark:text-slate-100">{source.source_name}</span>
+              <span className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                {source.origin_label ?? source.source_type.replaceAll("_", " ")}
+              </span>
+              {source.evidence_roles.map((role) => (
+                <span key={role} className="text-[10px] font-medium uppercase tracking-wider text-sky-600 dark:text-sky-400">
+                  {role}
+                </span>
+              ))}
+            </div>
+            {source.title ? (
+              <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300">{source.title}</p>
+            ) : null}
+            <div className="mt-2">
+              <SourceProvenanceLinks
+                evidenceId={source.raw_evidence_id}
+                sourceName={source.source_name}
+                sourceType={source.source_type}
+                url={source.url}
+                urlKind={source.url_kind}
+                compact
+                showUnavailable
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 function ActualProcessSummary({
   message,
   trace,
@@ -2022,9 +2079,15 @@ function ActualProcessSummary({
           </details>
         ) : null}
         {trace?.evidence_packet ? (
-          <p>
-            evidence used: direct {trace.evidence_packet.direct_evidence_count}, connected {trace.evidence_packet.connected_evidence_count}, historical {trace.evidence_packet.historical_evidence_count}, contradiction {trace.evidence_packet.contradiction_evidence_count}
-          </p>
+          <>
+            <p>
+              evidence used: direct {trace.evidence_packet.direct_evidence_count}, connected {trace.evidence_packet.connected_evidence_count}, historical {trace.evidence_packet.historical_evidence_count}, contradiction {trace.evidence_packet.contradiction_evidence_count}
+            </p>
+            <EvidenceSourceList
+              sources={trace.evidence_packet.sources ?? []}
+              compact
+            />
+          </>
         ) : null}
       </div>
       {summary.researchPlan ? (

@@ -114,6 +114,19 @@ def test_agent_exposes_open_window_performance_attribution_tool():
     assert "dated prices" in attribution["description"]
 
 
+def test_agent_exposes_audited_knowledge_relevance_correction_tool():
+    tools = {
+        item["function"]["name"]: item["function"]
+        for item in AGENT_TOOLS
+        if item.get("type") == "function"
+    }
+
+    reassessment = tools["reassess_knowledge_relevance"]
+    assert set(reassessment["parameters"]["required"]) == {"node_type", "node_id"}
+    assert "deprecate unsupported" in reassessment["description"]
+    assert "audit trail" in reassessment["description"]
+
+
 def test_deterministic_attribution_answer_reports_measured_drags_and_boundary():
     result = AgentService(None)._deterministic_operating_answer(
         {

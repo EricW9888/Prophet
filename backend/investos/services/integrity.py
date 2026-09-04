@@ -429,7 +429,10 @@ class IntegrityService:
             (
                 await self.session.execute(
                     select(FundamentalMetric)
-                    .where(missing_metric_edge)
+                    .where(
+                        FundamentalMetric.is_deprecated.is_(False),
+                        missing_metric_edge,
+                    )
                     .order_by(FundamentalMetric.created_at, FundamentalMetric.id)
                     .limit(clean_limit)
                 )
@@ -450,7 +453,10 @@ class IntegrityService:
                 (
                     await self.session.execute(
                         select(MarketSetupSignal)
-                        .where(missing_signal_edge)
+                        .where(
+                            MarketSetupSignal.is_deprecated.is_(False),
+                            missing_signal_edge,
+                        )
                         .order_by(
                             MarketSetupSignal.created_at,
                             MarketSetupSignal.id,

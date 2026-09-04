@@ -336,6 +336,7 @@ class PatternDiscoveryService:
                 await self.session.execute(
                     select(MarketSetupSignal)
                     .where(
+                        MarketSetupSignal.is_deprecated.is_(False),
                         MarketSetupSignal.signal_family != self.SIGNAL_FAMILY,
                         func.coalesce(
                             MarketSetupSignal.public_time,
@@ -704,6 +705,7 @@ class PatternDiscoveryService:
             (
                 await self.session.execute(
                     select(MarketSetupSignal).where(
+                        MarketSetupSignal.is_deprecated.is_(False),
                         MarketSetupSignal.signal_family == self.SIGNAL_FAMILY,
                         MarketSetupSignal.created_at
                         >= now - timedelta(days=settings.PATTERN_DISCOVERY_DEDUP_DAYS),

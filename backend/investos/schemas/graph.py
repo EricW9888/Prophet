@@ -4,24 +4,13 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from investos.schemas.provenance import EvidenceSourceReferenceResponse
 
-class GraphCitationResponse(BaseModel):
-    raw_evidence_id: UUID
-    source_item_id: Optional[UUID] = None
-    source_id: UUID
-    source_name: str
-    source_type: str
-    source_item_type: Optional[str] = None
-    origin_kind: str = "catalog"
-    origin_label: str = "Source catalog"
-    origin_detail: Optional[str] = None
+
+class GraphCitationResponse(EvidenceSourceReferenceResponse):
     layer: str = "knowledge"
     is_system: bool = False
     system_reason: Optional[str] = None
-    title: Optional[str] = None
-    url: Optional[str] = None
-    author: Optional[str] = None
-    created_at: datetime
 
 
 class GraphConnectionResponse(BaseModel):

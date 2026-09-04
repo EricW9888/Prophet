@@ -92,9 +92,9 @@ class CoverageWorker:
             )
         return questions
 
-    async def audit_subject_coverage(
+    async def _refresh_subject_counts(
         self, subject_id: UUID, subject_type: str, subject_name: str
-    ) -> CoverageMap:
+    ) -> tuple[CoverageMap, list[Fact], list[Claim]]:
         edges = list(
             (
                 await self.session.execute(
@@ -113,7 +113,14 @@ class CoverageWorker:
 
         facts = (
             list(
-                (await self.session.execute(select(Fact).where(Fact.id.in_(fact_ids))))
+                (
+                    await self.session.execute(
+                        select(Fact).where(
+                            Fact.id.in_(fact_ids),
+                            Fact.is_deprecated.is_(False),
+                        )
+                    )
+                )
                 .scalars()
                 .all()
             )
@@ -124,7 +131,10 @@ class CoverageWorker:
             list(
                 (
                     await self.session.execute(
-                        select(Claim).where(Claim.id.in_(claim_ids))
+                        select(Claim).where(
+                            Claim.id.in_(claim_ids),
+                            Claim.is_deprecated.is_(False),
+                        )
                     )
                 )
                 .scalars()
@@ -174,6 +184,29 @@ class CoverageWorker:
                 **(c_map.evidence_class_coverage_json or {}),
                 "internal_artifact": True,
             }
+        return c_map, facts, claims
+
+    async def refresh_subject_counts(
+        self, subject_id: UUID, subject_type: str, subject_name: str
+    ) -> CoverageMap:
+        """Refresh objective coverage counts without analysis or a commit."""
+        c_map, _, _ = await self._refresh_subject_counts(
+            subject_id=subject_id,
+            subject_type=subject_type,
+            subject_name=subject_name,
+        )
+        return c_map
+
+    async def audit_subject_coverage(
+        self, subject_id: UUID, subject_type: str, subject_name: str
+    ) -> CoverageMap:
+        c_map, facts, claims = await self._refresh_subject_counts(
+            subject_id=subject_id,
+            subject_type=subject_type,
+            subject_name=subject_name,
+        )
+
+        if self._is_artifact_subject_name(subject_name):
             await self.session.commit()
             return c_map
 

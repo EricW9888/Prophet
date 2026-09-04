@@ -224,6 +224,27 @@ AGENT_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "reassess_knowledge_relevance",
+            "description": "Re-read the attributable source for a saved fact, claim, or event when the user challenges whether it belongs to that subject. This may quarantine the source and deprecate unsupported derived knowledge with an audit trail.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "node_type": {
+                        "type": "string",
+                        "enum": ["fact", "claim", "event"],
+                    },
+                    "node_id": {
+                        "type": "string",
+                        "description": "The saved knowledge node UUID shown in Knowledge or Timeline.",
+                    },
+                },
+                "required": ["node_type", "node_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_lessons",
             "description": "Retrieve user-defined lessons and feedback from past investment outcomes.",
             "parameters": {"type": "object", "properties": {}},
@@ -3606,6 +3627,7 @@ class AgentService:
             "Use deterministic tools for portfolio/accounting state, saved Knowledge graph contents, trusted sources, lessons, research automation, review queue, benchmarks, shadow experiments, Gmail, and YouTube ingestion. "
             "Use get_portfolio_lookahead when the user asks what to watch, what is coming up, what to pay attention to, reminders, countdowns, upcoming earnings, or next-week portfolio catalysts. "
             "Use get_knowledge_status when the user asks whether information was saved, stored, visible in Knowledge, present as nodes, or recently ingested into facts/claims/events. "
+            "Use reassess_knowledge_relevance when the user identifies a specific saved fact, claim, or event as irrelevant, attached to the wrong subject, or unsupported by its source; do not defend the existing edge merely because it is stored. "
             "Use start_research_pass only for a real external research need or explicit action request. "
             "If the user asks for investment judgment, thesis work, market implications, valuation, or complex dot-connecting and deterministic state is not enough, return no content and no tool calls so the reasoning analyst can handle it. "
             "If recent history shows an action was blocked by analysis-only mode and the user retries with actions allowed, call the relevant action tool. "
@@ -3716,6 +3738,37 @@ class AgentService:
         elif tool_name == "get_trusted_sources":
             payload["query_type"] = "trusted_sources"
             payload["trusted_sources"] = await self._trusted_sources_payload()
+        elif tool_name == "reassess_knowledge_relevance":
+            if not allow_actions:
+                return {
+                    "assistant_message": "I can reassess and quarantine unsupported saved knowledge, but this turn is in analysis-only mode. Enable state updates first.",
+                    "operating_query_type": "knowledge_relevance_review",
+                }
+            from investos.services.evidence_relevance import EvidenceRelevanceService
+            from investos.workers.extraction import ExtractionWorker
+
+            try:
+                node_id = UUID(str(args.get("node_id") or ""))
+            except ValueError:
+                payload["relevance_review"] = {
+                    "reviewed": False,
+                    "reason": "invalid_node_id",
+                }
+            else:
+                evidence_id = await EvidenceRelevanceService(
+                    self.session
+                ).evidence_id_for_knowledge_node(
+                    node_type=str(args.get("node_type") or ""),
+                    node_id=node_id,
+                )
+                payload["query_type"] = "knowledge_relevance_review"
+                payload["relevance_review"] = (
+                    {"reviewed": False, "reason": "source_evidence_not_found"}
+                    if evidence_id is None
+                    else await ExtractionWorker(
+                        self.session
+                    ).reassess_evidence_relevance(evidence_id)
+                )
         elif tool_name == "get_lessons":
             payload["query_type"] = "lessons"
             payload["lessons"] = await self._lessons_payload()
