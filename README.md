@@ -79,7 +79,7 @@ Requirements:
 Start Prophet from the repository root:
 
 ```bash
-python scripts/prophet.py
+python3 scripts/prophet.py
 ```
 
 On Windows, use `py -3.11 scripts\prophet.py`. The same command handles first
@@ -95,11 +95,11 @@ the backend and frontend processes it started; PostgreSQL remains available for
 the next run. Diagnose setup or inspect a running stack with:
 
 ```bash
-python scripts/prophet.py doctor
-python scripts/prophet.py status
+python3 scripts/prophet.py doctor
+python3 scripts/prophet.py status
 ```
 
-Use `python scripts/prophet.py --dev` for frontend hot reload. The launcher will
+Use `python3 scripts/prophet.py --dev` for frontend hot reload. The launcher will
 not kill an unknown process when ports 3000 or 8000 are occupied; it reports the
 conflict so the owning process can be handled deliberately. Logs live in the
 ignored `.prophet-local/runtime/` directory.
