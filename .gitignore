@@ -4,6 +4,7 @@
 !.env.example
 *.secrets
 *.secret
+*.prophet-setup
 secrets.*
 **/secrets/**
 runtime_settings.json

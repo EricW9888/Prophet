@@ -702,7 +702,7 @@ def print_status() -> int:
     if all(probe.state is ServiceState.READY for probe in probes):
         print("Prophet is ready.")
         return 0
-    print("Run `python scripts/prophet.py` to prepare and start Prophet.")
+    print("Run the launcher without the `status` command to prepare and start Prophet.")
     return 1
 
 

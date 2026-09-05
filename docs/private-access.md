@@ -27,8 +27,8 @@ This is owner access, not a general multi-user authentication system.
 1. Install and sign in to Tailscale on the Prophet host and the device that will
    use Prophet. Restrict the host and service to the operator in the tailnet
    access policy. Do not share the host with other users.
-2. Start Prophet normally with `python scripts/prophet.py`. Confirm
-   `python scripts/prophet.py status` reports both services on `127.0.0.1`.
+2. Start Prophet normally with `python3 scripts/prophet.py`. Confirm
+   `python3 scripts/prophet.py status` reports both services on `127.0.0.1`.
 3. Add the following private values to the host's ignored `.env`:
 
    ```dotenv
