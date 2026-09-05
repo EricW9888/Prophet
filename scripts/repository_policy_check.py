@@ -50,6 +50,7 @@ PRIVATE_SUFFIXES = {
     ".p12",
     ".pem",
     ".pfx",
+    ".prophet-setup",
     ".secret",
     ".secrets",
     ".sqlite",

@@ -1,5 +1,8 @@
 # Prophet
 
+[![CI](https://github.com/EricW9888/Prophet/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/EricW9888/Prophet/actions/workflows/ci.yml)
+[![Secret Scan](https://github.com/EricW9888/Prophet/actions/workflows/secret-scan.yml/badge.svg?branch=main)](https://github.com/EricW9888/Prophet/actions/workflows/secret-scan.yml)
+
 Prophet is a personal investment intelligence system that autonomously
 researches companies, markets, events, sources, and portfolio exposures;
 maintains a persistent, time-aware model of evidence and views; continuously
