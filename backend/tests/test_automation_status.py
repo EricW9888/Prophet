@@ -10,6 +10,40 @@ from investos.services.automation import AutomationCoordinator, JobTelemetry
 from investos.services.research import ResearchRunResult
 
 
+@pytest.mark.parametrize(
+    "result_status,expected",
+    [("ok", "ok"), ("partial", "warning"), ("busy", "warning"), ("error", "error")],
+)
+async def test_mailbox_automation_preserves_incomplete_status(
+    monkeypatch, result_status, expected
+):
+    from investos.services.mailbox import GmailMailboxService
+    from investos.services.runtime_settings import RuntimeSettingsStore
+
+    coordinator = AutomationCoordinator()
+    coordinator.telemetry["gmail_sync"] = JobTelemetry(
+        name="gmail_sync", interval_seconds=86400, enabled=True
+    )
+    coordinator._log_job_action = Mock()
+    monkeypatch.setattr(
+        RuntimeSettingsStore,
+        "load",
+        lambda: SimpleNamespace(gmail=SimpleNamespace(enabled=True)),
+    )
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    monkeypatch.setattr(
+        "investos.services.automation.async_session_maker", lambda: session
+    )
+    monkeypatch.setattr(
+        GmailMailboxService,
+        "sync_recent_messages",
+        AsyncMock(return_value={"status": result_status, "detail": "synthetic result"}),
+    )
+    await coordinator._run_gmail_sync()
+    assert coordinator.telemetry["gmail_sync"].last_status == expected
+
+
 def test_agent_result_error_is_not_reported_as_successful_automation():
     assert (
         AutomationCoordinator._result_telemetry_status(

@@ -245,7 +245,7 @@ export default function RiskPage() {
               )}
             </div>
             <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
-              Select the active benchmark in <Link href="/setup/integrations" className="text-sky-600 dark:text-sky-400">Settings</Link>.
+              Select the active benchmark in <Link href="/settings" className="text-sky-600 dark:text-sky-400">Settings</Link>.
             </p>
           </Panel>
         </section>

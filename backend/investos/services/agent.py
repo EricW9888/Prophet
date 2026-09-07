@@ -6212,7 +6212,7 @@ class AgentService:
             parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError:
             return value
-        display = parsed.strftime("%b %-d, %Y %H:%M %Z").strip()
+        display = f"{parsed:%b} {parsed.day}, {parsed:%Y %H:%M %Z}".strip()
         return f"{display} ({parsed.date().isoformat()})"
 
     @staticmethod

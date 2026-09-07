@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from investos.core.providers import LLM_PROVIDER_CAPABILITIES
@@ -165,6 +166,22 @@ class Settings(BaseSettings):
     # Destructive development tooling is opt-in and remains loopback-only even
     # when enabled. Shared deployments need a real authentication boundary.
     DEV_RESET_ENABLED: bool = False
+
+    @field_validator(
+        "STORAGE_DIR",
+        "MEDIA_TEMP_DIR",
+        "BACKUP_DIR",
+        "RUNTIME_SETTINGS_PATH",
+        mode="after",
+    )
+    @classmethod
+    def resolve_repository_relative_paths(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            path = PROJECT_ROOT / path
+        return str(path.resolve())
 
     @property
     def DEVELOPMENT_RESET_AVAILABLE(self) -> bool:
