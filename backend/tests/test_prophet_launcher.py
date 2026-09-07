@@ -279,3 +279,34 @@ def test_cli_defaults_to_stable_start():
     assert args.command == "start"
     assert args.dev is False
     assert args.no_open is False
+
+
+@pytest.mark.parametrize("cached", [None, "old-lock", "current-lock"])
+def test_bootstrap_verifies_existing_environment_against_lock(
+    monkeypatch, tmp_path, cached
+):
+    interpreter = tmp_path / "python"
+    interpreter.touch()
+    commands = []
+    cache = {"backend_dependencies": cached} if cached else {}
+    monkeypatch.setattr(prophet, "require_supported_python", lambda: None)
+    monkeypatch.setattr(prophet, "require_prerequisites", lambda: None)
+    monkeypatch.setattr(prophet, "ensure_env_file", lambda: False)
+    monkeypatch.setattr(prophet, "env_values", lambda: {})
+    monkeypatch.setattr(prophet, "ensure_database_ready", lambda _: None)
+    monkeypatch.setattr(prophet, "load_cache", lambda: cache)
+    monkeypatch.setattr(prophet, "save_cache", lambda _: None)
+    monkeypatch.setattr(prophet, "backend_python_path", lambda: interpreter)
+    monkeypatch.setattr(prophet, "backend_dependency_digest", lambda: "current-lock")
+    monkeypatch.setattr(prophet, "frontend_dependency_digest", lambda: "frontend-lock")
+    monkeypatch.setattr(prophet, "command_path", lambda name: name)
+    monkeypatch.setattr(
+        prophet, "run_command", lambda command, **_: commands.append(command)
+    )
+
+    prophet.bootstrap(development=True)
+
+    assert (["poetry", "install", "--with", "dev"] in commands) is (
+        cached != "current-lock"
+    )
+    assert cache["backend_dependencies"] == "current-lock"

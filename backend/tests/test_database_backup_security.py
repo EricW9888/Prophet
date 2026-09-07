@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import stat
 from types import SimpleNamespace
 
@@ -46,7 +47,10 @@ def test_database_backup_keeps_password_out_of_process_arguments(monkeypatch, tm
     assert captured["env"]["PGPASSWORD"] == password
     assert result.created_bytes == 6
     assert result.created_path is not None
-    assert stat.S_IMODE(tmp_path.joinpath(result.created_path).stat().st_mode) == 0o600
+    if os.name != "nt":  # Windows permissions are ACLs, not POSIX mode bits.
+        assert (
+            stat.S_IMODE(tmp_path.joinpath(result.created_path).stat().st_mode) == 0o600
+        )
     assert not list(tmp_path.glob(".*.tmp"))
 
 

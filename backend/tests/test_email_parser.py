@@ -55,13 +55,33 @@ def test_option_assignment_routes_to_reconciliation():
     assert GmailMailboxService._classification_requires_reconciliation(r)
 
 
-def test_split_and_expiry_remain_directly_replayable():
+def test_split_is_replayable_but_expiry_needs_contract_identity():
     assert not GmailMailboxService._classification_requires_reconciliation(
         parse("AAPL underwent a 4-for-1 stock split. Your shares were adjusted.")
     )
-    assert not GmailMailboxService._classification_requires_reconciliation(
+    assert GmailMailboxService._classification_requires_reconciliation(
         parse("Your AAPL $190 Call expired and was removed from your account.")
     )
+
+
+def test_dividend_company_name_is_not_a_ticker():
+    service = GmailMailboxService.__new__(GmailMailboxService)
+    assert (
+        service._parse_robinhood_deterministic(
+            "You received a dividend of $0.13 from Example Corporation"
+        )
+        is None
+    )
+    assert (
+        service._parse_robinhood_deterministic(
+            "You received a dividend of $0.13 from EXMP."
+        )["ticker"]
+        == "EXMP"
+    )
+
+
+def test_split_does_not_invent_a_ratio_for_zero_denominator():
+    assert parse("EXMP underwent a 4-for-0 stock split.") is None
 
 
 def test_broadened_withdrawal():

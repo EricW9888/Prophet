@@ -1696,6 +1696,8 @@ class AutomationCoordinator:
     async def _run_gmail_sync(self) -> None:
         telemetry = self.telemetry["gmail_sync"]
         telemetry.last_run_at = datetime.now(UTC)
+        telemetry.last_status = "running"
+        telemetry.detail = "Checking scoped mailbox receipts."
         try:
             runtime = RuntimeSettingsStore.load()
             if not runtime.gmail.enabled:
@@ -1724,6 +1726,17 @@ class AutomationCoordinator:
                             f"Gmail sync processed {processed_messages} messages and extracted "
                             f"{transactions_created} transactions."
                         ),
+                        metadata=result,
+                    )
+                elif result.get("status") in {"partial", "busy"}:
+                    telemetry.last_status = "warning"
+                    telemetry.detail = str(
+                        result.get("detail") or "Mailbox import incomplete."
+                    )
+                    self._log_job_action(
+                        job_name="gmail_sync",
+                        status="warning",
+                        summary=f"Gmail sync incomplete: {telemetry.detail}",
                         metadata=result,
                     )
                 else:

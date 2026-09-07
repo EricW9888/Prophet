@@ -70,15 +70,19 @@ class SetupService:
                     else "Import broker history or add positions before asking portfolio-level questions."
                 ),
                 action_label="Review portfolio",
-                href="/setup",
+                href="/positions",
             )
         )
         steps.append(self._llm_provider_step(runtime))
         steps.append(self._research_provider_step(runtime))
-        gmail_scoped = runtime.gmail.folder.strip().upper() != "INBOX" or bool(
-            runtime.gmail.allowed_senders
-            or runtime.gmail.allowed_domains
-            or runtime.gmail.required_subject_keywords
+        gmail_scoped = (
+            bool(runtime.gmail.folder.strip())
+            and runtime.gmail.folder.strip().upper() != "INBOX"
+            or bool(
+                runtime.gmail.allowed_senders
+                or runtime.gmail.allowed_domains
+                or runtime.gmail.required_subject_keywords
+            )
         )
         gmail_credentials_set = bool(
             runtime.gmail.username and runtime.gmail.password_set
@@ -194,7 +198,7 @@ class SetupService:
                 ),
                 hint="Fresh prices drive position weights, P&L context, concentration alerts, and risk-relative reasoning.",
                 action_label="Review market data",
-                href="/setup/integrations",
+                href="/settings",
             )
         )
         risk_context_ok = bool(runtime.portfolio.default_benchmark_ticker) and any(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import os
 import stat
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -86,7 +87,8 @@ def test_vapid_identity_is_private_and_stable(tmp_path, monkeypatch) -> None:
     assert first == second
     assert len(base64.urlsafe_b64decode(first + "=" * (-len(first) % 4))) == 65
     assert private_key_path.is_file()
-    assert stat.S_IMODE(private_key_path.stat().st_mode) == 0o600
+    if os.name != "nt":  # Windows permissions are ACLs, not POSIX mode bits.
+        assert stat.S_IMODE(private_key_path.stat().st_mode) == 0o600
 
 
 async def public_endpoint(*_args, **_kwargs):

@@ -250,8 +250,8 @@ class PortfolioService:
         txn = Transaction(
             position_id=position_id,
             action=txn_data.action,
-            quantity=txn_data.quantity,
-            price=txn_data.price,
+            quantity=_to_decimal(txn_data.quantity),
+            price=None if txn_data.price is None else _to_decimal(txn_data.price),
             executed_at=txn_data.executed_at,
             notes=txn_data.notes,
             provenance_json=txn_data.provenance_json,
@@ -2099,13 +2099,13 @@ class PortfolioService:
         )
         pos_map = {p.id: p for p in positions}
 
-        current_balance = 0.0
+        current_balance = Decimal("0")
         for i, txn in enumerate(transactions):
             if i % 100 == 0:
                 await asyncio.sleep(0)
 
             ticker = "shares"
-            amount = 0.0
+            amount = Decimal("0")
             entry_type = "trade_settlement"
             description = ""
 
@@ -2115,21 +2115,21 @@ class PortfolioService:
                     continue
                 ticker = getattr(position.security, "ticker", "shares")
                 if txn.action == "buy":
-                    amount = -float(_to_decimal(txn.quantity) * _to_decimal(txn.price))
+                    amount = -(_to_decimal(txn.quantity) * _to_decimal(txn.price))
                     description = f"Bought {txn.quantity} {ticker} @ {txn.price}"
                 elif txn.action == "sell":
-                    amount = float(_to_decimal(txn.quantity) * _to_decimal(txn.price))
+                    amount = _to_decimal(txn.quantity) * _to_decimal(txn.price)
                     description = f"Sold {txn.quantity} {ticker} @ {txn.price}"
                 elif txn.action == "dividend":
-                    amount = float(_to_decimal(txn.price))
+                    amount = _to_decimal(txn.price)
                     entry_type = "dividend"
                     description = f"Dividend for {ticker}"
             elif txn.action == "deposit":
-                amount = float(_to_decimal(txn.price))
+                amount = _to_decimal(txn.price)
                 entry_type = "deposit"
                 description = txn.notes or "Deposit"
             elif txn.action == "withdrawal":
-                amount = -float(_to_decimal(txn.price))
+                amount = -_to_decimal(txn.price)
                 entry_type = "withdrawal"
                 description = txn.notes or "Withdrawal"
             else:

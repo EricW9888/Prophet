@@ -32,21 +32,16 @@ def locked_requirements(
 
 def main() -> int:
     requirements = locked_requirements()
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        prefix="prophet-locked-",
-        suffix=".txt",
-    ) as handle:
-        handle.write("\n".join(requirements) + "\n")
-        handle.flush()
+    with tempfile.TemporaryDirectory(prefix="prophet-locked-") as directory:
+        requirements_path = Path(directory) / "requirements.txt"
+        requirements_path.write_text("\n".join(requirements) + "\n", encoding="utf-8")
         result = subprocess.run(
             [
                 sys.executable,
                 "-m",
                 "pip_audit",
                 "--requirement",
-                handle.name,
+                str(requirements_path),
                 "--no-deps",
                 "--disable-pip",
                 "--progress-spinner",

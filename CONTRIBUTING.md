@@ -27,6 +27,39 @@ task, continues on a focused branch, and is merged through a pull request after
 review and required CI checks pass. The repository does not use a second active
 source tree or a public/private synchronization workflow.
 
+### Working Across Machines
+
+Each development machine is an ordinary clone of this repository. Before new
+work, update `main` with a fast-forward-only pull and create a focused branch:
+
+```bash
+git switch main
+git pull --ff-only
+git switch -c issue-123-short-description
+```
+
+Push the branch before changing machines. On the other machine, fetch and
+continue that same remote branch rather than copying a checkout or starting a
+parallel implementation:
+
+```bash
+git fetch origin
+git switch --track origin/issue-123-short-description
+```
+
+Refresh remote state again before opening or merging the pull request. Do not
+force-push shared work or develop directly on `main`. After a squash merge,
+return each clone to `main`, fast-forward it, and remove the merged local branch.
+
+Git carries reviewed source, migrations, tests, and public documentation. It
+does not carry `.env`, databases, portfolio or mailbox data, backups, logs,
+generated setup bundles, or `.prophet-local`. Keep those values per-machine;
+move reusable credentials through a password manager or another encrypted
+private channel, never through a branch, issue, pull request, or private code
+mirror. A private notes repository must not contain Prophet source or become an
+engineering backlog; durable engineering work belongs here as code, docs, or
+GitHub Issues.
+
 ## Start Here
 
 1. Read `README.md`, `docs/architecture.md`, and `docs/limitations.md`.

@@ -468,10 +468,6 @@ def bootstrap(*, development: bool) -> None:
     backend_digest = backend_dependency_digest()
     backend_python = backend_python_path()
     backend_cache_matches = cache.get("backend_dependencies") == backend_digest
-    if backend_python.exists() and not cache.get("backend_dependencies"):
-        print("Using the existing backend environment.")
-        cache["backend_dependencies"] = backend_digest
-        backend_cache_matches = True
     if not backend_cache_matches or not backend_python.exists():
         poetry = command_path("poetry")
         if not poetry:
@@ -702,7 +698,7 @@ def print_status() -> int:
     if all(probe.state is ServiceState.READY for probe in probes):
         print("Prophet is ready.")
         return 0
-    print("Run `python scripts/prophet.py` to prepare and start Prophet.")
+    print("Run the launcher without the `status` command to prepare and start Prophet.")
     return 1
 
 
