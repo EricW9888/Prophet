@@ -18,6 +18,10 @@ An instant-deposit availability notice is not proof of a settled deposit.
   imported. Supported templates still run within the scan budget; the same scan
   does not repeatedly call an unavailable model. Deferred messages remain pending
   for the next run. Partial/busy runs are warnings, not completed imports.
+- Deferred receipts retain their source text and last attempt time privately.
+  A bounded scan handles never-attempted receipts first, then the least-recently
+  attempted retries, so an unavailable classifier cannot permanently hide later
+  supported confirmations. Reclassification reuses the same stored receipt.
 - A PostgreSQL advisory lock serializes mailbox scans. Receipt mutations are
   sequential; the final portfolio replay uses transaction dates, not IMAP UID order.
 - Stored evidence alone is not an import checkpoint. An operational receipt
