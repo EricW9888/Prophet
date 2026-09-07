@@ -17,6 +17,7 @@ import httpx
 from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from investos.core.dates import parse_iso_datetime
 from investos.core.imap_utils import build_imap_search_query
 from investos.core.llm import LLMProviderCooldownError, call_llm_json
 from investos.core.prompting import bounded_document_excerpt
@@ -217,6 +218,7 @@ class GmailMailboxService:
                     skipped_existing += 1
                 else:
                     pending_uids.append(uid_bytes)
+            pending_uids = await self._prioritize_pending_uids(pending_uids, runtime)
             targeted_uids = pending_uids[:limit]
             remaining_messages = len(pending_uids) - len(targeted_uids)
             with open(log_path, "a") as f:
@@ -285,6 +287,9 @@ class GmailMailboxService:
                                 runtime=runtime,
                                 allow_model=model_available,
                             )
+                            # A deferred receipt is durable retry work, not a
+                            # completed classification or posted transaction.
+                            await session.commit()
                             if result.get("classification_deferred"):
                                 deferred_messages += 1
                                 model_available = False
@@ -293,8 +298,6 @@ class GmailMailboxService:
                                         f"[{datetime.now().isoformat()}] DEFERRED: UID {uid} - classification unavailable\n"
                                     )
                                 return
-                            # Report only work durably committed, not attempted writes.
-                            await session.commit()
                             if result.get("needs_reconciliation"):
                                 review_messages += 1
                             if result.get("skipped_irrelevant"):
@@ -520,6 +523,82 @@ class GmailMailboxService:
                 linked is not None or metadata.get("mailbox_status") == "needs_review"
             )
         return True
+
+    async def _prioritize_pending_uids(self, uids: list[bytes], runtime) -> list[bytes]:
+        if not uids:
+            return []
+        external_ids = {
+            self._external_id_for_uid(uid.decode("utf-8"), runtime): uid for uid in uids
+        }
+        external_ids.update({uid.decode("utf-8"): uid for uid in uids})
+        rows = []
+        keys = list(external_ids)
+        # Keep large historical folders below the driver's bind-parameter limit.
+        for offset in range(0, len(keys), 1000):
+            batch = keys[offset : offset + 1000]
+            rows.extend(
+                (
+                    await self.session.execute(
+                        select(
+                            RawEvidence.external_id, RawEvidence.metadata_json
+                        ).where(
+                            or_(
+                                RawEvidence.external_id.in_(batch),
+                                RawEvidence.metadata_json["external_id"].astext.in_(
+                                    batch
+                                ),
+                            )
+                        )
+                    )
+                ).all()
+            )
+        attempted_at: dict[bytes, datetime] = {}
+        for external_id, metadata in rows:
+            metadata = metadata or {}
+            uid = external_ids.get(external_id or metadata.get("external_id"))
+            timestamp = parse_iso_datetime(metadata.get("mailbox_last_attempt_at"))
+            if uid is not None and timestamp is not None:
+                attempted_at[uid] = max(
+                    attempted_at.get(uid, datetime.min.replace(tzinfo=UTC)), timestamp
+                )
+        # Fresh receipts precede retries. Stable sorting preserves server UID
+        # order among equally old attempts; execution order is handled by replay.
+        return sorted(
+            uids,
+            key=lambda uid: attempted_at.get(uid, datetime.min.replace(tzinfo=UTC)),
+        )
+
+    async def _preserve_deferred_receipt(self, uid: str, message: Message, runtime):
+        evidence = await self._existing_receipt(uid, runtime)
+        if evidence is None:
+            source = await self._get_or_create_email_source()
+            sender = self._decode_header(message.get("From", ""))
+            subject = self._decode_header(message.get("Subject", ""))
+            evidence = await self.ingestion.ingest_text(
+                RawEvidenceCreate(
+                    title=subject,
+                    source_id=source.id,
+                    source_item_type="email",
+                    author=sender,
+                    public_time=self._parse_email_datetime(message.get("Date")),
+                    metadata_json={
+                        "external_id": self._external_id_for_uid(uid, runtime),
+                        "uid": uid,
+                        "skip_extraction": True,
+                        "operational_mailbox": True,
+                    },
+                    content=f"From: {sender}\nSubject: {subject}\n\n{self._extract_text_body(message)}",
+                ),
+                process_now=False,
+            )
+        evidence.external_id = self._external_id_for_uid(uid, runtime)
+        evidence.is_processed = True  # Operational receipt, not research evidence.
+        evidence.metadata_json = {
+            **(evidence.metadata_json or {}),
+            "mailbox_status": "classification_deferred",
+            "mailbox_last_attempt_at": datetime.now(UTC).isoformat(),
+        }
+        return {"classification_deferred": True}
 
     async def _existing_receipt(self, uid: str, runtime=None) -> RawEvidence | None:
         external_id = self._external_id_for_uid(uid, runtime)
@@ -937,15 +1016,14 @@ class GmailMailboxService:
         # 2. Fallback to LLM if no deterministic match found
         if not classification:
             if not allow_model:
-                return {"classification_deferred": True}
+                return await self._preserve_deferred_receipt(uid, message, runtime)
             try:
                 classification = await self._classify_message(
                     subject=subject, sender=sender, body=body
                 )
             except (LLMProviderCooldownError, httpx.HTTPError, TimeoutError):
-                # Provider failures leave no import checkpoint. Continue checking
-                # explicit templates while unknown messages await a later retry.
-                return {"classification_deferred": True}
+                # Preserve retry work without treating storage as ledger completion.
+                return await self._preserve_deferred_receipt(uid, message, runtime)
 
         source = await self._get_or_create_email_source()
 
@@ -973,23 +1051,27 @@ class GmailMailboxService:
             or classification.get("confidence", 0) < confidence_floor
         )
         if classification["document_type"] not in allowed_types:
-            # We record the evidence even if skipped to prevent re-scanning the same UID in future backfills
-            evidence = RawEvidence(
-                external_id=external_id,
-                source_id=source.id,
-                source_item_type="email",
-                title=subject,
-                is_processed=True,
-                public_time=public_time,
-                event_time=public_time,
-                metadata_json={
-                    "classification": classification,
-                    "skipped": True,
-                    "reason": "irrelevant_content",
-                    "uid": uid,
-                },
-            )
-            self.session.add(evidence)
+            evidence = await self._existing_receipt(uid, runtime)
+            if evidence is None:
+                evidence = RawEvidence(
+                    external_id=external_id,
+                    source_id=source.id,
+                    source_item_type="email",
+                    title=subject,
+                    public_time=public_time,
+                    event_time=public_time,
+                )
+                self.session.add(evidence)
+            evidence.is_processed = True
+            evidence.metadata_json = {
+                **(evidence.metadata_json or {}),
+                "classification": classification,
+                "skipped": True,
+                "operational_mailbox": False,
+                "mailbox_status": "irrelevant",
+                "reason": "irrelevant_content",
+                "uid": uid,
+            }
             await self.session.flush()
             return {
                 "transaction_created": False,
@@ -1020,6 +1102,13 @@ class GmailMailboxService:
                 process_now=False,
             )
         evidence.external_id = external_id
+        evidence.source_item_type = "email_order_confirmation"
+        evidence.metadata_json = {
+            **(evidence.metadata_json or {}),
+            "mailbox_classification": classification,
+            "operational_mailbox": True,
+            "mailbox_status": "classified",
+        }
         evidence.is_processed = True
         # Time-honest: stamp when the event actually happened (email send date as
         # the best baseline; refined to the parsed transaction date below).

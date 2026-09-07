@@ -83,6 +83,11 @@ async def test_scan_counts_only_committed_messages(monkeypatch, tmp_path, failur
     monkeypatch.setattr(
         GmailMailboxService, "_already_ingested", AsyncMock(return_value=False)
     )
+
+    async def preserve_order(self, uids, runtime):
+        return uids
+
+    monkeypatch.setattr(GmailMailboxService, "_prioritize_pending_uids", preserve_order)
     if failure == "backlog":
 
         async def completed(self, uid, runtime=None):
@@ -139,7 +144,7 @@ async def test_scan_counts_only_committed_messages(monkeypatch, tmp_path, failur
 
 
 @pytest.mark.parametrize("allow_model", [False, True])
-async def test_unavailable_classifier_does_not_checkpoint_or_post_unknown_mail(
+async def test_unavailable_classifier_defers_without_posting_unknown_mail(
     monkeypatch, allow_model
 ):
     from email.message import EmailMessage
@@ -152,12 +157,15 @@ async def test_unavailable_classifier_does_not_checkpoint_or_post_unknown_mail(
     monkeypatch.setattr(service, "_classify_message", classifier)
     source = AsyncMock()
     monkeypatch.setattr(service, "_get_or_create_email_source", source)
+    defer = AsyncMock(return_value={"classification_deferred": True})
+    monkeypatch.setattr(service, "_preserve_deferred_receipt", defer)
     message = EmailMessage()
     message["From"] = "sender@example.test"
     message.set_content("Synthetic unknown message")
     result = await service._process_message("1", message, allow_model=allow_model)
     assert result == {"classification_deferred": True}
     assert classifier.await_count == int(allow_model)
+    defer.assert_awaited_once()
     source.assert_not_awaited()
     session.commit.assert_not_awaited()
 
@@ -283,3 +291,24 @@ async def test_scan_lock_is_released_on_success_and_failure(monkeypatch, failed)
     else:
         await service._run_mailbox_scan(runtime=None, search_mode="ALL", limit=20)
     assert "pg_advisory_unlock" in str(connection.execute.call_args.args[0])
+
+
+@pytest.mark.parametrize("size", [0, 3, 20000])
+async def test_retry_order_is_bounded_and_stable_for_large_folders(size):
+    session = AsyncMock()
+    session.execute.return_value = SimpleNamespace(all=lambda: [])
+    service = GmailMailboxService(session)
+    uids = [str(i).encode() for i in range(size)]
+    assert (
+        await service._prioritize_pending_uids(
+            uids, SimpleNamespace(folder="Synthetic")
+        )
+        == uids
+    )
+    assert session.execute.await_count == (size * 2 + 999) // 1000
+    for call in session.execute.call_args_list:
+        params = call.args[0].compile().params
+        assert (
+            sum(len(value) for value in params.values() if isinstance(value, list))
+            <= 2000
+        )

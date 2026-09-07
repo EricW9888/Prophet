@@ -141,3 +141,91 @@ async def test_incomplete_ingestion_commit_is_found_by_metadata(mailbox_service)
     await service.session.commit()
     assert (await service._existing_receipt(uid)).id == evidence.id
     assert not await service._already_ingested(uid)
+
+
+async def test_deferred_receipts_rotate_behind_unattempted_work(mailbox_service):
+    service = mailbox_service
+    runtime = SimpleNamespace(folder=f"Synthetic-{uuid4()}")
+    await service._preserve_deferred_receipt("1", receipt(), runtime)
+    await service.session.commit()
+    first_id = (await service._existing_receipt("1", runtime)).id
+    assert not await service._already_ingested("1", runtime)
+    assert await service._prioritize_pending_uids([b"1", b"2", b"3"], runtime) == [
+        b"2",
+        b"3",
+        b"1",
+    ]
+
+    # Reopening the service uses durable state, not an in-process cursor.
+    restarted = GmailMailboxService(service.session)
+    restarted.ingestion.storage = service.ingestion.storage
+    await restarted._preserve_deferred_receipt("2", receipt(), runtime)
+    await service.session.commit()
+    assert await restarted._prioritize_pending_uids([b"1", b"2", b"3"], runtime) == [
+        b"3",
+        b"1",
+        b"2",
+    ]
+    await restarted._preserve_deferred_receipt("1", receipt(), runtime)
+    await service.session.commit()
+    assert (await restarted._existing_receipt("1", runtime)).id == first_id
+    assert await restarted._prioritize_pending_uids([b"1", b"2"], runtime) == [
+        b"2",
+        b"1",
+    ]
+
+
+@pytest.mark.parametrize("outcome", ["supported", "irrelevant", "review"])
+async def test_deferred_reclassification_reuses_receipt(
+    mailbox_service, monkeypatch, outcome
+):
+    service = mailbox_service
+    uid = str(uuid4())
+    runtime = SimpleNamespace(folder="Synthetic")
+    message = receipt() if outcome == "supported" else receipt("sender@example.test")
+    await service._preserve_deferred_receipt(uid, message, runtime)
+    await service.session.commit()
+    evidence = await service._existing_receipt(uid, runtime)
+    original_id, original_ref = evidence.id, evidence.raw_content_ref
+    assert not await service._already_ingested(uid, runtime)
+    monkeypatch.setattr(
+        service,
+        "_classify_message",
+        AsyncMock(
+            return_value={
+                "document_type": (
+                    "other" if outcome == "irrelevant" else "cash_activity"
+                ),
+                "action": "deposit",
+                "ticker": "CASH",
+                "quantity": 1,
+                "price": 123.45,
+                "confidence": 1.0,
+            }
+        ),
+    )
+    result = await service._process_message(uid, message, runtime)
+    await service.session.commit()
+    assert result["transaction_created"] is (outcome == "supported")
+    assert await service._already_ingested(uid, runtime)
+    evidence = await service._existing_receipt(uid, runtime)
+    assert evidence.id == original_id
+    assert evidence.raw_content_ref == original_ref
+    assert (
+        evidence.metadata_json["mailbox_status"]
+        == {
+            "supported": "classified",
+            "irrelevant": "irrelevant",
+            "review": "needs_review",
+        }[outcome]
+    )
+    assert (
+        await service.session.scalar(
+            select(func.count())
+            .select_from(RawEvidence)
+            .where(
+                RawEvidence.external_id == service._external_id_for_uid(uid, runtime)
+            )
+        )
+        == 1
+    )
