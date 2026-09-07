@@ -428,7 +428,7 @@ class ReviewService:
             return "no date on record"
         d = dt if dt.tzinfo else dt.replace(tzinfo=UTC)
         days = (datetime.now(UTC) - d).days
-        stamp = d.strftime("%b %-d, %Y")
+        stamp = f"{d:%b} {d.day}, {d:%Y}"
         if days <= 0:
             return f"today ({stamp})"
         if days == 1:

@@ -119,14 +119,14 @@ async def run_gmail_backfill_background():
 
             logger = logging.getLogger(__name__)
             logger.info(
-                f"Gmail backfill scan complete: {result['processed_messages']} processed, {result['transactions_created']} created."
+                "Gmail backfill: %s processed, %s created.",
+                result.get("processed_messages", 0),
+                result.get("transactions_created", 0),
             )
 
-            # Rebuild portfolio to integrate historical trades found in Gmail
-            # which may sit chronologically between older CSV imports and now.
-            portfolio = PortfolioService(session)
-            await portfolio.recalculate_all_positions()
-            logger.info("Portfolio rebuild complete after Gmail backfill.")
+            # The mailbox service rebuilds once, under its import lock, only
+            # when transactions changed. A second unlocked rebuild can race sync.
+            logger.info("Gmail backfill status: %s", result.get("status"))
         except Exception:
             import logging
 

@@ -5,6 +5,7 @@ import email
 import imaplib
 import json
 import re
+import ssl
 from datetime import UTC, datetime
 from email.header import decode_header, make_header
 from email.message import Message
@@ -12,13 +13,15 @@ from pathlib import Path
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
-from sqlalchemy import select
+import httpx
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.core.imap_utils import build_imap_search_query
-from investos.core.llm import call_llm_json
+from investos.core.llm import LLMProviderCooldownError, call_llm_json
 from investos.core.prompting import bounded_document_excerpt
 from investos.models.evidence import RawEvidence
+from investos.models.portfolio import Transaction
 from investos.models.review import ReviewQueueItem
 from investos.models.source import Source
 from investos.schemas.evidence import RawEvidenceCreate
@@ -77,15 +80,8 @@ ORDER_CONFIRMATION_SCHEMA = {
 }
 
 GMAIL_OPERATIONAL_SOURCE_NAME = "Gmail Operational Inbox"
-ROBINHOOD_DEFAULT_SUBJECT_KEYWORDS = [
-    "executed",
-    "confirmation",
-    "deposit",
-    "withdrawal",
-    "transfer",
-]
 RECONCILIATION_DOCUMENT_TYPES = {"account_transfer"}
-RECONCILIATION_CORPORATE_ACTIONS = {"merger", "spinoff", "exercise", "assign"}
+RECONCILIATION_CORPORATE_ACTIONS = {"merger", "spinoff", "exercise", "assign", "expire"}
 
 
 class GmailMailboxService:
@@ -108,23 +104,12 @@ class GmailMailboxService:
                 "skipped_irrelevant": 0,
                 "detail": issue,
             }
-        if runtime.only_unseen:
-            unseen = await self._run_mailbox_scan(
-                runtime=runtime,
-                search_mode="UNSEEN",
-                limit=(limit or runtime.fetch_limit),
-            )
-            all_recent = await self._run_mailbox_scan(
-                runtime=runtime,
-                search_mode="ALL",
-                limit=(limit or runtime.fetch_limit),
-            )
-            return self._combine_scan_results(unseen, all_recent)
-
+        # Read/unread is a user's mailbox state, not an import checkpoint.
+        # Receipt identity and ledger completion determine outstanding work.
         return await self._run_mailbox_scan(
             runtime=runtime,
             search_mode="ALL",
-            limit=(limit or runtime.fetch_limit),
+            limit=runtime.fetch_limit if limit is None else limit,
         )
 
     async def backfill_scoped_label(self, limit: int = 5000) -> dict[str, Any]:
@@ -149,39 +134,65 @@ class GmailMailboxService:
         search_mode: str,
         limit: int,
     ) -> dict[str, Any]:
+        # Session-level lock survives the per-receipt commits and is shared by
+        # manual backfills and scheduler processes. Closing the connection also
+        # releases it if this process exits unexpectedly.
+        from investos.db import engine
+
+        async with engine.connect() as connection:
+            acquired = await connection.scalar(
+                text("SELECT pg_try_advisory_lock(hashtext('prophet:mailbox-import'))")
+            )
+            if not acquired:
+                return {
+                    "status": "busy",
+                    "detail": "A mailbox import is already running.",
+                }
+            try:
+                return await self._scan_mailbox(
+                    runtime=runtime, search_mode=search_mode, limit=limit
+                )
+            finally:
+                await connection.execute(
+                    text(
+                        "SELECT pg_advisory_unlock(hashtext('prophet:mailbox-import'))"
+                    )
+                )
+
+    async def _scan_mailbox(
+        self, *, runtime, search_mode: str, limit: int
+    ) -> dict[str, Any]:
+        if limit < 1:
+            raise ValueError("Mailbox scan limit must be positive.")
         processed = 0
         transactions_created = 0
         skipped_existing = 0
         skipped_irrelevant = 0
+        failed_messages = 0
+        review_messages = 0
+        deferred_messages = 0
+        model_available = True
 
-        mailbox = imaplib.IMAP4_SSL(runtime.imap_host, runtime.imap_port)
+        mailbox = await asyncio.to_thread(
+            imaplib.IMAP4_SSL,
+            runtime.imap_host,
+            runtime.imap_port,
+            ssl_context=ssl.create_default_context(),
+            timeout=30,
+        )
         try:
-            mailbox.login(runtime.username, runtime.password)
+            await asyncio.to_thread(mailbox.login, runtime.username, runtime.password)
 
-            # Resolve folder
             actual_folder = runtime.folder
-            try:
-                mailbox.select(runtime.folder, readonly=True)
-            except Exception:
-                found = False
-                _, all_folders = mailbox.list()
-                for f in all_folders:
-                    name = f.decode("utf-8").split(' "/" ')[-1].strip('"')
-                    if runtime.folder.lower() in name.lower():
-                        actual_folder = name
-                        mailbox.select(actual_folder, readonly=True)
-                        found = True
-                        break
-                if not found:
-                    raise ValueError(f"Mailbox folder '{runtime.folder}' not found.")
+            status, _ = await asyncio.to_thread(
+                mailbox.select, actual_folder, readonly=True
+            )
+            if status != "OK":
+                raise RuntimeError("gmail_folder_unavailable")
 
-            if (
-                not runtime.required_subject_keywords
-                and runtime.folder.lower() == "robinhood"
-            ):
-                runtime.required_subject_keywords = ROBINHOOD_DEFAULT_SUBJECT_KEYWORDS
             search_query = build_imap_search_query(runtime, search_mode)
             log_path = REPO_ROOT / "data" / "backfill_status.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
             with open(log_path, "a") as f:
                 f.write(
                     f"[{datetime.now().isoformat()}] Searching folder={actual_folder} "
@@ -189,21 +200,35 @@ class GmailMailboxService:
                 )
 
             # Use UID for stable tracking across sessions
-            _, data = mailbox.uid("SEARCH", None, search_query)
+            status, data = await asyncio.to_thread(
+                mailbox.uid, "SEARCH", None, search_query
+            )
+            if status != "OK" or not data or data[0] is None:
+                raise RuntimeError("gmail_search_failed")
             uids = data[0].split()
 
-            # We want to process the newest limit messages in chronological order (oldest first)
-            # to ensure BUY transactions are processed before dependent SELL transactions.
-            targeted_uids = uids[-limit:]
+            # Apply the budget to outstanding receipts, not the newest N already
+            # processed emails. Old gaps then make progress on every catch-up.
+            pending_uids = []
+            for uid_bytes in uids:
+                if await self._already_ingested(
+                    uid_bytes.decode("utf-8"), runtime=runtime
+                ):
+                    skipped_existing += 1
+                else:
+                    pending_uids.append(uid_bytes)
+            targeted_uids = pending_uids[:limit]
+            remaining_messages = len(pending_uids) - len(targeted_uids)
             with open(log_path, "a") as f:
                 f.write(
                     f"[{datetime.now().isoformat()}] Search matched {len(uids)} UID(s); "
-                    f"processing {len(targeted_uids)} newest.\n"
+                    f"processing {len(targeted_uids)} outstanding; {remaining_messages} remain.\n"
                 )
 
-            # Process in batches of 3 to respect rate limits
+            # Serial book mutations avoid lost updates to cash and shared lots.
+            # IMAP UID order is not execution order; replay uses transaction dates.
             log_path = REPO_ROOT / "data" / "backfill_status.log"
-            batch_size = 3
+            batch_size = 1
 
             from investos.db import async_session_maker
 
@@ -211,9 +236,9 @@ class GmailMailboxService:
                 batch = targeted_uids[i : i + batch_size]
 
                 async def _process_uid(uid_bytes):
-                    nonlocal processed, transactions_created, skipped_existing, skipped_irrelevant
+                    nonlocal processed, transactions_created, skipped_existing, skipped_irrelevant, failed_messages, review_messages, deferred_messages, model_available
                     async with async_session_maker() as session:
-                        # Each parallel task must have its own session to avoid concurrency errors
+                        # Isolate each receipt's transaction and rollback boundary.
                         local_service = GmailMailboxService(session)
 
                         uid = uid_bytes.decode("utf-8")
@@ -228,26 +253,50 @@ class GmailMailboxService:
                                 f"[{datetime.now().isoformat()}] Scanning UID {uid} using {llm_provider}...\n"
                             )
 
-                        if await local_service._already_ingested(uid, runtime=runtime):
-                            skipped_existing += 1
-                            return
-
-                        _, raw_data = mailbox.uid("FETCH", uid, "(RFC822)")
-                        if not raw_data or not raw_data[0]:
-                            return
-
-                        message = email.message_from_bytes(raw_data[0][1])
-                        if not local_service._is_allowed_message(message, runtime):
-                            await local_service._record_skip(
-                                uid, message, runtime=runtime
-                            )
-                            skipped_irrelevant += 1
-                            return
-
                         try:
-                            result = await local_service._process_message(
-                                uid, message, runtime=runtime
+                            if await local_service._already_ingested(
+                                uid, runtime=runtime
+                            ):
+                                skipped_existing += 1
+                                return
+
+                            status, raw_data = await asyncio.to_thread(
+                                mailbox.uid, "FETCH", uid, "(BODY.PEEK[])"
                             )
+                            if (
+                                status != "OK"
+                                or not raw_data
+                                or not isinstance(raw_data[0], tuple)
+                                or not isinstance(raw_data[0][1], bytes)
+                            ):
+                                raise RuntimeError("gmail_fetch_failed")
+                            message = email.message_from_bytes(raw_data[0][1])
+                            if not local_service._is_allowed_message(message, runtime):
+                                await local_service._record_skip(
+                                    uid, message, runtime=runtime
+                                )
+                                await session.commit()
+                                skipped_irrelevant += 1
+                                return
+
+                            result = await local_service._process_message(
+                                uid,
+                                message,
+                                runtime=runtime,
+                                allow_model=model_available,
+                            )
+                            if result.get("classification_deferred"):
+                                deferred_messages += 1
+                                model_available = False
+                                with open(log_path, "a") as f:
+                                    f.write(
+                                        f"[{datetime.now().isoformat()}] DEFERRED: UID {uid} - classification unavailable\n"
+                                    )
+                                return
+                            # Report only work durably committed, not attempted writes.
+                            await session.commit()
+                            if result.get("needs_reconciliation"):
+                                review_messages += 1
                             if result.get("skipped_irrelevant"):
                                 skipped_irrelevant += 1
                             else:
@@ -266,43 +315,68 @@ class GmailMailboxService:
                                             f"[{datetime.now().isoformat()}] SUCCESS: UID {uid} -> {details}\n"
                                         )
 
-                            # Persist immediately during backfill to show progress
-                            await session.commit()
                         except Exception as exc:
+                            failed_messages += 1
                             with open(log_path, "a") as f:
                                 f.write(
-                                    f"[{datetime.now().isoformat()}] FAILED: UID {uid} - {str(exc)}\n"
+                                    f"[{datetime.now().isoformat()}] FAILED: UID {uid} - {type(exc).__name__}\n"
                                 )
 
-                # Run the batch in parallel
+                # A one-receipt batch keeps book mutations serial.
                 await asyncio.gather(*[_process_uid(u) for u in batch])
+                if failed_messages:
+                    remaining_messages += len(targeted_uids) - i - len(batch)
+                    break
 
                 # Yield to event loop
                 await asyncio.sleep(0.1)
 
-            # Rebuild all positions and cash ledger to ensure perfect FIFO matching and balances
-            await self.portfolio.recalculate_all_positions()
+            if transactions_created:
+                await self.portfolio.recalculate_all_positions()
 
         finally:
             try:
-                mailbox.logout()
+                await asyncio.to_thread(mailbox.logout)
             except Exception:
                 pass
 
+        status = (
+            "ok"
+            if not (failed_messages or remaining_messages or deferred_messages)
+            else "partial"
+        )
+        detail = f"{status} mode={search_mode} matched={len(uids)} target={len(targeted_uids)} remaining={remaining_messages} failed={failed_messages} deferred={deferred_messages}"
+        with open(log_path, "a") as f:
+            f.write(f"[{datetime.now().isoformat()}] COMPLETE: {detail}\n")
         return {
-            "status": "ok",
+            "status": status,
             "processed_messages": processed,
             "transactions_created": transactions_created,
             "skipped_existing": skipped_existing,
             "skipped_irrelevant": skipped_irrelevant,
-            "detail": f"ok mode={search_mode} matched={len(uids)} target={len(targeted_uids)}",
+            "failed_messages": failed_messages,
+            "matched_messages": len(uids),
+            "remaining_messages": remaining_messages,
+            "review_messages": review_messages,
+            "deferred_messages": deferred_messages,
+            "detail": detail,
         }
 
     @staticmethod
     def _combine_scan_results(*results: dict[str, Any]) -> dict[str, Any]:
         statuses = [str(result.get("status") or "") for result in results]
+        failed_messages = sum(
+            int(result.get("failed_messages") or 0) for result in results
+        )
+        if not results or any(status not in {"ok", "partial"} for status in statuses):
+            status = "error"
+        elif failed_messages or "partial" in statuses:
+            status = "partial"
+        else:
+            status = "ok"
         return {
-            "status": "ok" if all(status == "ok" for status in statuses) else "error",
+            "status": status,
+            "failed_messages": failed_messages,
             "processed_messages": sum(
                 int(result.get("processed_messages") or 0) for result in results
             ),
@@ -328,7 +402,15 @@ class GmailMailboxService:
         if not password:
             raise ValueError("A Gmail app password is required to test the connection.")
 
-        mailbox = imaplib.IMAP4_SSL(payload.imap_host, payload.imap_port)
+        return await asyncio.to_thread(self._test_connection_sync, payload, password)
+
+    def _test_connection_sync(self, payload, password) -> GmailIntegrationTestResponse:
+        mailbox = imaplib.IMAP4_SSL(
+            payload.imap_host,
+            payload.imap_port,
+            ssl_context=ssl.create_default_context(),
+            timeout=30,
+        )
         scanned = 0
         matched = 0
         sample_subjects: list[str] = []
@@ -336,16 +418,20 @@ class GmailMailboxService:
         runtime["password"] = password
         try:
             mailbox.login(payload.username, password)
-            mailbox.select(payload.folder)
+            status, _ = mailbox.select(payload.folder, readonly=True)
+            if status != "OK":
+                raise RuntimeError("gmail_folder_unavailable")
             search_mode = "UNSEEN" if payload.only_unseen else "ALL"
-            _, data = mailbox.search(None, search_mode)
+            status, data = mailbox.search(None, search_mode)
+            if status != "OK" or not data or data[0] is None:
+                raise RuntimeError("gmail_search_failed")
             message_ids = data[0].split()
             recent_ids = message_ids[-payload.fetch_limit :]
 
             for msg_id in recent_ids:
-                _, raw_data = mailbox.fetch(msg_id, "(RFC822)")
-                if not raw_data or not raw_data[0]:
-                    continue
+                status, raw_data = mailbox.fetch(msg_id, "(BODY.PEEK[])")
+                if status != "OK" or not raw_data or not isinstance(raw_data[0], tuple):
+                    raise RuntimeError("gmail_fetch_failed")
                 scanned += 1
                 message = email.message_from_bytes(raw_data[0][1])
                 if self._is_allowed_message(message, type("Runtime", (), runtime)()):
@@ -385,7 +471,7 @@ class GmailMailboxService:
 
     def _is_scope_ready(self, runtime) -> bool:
         return bool(
-            runtime.folder.strip().upper() != "INBOX"
+            (runtime.folder.strip() and runtime.folder.strip().upper() != "INBOX")
             or runtime.allowed_senders
             or runtime.allowed_domains
             or runtime.required_subject_keywords
@@ -413,21 +499,54 @@ class GmailMailboxService:
         return f"gmail:{folder}:{uid}"
 
     async def _already_ingested(self, uid: str, runtime=None) -> bool:
+        existing = await self._existing_receipt(uid, runtime)
+        if existing is None:
+            return False
+        metadata = existing.metadata_json or {}
+        # A stored email is not proof of a posted transaction. Older versions
+        # committed evidence first, so a later failure could permanently lose it.
+        if metadata.get("operational_mailbox"):
+            linked = await self.session.scalar(
+                select(Transaction.id)
+                .where(
+                    Transaction.provenance_json["raw_evidence_id"].astext
+                    == str(existing.id)
+                )
+                .limit(1)
+            )
+            # Include canceled/corrected transactions: reimport must not undo a
+            # deliberate ledger correction.
+            return (
+                linked is not None or metadata.get("mailbox_status") == "needs_review"
+            )
+        return True
+
+    async def _existing_receipt(self, uid: str, runtime=None) -> RawEvidence | None:
         external_id = self._external_id_for_uid(uid, runtime)
         external_ids = [uid] if external_id == uid else [external_id, uid]
         existing = (
             await self.session.execute(
-                select(RawEvidence).where(RawEvidence.external_id.in_(external_ids))
+                select(RawEvidence)
+                .where(
+                    or_(
+                        RawEvidence.external_id.in_(external_ids),
+                        RawEvidence.metadata_json["external_id"].astext.in_(
+                            external_ids
+                        ),
+                    )
+                )
+                .order_by(RawEvidence.ingest_time.asc(), RawEvidence.id.asc())
+                .limit(1)
             )
         ).scalar_one_or_none()
-        return existing is not None
+        return existing
 
     def _parse_robinhood_deterministic(
         self, body: str, subject: str = ""
     ) -> dict[str, Any] | None:
         """
-        High-performance regex parser for standard Robinhood execution emails.
-        Bypasses LLM for 100% accuracy on known templates.
+        Extract explicit fields from supported broker templates without a model.
+        Unmatched or incomplete documents still require classification/review.
         """
         import re
 
@@ -536,7 +655,8 @@ class GmailMailboxService:
         # 2. Dividends
         # Example: "You received a dividend of $0.13 from EXMPL"
         div_match = re.search(
-            r"received a dividend of \$([\d,.]+) from ([A-Z]+)", body, re.IGNORECASE
+            r"(?i:received a dividend of) \$([\d,.]+) (?i:from) ([A-Z][A-Z0-9]*(?:[.-][A-Z0-9]+)?)(?![a-zA-Z0-9])",
+            body,
         )
         if div_match:
             amount, ticker = div_match.groups()
@@ -630,7 +750,9 @@ class GmailMailboxService:
             )
             ticker = ticker_match.group(1) if ticker_match else None
             num = float(split_match.group(1))
-            den = float(split_match.group(2)) or 1.0
+            den = float(split_match.group(2))
+            if num <= 0 or den <= 0:
+                return None
             ratio = num / den
             return {
                 "action": "split",
@@ -790,7 +912,7 @@ class GmailMailboxService:
         return None
 
     async def _process_message(
-        self, uid: str, message: Message, runtime=None
+        self, uid: str, message: Message, runtime=None, *, allow_model: bool = True
     ) -> dict[str, Any]:
         subject = self._decode_header(message.get("Subject", ""))
         sender = self._decode_header(message.get("From", ""))
@@ -800,14 +922,30 @@ class GmailMailboxService:
 
         # 1. Try Deterministic Parsers first (Fast, Accurate, Free)
         classification = None
-        if "robinhood" in sender.lower() or "robinhood" in subject.lower():
+        sender_domains = {
+            address.rsplit("@", 1)[-1].lower()
+            for _, address in email.utils.getaddresses([sender])
+            if "@" in address
+        }
+        if any(
+            domain == "robinhood.com" or domain.endswith(".robinhood.com")
+            for domain in sender_domains
+        ):
             classification = self._parse_robinhood_deterministic(body, subject=subject)
+        deterministic = classification is not None
 
         # 2. Fallback to LLM if no deterministic match found
         if not classification:
-            classification = await self._classify_message(
-                subject=subject, sender=sender, body=body
-            )
+            if not allow_model:
+                return {"classification_deferred": True}
+            try:
+                classification = await self._classify_message(
+                    subject=subject, sender=sender, body=body
+                )
+            except (LLMProviderCooldownError, httpx.HTTPError, TimeoutError):
+                # Provider failures leave no import checkpoint. Continue checking
+                # explicit templates while unknown messages await a later retry.
+                return {"classification_deferred": True}
 
         source = await self._get_or_create_email_source()
 
@@ -821,11 +959,20 @@ class GmailMailboxService:
         requires_reconciliation = self._classification_requires_reconciliation(
             classification
         )
+        if classification.get("document_type") in allowed_types:
+            # A model's confidence is not authorization to change the book.
+            # Unverified fields and unresolved security identities are proposals.
+            requires_reconciliation = (
+                requires_reconciliation
+                or not deterministic
+                or not self._has_postable_fields(classification, public_time)
+            )
         confidence_floor = 0.4 if requires_reconciliation else 0.6
-        if (
-            classification["document_type"] not in allowed_types
+        requires_reconciliation = (
+            requires_reconciliation
             or classification.get("confidence", 0) < confidence_floor
-        ):
+        )
+        if classification["document_type"] not in allowed_types:
             # We record the evidence even if skipped to prevent re-scanning the same UID in future backfills
             evidence = RawEvidence(
                 external_id=external_id,
@@ -850,26 +997,28 @@ class GmailMailboxService:
                 "skipped_irrelevant": True,
             }
 
-        evidence = await self.ingestion.ingest_text(
-            RawEvidenceCreate(
-                title=subject,
-                source_id=source.id,
-                source_item_type="email_order_confirmation",
-                author=sender,
-                public_time=public_time,
-                metadata_json={
-                    "content_type": "text/html",
-                    "sender": sender,
-                    "uid": uid,
-                    "external_id": external_id,
-                    "mailbox_classification": classification,
-                    "skip_extraction": True,
-                    "operational_mailbox": True,
-                },
-                content=f"From: {sender}\nSubject: {subject}\n\n{body}",
-            ),
-            process_now=False,
-        )
+        evidence = await self._existing_receipt(uid, runtime)
+        if evidence is None:
+            evidence = await self.ingestion.ingest_text(
+                RawEvidenceCreate(
+                    title=subject,
+                    source_id=source.id,
+                    source_item_type="email_order_confirmation",
+                    author=sender,
+                    public_time=public_time,
+                    metadata_json={
+                        "content_type": "text/html",
+                        "sender": sender,
+                        "uid": uid,
+                        "external_id": external_id,
+                        "mailbox_classification": classification,
+                        "skip_extraction": True,
+                        "operational_mailbox": True,
+                    },
+                    content=f"From: {sender}\nSubject: {subject}\n\n{body}",
+                ),
+                process_now=False,
+            )
         evidence.external_id = external_id
         evidence.is_processed = True
         # Time-honest: stamp when the event actually happened (email send date as
@@ -887,6 +1036,10 @@ class GmailMailboxService:
                 subject=subject,
                 classification=classification,
             )
+            evidence.metadata_json = {
+                **(evidence.metadata_json or {}),
+                "mailbox_status": "needs_review",
+            }
             await self.session.commit()
             return {
                 "transaction_created": False,
@@ -952,6 +1105,33 @@ class GmailMailboxService:
         }
 
     @staticmethod
+    def _has_postable_fields(classification: dict[str, Any], public_time) -> bool:
+        from decimal import Decimal, InvalidOperation
+
+        if public_time is None and not classification.get("executed_at"):
+            return False
+        action = classification.get("action")
+        ticker = str(classification.get("ticker") or "")
+        if not ticker or not re.fullmatch(r"[A-Z0-9][A-Z0-9.-]{0,19}", ticker):
+            return False
+        try:
+            quantity = Decimal(str(classification.get("quantity")))
+            price = Decimal(str(classification.get("price") or 0))
+        except (InvalidOperation, ValueError):
+            return False
+        if not quantity.is_finite() or not price.is_finite():
+            return False
+        if action in {"buy", "sell"}:
+            return ticker != "CASH" and quantity > 0 and price > 0
+        if action in {"deposit", "withdrawal"}:
+            return ticker == "CASH" and price > 0
+        if action == "dividend":
+            return ticker != "CASH" and price > 0
+        if action == "split":
+            return ticker != "CASH" and quantity > 0
+        return False
+
+    @staticmethod
     def _classification_requires_reconciliation(classification: dict[str, Any]) -> bool:
         document_type = str(classification.get("document_type") or "").strip().lower()
         action = str(classification.get("action") or "").strip().lower()
@@ -976,8 +1156,8 @@ class GmailMailboxService:
         item_id = uuid5(NAMESPACE_URL, f"mailbox-reconciliation:{external_id}")
         reason = (
             f"{document_type.replace('_', ' ').title()} detected via broker email ({action}). "
-            "Authoritative target-security, ratio, cash component, and cost-basis details are required "
-            f"before changing the portfolio. Subject: {subject}"
+            "Verify execution/settlement, security identity, amounts, dates, and any corporate-action terms "
+            f"against the broker document before changing the portfolio. Subject: {subject}"
         )
         existing = (
             await self.session.execute(
@@ -998,7 +1178,11 @@ class GmailMailboxService:
                 item_type=(
                     "account_transfer"
                     if document_type == "account_transfer"
-                    else "corporate_action"
+                    else (
+                        "corporate_action"
+                        if document_type == "corporate_action"
+                        else "mailbox_receipt"
+                    )
                 ),
                 item_id=item_id,
                 priority_score=70.0,
@@ -1170,23 +1354,27 @@ class GmailMailboxService:
     def _is_allowed_message(self, message: Message, runtime) -> bool:
         sender = self._decode_header(message.get("From", ""))
         subject = self._decode_header(message.get("Subject", ""))
-        normalized_sender = sender.lower()
+        addresses = [
+            address.lower()
+            for _, address in email.utils.getaddresses([sender])
+            if "@" in address
+        ]
         normalized_subject = subject.lower()
 
         sender_match = True
         if runtime.allowed_senders:
-            sender_match = any(
-                allowed.lower() in normalized_sender
-                for allowed in runtime.allowed_senders
-            )
+            allowed_addresses = {
+                address.lower()
+                for _, address in email.utils.getaddresses(runtime.allowed_senders)
+            }
+            sender_match = any(address in allowed_addresses for address in addresses)
 
         domain_match = True
         if runtime.allowed_domains:
             domain_match = any(
-                normalized_sender.endswith(f"@{domain.lower()}>")
-                or normalized_sender.endswith(f"@{domain.lower()}")
-                or f"@{domain.lower()}" in normalized_sender
+                address.rsplit("@", 1)[-1] == domain.lower().strip().lstrip("@")
                 for domain in runtime.allowed_domains
+                for address in addresses
             )
 
         subject_match = True
@@ -1196,19 +1384,7 @@ class GmailMailboxService:
                 for keyword in runtime.required_subject_keywords
             )
 
-        # Naive Prophet Filter: Skip obvious marketing that waste LLM tokens and trigger 429s
-        # Removed 'summary' and 'weekly' as they often contain brokerage context.
-        blacklist = [
-            "newsletter",
-            "digest",
-            "marketing",
-            "promotion",
-            "invite",
-            "webinar",
-        ]
-        is_newsletter = any(word in normalized_subject for word in blacklist)
-
-        return sender_match and domain_match and subject_match and not is_newsletter
+        return sender_match and domain_match and subject_match
 
     async def _record_skip(self, uid: str, message: Message, runtime=None) -> None:
         """Mark a message as skipped in the database so we don't scan it again."""

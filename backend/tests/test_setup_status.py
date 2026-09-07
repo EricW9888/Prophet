@@ -1,4 +1,6 @@
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -10,6 +12,42 @@ from investos.services.runtime_settings import (
     RuntimeSettingsStore,
 )
 from investos.services.setup import SetupService
+
+
+@pytest.mark.parametrize(
+    "folder, expected", [("", "in_progress"), ("Receipts", "complete")]
+)
+async def test_setup_actions_exist_and_empty_folder_is_not_safe_scope(
+    monkeypatch, folder, expected
+):
+    runtime = _runtime()
+    runtime.gmail = SimpleNamespace(
+        folder=folder,
+        username="test",
+        password_set=True,
+        enabled=True,
+        allowed_senders=[],
+        allowed_domains=[],
+        required_subject_keywords=[],
+    )
+    runtime.plaid = SimpleNamespace(
+        enabled=False, ready=False, status_message="Optional"
+    )
+    runtime.market_data = SimpleNamespace(enabled=True)
+    runtime.portfolio = SimpleNamespace(default_benchmark_ticker="SPY")
+    monkeypatch.setattr(
+        RuntimeSettingsStore, "get_public_settings", AsyncMock(return_value=runtime)
+    )
+    service = SetupService(AsyncMock())
+    service._count = AsyncMock(return_value=1)
+    status = await service.status([])
+    app = Path(__file__).resolve().parents[2] / "frontend" / "src" / "app"
+    for step in status.steps:
+        assert (app / step.href.lstrip("/") / "page.tsx").is_file(), step.href
+    assert (
+        next(step for step in status.steps if step.id == "gmail_scope").status
+        == expected
+    )
 
 
 def _runtime(

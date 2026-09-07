@@ -23,6 +23,7 @@ import {
 } from "@/lib/formatting";
 import { ArrowRight, Clock, Database, Landmark, Zap, Search, Shield, Trash2, CheckCircle2, AlertCircle, Terminal } from "lucide-react";
 import LiveLogConsole from "@/components/LiveLogConsole";
+import { automationJobOutcome } from "@/lib/automation";
 
 type SettingsTab = "overview" | "data" | "research" | "system";
 type GmailTestResult = {
@@ -33,6 +34,10 @@ type GmailSyncResult = {
   processed_messages?: number;
   status?: string;
   detail?: string;
+  failed_messages?: number;
+  remaining_messages?: number;
+  deferred_messages?: number;
+  review_messages?: number;
 };
 
 export default function SettingsPage() {
@@ -538,6 +543,26 @@ export default function SettingsPage() {
                       processed {gmailSyncResult.processed_messages ?? 0} messages · created{" "}
                       {gmailSyncResult.transactions_created ?? 0} transactions
                     </div>
+                    {(gmailSyncResult.remaining_messages ?? 0) > 0 ? (
+                      <div className="mt-2 text-sm text-amber-700 dark:text-amber-300">
+                        {gmailSyncResult.remaining_messages} receipts still awaiting scan
+                      </div>
+                    ) : null}
+                    {(gmailSyncResult.deferred_messages ?? 0) > 0 ? (
+                      <p className="text-sm text-amber-700 dark:text-amber-300">
+                        {gmailSyncResult.deferred_messages} messages await a model retry; not marked imported
+                      </p>
+                    ) : null}
+                    {(gmailSyncResult.failed_messages ?? 0) > 0 ? (
+                      <div className="mt-2 text-sm text-red-700 dark:text-red-300">
+                        {gmailSyncResult.failed_messages} failed receipts; import incomplete
+                      </div>
+                    ) : null}
+                    {(gmailSyncResult.review_messages ?? 0) > 0 ? (
+                      <a href="/verification" className="mt-2 block text-sm underline">
+                        {gmailSyncResult.review_messages} receipts need reconciliation
+                      </a>
+                    ) : null}
                     {gmailSyncResult.detail ? (
                       <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                         {gmailSyncResult.detail}
@@ -1256,7 +1281,8 @@ function automationJobDescription(name: string): string {
 type AutomationJob = AutomationStatus["jobs"][number];
 
 function automationStatusView(job: AutomationJob) {
-  if (!job.enabled || job.last_status === "disabled") {
+  const outcome = automationJobOutcome(job);
+  if (outcome === "disabled") {
     return {
       bg: "bg-slate-50 dark:bg-slate-900",
       border: "border-slate-100 dark:border-slate-800",
@@ -1264,7 +1290,7 @@ function automationStatusView(job: AutomationJob) {
       meaning: "Disabled by runtime settings.",
     };
   }
-  if (job.last_status === "error") {
+  if (outcome === "error") {
     return {
       bg: "bg-red-50/70 dark:bg-red-950/20",
       border: "border-red-100 dark:border-red-900/40",
@@ -1272,15 +1298,15 @@ function automationStatusView(job: AutomationJob) {
       meaning: "Last run failed; open logs or rerun after fixing the cause.",
     };
   }
-  if (job.last_status === "warning") {
+  if (outcome === "warning") {
     return {
       bg: "bg-amber-50/70 dark:bg-amber-950/20",
       border: "border-amber-100 dark:border-amber-900/40",
       text: "text-amber-700 dark:text-amber-300",
-      meaning: "Last run completed with a warning that may need review.",
+      meaning: "Last run needs attention; some work may remain incomplete.",
     };
   }
-  if (job.last_status === "waiting_for_config") {
+  if (outcome === "waiting_for_config") {
     return {
       bg: "bg-amber-50/70 dark:bg-amber-950/20",
       border: "border-amber-100 dark:border-amber-900/40",
@@ -1288,7 +1314,7 @@ function automationStatusView(job: AutomationJob) {
       meaning: "Enabled, but waiting for a required setting before it can run.",
     };
   }
-  if (job.last_status === "idle") {
+  if (outcome === "idle") {
     return {
       bg: "bg-slate-50 dark:bg-slate-900",
       border: "border-slate-100 dark:border-slate-800",
@@ -1296,12 +1322,20 @@ function automationStatusView(job: AutomationJob) {
       meaning: "Enabled and waiting for the next scheduled run.",
     };
   }
-  if (job.last_status === "cancelled") {
+  if (outcome === "cancelled") {
     return {
       bg: "bg-slate-50 dark:bg-slate-900",
       border: "border-slate-100 dark:border-slate-800",
       text: "text-slate-500 dark:text-slate-300",
       meaning: "Interrupted during shutdown or restart; the scheduler will retry later.",
+    };
+  }
+  if (outcome === "running" || outcome === "unknown") {
+    return {
+      bg: "bg-slate-50 dark:bg-slate-900",
+      border: "border-slate-100 dark:border-slate-800",
+      text: "text-slate-600 dark:text-slate-300",
+      meaning: outcome === "running" ? "Work is in progress; no completed result yet." : "Status is unavailable; completion has not been verified.",
     };
   }
   return {

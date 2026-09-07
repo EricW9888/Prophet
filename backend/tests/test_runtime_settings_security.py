@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 
 from investos.config import settings
@@ -29,8 +30,9 @@ def test_runtime_secrets_are_atomic_private_and_redacted(monkeypatch, tmp_path):
     assert secret_payload["llm_api_key"] == llm_value
     assert secret_payload["research_api_key"] == research_value
     assert secret_payload["gmail_password"] == mail_value
-    assert stat.S_IMODE(runtime_path.stat().st_mode) == 0o600
-    assert stat.S_IMODE(secrets_path.stat().st_mode) == 0o600
+    if os.name != "nt":  # Windows permissions are ACLs, not POSIX mode bits.
+        assert stat.S_IMODE(runtime_path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(secrets_path.stat().st_mode) == 0o600
     assert not list(tmp_path.glob(".runtime_settings.json.*"))
 
     reloaded = RuntimeSettingsStore.load()

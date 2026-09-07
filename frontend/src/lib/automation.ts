@@ -1,6 +1,25 @@
-import { AutomationStatus } from "@/lib/api";
+import type { AutomationStatus } from "@/lib/api";
 
 type AutomationJob = AutomationStatus["jobs"][number];
+
+export function automationJobOutcome(job: AutomationJob) {
+  if (!job.enabled || job.last_status === "disabled") return "disabled";
+  switch (job.last_status) {
+    case "error":
+    case "warning":
+    case "waiting_for_config":
+    case "idle":
+    case "running":
+    case "cancelled":
+    case "ok":
+      return job.last_status;
+    case "partial":
+    case "busy":
+      return "warning";
+    default:
+      return "unknown";
+  }
+}
 
 export type AutomationHealth = {
   label: string;
@@ -17,13 +36,23 @@ export function automationJobHealth(
   if (!job) {
     return { label, detail: "status unavailable", tone: "idle" };
   }
-  if (!job.enabled || job.last_status === "disabled") {
+  const outcome = automationJobOutcome(job);
+  if (outcome === "disabled") {
     return { label, detail: "disabled", tone: "idle" };
   }
-  if (job.last_status === "error") {
+  if (outcome === "error") {
     return { label, detail: job.detail || "last run failed", tone: "warn" };
   }
-  if (job.last_run_at) {
+  if (outcome === "warning" || outcome === "waiting_for_config") {
+    return { label, detail: job.detail || "needs attention", tone: "warn" };
+  }
+  if (outcome === "running") {
+    return { label, detail: "running", tone: "idle" };
+  }
+  if (outcome === "unknown") {
+    return { label, detail: "status unavailable", tone: "idle" };
+  }
+  if (outcome === "ok" && job.last_run_at) {
     return { label, detail: `last ran ${formatRelativeJobTime(job.last_run_at)}`, tone: "ok" };
   }
   return { label, detail: job.last_status === "idle" ? "waiting for first run" : job.last_status, tone: "idle" };

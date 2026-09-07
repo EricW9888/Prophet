@@ -50,6 +50,33 @@ def test_settings_load_the_repository_root_env_file():
     assert Settings.model_config["env_file"] == PROJECT_ROOT / ".env"
 
 
+def test_runtime_paths_do_not_depend_on_working_directory(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    isolated = Settings(
+        _env_file=None,
+        POSTGRES_PASSWORD="unit-test-placeholder",
+        STORAGE_DIR="data/storage",
+        MEDIA_TEMP_DIR=None,
+        BACKUP_DIR="backups",
+        RUNTIME_SETTINGS_PATH="data/runtime_settings.json",
+    )
+    assert isolated.STORAGE_DIR == str((PROJECT_ROOT / "data/storage").resolve())
+    assert isolated.BACKUP_DIR == str((PROJECT_ROOT / "backups").resolve())
+    assert isolated.RUNTIME_SETTINGS_PATH == str(
+        (PROJECT_ROOT / "data/runtime_settings.json").resolve()
+    )
+    assert isolated.MEDIA_TEMP_DIR is None
+
+
+def test_absolute_runtime_paths_remain_operator_controlled(tmp_path):
+    isolated = Settings(
+        _env_file=None,
+        POSTGRES_PASSWORD="unit-test-placeholder",
+        STORAGE_DIR=str(tmp_path),
+    )
+    assert isolated.STORAGE_DIR == str(tmp_path.resolve())
+
+
 def test_settings_accept_the_documented_frontend_remote_identity(tmp_path):
     env_path = tmp_path / ".env"
     env_path.write_text(
