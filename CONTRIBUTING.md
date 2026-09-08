@@ -60,6 +60,11 @@ mirror. A private notes repository must not contain Prophet source or become an
 engineering backlog; durable engineering work belongs here as code, docs, or
 GitHub Issues.
 
+For the Windows release and independent Mac pickup checks, see the
+[2026-09-07 engineering handoff](docs/handoffs/2026-09-07-windows-to-macos.md).
+It includes exact change references, isolation steps, verification boundaries
+and remaining issue ownership without transferring private runtime state.
+
 ## Start Here
 
 1. Read `README.md`, `docs/architecture.md`, and `docs/limitations.md`.
