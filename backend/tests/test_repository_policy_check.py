@@ -41,6 +41,11 @@ def test_path_policy_fails_closed_for_private_and_generated_files():
     assert policy.path_violation("frontend/.next/server.js") == "generated_artifact"
     assert policy.path_violation("tmp/session.json") == "private_runtime_root"
     assert (
+        policy.path_violation("docs/handoffs/2026-09-07-windows-to-macos.md")
+        == "process_only_artifact"
+    )
+    assert policy.path_violation("docs/architecture.md") is None
+    assert (
         policy.path_violation("Prophet-setup-20260905.prophet-setup")
         == "private_runtime_file"
     )
