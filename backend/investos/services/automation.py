@@ -1591,29 +1591,20 @@ class AutomationCoordinator:
                 learning = await service.reconcile_shadow_learning()
                 evidence_events = await service.attach_queued_evidence_events()
                 experiments = await service.list_experiments()
-                event_experiment_ids = set(evidence_events["experiment_ids"])
-                queued = next(
-                    (
-                        item
-                        for item in experiments
-                        if item.id in event_experiment_ids
-                        and ShadowService.normalize_run_status(item.run_status)
-                        in {"queued", "running"}
-                    ),
-                    None,
-                ) or next(
-                    (
-                        item
-                        for item in experiments
-                        if ShadowService.normalize_run_status(item.run_status)
-                        in {"queued", "running"}
-                    ),
-                    None,
+                queued = service.next_actionable_experiment(
+                    experiments, now=datetime.now(UTC)
                 )
                 if not queued:
+                    active_count = sum(
+                        ShadowService.normalize_run_status(item.run_status)
+                        in {"queued", "running"}
+                        for item in experiments
+                    )
                     telemetry.last_status = "ok"
                     telemetry.detail = (
-                        f"no_active_experiments pending_orders_transitioned={transitioned} "
+                        f"{'no_due_experiments' if active_count else 'no_active_experiments'} "
+                        f"active_experiments={active_count} "
+                        f"pending_orders_transitioned={transitioned} "
                         f"paper_positions_marked={marked} "
                         f"account_events_applied={account_events['applied']} "
                         f"account_events_recorded={account_events['recorded']} "
