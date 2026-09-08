@@ -212,6 +212,7 @@ model.
 
 ## Documentation
 
+- [Product vision](docs/product-vision.md): durable product direction and principles
 - [Architecture](docs/architecture.md): current components, data flow, and invariants
 - [Limitations](docs/limitations.md): important operational and quality boundaries
 - GitHub Issues: reproducible bugs and proposed improvements
