@@ -1,16 +1,24 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy import delete, func, select
 from youtube_transcript_api import TranscriptsDisabled
 
+from investos.core.storage import LocalStorage
+from investos.db import async_session_maker
+from investos.models.evidence import EvidenceProcessingState, RawEvidence, SourceItem
+from investos.models.graph import Edge
+from investos.models.source import Source
 from investos.services import youtube as youtube_module
+from investos.services.evidence_processing import EvidenceProcessingService
 from investos.services.media_workspace import MediaIngestionPolicy
 from investos.services.youtube import YouTubeService
 from investos.services.youtube_frame_ocr import LocalFrameOCR
 from investos.services.youtube_transcription import LocalTranscript
+from investos.workers.extraction import ExtractionWorker
 
 
 def assessment(*, requested_passes=None, sufficient=True):
@@ -35,6 +43,16 @@ class StubPlanner:
     async def assess(self, **kwargs):
         self.calls.append(kwargs)
         return self.responses.pop(0)
+
+
+class StubSession:
+    """Minimal AsyncSession contract for YouTube orchestration unit tests."""
+
+    def __init__(self):
+        self.commit = AsyncMock()
+
+    async def execute(self, *_args, **_kwargs):
+        return SimpleNamespace(scalar_one_or_none=lambda: None)
 
 
 def test_youtube_url_parser_accepts_video_shapes():
@@ -147,7 +165,7 @@ async def test_captioned_video_bypasses_local_audio_fallback(monkeypatch):
 
     planner = StubPlanner(assessment())
     service = YouTubeService(
-        SimpleNamespace(),
+        StubSession(),
         audio_transcriber=UnexpectedTranscriber(),
         investigation_planner=planner,
     )
@@ -228,7 +246,7 @@ async def test_captionless_video_uses_local_fallback_and_cleans_workspace(
     )
     planner = StubPlanner(assessment())
     service = YouTubeService(
-        SimpleNamespace(),
+        StubSession(),
         audio_transcriber=transcriber,
         investigation_planner=planner,
         media_policy=policy,
@@ -261,6 +279,186 @@ async def test_captionless_video_uses_local_fallback_and_cleans_workspace(
     assert transcriber.workspace is not None
     assert not transcriber.workspace.exists()
     assert planner.calls[0]["representation"] == "audio_transcript"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_captionless_transcript_survives_timeout_and_retry_skips_transcription(
+    tmp_path, monkeypatch
+):
+    class StubTranscriber:
+        calls = 0
+        workspace = None
+
+        def readiness(self):
+            return {
+                "enabled": True,
+                "available": True,
+                "downloader_path": "/tools/yt-dlp",
+                "transcriber_path": "/tools/whisper",
+                "ffmpeg_path": "/tools/ffmpeg",
+                "missing": [],
+                "model": "base",
+            }
+
+        async def transcribe(self, *, workspace, **_kwargs):
+            self.calls += 1
+            self.workspace = workspace
+            (workspace / "source.webm").write_bytes(b"temporary audio")
+            return LocalTranscript(
+                text="HBM demand tightened conventional memory supply.",
+                segments=[],
+                language="en",
+                model="base",
+                video_metadata={"title": "Retryable memory transcript"},
+            )
+
+    extraction_calls: list[str] = []
+
+    async def fail_extraction(_worker, _title, text_content, **_kwargs):
+        extraction_calls.append(text_content)
+        raise TimeoutError("hosted provider timeout")
+
+    async def recover_extraction(_worker, _title, text_content, **_kwargs):
+        extraction_calls.append(text_content)
+        return {
+            "relevance_assessment": {
+                "status": "irrelevant",
+                "target_supported": False,
+                "reason": "Synthetic transcript is not linked to a test target.",
+                "supported_subjects": [],
+            },
+            "primary_subject": "Memory market",
+            "subject_type": "theme",
+            "entity_type": None,
+            "summary": "Recovered structured extraction.",
+            "events": [],
+            "facts": [],
+            "claims": [],
+            "fundamental_metrics": [],
+            "market_setup_signals": [],
+        }
+
+    source_id = None
+    evidence_id = None
+    transcriber = StubTranscriber()
+    storage = LocalStorage(str(tmp_path / "objects"))
+    policy = MediaIngestionPolicy(
+        temp_dir=tmp_path / "media",
+        temp_retention_hours=24,
+        persist_raw_media=False,
+        max_download_mb=64,
+    )
+
+    def no_captions(_self, _video_id):
+        raise TranscriptsDisabled("dQw4w9WgXcQ")
+
+    monkeypatch.setattr(youtube_module.YouTubeTranscriptApi, "fetch", no_captions)
+    monkeypatch.setattr(
+        ExtractionWorker,
+        "_extract_structured_data",
+        fail_extraction,
+    )
+
+    try:
+        async with async_session_maker() as session:
+            source = Source(
+                name=f"Retryable YouTube {uuid4().hex}",
+                source_type="youtube",
+            )
+            session.add(source)
+            await session.commit()
+            source_id = source.id
+
+            service = YouTubeService(
+                session,
+                audio_transcriber=transcriber,
+                investigation_planner=StubPlanner(assessment()),
+                media_policy=policy,
+            )
+            service.ingestion.storage = storage
+            result = await service.ingest_video(
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                source_id=source.id,
+            )
+            evidence_id = UUID(result["evidence_id"])
+            evidence = await session.get(RawEvidence, evidence_id)
+            assert evidence is not None and evidence.raw_content_ref is not None
+            stored_transcript = await storage.get_object(evidence.raw_content_ref)
+
+            assert result["ok"] is True
+            assert result["processing"]["overall_status"] == "retry_scheduled"
+            assert result["processing"]["transcript_status"] == "completed"
+            assert stored_transcript.decode() == (
+                "HBM demand tightened conventional memory supply."
+            )
+            assert transcriber.calls == 1
+            assert transcriber.workspace is not None
+            assert not transcriber.workspace.exists()
+
+            retry = await EvidenceProcessingService(session).schedule_operator_retry(
+                evidence.id
+            )
+            monkeypatch.setattr(
+                ExtractionWorker,
+                "_extract_structured_data",
+                recover_extraction,
+            )
+            worker = ExtractionWorker(session, storage=storage)
+            recovered = await worker.process_evidence(evidence.id)
+            repeated = await worker.process_evidence(evidence.id)
+
+            state = (
+                await session.execute(
+                    select(EvidenceProcessingState).where(
+                        EvidenceProcessingState.raw_evidence_id == evidence.id
+                    )
+                )
+            ).scalar_one()
+            source_item_count = await session.scalar(
+                select(func.count())
+                .select_from(SourceItem)
+                .where(SourceItem.raw_evidence_id == evidence.id)
+            )
+            edge_count = await session.scalar(
+                select(func.count())
+                .select_from(Edge)
+                .where(
+                    Edge.source_type == "raw_evidence",
+                    Edge.source_id == evidence.id,
+                    Edge.relationship_type == "processed_into",
+                )
+            )
+
+            assert retry is not None and retry["scheduled"] is True
+            assert recovered is not None and recovered["quarantined"] is True
+            assert repeated is not None
+            assert repeated["processing"]["overall_status"] == "quarantined"
+            assert transcriber.calls == 1
+            assert extraction_calls == [
+                "HBM demand tightened conventional memory supply.",
+                "HBM demand tightened conventional memory supply.",
+            ]
+            assert state.extraction_status == "completed"
+            assert state.investment_object_status == "quarantined"
+            assert source_item_count == 1
+            assert edge_count == 1
+    finally:
+        if source_id is not None and evidence_id is not None:
+            async with async_session_maker() as session:
+                await session.execute(
+                    delete(Edge).where(
+                        Edge.source_type == "raw_evidence",
+                        Edge.source_id == evidence_id,
+                    )
+                )
+                await session.execute(
+                    delete(SourceItem).where(SourceItem.raw_evidence_id == evidence_id)
+                )
+                await session.execute(
+                    delete(RawEvidence).where(RawEvidence.id == evidence_id)
+                )
+                await session.execute(delete(Source).where(Source.id == source_id))
+                await session.commit()
 
 
 @pytest.mark.asyncio
@@ -297,7 +495,7 @@ async def test_material_caption_gap_runs_linked_audio_pass(tmp_path, monkeypatch
     planner = StubPlanner(first, assessment())
     primary_id = uuid4()
     supplement_id = uuid4()
-    session = SimpleNamespace(commit=AsyncMock())
+    session = StubSession()
     service = YouTubeService(
         session,
         audio_transcriber=StubTranscriber(),
@@ -362,7 +560,7 @@ async def test_external_verification_uses_specific_planner_question(monkeypatch)
         )
     )
     evidence = SimpleNamespace(id=uuid4(), metadata_json={})
-    session = SimpleNamespace(commit=AsyncMock())
+    session = StubSession()
     service = YouTubeService(
         session,
         audio_transcriber=SimpleNamespace(),
@@ -408,7 +606,7 @@ async def test_failed_supplemental_pass_preserves_primary_caption_evidence(
             raise RuntimeError("speech adapter failed")
 
     primary = SimpleNamespace(id=uuid4(), metadata_json={})
-    session = SimpleNamespace(commit=AsyncMock())
+    session = StubSession()
     service = YouTubeService(
         session,
         audio_transcriber=FailingTranscriber(),
@@ -475,7 +673,7 @@ async def test_material_visual_gap_runs_linked_frame_ocr_pass(tmp_path, monkeypa
     planner = StubPlanner(first, second)
     primary_id = uuid4()
     frame_id = uuid4()
-    session = SimpleNamespace(commit=AsyncMock())
+    session = StubSession()
     service = YouTubeService(
         session,
         investigation_planner=planner,

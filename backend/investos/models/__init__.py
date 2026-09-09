@@ -18,7 +18,12 @@ from .epistemic import (
     ResearchTriggerPolicy,
     RetrievalBudget,
 )
-from .evidence import RawEvidence, ResearchDiscoveryObservation, SourceItem
+from .evidence import (
+    EvidenceProcessingState,
+    RawEvidence,
+    ResearchDiscoveryObservation,
+    SourceItem,
+)
 from .fundamental import FundamentalMetric
 from .graph import Edge, GraphTraversalSet
 from .implication import (
@@ -97,6 +102,7 @@ __all__ = [
     "RetrievalBudget",
     "ResearchTriggerPolicy",
     "RawEvidence",
+    "EvidenceProcessingState",
     "ResearchDiscoveryObservation",
     "SourceItem",
     "FundamentalMetric",

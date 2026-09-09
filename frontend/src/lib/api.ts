@@ -1392,6 +1392,23 @@ export type GraphSearchResult = {
   created_at?: string | null;
 };
 
+export type EvidenceProcessingState = {
+  overall_status: string;
+  content_status: string;
+  transcript_status: string;
+  extraction_status: string;
+  investment_object_status: string;
+  cleanup_status: string;
+  extraction_attempt_count: number;
+  next_extraction_attempt_at?: string | null;
+  last_extraction_attempt_at?: string | null;
+  extraction_completed_at?: string | null;
+  persisted_object_count: number;
+  last_error?: string | null;
+  next_action?: string | null;
+  history: Array<Record<string, unknown>>;
+};
+
 export type SourceEvidenceSummary = {
   id: string;
   source_id: string;
@@ -1412,6 +1429,7 @@ export type SourceEvidenceSummary = {
     lesson_id?: string | null;
     lesson_title?: string | null;
   } | null;
+  processing?: EvidenceProcessingState | null;
   created_at: string;
   updated_at: string;
 };
@@ -1488,6 +1506,7 @@ export type MediaIngestionJob = {
     source_id?: string;
     ingest_mode?: string;
     already_ingested?: boolean;
+    processing?: EvidenceProcessingState | null;
     investigation?: {
       status?: string;
       first_pass_sufficient?: boolean;

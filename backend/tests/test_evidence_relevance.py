@@ -6,12 +6,12 @@ from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from investos.db import async_session_maker, engine
 from investos.models.catalog import SourceClaimRecord
 from investos.models.coverage import CoverageMap
-from investos.models.evidence import RawEvidence, SourceItem
+from investos.models.evidence import EvidenceProcessingState, RawEvidence, SourceItem
 from investos.models.fundamental import FundamentalMetric
 from investos.models.graph import Edge
 from investos.models.knowledge import Claim, Event, Fact
@@ -20,6 +20,7 @@ from investos.models.market_setup import MarketSetupSignal
 from investos.models.source import Source
 from investos.models.theme import Theme
 from investos.services.agent import AgentService
+from investos.services.evidence_processing import EvidenceProcessingService
 from investos.services.evidence_relevance import (
     EvidenceRelevanceAssessment,
     EvidenceRelevanceService,
@@ -497,13 +498,71 @@ async def test_provider_failure_leaves_evidence_retryable():
                     select(SourceItem).where(SourceItem.raw_evidence_id == evidence.id)
                 )
             ).scalar_one()
+            processing_state = (
+                await session.execute(
+                    select(EvidenceProcessingState).where(
+                        EvidenceProcessingState.raw_evidence_id == evidence.id
+                    )
+                )
+            ).scalar_one()
 
             assert first["deferred"] is True
             assert second["deferred"] is True
-            assert worker._extract_structured_data.await_count == 2
+            assert worker._extract_structured_data.await_count == 1
             assert evidence.is_processed is False
-            assert source_item.processing_status == "extraction_deferred"
+            assert source_item.processing_status == "extraction_retry_scheduled"
             assert evidence.metadata_json["knowledge_promotion_status"] == "deferred"
+            assert processing_state.transcript_status == "not_applicable"
+            assert processing_state.extraction_status == "retry_scheduled"
+            assert processing_state.next_extraction_attempt_at is not None
+
+            worker._extract_structured_data = AsyncMock(
+                return_value={
+                    "relevance_assessment": {
+                        "status": "irrelevant",
+                        "target_supported": False,
+                        "reason": "The source does not support the named target.",
+                        "supported_subjects": [],
+                    },
+                    "primary_subject": "Example Co.",
+                    "subject_type": "entity",
+                    "entity_type": "company",
+                    "summary": "A recovered structured extraction.",
+                    "events": [],
+                    "facts": [],
+                    "claims": [],
+                    "fundamental_metrics": [],
+                    "market_setup_signals": [],
+                }
+            )
+            retry = await EvidenceProcessingService(session).schedule_operator_retry(
+                evidence.id
+            )
+            recovered = await worker.process_evidence(evidence.id)
+            repeated = await worker.process_evidence(evidence.id)
+            await session.refresh(evidence)
+            await session.refresh(source_item)
+            await session.refresh(processing_state)
+            edge_count = (
+                await session.execute(
+                    select(func.count(Edge.id)).where(
+                        Edge.source_type == "raw_evidence",
+                        Edge.source_id == evidence.id,
+                        Edge.relationship_type == "processed_into",
+                    )
+                )
+            ).scalar_one()
+
+            assert retry is not None and retry["scheduled"] is True
+            assert recovered["quarantined"] is True
+            assert repeated["processing"]["overall_status"] == "quarantined"
+            assert worker._extract_structured_data.await_count == 1
+            assert evidence.is_processed is True
+            assert source_item.processing_status == "rejected_irrelevant"
+            assert processing_state.extraction_status == "completed"
+            assert processing_state.investment_object_status == "quarantined"
+            assert processing_state.extraction_attempt_count == 1
+            assert edge_count == 1
     finally:
         if source_id is not None and evidence_id is not None:
             async with async_session_maker() as cleanup:

@@ -2,7 +2,15 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -49,6 +57,50 @@ class SourceItem(Base):
     extracted_text: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     summary: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     processing_status: Mapped[str] = mapped_column(String, default="pending")
+
+
+class EvidenceProcessingState(Base):
+    """Durable stage state for one raw evidence item."""
+
+    __tablename__ = "evidence_processing_states"
+    __table_args__ = (
+        UniqueConstraint(
+            "raw_evidence_id", name="uq_evidence_processing_states_raw_evidence"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    raw_evidence_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("raw_evidence.id", ondelete="CASCADE")
+    )
+    content_status: Mapped[str] = mapped_column(String, default="completed")
+    transcript_status: Mapped[str] = mapped_column(String, default="not_applicable")
+    extraction_status: Mapped[str] = mapped_column(
+        String, default="pending", index=True
+    )
+    investment_object_status: Mapped[str] = mapped_column(String, default="pending")
+    cleanup_status: Mapped[str] = mapped_column(String, default="not_applicable")
+    extraction_attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    next_extraction_attempt_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    last_extraction_attempt_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    extraction_completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    persisted_object_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    history_json: Mapped[list] = mapped_column(JSONB, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
 
 
 class ResearchDiscoveryObservation(Base):

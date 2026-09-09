@@ -1236,7 +1236,11 @@ class ResearchService:
                     if processing_error:
                         status = "processed_with_errors"
                     elif bool((loop_detail or {}).get("deferred")):
-                        status = "extraction_deferred"
+                        processing_detail = (loop_detail or {}).get("processing") or {}
+                        status = str(
+                            processing_detail.get("extraction_status")
+                            or "extraction_deferred"
+                        )
                         await self._update_discovery_outcome(
                             observation_id,
                             outcome=status,
@@ -1290,6 +1294,7 @@ class ResearchService:
                             "source_url": source_url,
                             "processed": process_after_ingest,
                             "processing_error": processing_error,
+                            "processing": (loop_detail or {}).get("processing"),
                         },
                     )
                     await self.session.commit()

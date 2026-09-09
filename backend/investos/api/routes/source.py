@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.db import async_session_maker, get_session
 from investos.schemas.source import (
+    EvidenceExtractionRetryResponse,
     FundamentalMetricCreate,
     FundamentalMetricResponse,
     InvestmentObjectBackfillCreate,
@@ -36,6 +37,7 @@ from investos.schemas.source import (
     YouTubeChannelPreviewResponse,
     YouTubeIngestionRequest,
 )
+from investos.services.evidence_processing import EvidenceProcessingService
 from investos.services.fundamentals import FundamentalMetricService
 from investos.services.investment_object_backfill import InvestmentObjectBackfillService
 from investos.services.live_jobs import LiveJobTracker
@@ -214,6 +216,22 @@ async def get_source_evidence_detail(
     if detail is None:
         raise HTTPException(status_code=404, detail="Evidence not found")
     return detail
+
+
+@router.post(
+    "/evidence/{evidence_id}/retry-extraction",
+    response_model=EvidenceExtractionRetryResponse,
+)
+async def retry_source_evidence_extraction(
+    evidence_id: UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    result = await EvidenceProcessingService(session).schedule_operator_retry(
+        evidence_id
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+    return result
 
 
 @router.get("/feedback", response_model=list[SourceFeedbackResponse])
