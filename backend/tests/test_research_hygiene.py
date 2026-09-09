@@ -251,6 +251,94 @@ async def test_research_continues_after_irrelevant_top_result(monkeypatch):
     assert "rejected_irrelevant" in outcomes
 
 
+async def test_research_activity_preserves_explicit_extraction_retry_state(monkeypatch):
+    evidence_id = uuid4()
+    session = MagicMock()
+    session.commit = AsyncMock()
+    service = ResearchService(session)
+    service._find_recent_duplicate_research = AsyncMock(return_value=None)
+    service._update_discovery_outcome = AsyncMock()
+    service._append_usage_log = MagicMock()
+    service._log_research_action = MagicMock()
+    service._discover = AsyncMock(
+        return_value=ResearchSearchResult(
+            searched=True,
+            reason="ok",
+            query="Example company filing",
+            results=[
+                {
+                    "url": "https://example.com/filing",
+                    "title": "Example filing",
+                }
+            ],
+            request_id="test-request",
+            provider="searxng",
+            provider_attempts=[],
+            variants_tried=["Example company filing"],
+            observation_ids_by_url={},
+        )
+    )
+    service.ingestion.fetch_url_document = AsyncMock(
+        return_value=SimpleNamespace(
+            content="A directly attributable company filing.",
+            canonical_url="https://example.com/filing",
+            public_time=None,
+        )
+    )
+    service.ingestion.ingest_text = AsyncMock(
+        return_value=SimpleNamespace(id=evidence_id)
+    )
+    service.source_learning.get_or_create_source_for_url = AsyncMock(
+        return_value=SimpleNamespace(
+            source=SimpleNamespace(id=uuid4()),
+            inferred_type="official",
+        )
+    )
+
+    class FakeExtractionWorker:
+        def __init__(self, _session):
+            pass
+
+        async def process_evidence(self, _evidence_id):
+            return {
+                "deferred": True,
+                "processing": {
+                    "extraction_status": "retry_scheduled",
+                    "next_extraction_attempt_at": "2026-09-09T12:00:00+00:00",
+                },
+            }
+
+    monkeypatch.setattr(
+        "investos.services.research.configured_research_providers",
+        lambda _settings: ["searxng"],
+    )
+    monkeypatch.setattr(
+        "investos.services.research.ExtractionWorker", FakeExtractionWorker
+    )
+
+    result = await service._search_and_ingest(
+        query="Example company filing",
+        title="Example filing",
+        source_item_type="web_research",
+        metadata_json={"subject_name": "Example Co.", "subject_type": "entity"},
+        process_after_ingest=True,
+    )
+
+    assert result.started is False
+    assert result.reason == "retry_scheduled"
+    service._update_discovery_outcome.assert_awaited_with(
+        None,
+        outcome="retry_scheduled",
+        evidence_id=evidence_id,
+        error=None,
+    )
+    activity = service._log_research_action.call_args.kwargs
+    assert activity["status"] == "retry_scheduled"
+    assert activity["metadata_json"]["processing"]["extraction_status"] == (
+        "retry_scheduled"
+    )
+
+
 def test_artifact_research_query_detection_blocks_recursive_internal_questions():
     assert ResearchService._is_artifact_research_query(
         "What additional evidence would materially strengthen the current view on Research on Unclassified Research?"

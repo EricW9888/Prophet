@@ -22,6 +22,7 @@ from investos.models.evidence import RawEvidence
 from investos.models.source import Source
 from investos.schemas.evidence import RawEvidenceCreate
 from investos.services.corroboration import near_duplicate_signature
+from investos.services.evidence_processing import EvidenceProcessingService
 from investos.workers.extraction import ExtractionWorker
 
 DEFAULT_SOURCE_NAME = "Manual Research Inbox"
@@ -96,11 +97,16 @@ class IngestionService:
             },
         )
         self.session.add(evidence)
+        await self.session.flush()
+        await EvidenceProcessingService(self.session).ensure_for_evidence(evidence)
         await self.session.commit()
         await self.session.refresh(evidence)
 
         if process_now:
-            await ExtractionWorker(self.session).process_evidence(evidence.id)
+            await ExtractionWorker(
+                self.session,
+                storage=self.storage,
+            ).process_evidence(evidence.id)
             await self.session.refresh(evidence)
 
         return evidence

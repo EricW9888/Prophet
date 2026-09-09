@@ -146,6 +146,23 @@ class ResearchDiscoveryObservationResponse(BaseModel):
     observed_at: datetime
 
 
+class EvidenceProcessingStateResponse(BaseModel):
+    overall_status: str
+    content_status: str
+    transcript_status: str
+    extraction_status: str
+    investment_object_status: str
+    cleanup_status: str
+    extraction_attempt_count: int = 0
+    next_extraction_attempt_at: Optional[datetime] = None
+    last_extraction_attempt_at: Optional[datetime] = None
+    extraction_completed_at: Optional[datetime] = None
+    persisted_object_count: int = 0
+    last_error: Optional[str] = None
+    next_action: Optional[str] = None
+    history: list[dict] = Field(default_factory=list)
+
+
 class SourceEvidenceSummary(BaseModel):
     id: UUID
     source_id: UUID
@@ -159,6 +176,7 @@ class SourceEvidenceSummary(BaseModel):
     origin_label: str
     origin_detail: Optional[str] = None
     user_feedback: Optional[dict] = None
+    processing: Optional[EvidenceProcessingStateResponse] = None
     created_at: datetime
     updated_at: datetime
 
@@ -175,6 +193,11 @@ class SourceEvidenceDetail(SourceEvidenceSummary):
     source_item_summary: Optional[str] = None
     source_item_excerpt: Optional[str] = None
     source_item_processing_status: Optional[str] = None
+
+
+class EvidenceExtractionRetryResponse(EvidenceProcessingStateResponse):
+    scheduled: bool
+    reason: str
 
 
 class MediaIngestionCapability(BaseModel):

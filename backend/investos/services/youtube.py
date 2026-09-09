@@ -18,9 +18,10 @@ from youtube_transcript_api import (
 )
 
 from investos.config import settings
-from investos.models.evidence import RawEvidence
+from investos.models.evidence import EvidenceProcessingState, RawEvidence
 from investos.models.source import Source
 from investos.schemas.evidence import RawEvidenceCreate
+from investos.services.evidence_processing import EvidenceProcessingService
 from investos.services.ingestion import IngestionService
 from investos.services.media_investigation import MediaInvestigationPlanner
 from investos.services.media_workspace import MediaIngestionPolicy, media_temp_workspace
@@ -198,7 +199,7 @@ class YouTubeService:
                 next_pass_index=2,
             )
             await self._attach_followup_outcomes(evidence, followups)
-            return self._ingestion_result(
+            return await self._ingestion_result(
                 evidence=evidence,
                 source=source,
                 video_id=video_id,
@@ -292,7 +293,7 @@ class YouTubeService:
             )
         )
         await self._attach_followup_outcomes(evidence, passes[1:])
-        return self._ingestion_result(
+        return await self._ingestion_result(
             evidence=evidence,
             source=source,
             video_id=video_id,
@@ -760,8 +761,8 @@ class YouTubeService:
             "assessment_status": assessment.get("status"),
         }
 
-    @staticmethod
-    def _ingestion_result(
+    async def _ingestion_result(
+        self,
         *,
         evidence: RawEvidence,
         source: Source,
@@ -771,6 +772,13 @@ class YouTubeService:
         assessment: dict[str, Any],
         passes: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        processing = (
+            await self.session.execute(
+                select(EvidenceProcessingState).where(
+                    EvidenceProcessingState.raw_evidence_id == evidence.id
+                )
+            )
+        ).scalar_one_or_none()
         return {
             "ok": True,
             "evidence_id": str(evidence.id),
@@ -781,6 +789,7 @@ class YouTubeService:
             "already_ingested": False,
             "investigation": assessment,
             "passes": passes,
+            "processing": EvidenceProcessingService.summary(processing),
         }
 
     async def list_channel_videos(

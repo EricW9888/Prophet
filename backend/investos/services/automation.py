@@ -28,6 +28,7 @@ from investos.services.brokerage import BrokerageService
 from investos.services.canonical_state import CanonicalStateService
 from investos.services.database_backup import DatabaseBackupService
 from investos.services.entity_hygiene import EntityHygieneService
+from investos.services.evidence_processing import EvidenceProcessingService
 from investos.services.fundamentals import FundamentalMetricService
 from investos.services.integrity import IntegrityService
 from investos.services.investment_object_backfill import InvestmentObjectBackfillService
@@ -1487,17 +1488,7 @@ class AutomationCoordinator:
         telemetry.last_run_at = datetime.now(UTC)
         async with async_session_maker() as session:
             try:
-                evidence = (
-                    (
-                        await session.execute(
-                            select(RawEvidence)
-                            .where(RawEvidence.is_processed.is_(False))
-                            .order_by(RawEvidence.created_at.asc())
-                        )
-                    )
-                    .scalars()
-                    .first()
-                )
+                evidence = await EvidenceProcessingService(session).next_due_evidence()
                 if not evidence:
                     telemetry.last_status = "ok"
                     telemetry.detail = "no_pending_evidence"
@@ -1506,17 +1497,28 @@ class AutomationCoordinator:
                     evidence.id
                 )
                 telemetry.last_status = "ok"
-                if loop_detail is None:
-                    telemetry.detail = f"processed={evidence.id}"
-                else:
-                    telemetry.detail = (
-                        f"processed={evidence.id} subject={loop_detail.get('subject_name')} "
-                        f"stance={loop_detail.get('stance')} shadow={loop_detail.get('shadow', {}).get('triggered')}"
-                    )
+                processing_status = ((loop_detail or {}).get("processing") or {}).get(
+                    "overall_status"
+                ) or "unknown"
+                telemetry.last_status = (
+                    "warning"
+                    if processing_status
+                    in {
+                        "blocked_missing_content",
+                        "retry_exhausted",
+                        "retry_scheduled",
+                    }
+                    else "ok"
+                )
+                telemetry.detail = (
+                    f"evidence={evidence.id} processing={processing_status}"
+                )
                 self._log_job_action(
                     job_name="evidence_processing",
-                    status="ok",
-                    summary=f"Processed new evidence item {evidence.id}.",
+                    status=telemetry.last_status,
+                    summary=(
+                        f"Evidence {evidence.id} is {processing_status.replace('_', ' ')}."
+                    ),
                     metadata={
                         "evidence_id": str(evidence.id),
                         "loop_detail": loop_detail,
