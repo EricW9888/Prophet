@@ -2,7 +2,15 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -108,6 +116,9 @@ class Lot(Base):
 
 class Transaction(Base):
     __tablename__ = "transactions"
+    __table_args__ = (
+        UniqueConstraint("source_identity", name="uq_transactions_source_identity"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -134,6 +145,7 @@ class Transaction(Base):
         type_=__import__("sqlalchemy.dialects.postgresql", fromlist=["JSONB"]).JSONB,
         nullable=True,
     )
+    source_identity: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
 
     position: Mapped["Position"] = relationship(
         "Position", back_populates="transactions"

@@ -2,12 +2,14 @@ import csv
 import io
 import re
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from sqlalchemy import desc, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
@@ -22,6 +24,8 @@ from investos.models.portfolio import CashLedgerEntry, Lot, Position, Transactio
 from investos.models.profile import Profile
 from investos.models.review import ReviewQueueItem
 from investos.schemas.portfolio import (
+    MailboxTransactionDuplicatePair,
+    MailboxTransactionReconcileResponse,
     PortfolioBuildPoint,
     PortfolioImportResponse,
     PortfolioOverviewResponse,
@@ -35,7 +39,10 @@ from investos.schemas.portfolio import (
 from investos.services.canonical_state import CanonicalStateService
 from investos.services.runtime_settings import RuntimeSettingsStore
 from investos.services.security_catalog import SecurityCatalogService
-from investos.services.transaction_provenance import transaction_source_summary
+from investos.services.transaction_provenance import (
+    transaction_source_identity,
+    transaction_source_summary,
+)
 
 IMPORT_NORMALIZATION_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -100,6 +107,29 @@ def _to_decimal(value: float | int | Decimal | None) -> Decimal:
     if isinstance(value, Decimal):
         return value
     return Decimal(str(value))
+
+
+TRANSACTION_MATCH_QUANTUM = Decimal("0.00000001")
+
+
+def _canonical_transaction_value(value: object) -> Decimal:
+    return _to_decimal(value).quantize(
+        TRANSACTION_MATCH_QUANTUM, rounding=ROUND_HALF_EVEN
+    )
+
+
+def _canonical_transaction_notes(value: object) -> str:
+    return " ".join(str(value or "").split()).casefold()
+
+
+class MailboxTransactionReconciliationRequired(ValueError):
+    """A source transaction resembles legacy state but cannot be adopted safely."""
+
+
+@dataclass(frozen=True)
+class SourcedTransactionResult:
+    transaction: Transaction
+    disposition: str
 
 
 class PortfolioService:
@@ -255,6 +285,7 @@ class PortfolioService:
             executed_at=txn_data.executed_at,
             notes=txn_data.notes,
             provenance_json=txn_data.provenance_json,
+            source_identity=transaction_source_identity(txn_data.provenance_json),
         )
         self.session.add(txn)
         await self.session.flush()
@@ -472,6 +503,284 @@ class PortfolioService:
             await self.session.flush()
 
         return await self.add_transaction(position.id, txn_data)
+
+    async def add_sourced_transaction_by_ticker(
+        self,
+        ticker: str,
+        txn_data: TransactionCreate,
+        list_type: str = "holding",
+        direction: str = "long",
+        entity_name: str | None = None,
+    ) -> SourcedTransactionResult:
+        """Post one authoritative source item without replaying it as a new fill."""
+        source_identity = transaction_source_identity(txn_data.provenance_json)
+        if source_identity is None:
+            raise ValueError("A sourced transaction requires a durable source identity")
+
+        existing = await self._transaction_for_source_identity(source_identity)
+        if existing is not None:
+            return SourcedTransactionResult(existing, "existing")
+
+        try:
+            matches = await self._economic_transaction_matches(
+                ticker=ticker,
+                action=txn_data.action,
+                quantity=txn_data.quantity,
+                price=txn_data.price,
+                executed_at=txn_data.executed_at,
+                notes=txn_data.notes,
+                lock_unprovenanced=True,
+            )
+            sourced = [
+                transaction
+                for transaction in matches
+                if self._transaction_source_identity(transaction) is not None
+            ]
+            legacy = [
+                transaction
+                for transaction in matches
+                if self._transaction_source_identity(transaction) is None
+            ]
+            matching_source_rows = [
+                transaction
+                for transaction in sourced
+                if self._transaction_source_identity(transaction) == source_identity
+            ]
+
+            if len(matching_source_rows) > 1:
+                raise MailboxTransactionReconciliationRequired(
+                    "Multiple transactions already claim this source item"
+                )
+            if len(matching_source_rows) == 1:
+                transaction = matching_source_rows[0]
+                if transaction.source_identity != source_identity:
+                    transaction.source_identity = source_identity
+                    await self.session.commit()
+                return SourcedTransactionResult(transaction, "existing")
+
+            if legacy and sourced:
+                raise MailboxTransactionReconciliationRequired(
+                    "A legacy transaction overlaps another sourced fill"
+                )
+            if len(legacy) > 1:
+                raise MailboxTransactionReconciliationRequired(
+                    "Multiple legacy transactions match this source item"
+                )
+            if len(legacy) == 1:
+                transaction = legacy[0]
+                transaction.source_identity = source_identity
+                transaction.provenance_json = {
+                    **(
+                        transaction.provenance_json
+                        if isinstance(transaction.provenance_json, dict)
+                        else {}
+                    ),
+                    **(
+                        txn_data.provenance_json
+                        if isinstance(txn_data.provenance_json, dict)
+                        else {}
+                    ),
+                    "legacy_transaction_adopted": True,
+                    "legacy_transaction_adopted_at": datetime.now(UTC).isoformat(),
+                }
+                await self.session.commit()
+                await self.session.refresh(transaction)
+                return SourcedTransactionResult(transaction, "adopted")
+
+            transaction = await self.add_transaction_by_ticker(
+                ticker=ticker,
+                txn_data=txn_data,
+                list_type=list_type,
+                direction=direction,
+                entity_name=entity_name,
+            )
+            return SourcedTransactionResult(transaction, "created")
+        except IntegrityError:
+            await self.session.rollback()
+            winner = await self._transaction_for_source_identity(source_identity)
+            if winner is None:
+                raise
+            return SourcedTransactionResult(winner, "existing")
+
+    async def _transaction_for_source_identity(
+        self, source_identity: str
+    ) -> Transaction | None:
+        return (
+            await self.session.execute(
+                select(Transaction)
+                .where(Transaction.source_identity == source_identity)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+    @staticmethod
+    def _transaction_source_identity(transaction: Transaction) -> str | None:
+        return (
+            transaction_source_identity(transaction.provenance_json)
+            or transaction.source_identity
+        )
+
+    async def _economic_transaction_matches(
+        self,
+        *,
+        ticker: str,
+        action: str,
+        quantity: object,
+        price: object,
+        executed_at: datetime,
+        notes: object,
+        lock_unprovenanced: bool = False,
+    ) -> list[Transaction]:
+        normalized_ticker = ticker.strip().upper()
+        stmt = (
+            select(Transaction)
+            .outerjoin(Position, Transaction.position_id == Position.id)
+            .outerjoin(Security, Position.security_id == Security.id)
+            .where(
+                Transaction.action == action,
+                Transaction.executed_at == executed_at,
+                self.active_transaction_clause(),
+            )
+        )
+        if normalized_ticker == "CASH":
+            stmt = stmt.where(Transaction.position_id.is_(None))
+        else:
+            stmt = stmt.where(Security.ticker == normalized_ticker)
+        if lock_unprovenanced:
+            stmt = stmt.with_for_update(of=Transaction)
+        candidates = (await self.session.execute(stmt)).scalars().all()
+        expected_quantity = _canonical_transaction_value(quantity)
+        expected_price = None if price is None else _canonical_transaction_value(price)
+        expected_notes = _canonical_transaction_notes(notes)
+        return [
+            transaction
+            for transaction in candidates
+            if _canonical_transaction_value(transaction.quantity) == expected_quantity
+            and (
+                (transaction.price is None and expected_price is None)
+                or (
+                    transaction.price is not None
+                    and expected_price is not None
+                    and _canonical_transaction_value(transaction.price)
+                    == expected_price
+                )
+            )
+            and _canonical_transaction_notes(transaction.notes) == expected_notes
+        ]
+
+    async def reconcile_mailbox_transaction_duplicates(
+        self, *, dry_run: bool = True
+    ) -> MailboxTransactionReconcileResponse:
+        rows = (
+            await self.session.execute(
+                select(Transaction, Security.ticker)
+                .outerjoin(Position, Transaction.position_id == Position.id)
+                .outerjoin(Security, Position.security_id == Security.id)
+                .where(self.active_transaction_clause())
+                .order_by(Transaction.executed_at.asc(), Transaction.id.asc())
+            )
+        ).all()
+        groups: dict[tuple[object, ...], list[Transaction]] = defaultdict(list)
+        ticker_by_id: dict[UUID, str] = {}
+        for transaction, ticker in rows:
+            normalized_ticker = str(ticker or "CASH").upper()
+            ticker_by_id[transaction.id] = normalized_ticker
+            groups[
+                (
+                    normalized_ticker,
+                    transaction.action,
+                    _canonical_transaction_value(transaction.quantity),
+                    (
+                        None
+                        if transaction.price is None
+                        else _canonical_transaction_value(transaction.price)
+                    ),
+                    transaction.executed_at,
+                    _canonical_transaction_notes(transaction.notes),
+                )
+            ].append(transaction)
+
+        candidates: list[tuple[Transaction, Transaction]] = []
+        ambiguous_group_count = 0
+        for transactions in groups.values():
+            if len(transactions) < 2:
+                continue
+            sourced = [
+                transaction
+                for transaction in transactions
+                if self._transaction_source_identity(transaction) is not None
+            ]
+            legacy = [
+                transaction
+                for transaction in transactions
+                if self._transaction_source_identity(transaction) is None
+            ]
+            if len(transactions) == 2 and len(sourced) == 1 and len(legacy) == 1:
+                candidates.append((legacy[0], sourced[0]))
+            elif legacy:
+                ambiguous_group_count += 1
+
+        expected_cash_adjustment = sum(
+            (
+                self._cash_adjustment_for_removed_transaction(legacy)
+                for legacy, _ in candidates
+            ),
+            Decimal("0"),
+        )
+        response_candidates = [
+            MailboxTransactionDuplicatePair(
+                legacy_transaction_id=legacy.id,
+                canonical_transaction_id=canonical.id,
+                ticker=ticker_by_id[canonical.id],
+                action=canonical.action,
+                executed_at=canonical.executed_at,
+            )
+            for legacy, canonical in candidates
+        ]
+
+        if not dry_run:
+            repaired_at = datetime.now(UTC).isoformat()
+            for legacy, canonical in candidates:
+                legacy.status = "corrected"
+                legacy.superseded_by_id = canonical.id
+                legacy.provenance_json = {
+                    **(
+                        legacy.provenance_json
+                        if isinstance(legacy.provenance_json, dict)
+                        else {}
+                    ),
+                    "reconciliation_type": "mailbox_legacy_duplicate",
+                    "reconciled_at": repaired_at,
+                    "canonical_transaction_id": str(canonical.id),
+                }
+                derived_identity = self._transaction_source_identity(canonical)
+                if canonical.source_identity is None and derived_identity is not None:
+                    canonical.source_identity = derived_identity
+            await self.recalculate_all_positions()
+
+        return MailboxTransactionReconcileResponse(
+            dry_run=dry_run,
+            scanned_transaction_count=len(rows),
+            candidate_count=len(candidates),
+            ambiguous_group_count=ambiguous_group_count,
+            expected_buying_power_adjustment=float(expected_cash_adjustment),
+            applied_count=0 if dry_run else len(candidates),
+            candidates=response_candidates,
+        )
+
+    @staticmethod
+    def _cash_adjustment_for_removed_transaction(transaction: Transaction) -> Decimal:
+        quantity = _to_decimal(transaction.quantity)
+        price = _to_decimal(transaction.price)
+        if transaction.action == "buy":
+            return quantity * price
+        if transaction.action == "sell":
+            return -(quantity * price)
+        if transaction.action in {"dividend", "deposit"}:
+            return -price
+        if transaction.action == "withdrawal":
+            return price
+        return Decimal("0")
 
     async def correct_transaction(
         self,
@@ -1133,29 +1442,16 @@ class PortfolioService:
         executed_at: datetime,
         notes: str | None,
     ) -> bool:
-        stmt = (
-            select(Transaction.id)
-            .join(Position, Transaction.position_id == Position.id)
-            .join(Security, Position.security_id == Security.id)
-            .where(
-                Security.ticker == ticker.strip().upper(),
-                Transaction.action == action,
-                Transaction.quantity == quantity,
-                Transaction.executed_at == executed_at,
-                self.active_transaction_clause(),
+        return bool(
+            await self._economic_transaction_matches(
+                ticker=ticker,
+                action=action,
+                quantity=quantity,
+                price=price,
+                executed_at=executed_at,
+                notes=notes,
             )
         )
-        if price is None:
-            stmt = stmt.where(Transaction.price.is_(None))
-        else:
-            stmt = stmt.where(Transaction.price == price)
-        normalized_notes = (notes or "").strip()
-        if normalized_notes:
-            stmt = stmt.where(Transaction.notes == normalized_notes)
-        else:
-            stmt = stmt.where((Transaction.notes.is_(None)) | (Transaction.notes == ""))
-        existing = (await self.session.execute(stmt.limit(1))).scalar_one_or_none()
-        return existing is not None
 
     def _parse_robinhood_activity_rows(
         self, reader: csv.DictReader

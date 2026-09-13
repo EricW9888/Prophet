@@ -68,6 +68,7 @@ class TransactionResponse(TransactionBase):
     source_label: Optional[str] = None
     source_evidence_id: Optional[UUID] = None
     source_confidence: Optional[float] = None
+    source_identity: Optional[str] = None
     provenance: dict = Field(default_factory=dict)
 
     model_config = ConfigDict(from_attributes=True)
@@ -216,3 +217,26 @@ class ReconcileResponse(BaseModel):
     discrepancies: list[ReconcileDiff] = Field(default_factory=list)
     cash_discrepancy: Optional[CashDiscrepancy] = None
     review_items_created: int = 0
+
+
+class MailboxTransactionReconcileRequest(BaseModel):
+    apply: bool = False
+    confirmation: Optional[str] = None
+
+
+class MailboxTransactionDuplicatePair(BaseModel):
+    legacy_transaction_id: UUID
+    canonical_transaction_id: UUID
+    ticker: str
+    action: str
+    executed_at: datetime
+
+
+class MailboxTransactionReconcileResponse(BaseModel):
+    dry_run: bool
+    scanned_transaction_count: int
+    candidate_count: int
+    ambiguous_group_count: int
+    expected_buying_power_adjustment: float
+    applied_count: int = 0
+    candidates: list[MailboxTransactionDuplicatePair] = Field(default_factory=list)

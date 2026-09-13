@@ -16,6 +16,7 @@ from investos.core.storage import LocalStorage
 from investos.models.evidence import RawEvidence
 from investos.models.portfolio import Transaction
 from investos.models.review import ReviewQueueItem
+from investos.schemas.portfolio import TransactionCreate
 from investos.services.mailbox import GmailMailboxService
 
 
@@ -45,16 +46,30 @@ def receipt(sender="notifications@robinhood.com"):
     return message
 
 
+def order_receipt(
+    *, ticker: str, quantity: str, price: str, sender="notifications@robinhood.com"
+):
+    message = EmailMessage()
+    message["From"] = sender
+    message["Subject"] = f"Your {ticker} order was executed"
+    message["Date"] = "Mon, 03 Aug 2026 15:00:00 +0000"
+    message.set_content(
+        f"Your order to buy {quantity} shares of {ticker} has been executed "
+        f"at an average price of ${price}"
+    )
+    return message
+
+
 async def test_interrupted_import_recovers_existing_evidence_once(
     mailbox_service, monkeypatch
 ):
     service = mailbox_service
     uid = str(uuid4())
     runtime = SimpleNamespace(folder="Synthetic")
-    original = service.portfolio.add_transaction_by_ticker
+    original = service.portfolio.add_sourced_transaction_by_ticker
     monkeypatch.setattr(
         service.portfolio,
-        "add_transaction_by_ticker",
+        "add_sourced_transaction_by_ticker",
         AsyncMock(side_effect=RuntimeError("synthetic posting failure")),
     )
     with pytest.raises(RuntimeError, match="posting failure"):
@@ -64,7 +79,9 @@ async def test_interrupted_import_recovers_existing_evidence_once(
     original_id = evidence.id
     assert not await service._already_ingested(uid, runtime)
 
-    monkeypatch.setattr(service.portfolio, "add_transaction_by_ticker", original)
+    monkeypatch.setattr(
+        service.portfolio, "add_sourced_transaction_by_ticker", original
+    )
     result = await service._process_message(uid, receipt(), runtime)
     assert result["transaction_created"]
     assert result["evidence_id"] == str(original_id)
@@ -113,7 +130,7 @@ async def test_model_confidence_cannot_post_unverified_cash(
         ),
     )
     post = AsyncMock()
-    monkeypatch.setattr(service.portfolio, "add_transaction_by_ticker", post)
+    monkeypatch.setattr(service.portfolio, "add_sourced_transaction_by_ticker", post)
     uid = str(uuid4())
     result = await service._process_message(uid, receipt("not-a-broker@example.test"))
     assert result["needs_reconciliation"]
@@ -126,6 +143,52 @@ async def test_model_confidence_cannot_post_unverified_cash(
         .limit(1)
     )
     assert review is not None
+
+
+async def test_mailbox_adopts_matching_legacy_fill_despite_float_tail(
+    mailbox_service,
+):
+    service = mailbox_service
+    ticker = f"T{uuid4().hex[:7].upper()}"
+    executed_at = service._parse_datetime_fallback(
+        None, service._parse_email_datetime("Mon, 03 Aug 2026 15:00:00 +0000")
+    )
+    notes = f"Deterministic parse: BUY 0.75 {ticker} @ $628.87"
+    legacy = await service.portfolio.add_transaction_by_ticker(
+        ticker=ticker,
+        txn_data=TransactionCreate(
+            action="buy",
+            quantity=0.75,
+            price=628.87,
+            executed_at=executed_at,
+            notes=notes,
+            lot_type="csv_import",
+        ),
+    )
+    legacy.price = Decimal("628.8700000000000045")
+    await service.session.commit()
+
+    uid = str(uuid4())
+    result = await service._process_message(
+        uid,
+        order_receipt(ticker=ticker, quantity="0.75", price="628.87"),
+    )
+
+    assert not result["transaction_created"]
+    assert result["transaction_reconciled"]
+    assert result["transaction_id"] == str(legacy.id)
+    transactions = list(
+        (
+            await service.session.execute(
+                select(Transaction).where(Transaction.position_id == legacy.position_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(transactions) == 1
+    assert transactions[0].source_identity == f"email_order_confirmation:{uid}"
+    assert transactions[0].provenance_json["legacy_transaction_adopted"] is True
 
 
 async def test_incomplete_ingestion_commit_is_found_by_metadata(mailbox_service):
