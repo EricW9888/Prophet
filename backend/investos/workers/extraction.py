@@ -23,6 +23,7 @@ from investos.services.artifact_hygiene import (
     normalize_subject_name,
 )
 from investos.services.corroboration import source_authority
+from investos.services.evidence_processing import EvidenceProcessingService
 from investos.services.evidence_relevance import (
     EvidenceRelevanceAssessment,
     EvidenceRelevanceService,
@@ -344,9 +345,14 @@ EXTRACTION_SCHEMA["properties"]["market_setup_signals"][
 
 
 class ExtractionWorker:
-    def __init__(self, session: AsyncSession):
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        storage: LocalStorage | None = None,
+    ):
         self.session = session
-        self.storage = LocalStorage()
+        self.storage = storage or LocalStorage()
         self.edge_state = GraphEdgeStateService(session)
 
     async def process_evidence(self, evidence_id: UUID) -> dict[str, object] | None:
@@ -355,8 +361,21 @@ class ExtractionWorker:
                 select(RawEvidence).where(RawEvidence.id == evidence_id)
             )
         ).scalar_one_or_none()
-        if not evidence or evidence.is_processed or not evidence.raw_content_ref:
+        if not evidence:
             return None
+        existing_source_item = (
+            await self.session.execute(
+                select(SourceItem).where(SourceItem.raw_evidence_id == evidence_id)
+            )
+        ).scalar_one_or_none()
+        processing = EvidenceProcessingService(self.session)
+        processing_state = await processing.ensure_for_evidence(
+            evidence,
+            source_item=existing_source_item,
+        )
+        if evidence.is_processed:
+            await self.session.commit()
+            return {"processing": processing.summary(processing_state)}
         source_type = (
             await self.session.execute(
                 select(Source.source_type).where(Source.id == evidence.source_id)
@@ -366,25 +385,71 @@ class ExtractionWorker:
         if evidence.source_item_type == "conversation_turn" or (
             evidence.metadata_json or {}
         ).get("skip_extraction"):
+            processing.record_not_applicable(
+                processing_state,
+                reason="This evidence type is intentionally excluded from extraction.",
+            )
             evidence.is_processed = True
             await self.session.commit()
-            return None
-        existing_source_item = (
-            await self.session.execute(
-                select(SourceItem).where(SourceItem.raw_evidence_id == evidence_id)
-            )
-        ).scalar_one_or_none()
+            return {"processing": processing.summary(processing_state)}
         if (
             existing_source_item is not None
-            and existing_source_item.processing_status != "extraction_deferred"
+            and processing_state.extraction_status == "pending"
+            and existing_source_item.processing_status
+            not in {
+                "extraction_deferred",
+                "extraction_pending",
+                "extraction_retry_scheduled",
+                "extraction_retry_exhausted",
+            }
         ):
+            processing.record_extraction_completed(
+                processing_state,
+                investment_object_status=(
+                    "quarantined"
+                    if existing_source_item.processing_status
+                    in {"rejected_adjacent", "rejected_irrelevant"}
+                    else "completed"
+                ),
+                persisted_object_count=processing_state.persisted_object_count,
+            )
             evidence.is_processed = True
             await self.session.commit()
-            return None
+            return {"processing": processing.summary(processing_state)}
+
+        if not evidence.raw_content_ref:
+            processing.record_missing_content(
+                processing_state,
+                error="No stored source content is attached to this evidence.",
+            )
+            await self.session.commit()
+            return {
+                "degraded": True,
+                "missing_raw_content": True,
+                "processing": processing.summary(processing_state),
+            }
+
+        claim = await processing.claim_extraction(
+            evidence,
+            source_item=existing_source_item,
+        )
+        if not claim.claimed:
+            await self.session.commit()
+            return {
+                "deferred": claim.reason
+                in {"retry_not_due", "retry_exhausted", "already_running"},
+                "processing": processing.summary(claim.state),
+            }
+        processing_state = claim.state
+        await self.session.commit()
 
         try:
             raw_bytes = await self.storage.get_object(evidence.raw_content_ref)
             text_content = raw_bytes.decode("utf-8", errors="ignore")[:12000]
+            processing.record_content_available(processing_state)
+            evidence_metadata = dict(evidence.metadata_json or {})
+            evidence_metadata.pop("storage_missing", None)
+            evidence.metadata_json = evidence_metadata
         except FileNotFoundError:
             fallback_summary = (
                 evidence.title
@@ -398,10 +463,14 @@ class ExtractionWorker:
                 summary=fallback_summary,
                 processing_status="missing_raw_content",
             )
-            evidence.is_processed = True
+            evidence.is_processed = False
             metadata = dict(evidence.metadata_json or {})
             metadata["storage_missing"] = True
             evidence.metadata_json = metadata
+            processing.record_missing_content(
+                processing_state,
+                error="Stored source content is no longer available locally.",
+            )
             await self.session.commit()
             return {
                 "subject_id": None,
@@ -409,8 +478,8 @@ class ExtractionWorker:
                 "summary": fallback_summary,
                 "degraded": True,
                 "missing_raw_content": True,
+                "processing": processing.summary(processing_state),
             }
-        extraction_degraded = False
         try:
             extracted = await self._extract_structured_data(
                 evidence.title or "Untitled evidence",
@@ -424,11 +493,49 @@ class ExtractionWorker:
                 "Structured extraction fell back after LLM failure: %s",
                 compact_exception_message(exc),
             )
-            extracted = self._fallback_structured_data(
+            fallback = self._fallback_structured_data(
                 evidence.title or "Untitled evidence",
                 text_content,
             )
-            extraction_degraded = True
+            error = compact_exception_message(exc)
+            source_item = await self._upsert_source_item(
+                raw_evidence_id=evidence.id,
+                source_id=evidence.source_id,
+                extracted_text=text_content[:4000],
+                summary=fallback["summary"],
+                processing_status="extraction_retry_scheduled",
+            )
+            await self.edge_state.ensure_edge(
+                source_type="raw_evidence",
+                source_id=evidence.id,
+                target_type="source_item",
+                target_id=source_item.id,
+                relationship_type="processed_into",
+            )
+            retry_status = processing.record_extraction_failure(
+                processing_state,
+                error=error,
+            )
+            source_item.processing_status = (
+                "extraction_retry_exhausted"
+                if retry_status == "retry_exhausted"
+                else "extraction_retry_scheduled"
+            )
+            evidence_metadata = dict(evidence.metadata_json or {})
+            evidence_metadata["knowledge_promotion_status"] = "deferred"
+            evidence_metadata["extraction_degraded"] = True
+            evidence.metadata_json = evidence_metadata
+            await self.session.commit()
+            return {
+                "subject_id": None,
+                "subject_type": None,
+                "subject_name": None,
+                "summary": fallback["summary"],
+                "quarantined": False,
+                "deferred": True,
+                "degraded": True,
+                "processing": processing.summary(processing_state),
+            }
 
         relevance = EvidenceRelevanceAssessment.from_payload(
             extracted.get("relevance_assessment")
@@ -436,12 +543,10 @@ class ExtractionWorker:
         evidence_metadata = dict(evidence.metadata_json or {})
         evidence_metadata["relevance_assessment"] = relevance.as_metadata()
         evidence_metadata["knowledge_promotion_status"] = (
-            "deferred"
-            if extraction_degraded
-            else "eligible" if relevance.knowledge_eligible else "quarantined"
+            "eligible" if relevance.knowledge_eligible else "quarantined"
         )
-        if extraction_degraded:
-            evidence_metadata["extraction_degraded"] = True
+        if evidence_metadata.pop("extraction_degraded", None) is not None:
+            evidence_metadata["extraction_recovered_at"] = datetime.now(UTC).isoformat()
         evidence.metadata_json = evidence_metadata
 
         source_item = await self._upsert_source_item(
@@ -449,11 +554,7 @@ class ExtractionWorker:
             source_id=evidence.source_id,
             extracted_text=text_content[:4000],
             summary=extracted["summary"],
-            processing_status=(
-                "extraction_deferred"
-                if extraction_degraded
-                else relevance.processing_status
-            ),
+            processing_status=relevance.processing_status,
         )
 
         await self.edge_state.ensure_edge(
@@ -463,18 +564,6 @@ class ExtractionWorker:
             target_id=source_item.id,
             relationship_type="processed_into",
         )
-        if extraction_degraded:
-            await self.session.commit()
-            return {
-                "subject_id": None,
-                "subject_type": None,
-                "subject_name": None,
-                "summary": extracted["summary"],
-                "relevance_assessment": relevance.as_metadata(),
-                "quarantined": False,
-                "deferred": True,
-                "degraded": True,
-            }
         if not relevance.knowledge_eligible:
             deprecated = await EvidenceRelevanceService(self.session).apply_quarantine(
                 evidence=evidence,
@@ -482,6 +571,11 @@ class ExtractionWorker:
                 assessment=relevance,
             )
             evidence.is_processed = True
+            processing.record_extraction_completed(
+                processing_state,
+                investment_object_status="quarantined",
+                persisted_object_count=0,
+            )
             await self.session.commit()
             return {
                 "subject_id": None,
@@ -491,7 +585,8 @@ class ExtractionWorker:
                 "relevance_assessment": relevance.as_metadata(),
                 "quarantined": True,
                 "deprecated_knowledge_count": deprecated,
-                "degraded": extraction_degraded,
+                "degraded": False,
+                "processing": processing.summary(processing_state),
             }
 
         subject_name = extracted["primary_subject"]
@@ -507,7 +602,7 @@ class ExtractionWorker:
         audit_metadata = {
             "raw_evidence_id": str(evidence.id),
             "source_item_id": str(source_item.id),
-            "extraction_degraded": extraction_degraded,
+            "extraction_degraded": False,
         }
         reason = f"Extracted from source evidence: {evidence.title or evidence.url or 'untitled evidence'}"
 
@@ -829,10 +924,21 @@ class ExtractionWorker:
             raw_evidence_id=evidence.id,
         )
         evidence.is_processed = True
-        metadata = dict(evidence.metadata_json or {})
-        if extraction_degraded:
-            metadata["extraction_degraded"] = True
-            evidence.metadata_json = metadata
+        persisted_object_count = sum(
+            len(extracted[key])
+            for key in (
+                "events",
+                "facts",
+                "claims",
+                "fundamental_metrics",
+                "market_setup_signals",
+            )
+        )
+        processing.record_extraction_completed(
+            processing_state,
+            investment_object_status="completed",
+            persisted_object_count=persisted_object_count,
+        )
         await self.session.commit()
         await CoverageWorker(self.session).audit_subject_coverage(
             subject_id=subject_id,
@@ -853,6 +959,7 @@ class ExtractionWorker:
             raw_evidence_id=evidence.id,
         )
         loop_result["watchers_triggered"] = watcher_trigger_count
+        loop_result["processing"] = processing.summary(processing_state)
         return loop_result
 
     async def reassess_evidence_relevance(self, evidence_id: UUID) -> dict[str, object]:

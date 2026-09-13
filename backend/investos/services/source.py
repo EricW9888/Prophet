@@ -19,6 +19,7 @@ from investos.models.catalog import (
 )
 from investos.models.entity import Entity, Security
 from investos.models.evidence import (
+    EvidenceProcessingState,
     RawEvidence,
     ResearchDiscoveryObservation,
     SourceItem,
@@ -29,6 +30,7 @@ from investos.models.lesson import Lesson
 from investos.models.portfolio import Position
 from investos.models.source import Source, SourceQualitySegment
 from investos.schemas.source import SourceCreate, SourceUpdate
+from investos.services.evidence_processing import EvidenceProcessingService
 from investos.services.knowledge_audit import KnowledgeAuditService
 from investos.services.source_claim_policy import (
     source_claim_due_at,
@@ -326,13 +328,20 @@ class SourceService:
     async def list_recent_evidence(self, limit: int = 80) -> list[dict]:
         rows = (
             await self.session.execute(
-                select(RawEvidence, Source)
+                select(RawEvidence, Source, EvidenceProcessingState)
                 .join(Source, RawEvidence.source_id == Source.id)
+                .outerjoin(
+                    EvidenceProcessingState,
+                    EvidenceProcessingState.raw_evidence_id == RawEvidence.id,
+                )
                 .order_by(desc(RawEvidence.created_at))
                 .limit(max(1, min(limit, 200)))
             )
         ).all()
-        return [self._evidence_summary(evidence, source) for evidence, source in rows]
+        return [
+            self._evidence_summary(evidence, source, processing)
+            for evidence, source, processing in rows
+        ]
 
     async def list_discovery_observations(self, limit: int = 80) -> list[dict]:
         rows = (
@@ -373,29 +382,45 @@ class SourceService:
     async def list_notes(self, limit: int = 80) -> list[dict]:
         rows = (
             await self.session.execute(
-                select(RawEvidence, Source)
+                select(RawEvidence, Source, EvidenceProcessingState)
                 .join(Source, RawEvidence.source_id == Source.id)
+                .outerjoin(
+                    EvidenceProcessingState,
+                    EvidenceProcessingState.raw_evidence_id == RawEvidence.id,
+                )
                 .where(RawEvidence.source_item_type.in_(NOTE_SOURCE_ITEM_TYPES))
                 .order_by(desc(RawEvidence.created_at))
                 .limit(max(1, min(limit, 200)))
             )
         ).all()
-        return [self._evidence_summary(evidence, source) for evidence, source in rows]
+        return [
+            self._evidence_summary(evidence, source, processing)
+            for evidence, source, processing in rows
+        ]
 
     async def get_evidence_detail(self, evidence_id: UUID) -> dict | None:
         row = (
             await self.session.execute(
-                select(RawEvidence, Source, SourceItem)
+                select(
+                    RawEvidence,
+                    Source,
+                    SourceItem,
+                    EvidenceProcessingState,
+                )
                 .join(Source, RawEvidence.source_id == Source.id)
                 .outerjoin(SourceItem, SourceItem.raw_evidence_id == RawEvidence.id)
+                .outerjoin(
+                    EvidenceProcessingState,
+                    EvidenceProcessingState.raw_evidence_id == RawEvidence.id,
+                )
                 .where(RawEvidence.id == evidence_id)
             )
         ).one_or_none()
         if row is None:
             return None
 
-        evidence, source, source_item = row
-        detail = self._evidence_summary(evidence, source)
+        evidence, source, source_item, processing = row
+        detail = self._evidence_summary(evidence, source, processing)
         metadata = (
             evidence.metadata_json if isinstance(evidence.metadata_json, dict) else {}
         )
@@ -1848,7 +1873,11 @@ class SourceService:
         )
 
     @staticmethod
-    def _evidence_summary(evidence: RawEvidence, source: Source) -> dict:
+    def _evidence_summary(
+        evidence: RawEvidence,
+        source: Source,
+        processing: EvidenceProcessingState | None = None,
+    ) -> dict:
         return {
             "id": evidence.id,
             "source_id": source.id,
@@ -1860,6 +1889,7 @@ class SourceService:
             "is_processed": evidence.is_processed,
             **SourceService._evidence_origin_summary(evidence, source),
             "user_feedback": (evidence.metadata_json or {}).get("user_feedback"),
+            "processing": EvidenceProcessingService.summary(processing),
             "created_at": evidence.created_at,
             "updated_at": evidence.updated_at,
         }

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BookmarkPlus, CheckCircle2, ExternalLink, FileText, RotateCcw, ThumbsDown, ThumbsUp, Trash2, Video } from "lucide-react";
 
@@ -1171,6 +1172,14 @@ function RecentEvidence({
                   {item.user_feedback?.lesson_title ? (
                     <StatusPill tone="info">saved as lesson</StatusPill>
                   ) : null}
+                  {item.processing ? (
+                    <StatusPill
+                      tone={processingTone(item.processing.overall_status)}
+                      title={item.processing.next_action || undefined}
+                    >
+                      {item.processing.overall_status.replaceAll("_", " ")}
+                    </StatusPill>
+                  ) : null}
                 </div>
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   {item.source_item_type.replaceAll("_", " ")} · {formatDate(item.created_at)}
@@ -1182,6 +1191,14 @@ function RecentEvidence({
                 ) : null}
               </div>
               <div className="flex shrink-0 items-center gap-2">
+                <Link
+                  href={`/sources/evidence/${item.id}`}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-900"
+                  title="Open evidence receipt"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  <span className="sr-only">Open evidence receipt</span>
+                </Link>
                 <button
                   type="button"
                   onClick={() => void onFlag(item.id, "useful")}
@@ -1457,6 +1474,12 @@ function MediaCapabilityPanel({
                       {unresolvedPassCount > 0 ? `; ${unresolvedPassCount} unavailable or failed` : ""}.
                     </p>
                   ) : null}
+                  {mediaJob.result.processing ? (
+                    <p className="text-slate-500 dark:text-slate-400">
+                      Evidence processing: {mediaJob.result.processing.overall_status.replaceAll("_", " ")}.
+                      {mediaJob.result.processing.next_action ? ` ${mediaJob.result.processing.next_action}` : ""}
+                    </p>
+                  ) : null}
                 </div>
               ) : mediaJob.result?.error ? (
                 <p className="mt-1 text-rose-700 dark:text-rose-300">{mediaJob.result.error}</p>
@@ -1647,6 +1670,14 @@ function StatusPill({
       {children}
     </span>
   );
+}
+
+function processingTone(status: string): "neutral" | "good" | "bad" | "info" | "warning" {
+  if (["complete", "quarantined"].includes(status)) return "good";
+  if (["retry_exhausted", "blocked_missing_content"].includes(status)) return "bad";
+  if (["retry_scheduled", "transcript_available"].includes(status)) return "warning";
+  if (status === "running") return "info";
+  return "neutral";
 }
 
 function OriginPill({ children, kind }: { children: React.ReactNode; kind?: string | null }) {
