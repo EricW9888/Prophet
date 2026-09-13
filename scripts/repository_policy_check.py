@@ -29,6 +29,9 @@ PRIVATE_PATH_PREFIXES = {
     ("scratch",),
     ("tmp",),
 }
+PROCESS_ONLY_PATH_PREFIXES = {
+    ("docs", "handoffs"),
+}
 GENERATED_PARTS = {
     ".next",
     ".next-dev",
@@ -106,6 +109,10 @@ def path_violation(path: str) -> str | None:
         return None
     if any(pure.parts[: len(prefix)] == prefix for prefix in PRIVATE_PATH_PREFIXES):
         return "private_runtime_root"
+    if any(
+        pure.parts[: len(prefix)] == prefix for prefix in PROCESS_ONLY_PATH_PREFIXES
+    ):
+        return "process_only_artifact"
     if any(part in GENERATED_PARTS for part in pure.parts):
         return "generated_artifact"
     if pure.name in LOCAL_AGENT_RULE_NAMES:

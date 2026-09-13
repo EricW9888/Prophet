@@ -15,6 +15,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.config import settings
+from investos.core.dates import parse_iso_datetime
 from investos.core.llm import call_llm_json
 from investos.db import async_session_maker
 from investos.models.conclusion import ConclusionState
@@ -246,6 +247,49 @@ class ShadowService:
             .scalars()
             .all()
         )
+
+    @classmethod
+    def next_actionable_experiment(
+        cls, experiments: list[ShadowExperiment], *, now: datetime
+    ) -> ShadowExperiment | None:
+        candidates: list[tuple[datetime, str, ShadowExperiment]] = []
+        for experiment in experiments:
+            status = cls.normalize_run_status(experiment.run_status)
+            if status not in {"queued", "running"} or cls.experiment_run_is_active(
+                experiment.id
+            ):
+                continue
+            state = (
+                experiment.final_portfolio_state_json
+                or experiment.initial_portfolio_state_json
+                or {}
+            )
+            details = state.get("run_details") or {}
+            progress = details.get("progress") or {}
+            events = details.get("pending_evidence_events") or []
+            if status == "running" and not cls._checkpoint_is_due(
+                progress=progress, pending_evidence_events=events, now=now
+            ):
+                continue
+            last_attempt = (
+                parse_iso_datetime(progress.get("last_updated_at"))
+                or parse_iso_datetime(experiment.created_at)
+                or now
+            )
+            checkpoint = parse_iso_datetime(progress.get("next_checkpoint_at"))
+            if events:
+                wake_at = min(
+                    parse_iso_datetime(event.get("queued_at")) or last_attempt
+                    for event in events
+                )
+                checkpoint = min(checkpoint, wake_at) if checkpoint else wake_at
+            # Evidence can wake a future checkpoint. Rotate attempted work behind
+            # older eligible work even when that evidence remains unconsumed.
+            due_at = (
+                max(last_attempt, min(checkpoint, now)) if checkpoint else last_attempt
+            )
+            candidates.append((due_at, str(experiment.id), experiment))
+        return min(candidates, key=lambda item: item[:2])[2] if candidates else None
 
     async def get_experiment(self, experiment_id: UUID) -> ShadowExperiment | None:
         return (

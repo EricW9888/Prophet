@@ -58,7 +58,9 @@ move reusable credentials through a password manager or another encrypted
 private channel, never through a branch, issue, pull request, or private code
 mirror. A private notes repository must not contain Prophet source or become an
 engineering backlog; durable engineering work belongs here as code, docs, or
-GitHub Issues.
+GitHub Issues. Keep dated machine or agent handoffs out of the public tree.
+Carry active engineering state in its Issue or pull request and keep private
+operator context in the private notes boundary.
 
 ## Start Here
 
