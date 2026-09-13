@@ -8,6 +8,8 @@ from investos.config import settings
 from investos.core.uploads import read_upload_limited
 from investos.db import get_session
 from investos.schemas.portfolio import (
+    MailboxTransactionReconcileRequest,
+    MailboxTransactionReconcileResponse,
     PortfolioImportResponse,
     PortfolioOverviewResponse,
     PortfolioSimpleImportRequest,
@@ -27,6 +29,8 @@ from investos.services.market_data import MarketDataService
 from investos.services.portfolio import PortfolioService
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
+
+MAILBOX_RECONCILIATION_CONFIRMATION = "RECONCILE MAILBOX TRANSACTIONS"
 
 
 @router.get("/positions", response_model=list[PositionResponse])
@@ -102,6 +106,28 @@ async def reconcile_positions_from_text(
         parsed["holdings"],
         broker_cash=parsed["cash"],
         create_review_items=payload.create_review_items,
+    )
+
+
+@router.post(
+    "/transactions/reconcile-mailbox",
+    response_model=MailboxTransactionReconcileResponse,
+)
+async def reconcile_mailbox_transactions(
+    payload: MailboxTransactionReconcileRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Preview or apply conservative repair of legacy mailbox duplicates."""
+    if payload.apply and payload.confirmation != MAILBOX_RECONCILIATION_CONFIRMATION:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Applying mailbox reconciliation requires explicit confirmation: "
+                f"{MAILBOX_RECONCILIATION_CONFIRMATION}"
+            ),
+        )
+    return await PortfolioService(session).reconcile_mailbox_transaction_duplicates(
+        dry_run=not payload.apply
     )
 
 

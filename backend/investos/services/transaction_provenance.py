@@ -1,8 +1,34 @@
 from __future__ import annotations
 
+import hashlib
 from uuid import UUID
 
 from investos.models.portfolio import Transaction
+
+SOURCE_IDENTITY_MAX_LENGTH = 512
+
+
+def transaction_source_identity(provenance: object) -> str | None:
+    """Return a durable identity only when provenance names a concrete source item."""
+    payload = provenance if isinstance(provenance, dict) else {}
+    source_type = _clean_optional_text(
+        payload.get("source_type") or payload.get("source")
+    )
+    external_id = _clean_optional_text(payload.get("external_id"))
+    if source_type is not None and external_id is not None:
+        identity = f"{source_type.casefold()}:{external_id}"
+        if len(identity) <= SOURCE_IDENTITY_MAX_LENGTH:
+            return identity
+        digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+        return f"{source_type.casefold()}:sha256:{digest}"
+
+    raw_evidence_id = payload.get("raw_evidence_id") or payload.get("evidence_id")
+    if raw_evidence_id:
+        try:
+            return f"evidence:{UUID(str(raw_evidence_id))}"
+        except ValueError:
+            pass
+    return None
 
 
 def transaction_source_summary(txn: Transaction) -> dict[str, object]:

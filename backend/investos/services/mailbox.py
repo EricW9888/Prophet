@@ -32,7 +32,10 @@ from investos.schemas.integrations import (
 )
 from investos.schemas.portfolio import TransactionCreate
 from investos.services.ingestion import IngestionService
-from investos.services.portfolio import PortfolioService
+from investos.services.portfolio import (
+    MailboxTransactionReconciliationRequired,
+    PortfolioService,
+)
 from investos.services.runtime_settings import RuntimeSettingsStore
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -1150,37 +1153,63 @@ class GmailMailboxService:
             # The trade's execution date is the true event_time for this evidence.
             if executed_at is not None:
                 evidence.event_time = executed_at
-            await self.portfolio.add_transaction_by_ticker(
-                ticker=classification["ticker"],
-                txn_data=TransactionCreate(
-                    action=classification["action"],
-                    quantity=float(classification["quantity"]),
-                    price=float(classification["price"] or 0.0),
-                    executed_at=executed_at,
-                    notes=classification.get("notes")
-                    or f"Ingested from email: {subject}",
-                    lot_type="broker_confirmation",
-                    provenance_json={
-                        "source": "gmail",
-                        "source_type": "email_order_confirmation",
-                        "source_label": "Broker confirmation email",
-                        "raw_evidence_id": str(evidence.id),
-                        "source_id": str(source.id),
-                        "external_id": external_id,
-                        "uid": uid,
-                        "sender": sender,
-                        "subject": subject,
-                        "public_time": public_time.isoformat() if public_time else None,
-                        "executed_at": executed_at.isoformat() if executed_at else None,
-                        "document_type": classification.get("document_type"),
-                        "confidence": classification.get("confidence"),
-                        "parser": "mailbox_ingestion",
-                    },
-                ),
-            )
+            try:
+                posted = await self.portfolio.add_sourced_transaction_by_ticker(
+                    ticker=classification["ticker"],
+                    txn_data=TransactionCreate(
+                        action=classification["action"],
+                        quantity=float(classification["quantity"]),
+                        price=float(classification["price"] or 0.0),
+                        executed_at=executed_at,
+                        notes=classification.get("notes")
+                        or f"Ingested from email: {subject}",
+                        lot_type="broker_confirmation",
+                        provenance_json={
+                            "source": "gmail",
+                            "source_type": "email_order_confirmation",
+                            "source_label": "Broker confirmation email",
+                            "raw_evidence_id": str(evidence.id),
+                            "source_id": str(source.id),
+                            "external_id": external_id,
+                            "uid": uid,
+                            "sender": sender,
+                            "subject": subject,
+                            "public_time": (
+                                public_time.isoformat() if public_time else None
+                            ),
+                            "executed_at": (
+                                executed_at.isoformat() if executed_at else None
+                            ),
+                            "document_type": classification.get("document_type"),
+                            "confidence": classification.get("confidence"),
+                            "parser": "mailbox_ingestion",
+                        },
+                    ),
+                )
+            except MailboxTransactionReconciliationRequired:
+                await self._queue_reconciliation_review(
+                    external_id=external_id,
+                    subject=subject,
+                    classification=classification,
+                )
+                evidence.metadata_json = {
+                    **(evidence.metadata_json or {}),
+                    "mailbox_status": "needs_review",
+                    "mailbox_reconciliation_reason": "ambiguous_legacy_transaction",
+                }
+                await self.session.commit()
+                return {
+                    "transaction_created": False,
+                    "evidence_id": str(evidence.id),
+                    "metadata": classification,
+                    "needs_reconciliation": True,
+                    "skipped_irrelevant": False,
+                }
             await self.session.commit()
             return {
-                "transaction_created": True,
+                "transaction_created": posted.disposition == "created",
+                "transaction_reconciled": posted.disposition == "adopted",
+                "transaction_id": str(posted.transaction.id),
                 "evidence_id": str(evidence.id),
                 "metadata": classification,
                 "skipped_irrelevant": False,
