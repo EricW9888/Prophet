@@ -37,6 +37,7 @@
     "typescript": "^5"
   },
   "overrides": {
-    "postcss": "8.5.25"
+    "postcss": "8.5.25",
+    "js-yaml": "4.3.2"
   }
 }
