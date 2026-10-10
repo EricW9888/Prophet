@@ -108,6 +108,10 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Audit frontend dependencies
+        working-directory: frontend
+        run: npm run audit:security
+
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
@@ -118,10 +122,6 @@ jobs:
           npm run lint
           npm run test:unit
           npm run build
-
-      - name: Audit frontend dependencies
-        working-directory: frontend
-        run: npm audit --audit-level=low
 
   windows:
     name: Windows (Python ${{ matrix.python-version }})
@@ -200,6 +200,10 @@ jobs:
           poetry run alembic check
           poetry run coverage run --branch --source=investos -m pytest -q
           poetry run coverage report --precision=1 --fail-under=40
+
+      - name: Audit Windows frontend dependencies
+        working-directory: frontend
+        run: npm run audit:security
 
       - name: Lint, test, and build the Windows frontend
         working-directory: frontend

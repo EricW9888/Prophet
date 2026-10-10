@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint && node --check public/sw.js",
-    "test:unit": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/*.test.mjs"
+    "test:unit": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/*.test.mjs",
+    "audit:security": "npm audit --omit=dev --audit-level=low && npx --yes audit-ci@7.1.0 --config audit-ci.json"
   },
   "dependencies": {
     "@tailwindcss/typography": "^0.5.20",
