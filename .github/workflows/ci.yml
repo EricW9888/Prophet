@@ -140,7 +140,6 @@ jobs:
       POSTGRES_PASSWORD: root
       POSTGRES_SERVER: 127.0.0.1
       POSTGRES_DB: prophet_ci
-      RUNTIME_SETTINGS_PATH: ${{ runner.temp }}/prophet-ci-runtime-settings.json
       AUTOMATION_ENABLED: "false"
       BACKUP_ENABLED: "false"
       LLM_ALLOW_LOCAL_PROVIDER: "false"
@@ -174,6 +173,7 @@ jobs:
       - name: Prepare native Windows PostgreSQL and disposable configuration
         shell: pwsh
         run: |
+          "RUNTIME_SETTINGS_PATH=$env:RUNNER_TEMP/prophet-ci-runtime-settings.json" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Set-Service -Name postgresql-x64-17 -StartupType Manual
           Start-Service -Name postgresql-x64-17
           $env:PGPASSWORD = $env:POSTGRES_PASSWORD
