@@ -185,8 +185,9 @@ poetry run python ../scripts/audit_state.py
 
 cd ../frontend
 npm run lint
+npm run test:unit
 npm run build
-npm audit --audit-level=low
+npm run audit:security
 ```
 
 </details>
@@ -194,6 +195,21 @@ npm audit --audit-level=low
 The backend suite includes synthetic characterization tests for high-risk
 user-visible behavior. Credentialed Gmail/Plaid flows and browser visual
 regressions still require live external verification.
+
+CI validates backend migrations and tests on Linux and native Windows with
+Python 3.11 and 3.14. The Windows jobs also lint, test, and build the frontend,
+then start the production launcher in a disposable checkout, check the frontend
+API proxy, and verify that launcher-owned processes stop. These checks use
+synthetic data and disabled external automation; they do not establish live
+connector or model quality.
+
+Frontend audits reject low-severity and higher findings in production without
+exceptions, then audit the full dependency tree with pinned `audit-ci`.
+`frontend/audit-ci.json` contains one owner-approved development lint exception
+for GHSA-vfj7-8cjw-p6xm on its exact dependency path, expiring at the end of
+October 24, 2026 (America/Chicago). [Issue #114](https://github.com/EricW9888/Prophet/issues/114)
+tracks its removal when upstream publishes a fix; all other paths and advisories
+remain blocking.
 
 ## Data and Secrets
 

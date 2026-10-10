@@ -1,0 +1,15 @@
+{
+  "$schema": "https://raw.githubusercontent.com/IBM/audit-ci/main/docs/schema.json",
+  "low": true,
+  "package-manager": "npm",
+  "report-type": "full",
+  "allowlist": [
+    {
+      "GHSA-vfj7-8cjw-p6xm|eslint-config-next>@next/eslint-plugin-next>fast-glob>micromatch>braces": {
+        "active": true,
+        "notes": "Owner-approved development-only exception through October 24 (America/Chicago); upstream has no patched release. Issue #114 tracks removal. Production dependencies are audited separately without exceptions.",
+        "expiry": "2026-10-25T04:59:59Z"
+      }
+    }
+  ]
+}

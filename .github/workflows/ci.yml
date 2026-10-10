@@ -108,6 +108,10 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Audit frontend dependencies
+        working-directory: frontend
+        run: npm run audit:security
+
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
@@ -119,6 +123,95 @@ jobs:
           npm run test:unit
           npm run build
 
-      - name: Audit frontend dependencies
+  windows:
+    name: Windows (Python ${{ matrix.python-version }})
+    runs-on: windows-2025
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.14"]
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: "true"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: root
+      POSTGRES_SERVER: 127.0.0.1
+      POSTGRES_DB: prophet_ci
+      AUTOMATION_ENABLED: "false"
+      BACKUP_ENABLED: "false"
+      LLM_ALLOW_LOCAL_PROVIDER: "false"
+      POETRY_VIRTUALENVS_IN_PROJECT: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.19.0
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install isolated Poetry
+        shell: pwsh
+        run: |
+          python -m venv "$env:RUNNER_TEMP/poetry"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:RUNNER_TEMP/poetry/Scripts/python.exe" -m pip install --disable-pip-version-check poetry==2.3.2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "$env:RUNNER_TEMP/poetry/Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Prepare native Windows PostgreSQL and disposable configuration
+        shell: pwsh
+        run: |
+          "RUNTIME_SETTINGS_PATH=$env:RUNNER_TEMP/prophet-ci-runtime-settings.json" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Set-Service -Name postgresql-x64-17 -StartupType Manual
+          Start-Service -Name postgresql-x64-17
+          $env:PGPASSWORD = $env:POSTGRES_PASSWORD
+          & "$env:PGBIN/createdb.exe" -h 127.0.0.1 -U postgres prophet_ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          @"
+          POSTGRES_USER=postgres
+          POSTGRES_PASSWORD=$env:POSTGRES_PASSWORD
+          POSTGRES_SERVER=127.0.0.1
+          POSTGRES_DB=prophet_ci
+          AUTOMATION_ENABLED=false
+          BACKUP_ENABLED=false
+          LLM_ALLOW_LOCAL_PROVIDER=false
+          "@ | Set-Content -Path .env -Encoding utf8
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: poetry install --with dev --no-interaction
+
+      - name: Validate migrations and backend tests
+        working-directory: backend
+        run: |
+          poetry run alembic upgrade head
+          poetry run alembic check
+          poetry run coverage run --branch --source=investos -m pytest -q
+          poetry run coverage report --precision=1 --fail-under=40
+
+      - name: Audit Windows frontend dependencies
         working-directory: frontend
-        run: npm audit --audit-level=low
+        run: npm run audit:security
+
+      - name: Lint, test, and build the Windows frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run lint
+          npm run test:unit
+          npm run build
+
+      - name: Verify production launcher and frontend proxy
+        run: python scripts/smoke_prophet.py
