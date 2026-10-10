@@ -178,7 +178,8 @@ def test_research_result_exposes_operator_truth(result, expected):
     assert result.telemetry_status == expected
 
 
-def test_start_schedules_sequential_calibration_catchup_jobs():
+def test_start_schedules_sequential_calibration_catchup_jobs(monkeypatch):
+    monkeypatch.setattr(settings, "AUTOMATION_ENABLED", True)
     coordinator = AutomationCoordinator()
     coordinator._register_job = Mock()
     coordinator.scheduler.start = Mock()
@@ -208,6 +209,7 @@ def test_start_schedules_sequential_calibration_catchup_jobs():
 
 
 def test_runtime_sync_applies_live_opportunity_discovery_controls(monkeypatch):
+    monkeypatch.setattr(settings, "AUTOMATION_ENABLED", True)
     runtime = SimpleNamespace(
         market_data=SimpleNamespace(
             enabled=True,

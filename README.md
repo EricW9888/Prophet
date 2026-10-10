@@ -195,6 +195,13 @@ The backend suite includes synthetic characterization tests for high-risk
 user-visible behavior. Credentialed Gmail/Plaid flows and browser visual
 regressions still require live external verification.
 
+CI validates backend migrations and tests on Linux and native Windows with
+Python 3.11 and 3.14. The Windows jobs also lint, test, and build the frontend,
+then start the production launcher in a disposable checkout, check the frontend
+API proxy, and verify that launcher-owned processes stop. These checks use
+synthetic data and disabled external automation; they do not establish live
+connector or model quality.
+
 ## Data and Secrets
 
 Do not commit `.env`, `data/`, backups, runtime settings, secret sidecars,
