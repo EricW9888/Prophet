@@ -232,6 +232,7 @@ model.
 - [Architecture](docs/architecture.md): current components, data flow, and invariants
 - [Limitations](docs/limitations.md): important operational and quality boundaries
 - [Presentation language](docs/presentation-language.md): supported coverage and traceable source translations
+- [Investor workflows](docs/investor-workflows.md): navigation, task context and recovery semantics
 - GitHub Issues: reproducible bugs and proposed improvements
 
 The Python package retains the historical name `investos`; the product name is

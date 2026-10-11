@@ -23,6 +23,7 @@ import { normalizeSourceOrigin } from "@/lib/sourceOrigin";
 import HintMarker from "@/components/HintMarker";
 import PageHeader from "@/components/PageHeader";
 import WorkspaceState from "@/components/WorkspaceState";
+import { evidenceProcessingTone as processingTone } from "@/lib/evidence-state";
 
 type NoteForm = {
   title: string;
@@ -1672,13 +1673,6 @@ function StatusPill({
   );
 }
 
-function processingTone(status: string): "neutral" | "good" | "bad" | "info" | "warning" {
-  if (["complete", "quarantined"].includes(status)) return "good";
-  if (["retry_exhausted", "blocked_missing_content"].includes(status)) return "bad";
-  if (["retry_scheduled", "transcript_available"].includes(status)) return "warning";
-  if (status === "running") return "info";
-  return "neutral";
-}
 
 function OriginPill({ children, kind }: { children: React.ReactNode; kind?: string | null }) {
   const normalized = (kind || "").toLowerCase();

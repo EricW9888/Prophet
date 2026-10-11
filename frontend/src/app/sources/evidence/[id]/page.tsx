@@ -6,6 +6,8 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, ExternalLink, RotateCcw } from "lucide-react";
 
 import AppNav from "@/components/AppNav";
+import WorkspaceState from "@/components/WorkspaceState";
+import { evidenceProcessingTone as processingTone } from "@/lib/evidence-state";
 import EvidenceTranslationPanel from "@/components/EvidenceTranslationPanel";
 import { apiFetch, EvidenceProcessingState, SourceEvidenceDetail } from "@/lib/api";
 import { formatUserLabel } from "@/lib/formatting";
@@ -19,6 +21,7 @@ export default function EvidenceReceiptPage() {
   const [retrying, setRetrying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [refreshVersion, setRefreshVersion] = useState(0);
 
   useEffect(() => {
     async function loadReceipt() {
@@ -35,7 +38,7 @@ export default function EvidenceReceiptPage() {
     }
 
     void loadReceipt();
-  }, [evidenceId]);
+  }, [evidenceId, refreshVersion]);
 
   const metadataRows = useMemo(() => evidenceMetadataRows(receipt?.metadata), [receipt?.metadata]);
   const origin = useMemo(() => normalizeSourceOrigin(receipt), [receipt]);
@@ -67,13 +70,9 @@ export default function EvidenceReceiptPage() {
         </Link>
 
         {loading ? (
-          <div className="rounded-lg border border-line bg-panel p-8 text-sm text-muted">
-            Loading receipt...
-          </div>
+          <WorkspaceState kind="loading" title="Loading source receipt" description="Reading the retained source and processing state." />
         ) : error || !receipt ? (
-          <div className="rounded-lg border border-rose-100 bg-rose-50 p-8 text-sm font-semibold text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/10 dark:text-rose-300">
-            {error ?? "Evidence receipt not found."}
-          </div>
+          <WorkspaceState kind="error" title="Source receipt is unavailable" description={error ?? "Evidence receipt not found."} actionLabel="Retry" onAction={() => setRefreshVersion(value => value + 1)} />
         ) : (
           <div className="space-y-6">
             <section className="rounded-lg border border-line bg-panel p-6">
@@ -116,8 +115,6 @@ export default function EvidenceReceiptPage() {
               </div>
             </section>
 
-            <EvidenceTranslationPanel key={evidenceId} evidenceId={evidenceId} />
-
             <ProcessingLifecycle
               processing={receipt.processing}
               retrying={retrying}
@@ -151,6 +148,10 @@ export default function EvidenceReceiptPage() {
                 </div>
               </div>
             </section>
+            <details className="rounded-lg border border-line bg-panel p-4">
+              <summary className="cursor-pointer text-sm font-semibold">Original text and translated source view</summary>
+              <div className="mt-4"><EvidenceTranslationPanel key={evidenceId} evidenceId={evidenceId} /></div>
+            </details>
           </div>
         )}
       </div>
@@ -236,7 +237,7 @@ function ProcessingLifecycle({
 
 function ProcessingStage({ label, status }: { label: string; status: string }) {
   const tone = processingTone(status);
-  const Icon = tone === "good" ? CheckCircle2 : tone === "bad" ? AlertTriangle : Clock3;
+  const Icon = tone === "good" ? CheckCircle2 : ["bad", "warning"].includes(tone) ? AlertTriangle : Clock3;
   const styles =
     tone === "good"
       ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-200"
@@ -289,12 +290,6 @@ function StatusPill({ children, tone = "neutral" }: { children: string; tone?: "
   );
 }
 
-function processingTone(status?: string | null): "neutral" | "good" | "bad" | "warning" {
-  if (["complete", "completed", "not_required", "not_applicable", "quarantined"].includes(status || "")) return "good";
-  if (["retry_exhausted", "blocked_missing_content", "missing", "blocked"].includes(status || "")) return "bad";
-  if (["retry_scheduled", "transcript_available"].includes(status || "")) return "warning";
-  return "neutral";
-}
 
 function OriginPill({ children, kind }: { children: string; kind?: string | null }) {
   const normalized = (kind || "").toLowerCase();
