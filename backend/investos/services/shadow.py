@@ -10,7 +10,8 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.dialects.postgresql import array as pg_array
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,6 +33,7 @@ from investos.models.shadow import (
     ShadowEvidenceEvent,
     ShadowExperiment,
     ShadowFill,
+    ShadowLifecycleEvent,
     ShadowOrder,
 )
 from investos.models.source import Source
@@ -50,6 +52,12 @@ from investos.services.paper_broker import (
 from investos.services.portfolio_peers import PortfolioPeerContextService
 from investos.services.review import ReviewService
 from investos.services.runtime_settings import RuntimeSettingsStore
+from investos.services.shadow_lifecycle import (
+    ACTIVE_SHADOW_STATUSES,
+    TERMINAL_SHADOW_STATUSES,
+    lifecycle_counts,
+    lifecycle_state,
+)
 from investos.services.shadow_metrics import (
     calculate_shadow_metrics,
     result_metrics,
@@ -168,6 +176,9 @@ SHADOW_DISCOVERY_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
+        "mechanism": {"type": "string"},
+        "counterfactual": {"type": "string"},
+        "existing_family_id": {"type": ["string", "null"]},
         "should_launch": {"type": "boolean"},
         "name": {"type": "string"},
         "family_key": {"type": "string"},
@@ -199,6 +210,9 @@ SHADOW_DISCOVERY_SCHEMA = {
         "no_launch_reason": {"type": "string"},
     },
     "required": [
+        "mechanism",
+        "counterfactual",
+        "existing_family_id",
         "should_launch",
         "name",
         "family_key",
@@ -272,9 +286,7 @@ class ShadowService:
             details = state.get("run_details") or {}
             progress = details.get("progress") or {}
             events = details.get("pending_evidence_events") or []
-            if status == "running" and not cls._checkpoint_is_due(
-                progress=progress, pending_evidence_events=events, now=now
-            ):
+            if lifecycle_state(experiment, now=now) == "waiting":
                 continue
             last_attempt = (
                 parse_iso_datetime(progress.get("last_updated_at"))
@@ -282,6 +294,9 @@ class ShadowService:
                 or now
             )
             checkpoint = parse_iso_datetime(progress.get("next_checkpoint_at"))
+            end = parse_iso_datetime(getattr(experiment, "end_point", None))
+            if end is not None and end <= now:
+                checkpoint = min(checkpoint, end) if checkpoint else end
             if events:
                 wake_at = min(
                     parse_iso_datetime(event.get("queued_at")) or last_attempt
@@ -304,7 +319,7 @@ class ShadowService:
         ).scalar_one_or_none()
 
     async def create_experiment(
-        self, payload: ShadowExperimentCreate
+        self, payload: ShadowExperimentCreate, *, previous_run_id: UUID | None = None
     ) -> ShadowExperiment:
         if payload.account_basis == "cash_only" and (
             payload.starting_cash is None or payload.starting_cash <= 0
@@ -318,9 +333,9 @@ class ShadowService:
                 "starting_cash is only valid for cash-only paper accounts."
             )
         now = datetime.now(UTC)
-        start_point = payload.start_point or now
+        start_point = parse_iso_datetime(payload.start_point) or now
         profile_horizon_days = self._profile_horizon_days(payload.discovery_profile)
-        end_point = payload.end_point or (
+        end_point = parse_iso_datetime(payload.end_point) or (
             start_point + timedelta(days=profile_horizon_days)
             if profile_horizon_days is not None
             else self._default_end_point(
@@ -341,7 +356,32 @@ class ShadowService:
             policy_description=payload.policy_description,
             trigger_reason=payload.trigger_reason,
             discovery_profile=payload.discovery_profile,
+            subject_refs=payload.subject_refs,
+            horizon_seconds=int((end_point - start_point).total_seconds()),
+            family_identity=payload.family_identity,
         )
+        if family_state is not None and payload.auto_run:
+            await self.session.execute(
+                select(ExperimentFamilyState)
+                .where(ExperimentFamilyState.id == family_state.id)
+                .with_for_update()
+            )
+            existing_active = await self.session.scalar(
+                select(ShadowExperiment).where(
+                    ShadowExperiment.family_id == family_state.id,
+                    ShadowExperiment.run_status.in_(ACTIVE_SHADOW_STATUSES),
+                )
+            )
+            if existing_active is not None:
+                self._record_lifecycle(
+                    existing_active,
+                    "proposal_reinforced",
+                    name=payload.name,
+                    policy_description=payload.policy_description,
+                    trigger_reason=payload.trigger_reason,
+                )
+                await self.session.commit()
+                return existing_active
         initial_state = await self._portfolio_snapshot(
             trigger_type=payload.trigger_type or "manual",
             trigger_reason=payload.trigger_reason,
@@ -370,6 +410,7 @@ class ShadowService:
         }
         experiment = ShadowExperiment(
             family_id=None if family_state is None else family_state.id,
+            previous_run_id=previous_run_id,
             name=payload.name,
             policy_description=payload.policy_description,
             start_point=start_point,
@@ -378,6 +419,17 @@ class ShadowService:
             run_status="queued" if payload.auto_run else "manual",
         )
         self.session.add(experiment)
+        await self.session.flush()
+        self._record_lifecycle(
+            experiment,
+            "created",
+            family_identity=family_state.identity_json if family_state else {},
+            execution_mode="autonomous" if payload.auto_run else "manual",
+        )
+        if previous_run_id is not None:
+            self._record_lifecycle(
+                experiment, "retry_created", previous_run_id=str(previous_run_id)
+            )
         await self.session.commit()
         await self.session.refresh(experiment)
         return experiment
@@ -386,19 +438,116 @@ class ShadowService:
         experiment = await self.get_experiment(experiment_id)
         if not experiment:
             raise ValueError("Shadow experiment not found")
-        if self.normalize_run_status(experiment.run_status) == "running":
+        status = self.normalize_run_status(experiment.run_status)
+        if status in {"queued", "running"}:
             return experiment
+        if status in TERMINAL_SHADOW_STATUSES:
+            context = (experiment.initial_portfolio_state_json or {}).get(
+                "experiment_context"
+            ) or {}
+            family = (
+                await self.session.get(ExperimentFamilyState, experiment.family_id)
+                if experiment.family_id
+                else None
+            )
+            if family is not None:
+                family = await self._family_root(family)
+            retry_start = datetime.now(UTC)
+            duration = experiment.end_point - experiment.start_point
+            if duration.total_seconds() <= 0:
+                raise ValueError(
+                    "A zero-duration legacy run needs a newly defined observation window."
+                )
+            runtime_state = await self.create_experiment(
+                ShadowExperimentCreate(
+                    name=experiment.name,
+                    policy_description=experiment.policy_description,
+                    start_point=retry_start,
+                    end_point=retry_start + duration,
+                    trigger_type="explicit_retry",
+                    trigger_reason=f"New run requested from retained run {experiment.id}",
+                    horizon_label=context.get("horizon_label"),
+                    initiated_by="user",
+                    operator_prompt=context.get("operator_prompt"),
+                    discovery_profile=context.get("discovery_profile"),
+                    subject_refs=context.get("subject_refs") or [],
+                    family_identity=(
+                        {
+                            "identity_status": "unclassified_exact",
+                            **(family.identity_json if family else {}),
+                            "existing_family_id": str(family.id),
+                        }
+                        if family
+                        else None
+                    ),
+                    account_basis=context.get("account_basis") or "clone_portfolio",
+                    starting_cash=(
+                        (
+                            experiment.initial_portfolio_state_json.get("shadow_state")
+                            or {}
+                        ).get("cash")
+                        if context.get("account_basis") == "cash_only"
+                        else None
+                    ),
+                ),
+                previous_run_id=experiment.id,
+            )
+            return runtime_state
+        if status != "manual":
+            raise ValueError(f"Cannot queue a shadow run from {status}.")
+        if experiment.family_id:
+            await self.session.execute(
+                select(ExperimentFamilyState)
+                .where(ExperimentFamilyState.id == experiment.family_id)
+                .with_for_update()
+            )
+            other = await self.session.scalar(
+                select(ShadowExperiment).where(
+                    ShadowExperiment.family_id == experiment.family_id,
+                    ShadowExperiment.run_status.in_(ACTIVE_SHADOW_STATUSES),
+                )
+            )
+            if other is not None:
+                return other
         initial_state = deepcopy(experiment.initial_portfolio_state_json or {})
         context = dict(initial_state.get("experiment_context") or {})
         context["execution_mode"] = "autonomous"
         initial_state["experiment_context"] = context
         experiment.initial_portfolio_state_json = initial_state
         experiment.run_status = "queued"
-        experiment.skip_reason = None
-        experiment.completed_at = None
+        self._record_lifecycle(experiment, "queued_from_manual")
         await self.session.commit()
-        await self.session.refresh(experiment)
         return experiment
+
+    def _record_lifecycle(self, experiment, event_type, **detail):
+        self.session.add(
+            ShadowLifecycleEvent(
+                experiment_id=experiment.id, event_type=event_type, detail_json=detail
+            )
+        )
+
+    async def lifecycle_summary(self):
+        return lifecycle_counts(await self.list_experiments())
+
+    async def lifecycle_history(self, experiment_id):
+        rows = (
+            await self.session.scalars(
+                select(ShadowLifecycleEvent)
+                .where(ShadowLifecycleEvent.experiment_id == experiment_id)
+                .order_by(
+                    ShadowLifecycleEvent.created_at.asc(), ShadowLifecycleEvent.id.asc()
+                )
+            )
+        ).all()
+        return [
+            {
+                "id": str(row.id),
+                "event_type": row.event_type,
+                "detail": row.detail_json,
+                "created_at": row.created_at,
+            }
+            for row in rows
+        ]
 
     @staticmethod
     def _normalize_subject_refs(
@@ -645,10 +794,27 @@ class ShadowService:
                     policy_description=str(discovery_profile.get("policy") or ""),
                     trigger_reason=str(discovery_profile.get("trigger_reason") or ""),
                     discovery_profile=discovery_profile,
+                    subject_refs=self._discovery_subject_refs(
+                        discovery_profile=discovery_profile,
+                        candidates=discovery_context["candidates"],
+                    ),
+                    horizon_seconds=int(discovery_profile["horizon_days"]) * 86400,
                 )
                 if family_state is not None and not self._family_ready_for_new_run(
                     family_state
                 ):
+                    return 0
+                existing_active = (
+                    await self.session.scalar(
+                        select(ShadowExperiment.id).where(
+                            ShadowExperiment.family_id == family_state.id,
+                            ShadowExperiment.run_status.in_(ACTIVE_SHADOW_STATUSES),
+                        )
+                    )
+                    if family_state
+                    else None
+                )
+                if existing_active is not None:
                     return 0
                 experiment = await self.create_experiment(
                     ShadowExperimentCreate(
@@ -773,6 +939,9 @@ class ShadowService:
             "A launchable idea must name why now, the portfolio transmission route, expected edge, evidence references, falsification tests, uncertainty, and risk controls. "
             "Use should_launch=false when the portfolio state is too thin, the idea lacks a measurable edge, or the experiment would be generic. "
             "Use priority_score for supervision and sorting, not as a substitute for the explicit evidence/falsifier/risk-control contract. "
+            "Provide explicit mechanism and counterfactual identity labels, separate from the policy prose. "
+            "For equivalent hypotheses, reuse existing_family_id and copy its exact mechanism, counterfactual and horizon; paraphrased names are not new families. "
+            "Different subjects, mechanisms, counterfactuals or numeric horizons require distinct families. "
             "family_key must be a concise, stable, open-ended label for the underlying hypothesis family rather than a one-off headline; family_description should state the reusable mechanism. "
             "Prior shadow learning is hypothesis context, not fresh evidence. Use provisional or mixed lessons to design checks, never to justify a launch by themselves. "
             "State whether the named security is expected to outperform or underperform the configured benchmark, and provide an exact horizon_days before outcomes are known. "
@@ -962,6 +1131,39 @@ class ShadowService:
             "peer_exposures": await PortfolioPeerContextService(
                 self.session
             ).peer_exposures(limit=12),
+            "existing_shadow_families": [
+                {
+                    "family_id": str(family.id),
+                    "identity": family.identity_json,
+                    "description": family.description,
+                }
+                for family in (
+                    await self.session.scalars(
+                        select(ExperimentFamilyState)
+                        .where(
+                            ExperimentFamilyState.semantic_key.is_not(None),
+                            ExperimentFamilyState.superseded_by_id.is_(None),
+                            ExperimentFamilyState.identity_json[
+                                "identity_status"
+                            ].astext
+                            == "structured",
+                            ExperimentFamilyState.identity_json["subjects"].has_any(
+                                pg_array(
+                                    [
+                                        "portfolio",
+                                        *[
+                                            f"security:{security.id}"
+                                            for _, security, _ in subject_rows
+                                        ],
+                                    ]
+                                )
+                            ),
+                        )
+                        .order_by(ExperimentFamilyState.family_name)
+                        .limit(100)
+                    )
+                ).all()
+            ],
             "prior_shadow_learning": await self._shadow_learning_context(
                 candidates=candidates,
                 captured_at=captured_at,
@@ -1220,6 +1422,9 @@ class ShadowService:
             "name": name,
             "family_key": family_key,
             "family_description": family_description,
+            "mechanism": " ".join(str(result.get("mechanism") or "").split()),
+            "counterfactual": " ".join(str(result.get("counterfactual") or "").split()),
+            "existing_family_id": result.get("existing_family_id"),
             "opportunity_type": str(result.get("opportunity_type") or "no_action"),
             "priority_score": ShadowService._bounded_float(
                 result.get("priority_score"), 0.0, 1.0
@@ -1290,6 +1495,8 @@ class ShadowService:
         if not profile.get("should_launch"):
             return False, str(profile.get("no_launch_reason") or "discovery_declined")
         required_text = [
+            "mechanism",
+            "counterfactual",
             "name",
             "signal_stage",
             "why_now",
@@ -1428,13 +1635,28 @@ class ShadowService:
         if not experiment:
             raise ValueError("Shadow experiment not found")
 
+        normalized_status = self.normalize_run_status(experiment.run_status)
+        if (
+            normalized_status in TERMINAL_SHADOW_STATUSES
+            or normalized_status == "manual"
+        ):
+            return experiment
+        now = datetime.now(UTC)
+        if experiment.start_point > now:
+            return experiment
+        deadline_reached = experiment.end_point <= now
         positions = await self._positions_with_stance()
-        if not positions:
-            experiment.run_status = "skipped"
-            experiment.skip_reason = "No positions available to simulate."
+        if not positions and not (experiment.initial_portfolio_state_json or {}).get(
+            "shadow_state"
+        ):
+            experiment.run_status = "failed"
+            experiment.skip_reason = (
+                "No retained paper account or current positions available to value."
+            )
+            experiment.completed_at = now
+            self._record_lifecycle(experiment, "failed", reason=experiment.skip_reason)
             await self.session.commit()
             return experiment
-        normalized_status = self.normalize_run_status(experiment.run_status)
         context = (experiment.initial_portfolio_state_json or {}).get(
             "experiment_context"
         ) or {}
@@ -1447,16 +1669,21 @@ class ShadowService:
         progress = run_details.get("progress") or {}
         pending_evidence_events = list(run_details.get("pending_evidence_events") or [])
 
-        if normalized_status == "running" and not self._checkpoint_is_due(
-            progress=progress,
-            pending_evidence_events=pending_evidence_events,
-            now=datetime.now(UTC),
+        if (
+            normalized_status == "running"
+            and not deadline_reached
+            and not self._checkpoint_is_due(
+                progress=progress,
+                pending_evidence_events=pending_evidence_events,
+                now=datetime.now(UTC),
+            )
         ):
             return experiment
 
-        if normalized_status in {"queued", "failed", "skipped"}:
-            await self._reset_experiment_state(experiment)
-            current_state = experiment.initial_portfolio_state_json or {}
+        if normalized_status == "queued" and not progress.get("started_at"):
+            # A queued run may already have a paper ledger. Never delete it.
+            self._record_lifecycle(experiment, "started")
+            current_state = deepcopy(current_state)
             run_details = current_state.get("run_details") or {}
             if pending_evidence_events:
                 run_details["pending_evidence_events"] = pending_evidence_events
@@ -1490,19 +1717,32 @@ class ShadowService:
 
         try:
             policy = experiment.policy_description.lower()
-            guidance = await self._resolve_guidance(
-                operator_prompt=context.get("operator_prompt")
-                or self._operator_prompt_from_policy(
+            guidance = (
+                {
+                    "guidance_mode": "window_closed",
+                    "guidance_summary": "Final valuation using retained/current deterministic marks; no policy trade or provider decision after the planned deadline.",
+                }
+                if deadline_reached
+                else await self._resolve_guidance(
+                    operator_prompt=context.get("operator_prompt")
+                    or self._operator_prompt_from_policy(
+                        policy_description=experiment.policy_description,
+                        trigger_reason=context.get("trigger_reason"),
+                    ),
+                    snapshot_summary=(
+                        experiment.initial_portfolio_state_json or {}
+                    ).get("snapshot_summary")
+                    or {},
                     policy_description=experiment.policy_description,
-                    trigger_reason=context.get("trigger_reason"),
-                ),
-                snapshot_summary=(experiment.initial_portfolio_state_json or {}).get(
-                    "snapshot_summary"
                 )
-                or {},
-                policy_description=experiment.policy_description,
             )
             now = datetime.now(UTC)
+            deadline_reached = deadline_reached or experiment.end_point <= now
+            if deadline_reached:
+                guidance = {
+                    "guidance_mode": "window_closed",
+                    "guidance_summary": "Observation deadline reached; preserve positions and close pending paper work.",
+                }
             prior_log = list(run_details.get("run_log") or [])
             checkpoint_log = list(run_details.get("checkpoint_log") or [])
             decision_history = list(run_details.get("decision_history") or [])
@@ -1531,11 +1771,17 @@ class ShadowService:
                 await MarketDataService(self.session).fetch_quotes(
                     list(ticker_by_security.values())
                 )
-                if paper_runtime.enabled
+                if paper_runtime.enabled and not deadline_reached
                 else {}
             )
             pending_run_log: list[dict[str, Any]] = []
-            if paper_runtime.enabled:
+            now = datetime.now(UTC)
+            deadline_reached = deadline_reached or experiment.end_point <= now
+            if deadline_reached:
+                shadow_state = await self._close_paper_window(
+                    experiment, shadow_state, now=now, reason="planned_window_closed"
+                )
+            elif paper_runtime.enabled:
                 shadow_state, pending_run_log = (
                     await self._process_pending_paper_orders(
                         experiment=experiment,
@@ -1557,14 +1803,33 @@ class ShadowService:
                 or self._target_step_count(context.get("horizon_label"))
             )
             actual_start_total = self._snapshot_total_value(initial_state)
-            checkpoint_plan = await self._build_checkpoint_plan(
-                experiment=experiment,
-                positions=positions,
-                guidance=guidance,
-                checkpoint_log=checkpoint_log,
-                decision_history=decision_history,
-                step_number=step_number,
+            checkpoint_plan = (
+                {
+                    "_checkpoint_source": "window_closed",
+                    "checkpoint_objective": "Close the planned observation window",
+                    "decisions": [],
+                }
+                if deadline_reached
+                else await self._build_checkpoint_plan(
+                    experiment=experiment,
+                    positions=positions,
+                    guidance=guidance,
+                    checkpoint_log=checkpoint_log,
+                    decision_history=decision_history,
+                    step_number=step_number,
+                )
             )
+            now = datetime.now(UTC)
+            if experiment.end_point <= now:
+                deadline_reached = True
+                checkpoint_plan = {
+                    "_checkpoint_source": "window_closed",
+                    "checkpoint_objective": "Close the planned observation window",
+                    "decisions": [],
+                }
+                shadow_state = await self._close_paper_window(
+                    experiment, shadow_state, now=now, reason="planned_window_closed"
+                )
             checkpoint_used_provider = (
                 checkpoint_plan.get("_checkpoint_source") == "provider"
             )
@@ -1588,11 +1853,29 @@ class ShadowService:
             prior_realization = self._prior_realization_summary(
                 checkpoint_log=checkpoint_log
             )
-            shadow_research = await self._maybe_run_shadow_research(
-                experiment=experiment,
-                checkpoint_plan=checkpoint_plan,
-                step_number=step_number,
+            shadow_research = (
+                {"status": "window_closed"}
+                if deadline_reached
+                else await self._maybe_run_shadow_research(
+                    experiment=experiment,
+                    checkpoint_plan=checkpoint_plan,
+                    step_number=step_number,
+                )
             )
+
+            now = datetime.now(UTC)
+            if experiment.end_point <= now:
+                deadline_reached = True
+                checkpoint_used_provider = False
+                checkpoint_plan = {
+                    "_checkpoint_source": "window_closed",
+                    "checkpoint_objective": "Close the planned observation window",
+                    "decisions": [],
+                }
+                planned_by_ticker = {}
+                shadow_state = await self._close_paper_window(
+                    experiment, shadow_state, now=now, reason="planned_window_closed"
+                )
 
             # Register active watchers from checkpoint plan
             for dec in checkpoint_plan.get("decisions", []):
@@ -1632,7 +1915,13 @@ class ShadowService:
                 quote = quotes.get(ticker.upper()) or {}
                 price = float(quote.get("price") or 0.0)
                 quote_session = str(quote.get("session") or "unavailable")
-                plan_decision = planned_by_ticker.get(ticker.upper())
+                now = datetime.now(UTC)
+                if experiment.end_point <= now:
+                    deadline_reached = True
+                    checkpoint_used_provider = False
+                plan_decision = (
+                    None if deadline_reached else planned_by_ticker.get(ticker.upper())
+                )
                 shadow_position = self._shadow_position_for_security(
                     shadow_state, position.security_id
                 )
@@ -1845,6 +2134,13 @@ class ShadowService:
                     }
                 )
 
+            now = datetime.now(UTC)
+            if experiment.end_point <= now:
+                deadline_reached = True
+                checkpoint_used_provider = False
+                shadow_state = await self._close_paper_window(
+                    experiment, shadow_state, now=now, reason="planned_window_closed"
+                )
             shadow_total_value = self._shadow_portfolio_total(shadow_state, positions)
             actual_total_value = self._actual_portfolio_total(positions)
             shadow_return = self._portfolio_total_return(
@@ -1950,8 +2246,38 @@ class ShadowService:
                 ]
                 evidence_event_log.extend(consumed_evidence_events)
                 remaining_evidence_events = []
-            elif remaining_evidence_events and step_number >= target_steps:
-                target_steps = step_number + 1
+            if deadline_reached and remaining_evidence_events:
+                evidence_event_log.extend(
+                    [
+                        {
+                            **event,
+                            "closed_at": now.isoformat(),
+                            "outcome": "window_closed_without_policy_consumption",
+                        }
+                        for event in remaining_evidence_events
+                    ]
+                )
+                remaining_evidence_events = []
+            should_continue = not deadline_reached and (
+                step_number < target_steps or bool(remaining_evidence_events)
+            )
+            if not should_continue:
+                shadow_state = await self._close_paper_window(
+                    experiment,
+                    shadow_state,
+                    now=now,
+                    reason=(
+                        "planned_window_closed"
+                        if deadline_reached
+                        else "checkpoint_budget_completed"
+                    ),
+                    consumed_receipt_ids={
+                        UUID(str(event["event_id"]))
+                        for event in consumed_evidence_events
+                        if event.get("event_id")
+                    },
+                )
+                buying_power = self._paper_buying_power(shadow_state)
             experiment.final_portfolio_state_json = await self._portfolio_snapshot(
                 trigger_type=context.get("trigger_type", "manual"),
                 trigger_reason=context.get("trigger_reason"),
@@ -1964,7 +2290,7 @@ class ShadowService:
             )
             experiment.final_portfolio_state_json["shadow_state"] = shadow_state
             progress = {
-                "phase": "monitoring" if step_number < target_steps else "evaluation",
+                "phase": "monitoring" if should_continue else "evaluation",
                 "step_count": step_number,
                 "target_steps": target_steps,
                 "started_at": progress.get("started_at") or now.isoformat(),
@@ -1975,7 +2301,7 @@ class ShadowService:
                         target_steps=target_steps,
                         now=now,
                     ).isoformat()
-                    if step_number < target_steps
+                    if should_continue
                     else None
                 ),
             }
@@ -2014,7 +2340,35 @@ class ShadowService:
                 "pending_evidence_events": remaining_evidence_events,
                 "evidence_event_log": evidence_event_log,
                 "progress": progress,
+                "observation_window": {
+                    "planned_start_at": experiment.start_point.isoformat(),
+                    "planned_end_at": experiment.end_point.isoformat(),
+                    "final_captured_at": None if should_continue else now.isoformat(),
+                    "late_by_seconds": (
+                        max(0.0, (now - experiment.end_point).total_seconds())
+                        if not should_continue
+                        else None
+                    ),
+                    "lateness_tolerance_seconds": max(
+                        1, settings.SHADOW_REFRESH_INTERVAL_SECONDS
+                    ),
+                    "calibration_allowed": not should_continue
+                    and experiment.end_point > experiment.start_point
+                    and max(0.0, (now - experiment.end_point).total_seconds())
+                    <= max(1, settings.SHADOW_REFRESH_INTERVAL_SECONDS),
+                    "valuation_basis": "current_or_retained_deterministic_marks",
+                    "deadline_closed": deadline_reached,
+                },
             }
+            self._record_lifecycle(
+                experiment,
+                "deadline_checkpoint" if deadline_reached else "checkpoint",
+                step_index=step_number,
+                target_steps=target_steps,
+                captured_at=now.isoformat(),
+                planned_end_at=experiment.end_point.isoformat(),
+                pending_receipts=len(pending_evidence_events),
+            )
             if consumed_evidence_events:
                 consumed_ids = {
                     UUID(str(event["event_id"]))
@@ -2047,7 +2401,7 @@ class ShadowService:
                     run_log=prior_log + run_log,
                 )
             )
-            if step_number < target_steps:
+            if should_continue:
                 experiment.run_status = "running"
                 experiment.completed_at = None
                 await self.session.commit()
@@ -2073,7 +2427,7 @@ class ShadowService:
                     reasoning=(
                         f"{guidance.get('guidance_summary', 'Shadow experiment followed the stated policy.')} "
                         "The run used current deterministic position state, accepted conclusion stances, "
-                        "configured remaining buying power, and multiple live checkpoints before completion."
+                        "configured remaining buying power, and the recorded checkpoints and actual valuation dates."
                     ),
                 )
                 self.session.add(result)
@@ -2088,7 +2442,7 @@ class ShadowService:
                 result.reasoning = (
                     f"{guidance.get('guidance_summary', 'Shadow experiment followed the stated policy.')} "
                     "The run used current deterministic position state, accepted conclusion stances, "
-                    "configured remaining buying power, and multiple live checkpoints before completion."
+                    "configured remaining buying power, and the recorded checkpoints and actual valuation dates."
                 )
 
             experiment.final_portfolio_state_json["run_details"]["progress"][
@@ -2096,6 +2450,13 @@ class ShadowService:
             ] = "completed"
             experiment.run_status = "completed"
             experiment.completed_at = now
+            self._record_lifecycle(
+                experiment,
+                "completed",
+                observation_window=experiment.final_portfolio_state_json["run_details"][
+                    "observation_window"
+                ],
+            )
             if experiment.family_id is not None:
                 family_state = (
                     await self.session.execute(
@@ -2113,58 +2474,61 @@ class ShadowService:
             await self.session.refresh(experiment)
             return experiment
         except Exception as exc:
-            experiment.run_status = "failed"
-            experiment.skip_reason = str(exc)
-            experiment.completed_at = datetime.now(UTC)
-            await self.session.commit()
+            if experiment.run_status != "completed":
+                experiment.run_status = "failed"
+                experiment.skip_reason = str(exc)
+                experiment.completed_at = datetime.now(UTC)
+                self._record_lifecycle(
+                    experiment, "failed", reason=experiment.skip_reason
+                )
+                await self.session.commit()
             raise
 
-    async def _reset_experiment_state(self, experiment: ShadowExperiment) -> None:
-        for fill in (
-            (
-                await self.session.execute(
-                    select(ShadowFill).where(ShadowFill.experiment_id == experiment.id)
+    async def _close_paper_window(
+        self, experiment, shadow_state, *, now, reason, consumed_receipt_ids=()
+    ):
+        orders = (
+            await self.session.scalars(
+                select(ShadowOrder).where(
+                    ShadowOrder.experiment_id == experiment.id,
+                    ShadowOrder.status == "accepted",
                 )
             )
-            .scalars()
-            .all()
-        ):
-            await self.session.delete(fill)
-        for order in (
-            (
-                await self.session.execute(
-                    select(ShadowOrder).where(
-                        ShadowOrder.experiment_id == experiment.id
-                    )
+        ).all()
+        for order in orders:
+            order.status = "canceled"
+            order.canceled_at = now
+            shadow_state["cash_reserved"] = max(
+                0.0,
+                float(shadow_state.get("cash_reserved") or 0.0)
+                - float(order.reserved_notional or 0.0),
+            )
+            order.reserved_notional = 0
+            order.account_snapshot_after_json = deepcopy(shadow_state)
+        receipts = (
+            await self.session.scalars(
+                select(ShadowEvidenceEvent).where(
+                    ShadowEvidenceEvent.experiment_id == experiment.id,
+                    ShadowEvidenceEvent.status.in_(["queued", "attached"]),
                 )
             )
-            .scalars()
-            .all()
-        ):
-            await self.session.delete(order)
-        for action in (
-            (
-                await self.session.execute(
-                    select(ShadowAction).where(
-                        ShadowAction.experiment_id == experiment.id
-                    )
-                )
+        ).all()
+        receipts = [
+            receipt for receipt in receipts if receipt.id not in consumed_receipt_ids
+        ]
+        for receipt in receipts:
+            receipt.status = "window_closed"
+            receipt.processed_at = now
+            receipt.processing_detail = f"{reason}; retained without policy consumption"
+        if orders or receipts:
+            self._record_lifecycle(
+                experiment,
+                "paper_window_closed",
+                reason=reason,
+                canceled_order_ids=[str(order.id) for order in orders],
+                receipt_ids=[str(row.id) for row in receipts],
             )
-            .scalars()
-            .all()
-        ):
-            await self.session.delete(action)
-        existing_result = (
-            await self.session.execute(
-                select(ExperimentResult).where(
-                    ExperimentResult.experiment_id == experiment.id
-                )
-            )
-        ).scalar_one_or_none()
-        if existing_result:
-            await self.session.delete(existing_result)
-        experiment.final_portfolio_state_json = None
-        await self.session.flush()
+        return shadow_state
 
     def _transient_result(
         self,
@@ -3025,6 +3389,11 @@ class ShadowService:
                 continue
             lock = self._experiment_run_lock(experiment.id)
             async with lock:
+                cutoff = (
+                    now
+                    if experiment.run_status == "manual"
+                    else min(now, experiment.end_point)
+                )
                 captured_at = self._shadow_account_capture_time(experiment)
                 state_container = (
                     experiment.final_portfolio_state_json
@@ -3049,7 +3418,7 @@ class ShadowService:
                             Transaction.status == "settled",
                             Transaction.superseded_by_id.is_(None),
                             Transaction.executed_at >= captured_at,
-                            Transaction.executed_at <= now,
+                            Transaction.executed_at <= cutoff,
                         )
                         .order_by(Transaction.executed_at.asc(), Transaction.id.asc())
                     )
@@ -3087,7 +3456,7 @@ class ShadowService:
                                     Transaction.position_id.in_(position_ids),
                                     Transaction.status == "settled",
                                     Transaction.superseded_by_id.is_(None),
-                                    Transaction.executed_at <= now,
+                                    Transaction.executed_at <= cutoff,
                                 )
                                 .order_by(
                                     Transaction.position_id.asc(),
@@ -3542,7 +3911,7 @@ class ShadowService:
         if not include_details:
             run_details = {
                 key: run_details[key]
-                for key in ("progress", "guidance")
+                for key in ("progress", "guidance", "observation_window")
                 if key in run_details
             }
             report = {
@@ -3595,6 +3964,13 @@ class ShadowService:
             "run_details": run_details,
             "report": report,
             "run_status": self.normalize_run_status(experiment.run_status),
+            "lifecycle_state": lifecycle_state(experiment),
+            "family_id": getattr(experiment, "family_id", None),
+            "superseded_by_id": getattr(experiment, "superseded_by_id", None),
+            "previous_run_id": getattr(experiment, "previous_run_id", None),
+            "lifecycle_history": (
+                await self.lifecycle_history(experiment.id) if include_details else []
+            ),
             "skip_reason": experiment.skip_reason,
             "created_at": experiment.created_at,
             "completed_at": experiment.completed_at,
@@ -3786,7 +4162,7 @@ class ShadowService:
             "exclusion_reason": (
                 None
                 if observation_window_is_valid
-                else "zero_duration_observation_window"
+                else "invalid_or_late_observation_window"
             ),
             "performance_metrics": result_metrics(result),
             "calibration_basis": "terminal_alpha_not_risk_adjusted_or_causal_validation",
@@ -3885,12 +4261,12 @@ class ShadowService:
             f"this policy family averaged {average_alpha:+.2%} alpha versus the real portfolio. "
             f"Observed outcomes: {supporting} supportive, {contradicting} contradictory, "
             f"and {neutral} immaterial. Maturity is {maturity}; "
-            f"{excluded_observations} legacy zero-duration run{'s were' if excluded_observations != 1 else ' was'} "
+            f"{excluded_observations} excluded observation-window run{'s were' if excluded_observations != 1 else ' was'} "
             "retained for audit but excluded from calibration."
             if alphas
             else (
                 "No eligible time-separated shadow run has completed for this policy family. "
-                f"{excluded_observations} legacy zero-duration run"
+                f"{excluded_observations} excluded observation-window run"
                 f"{'s were' if excluded_observations != 1 else ' was'} retained for audit but excluded from calibration."
             )
         )
@@ -3934,12 +4310,23 @@ class ShadowService:
         return "neutral"
 
     @staticmethod
-    def _experiment_has_valid_observation_window(
-        experiment: ShadowExperiment,
-    ) -> bool:
+    def _experiment_has_valid_observation_window(experiment: ShadowExperiment) -> bool:
         start_point = getattr(experiment, "start_point", None)
         end_point = getattr(experiment, "end_point", None)
-        return bool(start_point and end_point and end_point > start_point)
+        if not (start_point and end_point and end_point > start_point):
+            return False
+        window = (
+            (getattr(experiment, "final_portfolio_state_json", None) or {}).get(
+                "run_details"
+            )
+            or {}
+        ).get("observation_window") or {}
+        if "calibration_allowed" in window:
+            return bool(window["calibration_allowed"])
+        captured = getattr(experiment, "completed_at", None)
+        return captured is None or (captured - end_point).total_seconds() <= max(
+            1, settings.SHADOW_REFRESH_INTERVAL_SECONDS
+        )
 
     @staticmethod
     def _shadow_lesson_state(
@@ -4061,7 +4448,9 @@ class ShadowService:
         ending_buying_power = float(
             (
                 (
-                    (experiment.final_portfolio_state_json or {}).get("run_details")
+                    (getattr(experiment, "final_portfolio_state_json", None) or {}).get(
+                        "run_details"
+                    )
                     or {}
                 ).get("ending_buying_power")
             )
@@ -4198,77 +4587,317 @@ class ShadowService:
             "open_questions": open_questions,
         }
 
+    async def _canonical_family_subjects(self, refs):
+        subjects = set()
+        for ref in self._normalize_subject_refs(refs):
+            subject_type, subject_id = ref["subject_type"], ref["subject_id"]
+            if ref.get("security_id"):
+                subject_type, subject_id = "security", ref["security_id"]
+            if subject_type == "position":
+                position = await self.session.get(Position, UUID(subject_id))
+                if position:
+                    subject_type, subject_id = "security", str(position.security_id)
+            subjects.add(f"{subject_type}:{subject_id}")
+        return sorted(subjects) or ["portfolio"]
+
+    async def _family_root(self, family):
+        seen = set()
+        while family.superseded_by_id is not None:
+            if family.id in seen or len(seen) >= 20:
+                raise ValueError("Shadow family supersession chain is invalid.")
+            seen.add(family.id)
+            family = await self.session.get(
+                ExperimentFamilyState, family.superseded_by_id
+            )
+            if family is None:
+                raise ValueError("Shadow family supersession target is missing.")
+        return family
+
     async def _get_or_create_family_state(
         self,
         *,
-        name: str,
-        policy_description: str,
-        trigger_reason: str | None,
-        discovery_profile: dict[str, Any] | None = None,
-    ) -> ExperimentFamilyState | None:
-        family_name = self._family_name(
-            name=name,
-            policy_description=policy_description,
-            trigger_reason=trigger_reason,
-            discovery_profile=discovery_profile,
-        )
-        if not family_name:
-            return None
-        existing = (
-            await self.session.execute(
-                select(ExperimentFamilyState).where(
-                    ExperimentFamilyState.family_name == family_name
-                )
+        name,
+        policy_description,
+        trigger_reason,
+        discovery_profile=None,
+        subject_refs=None,
+        horizon_seconds=None,
+        family_identity=None,
+    ):
+        profile = discovery_profile or {}
+        supplied = family_identity or profile
+        horizon_seconds = (
+            horizon_seconds
+            or int(
+                self._profile_horizon_days(profile)
+                or self._horizon_days(profile.get("horizon"))
             )
-        ).scalar_one_or_none()
-        if existing is not None:
-            return existing
-        family = ExperimentFamilyState(
-            family_name=family_name,
-            description=(
-                str((discovery_profile or {}).get("family_description") or "").strip()
-                or f"Shadow hypothesis family for {name}"
+            * 86400
+        )
+        identity = {
+            "subjects": await self._canonical_family_subjects(subject_refs),
+            "horizon_seconds": horizon_seconds,
+            "mechanism": " ".join(
+                str(supplied.get("mechanism") or "").casefold().split()
             ),
+            "counterfactual": " ".join(
+                str(supplied.get("counterfactual") or "").casefold().split()
+            ),
+        }
+        if bool(identity["mechanism"]) != bool(identity["counterfactual"]):
+            raise ValueError(
+                "Family identity requires both mechanism and counterfactual."
+            )
+        existing_id = supplied.get("existing_family_id")
+        if existing_id:
+            try:
+                existing = await self.session.get(
+                    ExperimentFamilyState, UUID(str(existing_id))
+                )
+            except ValueError:
+                existing = None
+            if existing is None:
+                raise ValueError("The selected shadow family does not exist.")
+            existing = await self._family_root(existing)
+            prior = existing.identity_json or {}
+            if prior.get("identity_status") == "structured":
+                if any(prior.get(key) != identity[key] for key in identity):
+                    raise ValueError(
+                        "Reuse requires the same subject, mechanism, counterfactual and horizon. Create a distinct family for changed dimensions."
+                    )
+            else:
+                # Explicit retries may reuse a legacy family without guessing its
+                # mechanism. A new proposal must establish structured dimensions.
+                representative = await self.session.scalar(
+                    select(ShadowExperiment)
+                    .where(ShadowExperiment.family_id == existing.id)
+                    .order_by(ShadowExperiment.created_at)
+                    .limit(1)
+                )
+                original_context = (
+                    (
+                        (representative.initial_portfolio_state_json or {}).get(
+                            "experiment_context"
+                        )
+                        or {}
+                    )
+                    if representative
+                    else {}
+                )
+                if representative and (
+                    identity["subjects"]
+                    != await self._canonical_family_subjects(
+                        original_context.get("subject_refs")
+                    )
+                    or identity["horizon_seconds"]
+                    != int(
+                        (
+                            representative.end_point - representative.start_point
+                        ).total_seconds()
+                    )
+                ):
+                    raise ValueError(
+                        "Legacy family reuse requires the same subject and numeric horizon."
+                    )
+                if (
+                    supplied.get("identity_status") != "unclassified_exact"
+                    or identity["mechanism"]
+                    or identity["counterfactual"]
+                ):
+                    raise ValueError(
+                        "Legacy family identity needs explicit reconciliation before semantic reuse."
+                    )
+            return existing
+        complete = bool(identity["mechanism"] and identity["counterfactual"])
+        if complete:
+            identity["identity_status"] = "structured"
+            raw = json.dumps(identity, sort_keys=True)
+        else:
+            identity["identity_status"] = "unclassified_exact"
+            # Exact protection is useful for older API callers; it is not an
+            # assertion that different prose describes a different mechanism.
+            identity["exact_policy"] = " ".join(policy_description.casefold().split())
+            raw = json.dumps(identity, sort_keys=True)
+        key = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        await self.session.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"),
+            {"key": int(key[:16], 16) - 2**63},
+        )
+        existing = await self.session.scalar(
+            select(ExperimentFamilyState).where(
+                ExperimentFamilyState.semantic_key == key
+            )
+        )
+        if existing is not None:
+            return await self._family_root(existing)
+        family = ExperimentFamilyState(
+            family_name=f"semantic-{key}",
+            semantic_key=key,
+            identity_json=identity,
+            description=str(profile.get("family_description") or name).strip(),
             trigger_conditions_json={
                 "name": name,
                 "policy_description": policy_description,
                 "trigger_reason": trigger_reason,
-                "family_key": (discovery_profile or {}).get("family_key"),
-                "opportunity_type": (discovery_profile or {}).get("opportunity_type"),
+                "legacy_model_family_key": profile.get("family_key"),
             },
         )
         self.session.add(family)
         await self.session.flush()
         return family
 
-    def _family_name(
-        self,
-        *,
-        name: str,
-        policy_description: str,
-        trigger_reason: str | None,
-        discovery_profile: dict[str, Any] | None = None,
-    ) -> str:
-        profile = discovery_profile or {}
-        family_key = str(profile.get("family_key") or "").strip().lower()
-        evidence_tickers = sorted(
-            {
-                str(item.get("ticker") or "").strip().upper()
-                for item in (profile.get("evidence_snapshot") or [])
-                if item.get("ticker")
-            }
+    async def reconcile_family(self, source_id, retained_id, *, reason):
+        if source_id == retained_id:
+            raise ValueError("Select a different retained run.")
+        reason = str(reason).strip()
+        if not reason or len(reason) > 500:
+            raise ValueError(
+                "A reconciliation reason of 1 to 500 characters is required."
+            )
+        source = await self.get_experiment(source_id)
+        retained = await self.get_experiment(retained_id)
+        if (
+            source is None
+            or retained is None
+            or source.family_id is None
+            or retained.family_id is None
+        ):
+            raise ValueError("Both runs require retained family records.")
+        if self.experiment_run_is_active(source.id) or self.experiment_run_is_active(
+            retained.id
+        ):
+            raise ValueError(
+                "Wait for the current checkpoint to finish before reconciling."
+            )
+        if retained.superseded_by_id is not None:
+            raise ValueError("Choose the current retained run, not a superseded run.")
+        source_context = (source.initial_portfolio_state_json or {}).get(
+            "experiment_context"
+        ) or {}
+        retained_context = (retained.initial_portfolio_state_json or {}).get(
+            "experiment_context"
+        ) or {}
+        source_subjects = await self._canonical_family_subjects(
+            source_context.get("subject_refs")
         )
-        if family_key:
-            raw = "|".join([family_key, *evidence_tickers]).lower()
-        else:
-            raw = " ".join(
-                part
-                for part in [name, policy_description, trigger_reason or ""]
-                if part and part.strip()
-            ).lower()
-        normalized = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")
-        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:8]
-        return f"{normalized[:72]}-{digest}" if normalized else digest
+        retained_subjects = await self._canonical_family_subjects(
+            retained_context.get("subject_refs")
+        )
+        source_horizon = int((source.end_point - source.start_point).total_seconds())
+        retained_horizon = int(
+            (retained.end_point - retained.start_point).total_seconds()
+        )
+        if source_subjects != retained_subjects or source_horizon != retained_horizon:
+            raise ValueError(
+                "Different subjects or numeric horizons cannot be reconciled as equivalent."
+            )
+        families = (
+            await self.session.scalars(
+                select(ExperimentFamilyState)
+                .where(
+                    ExperimentFamilyState.id.in_([source.family_id, retained.family_id])
+                )
+                .order_by(ExperimentFamilyState.id)
+                .with_for_update()
+            )
+        ).all()
+        by_id = {family.id: family for family in families}
+        source_family = await self._family_root(by_id[source.family_id])
+        retained_family = await self._family_root(by_id[retained.family_id])
+        if source_family.id != retained_family.id:
+            left, right = (
+                source_family.identity_json or {},
+                retained_family.identity_json or {},
+            )
+            if left.get("identity_status") == right.get(
+                "identity_status"
+            ) == "structured" and any(
+                left.get(field) != right.get(field)
+                for field in (
+                    "subjects",
+                    "horizon_seconds",
+                    "mechanism",
+                    "counterfactual",
+                )
+            ):
+                raise ValueError(
+                    "Structured mechanisms or counterfactuals differ; keep these families separate."
+                )
+        # Historical family membership, result/lesson links and ledger rows stay
+        # immutable. Only current work is superseded with an explicit owner reason.
+        active = (
+            await self.session.scalars(
+                select(ShadowExperiment).where(
+                    ShadowExperiment.family_id == source_family.id,
+                    ShadowExperiment.run_status.in_(ACTIVE_SHADOW_STATUSES),
+                )
+            )
+        ).all()
+        if any(
+            self.experiment_run_is_active(row.id)
+            for row in active
+            if row.id != retained.id
+        ):
+            raise ValueError(
+                "An equivalent family is currently processing a checkpoint."
+            )
+        if source_family.id != retained_family.id:
+            source_family.superseded_by_id = retained_family.id
+            source_family.is_active = False
+        now = datetime.now(UTC)
+        for row in active:
+            if row.id == retained.id:
+                continue
+            state = deepcopy(
+                row.final_portfolio_state_json or row.initial_portfolio_state_json or {}
+            )
+            shadow = self._coerce_shadow_state(
+                state.get("shadow_state") or {},
+                fallback_snapshot=row.initial_portfolio_state_json or {},
+            )
+            state["shadow_state"] = await self._close_paper_window(
+                row, shadow, now=now, reason="family_superseded"
+            )
+            details = dict(state.get("run_details") or {})
+            details["paper_account"] = self._paper_account_summary(
+                state["shadow_state"]
+            )
+            pending = details.pop("pending_evidence_events", [])
+            details["evidence_event_log"] = list(
+                details.get("evidence_event_log") or []
+            ) + [
+                {
+                    **event,
+                    "closed_at": now.isoformat(),
+                    "outcome": "family_superseded_without_policy_consumption",
+                }
+                for event in pending
+            ]
+            state["run_details"] = details
+            row.final_portfolio_state_json = state
+            row.run_status = "superseded"
+            row.superseded_by_id = retained.id
+            row.completed_at = now
+            row.skip_reason = reason
+            self._record_lifecycle(
+                row,
+                "superseded",
+                retained_experiment_id=str(retained.id),
+                reason=reason,
+                decision_basis="explicit_owner_equivalence",
+            )
+        self._record_lifecycle(
+            source,
+            "family_reconciled",
+            source_family_id=str(source_family.id),
+            retained_family_id=str(retained_family.id),
+            retained_experiment_id=str(retained.id),
+            reason=reason,
+            decision_basis="explicit_owner_equivalence",
+            historical_links_retained=True,
+        )
+        await self.session.commit()
+        return retained
 
     def _operator_prompt_from_policy(
         self, *, policy_description: str, trigger_reason: str | None

@@ -10,7 +10,9 @@ const nextConfig: NextConfig = {
   agentRules: false,
   // Keep hot-reload artifacts separate from production builds so validation can
   // run while the local app remains available.
-  distDir: process.env.NODE_ENV === "development" ? ".next-dev" : ".next",
+  distDir: process.env.PROPHET_BUILD_VALIDATION === "1"
+    ? ".next-verification"
+    : process.env.NODE_ENV === "development" ? ".next-dev" : ".next",
   async rewrites() {
     return [
       {

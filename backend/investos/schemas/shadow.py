@@ -20,6 +20,7 @@ class ShadowExperimentCreate(BaseModel):
     initiated_by: Optional[str] = None
     operator_prompt: Optional[str] = None
     discovery_profile: Optional[dict] = None
+    family_identity: Optional[dict] = None
     subject_refs: list[dict] = Field(default_factory=list)
     auto_run: bool = True
     account_basis: Literal["clone_portfolio", "cash_only"] = "clone_portfolio"
@@ -178,6 +179,11 @@ class ShadowExperimentResponse(BaseModel):
     snapshot_summary: dict = Field(default_factory=dict)
     run_details: dict = Field(default_factory=dict)
     report: dict = Field(default_factory=dict)
+    family_id: Optional[UUID] = None
+    superseded_by_id: Optional[UUID] = None
+    previous_run_id: Optional[UUID] = None
+    lifecycle_state: str = "unknown"
+    lifecycle_history: list[dict] = Field(default_factory=list)
     run_status: str
     skip_reason: Optional[str] = None
     created_at: datetime
@@ -191,3 +197,8 @@ class ShadowExperimentResponse(BaseModel):
     lesson: Optional[LessonResponse] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ShadowFamilyReconcile(BaseModel):
+    retained_experiment_id: UUID
+    reason: str = Field(min_length=1, max_length=500)

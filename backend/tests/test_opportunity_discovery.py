@@ -21,7 +21,11 @@ from investos.models.opportunity import (
 )
 from investos.models.portfolio import Position
 from investos.models.profile import Profile
-from investos.models.shadow import ExperimentFamilyState, ShadowExperiment
+from investos.models.shadow import (
+    ExperimentFamilyState,
+    ShadowExperiment,
+    ShadowLifecycleEvent,
+)
 from investos.schemas.opportunity import OpportunityShadowTestRequest
 from investos.services.opportunity import OpportunityDiscoveryService
 from investos.services.shadow import SHADOW_DISCOVERY_SCHEMA, ShadowService
@@ -812,6 +816,8 @@ async def test_shadow_discovery_requires_known_non_market_evidence() -> None:
     assert "assumptions" in SHADOW_DISCOVERY_SCHEMA["required"]
     profile = {
         "should_launch": True,
+        "mechanism": "supplier inventory pressure",
+        "counterfactual": "hold instead of adding",
         "name": "Evidence boundary",
         "signal_stage": "early",
         "why_now": "A source-backed change occurred.",
@@ -927,6 +933,11 @@ async def test_shadow_handoff_does_not_create_a_real_position() -> None:
                     )
                 )
             if experiment_id is not None:
+                await session.execute(
+                    delete(ShadowLifecycleEvent).where(
+                        ShadowLifecycleEvent.experiment_id == experiment_id
+                    )
+                )
                 await session.execute(
                     delete(ShadowExperiment).where(ShadowExperiment.id == experiment_id)
                 )

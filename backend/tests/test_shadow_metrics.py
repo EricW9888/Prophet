@@ -296,7 +296,7 @@ async def test_real_checkpoints_persist_path_metrics_and_learning_provenance(
     )
     snapshot = {
         "captured_at": start.isoformat(),
-        "experiment_context": {"horizon_label": "short_term"},
+        "experiment_context": {"horizon_label": "adaptive"},
         "snapshot_summary": {"total_market_value": 100, "remaining_buying_power": 0},
         "shadow_state": {
             "cash": 0,
@@ -314,7 +314,7 @@ async def test_real_checkpoints_persist_path_metrics_and_learning_provenance(
         name="Synthetic measured path",
         policy_description="Hold existing paper position",
         start_point=start,
-        end_point=start + timedelta(days=2),
+        end_point=start + timedelta(days=3),
         initial_portfolio_state_json=deepcopy(snapshot),
         run_status="queued",
     )

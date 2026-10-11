@@ -5,13 +5,21 @@ import { useEffect, useRef, useState } from "react";
 import AppNav from "@/components/AppNav";
 import FloatingNotice from "@/components/FloatingNotice";
 import PageHeader from "@/components/PageHeader";
+import ShadowLifecycleSummary from "@/components/ShadowLifecycleSummary";
+import ShadowRunHistory from "@/components/ShadowRunHistory";
 import WorkspaceState from "@/components/WorkspaceState";
-import { API_BASE, apiFetch, AutomationStatus, ShadowExperiment } from "@/lib/api";
+import { API_BASE, apiFetch, AutomationStatus, ShadowExperiment, ShadowFamily, ShadowLifecycleCounts } from "@/lib/api";
 
 
 
 export default function ShadowPage() {
   const [experiments, setExperiments] = useState<ShadowExperiment[]>([]);
+  const [counts, setCounts] = useState<ShadowLifecycleCounts | null>(null);
+  const [families, setFamilies] = useState<ShadowFamily[]>([]);
+  const [familyId, setFamilyId] = useState("");
+  const [mechanism, setMechanism] = useState("");
+  const [counterfactual, setCounterfactual] = useState("");
+  const [horizonDays, setHorizonDays] = useState("7");
   const [automation, setAutomation] = useState<AutomationStatus | null>(null);
   const [name, setName] = useState("Custom shadow review");
   const [operatorPrompt, setOperatorPrompt] = useState("");
@@ -44,9 +52,11 @@ export default function ShadowPage() {
       setLoading(true);
     }
     try {
-      const [shadowData, automationData] = await Promise.all([
+      const [shadowData, automationData, lifecycleData, familyData] = await Promise.all([
         apiFetch<ShadowExperiment[]>("/shadow/experiments"),
         apiFetch<AutomationStatus>("/automation/status"),
+        apiFetch<ShadowLifecycleCounts>("/shadow/lifecycle"),
+        apiFetch<ShadowFamily[]>("/shadow/families"),
       ]);
       setExperiments((previous) =>
         shadowData.map((summary) => {
@@ -67,6 +77,8 @@ export default function ShadowPage() {
         }),
       );
       setAutomation(automationData);
+      setCounts(lifecycleData);
+      setFamilies(familyData);
       loadedOnceRef.current = true;
       setLoadedOnce(true);
       setLoadError(null);
@@ -83,8 +95,8 @@ export default function ShadowPage() {
     void loadState();
   }, []);
 
-  async function loadExperimentDetails(id: string) {
-    if (detailedExperimentIds.current.has(id) || loadingDetailIds.has(id)) return;
+  async function loadExperimentDetails(id: string, force = false) {
+    if ((!force && detailedExperimentIds.current.has(id)) || loadingDetailIds.has(id)) return;
     setLoadingDetailIds((previous) => new Set(previous).add(id));
     try {
       const detail = await apiFetch<ShadowExperiment>(`/shadow/experiments/${id}`);
@@ -120,6 +132,7 @@ export default function ShadowPage() {
     setError(null);
     setNotice(autoRun ? "Creating shadow clone and queueing the experiment." : "Opening a manual paper account from the current portfolio snapshot.");
     try {
+      const startedAt = new Date();
       const response = await fetch(`${API_BASE}/shadow/experiments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -129,6 +142,9 @@ export default function ShadowPage() {
           trigger_type: "manual_review",
           trigger_reason: "User requested an explicit shadow review from the Shadow Lab.",
           horizon_label: "short_term",
+          start_point: startedAt.toISOString(),
+          end_point: new Date(startedAt.getTime() + Number(horizonDays) * 86400000).toISOString(),
+          family_identity: autoRun ? { mechanism: mechanism.trim(), counterfactual: counterfactual.trim(), existing_family_id: familyId || undefined } : undefined,
           initiated_by: "user",
           operator_prompt: operatorPrompt.trim() || undefined,
           auto_run: autoRun,
@@ -170,10 +186,10 @@ export default function ShadowPage() {
     setError(null);
     setNotice("Queueing shadow experiment re-run.");
     try {
-      await runExperiment(id);
+      const queued = await runExperiment(id);
       detailedExperimentIds.current.delete(id);
       await loadState();
-      setNotice("Shadow experiment re-queued.");
+      setNotice(queued.id === id ? "Active experiment retained and scheduled." : "A new run was queued. The previous run and paper ledger remain available.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to rerun experiment.");
       setNotice(null);
@@ -276,6 +292,7 @@ export default function ShadowPage() {
           description="Run a parallel portfolio experiment from the live book, then review what changed, why, and how the result compared with the real portfolio."
         />
 
+        <div className="xl:col-span-2"><ShadowLifecycleSummary counts={counts} /></div>
         <ShadowLabProcess />
 
         <section className="self-start space-y-6 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto xl:pr-1">
@@ -285,7 +302,7 @@ export default function ShadowPage() {
               <div>
                 <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Launch a new experiment</h2>
                 <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                  Write a single instruction describing how the shadow portfolio should behave differently from the real one. Prophet will handle the rest.
+                  Describe how the paper portfolio should behave, then define the mechanism, comparison policy and observation window.
                 </p>
               </div>
               {!autoRun ? (
@@ -363,6 +380,22 @@ export default function ShadowPage() {
                 />
               </div>
 
+              {autoRun ? <div className="space-y-3 text-xs">
+                <label className="block">Hypothesis family
+                  <select value={familyId} onChange={event => {
+                    const id = event.target.value; setFamilyId(id);
+                    const identity = families.find(row => row.id === id)?.identity;
+                    if (identity) { setMechanism(identity.mechanism ?? ""); setCounterfactual(identity.counterfactual ?? ""); setHorizonDays(String((identity.horizon_seconds ?? 604800) / 86400)); }
+                  }} className="mt-2 w-full rounded border border-slate-300 bg-transparent p-2 dark:border-slate-700">
+                    <option value="">Define a new family</option>
+                    {families.filter(row => row.identity.identity_status === "structured" && row.identity.subjects?.length === 1 && row.identity.subjects[0] === "portfolio").map(row => <option key={row.id} value={row.id}>{row.description}</option>)}
+                  </select>
+                </label>
+                <label className="block">Underlying mechanism<input required value={mechanism} readOnly={Boolean(familyId)} onChange={event => setMechanism(event.target.value)} className="mt-1 w-full rounded border border-slate-300 bg-transparent p-2 dark:border-slate-700" /></label>
+                <label className="block">Counterfactual to test<input required value={counterfactual} readOnly={Boolean(familyId)} onChange={event => setCounterfactual(event.target.value)} className="mt-1 w-full rounded border border-slate-300 bg-transparent p-2 dark:border-slate-700" /></label>
+                <label className="block">Observation horizon in days<input type="number" min="0.0000115741" max="1825" step="any" required value={horizonDays} readOnly={Boolean(familyId)} onChange={event => setHorizonDays(event.target.value)} className="mt-1 w-full rounded border border-slate-300 bg-transparent p-2 dark:border-slate-700" /></label>
+                <p className="text-slate-500">Reuse the family when only the wording changes. Different mechanisms, counterfactuals or horizons create separate tests.</p>
+              </div> : null}
               <div>
                 <label className="block text-xs font-medium text-slate-600 dark:text-slate-300">{autoRun ? "Policy prompt" : "Account note"}</label>
                 <textarea
@@ -375,7 +408,7 @@ export default function ShadowPage() {
               </div>
             </div>
 
-            <button disabled={saving || (autoRun && !operatorPrompt.trim()) || (!autoRun && accountBasis === "cash_only" && !(Number(startingCash) > 0))} className="w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-300">
+            <button disabled={saving || (autoRun && (!operatorPrompt.trim() || !mechanism.trim() || !counterfactual.trim() || !(Number(horizonDays) > 0 && Number(horizonDays) <= 1825))) || (!autoRun && accountBasis === "cash_only" && !(Number(startingCash) > 0))} className="w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-300">
               {saving ? "Creating..." : autoRun ? "Start shadow run" : "Open paper account"}
             </button>
           </form>
@@ -463,7 +496,7 @@ export default function ShadowPage() {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="text-xl font-semibold tracking-tight">{experiment.name}</h2>
-                      <StatusBadge status={experiment.run_status} />
+                      <StatusBadge status={experiment.lifecycle_state ?? experiment.run_status} />
                     </div>
                     <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{experiment.policy_description}</p>
                   </div>
@@ -473,12 +506,13 @@ export default function ShadowPage() {
                       disabled={runningJob !== null}
                       className="rounded-lg border border-slate-300 dark:border-slate-700 px-4 py-2 text-sm disabled:opacity-50"
                     >
-                      {runningJob === `experiment:${experiment.id}` ? "Re-running..." : "Re-run"}
+                      {runningJob === `experiment:${experiment.id}` ? "Queueing..." : ["queued", "running", "pending"].includes(experiment.run_status) ? "Check active run" : "Start new run"}
                     </button>
                   ) : null}
                 </div>
 
                 <ExperimentJourney experiment={experiment} />
+                <ShadowRunHistory experiment={experiment} experiments={experiments} loadDetails={(id) => loadExperimentDetails(id, true)} refresh={() => loadState()} />
 
                 <div className="mt-5 grid gap-4 md:grid-cols-2">
                   <InfoCard
@@ -1336,7 +1370,7 @@ function ExperimentJourney({ experiment }: { experiment: ShadowExperiment }) {
       ? 4
       : normalized === "running"
         ? 3
-        : normalized === "failed" || normalized === "skipped"
+        : normalized === "failed" || normalized === "skipped" || normalized === "superseded"
           ? 2
           : 1;
   const labels = ["Snapshot", "Policy", "Paper path", "Checkpoints", "Review"];
@@ -1346,7 +1380,7 @@ function ExperimentJourney({ experiment }: { experiment: ShadowExperiment }) {
       ? `Comparison complete${experiment.result ? ` · ${formatPct(experiment.result.alpha)} versus the live book` : ""}`
       : normalized === "running"
         ? `${progress.step_count ?? 0} of ${progress.target_steps ?? "?"} checkpoints${progress.next_checkpoint_at ? ` · next ${formatDate(progress.next_checkpoint_at)}` : ""}`
-        : normalized === "failed" || normalized === "skipped"
+        : normalized === "failed" || normalized === "skipped" || normalized === "superseded"
           ? `Stopped at the paper path · ${experiment.skip_reason ?? describeStatus(normalized)}`
           : "Starting portfolio and policy stored · waiting for the first checkpoint";
 

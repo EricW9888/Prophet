@@ -44,6 +44,7 @@ from investos.services.research import ResearchService
 from investos.services.review import ReviewService
 from investos.services.risk import RiskService
 from investos.services.runtime_settings import RuntimeSettingsStore
+from investos.services.shadow_lifecycle import lifecycle_counts, lifecycle_state
 from investos.services.transaction_provenance import transaction_source_summary
 
 
@@ -111,11 +112,10 @@ class DashboardService:
                 QuestionLifecycleService.portfolio_clause(),
             )
         )
-        pending_shadow_experiments_count = await self._scalar_count(
-            select(ShadowExperiment).where(
-                ShadowExperiment.run_status.in_(["queued", "pending"])
-            )
+        shadow_lifecycle = lifecycle_counts(
+            (await self.session.scalars(select(ShadowExperiment))).all()
         )
+        pending_shadow_experiments_count = shadow_lifecycle["active"]
         risk_summary = await RiskService(self.session).get_summary(refresh=False)
 
         return DashboardSummaryResponse(
@@ -136,6 +136,7 @@ class DashboardService:
             deprecated_evidence_node_count=deprecated_evidence_node_count,
             open_questions_count=open_questions_count,
             pending_shadow_experiments_count=pending_shadow_experiments_count,
+            shadow_lifecycle=shadow_lifecycle,
             automation_enabled=automation_enabled,
             jobs=jobs,
             recent_transactions=await self._recent_transactions(),
@@ -387,6 +388,7 @@ class DashboardService:
                 name=experiment.name,
                 policy_description=experiment.policy_description,
                 run_status=experiment.run_status,
+                lifecycle_state=lifecycle_state(experiment),
                 created_at=experiment.created_at,
                 completed_at=experiment.completed_at,
                 alpha=None if result is None else result.alpha,
