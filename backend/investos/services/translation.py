@@ -17,13 +17,17 @@ from investos.models.evidence import RawEvidence
 from investos.models.translation import EvidenceTranslation
 from investos.services.runtime_settings import RuntimeSettingsStore
 
-RECIPE_VERSION = "protected-spans-v1"
+RECIPE_VERSION = "protected-spans-v2"
 MAX_TRANSLATION_CHARS = 24000
 # Protect URLs, citations, identifiers, dates/numbers and explicit financial units.
+NUMBER = r"\d+(?:[.,:/\-]\d+)*(?:[eE][+\-]?\d+)?"
+MAGNITUDE = r"(?:\s?(?i:thousand|million|billion|trillion|millions|billions|millones|milliards|milliard|mille|mil|k|m|b|t)\b|[千万亿])?"
+UNIT = r"(?:\s?(?i:per share|basis points|basis point|percent|shares|share|bps|bp|USD|EUR|GBP|CNY|JPY)\b|\s?[%％‰€£¥$]|[元股])?"
+VALUE = rf"(?:[+\-−]\s*)?(?:[$€£¥]\s*)?(?:[+\-−]\s*)?{NUMBER}{MAGNITUDE}{UNIT}"
 PROTECTED = re.compile(
     r"https?://[^\s<>\]\)]+|\[[^\]\n]{1,100}\]|"
     r"\b[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\b|"
-    r"(?:[$€£¥]\s*)?\d+(?:[.,:/\-]\d+)*(?:\s?(?:%|bps|USD|EUR|GBP|CNY|JPY|shares))?|"
+    rf"\(\s*{VALUE}\s*\)|{VALUE}|"
     r"\b[A-Z][A-Z0-9_.-]{1,}\b"
 )
 MARKER = re.compile(r"⟦PH\d{5}⟧")
