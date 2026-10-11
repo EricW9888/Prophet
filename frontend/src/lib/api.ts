@@ -607,7 +607,15 @@ export type OpportunityCandidateObservation = {
   evaluation_policy: Record<string, unknown>;
 };
 
+export type ShadowLifecycleCounts = Record<"total" | "active" | "queued" | "running" | "waiting" | "due" | "overdue" | "completed" | "failed" | "superseded" | "skipped" | "manual", number>;
+export type ShadowFamily = { id: string; description: string; identity: { subjects?: string[]; mechanism?: string; counterfactual?: string; horizon_seconds?: number; identity_status?: string } };
+
 export type ShadowExperiment = {
+  family_id?: string | null;
+  previous_run_id?: string | null;
+  superseded_by_id?: string | null;
+  lifecycle_state: string;
+  lifecycle_history: Array<{ id: string; event_type: string; detail: Record<string, unknown>; created_at: string }>;
   id: string;
   name: string;
   policy_description: string;
@@ -650,6 +658,16 @@ export type ShadowExperiment = {
       fee_per_order?: number;
       max_buy_order_pct_equity?: number;
       regular_session_only?: boolean;
+    };
+    observation_window?: {
+      planned_start_at?: string;
+      planned_end_at?: string;
+      final_captured_at?: string | null;
+      late_by_seconds?: number | null;
+      lateness_tolerance_seconds?: number;
+      calibration_allowed?: boolean;
+      valuation_basis?: string;
+      deadline_closed?: boolean;
     };
     progress?: {
       phase?: string;
@@ -966,6 +984,7 @@ export type DashboardSummary = {
   deprecated_evidence_node_count?: number;
   open_questions_count: number;
   pending_shadow_experiments_count: number;
+  shadow_lifecycle?: ShadowLifecycleCounts;
   automation_enabled: boolean;
   jobs: AutomationStatus["jobs"];
   recent_transactions: Array<{

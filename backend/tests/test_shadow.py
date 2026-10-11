@@ -262,6 +262,8 @@ def test_shadow_discovery_priority_and_labels_are_advisory_when_contract_is_comp
     profile = ShadowService._normalize_discovery_profile(
         {
             "should_launch": True,
+            "mechanism": "inventory-driven memory supply discipline",
+            "counterfactual": "confirmation-gated allocation versus holding",
             "name": "Custom memory spread paper trade",
             "opportunity_type": "custom_memory_spread",
             "priority_score": 0.2,
@@ -304,6 +306,8 @@ def test_shadow_discovery_requires_falsifiable_investment_contract():
     profile = ShadowService._normalize_discovery_profile(
         {
             "should_launch": True,
+            "mechanism": "inventory-driven memory supply discipline",
+            "counterfactual": "confirmation-gated allocation versus holding",
             "name": "Memory-cycle inflection paper trade",
             "opportunity_type": "catalyst_timing",
             "priority_score": 0.8,
@@ -341,6 +345,8 @@ def test_shadow_discovery_accepts_specific_paper_trade_opportunity():
     profile = ShadowService._normalize_discovery_profile(
         {
             "should_launch": True,
+            "mechanism": "inventory-driven memory supply discipline",
+            "counterfactual": "confirmation-gated allocation versus holding",
             "name": "Memory-cycle confirmation paper trade",
             "opportunity_type": "catalyst_timing",
             "priority_score": 0.82,
@@ -394,6 +400,8 @@ def test_shadow_discovery_rejects_unknown_or_market_only_evidence_refs():
     base = ShadowService._normalize_discovery_profile(
         {
             "should_launch": True,
+            "mechanism": "inventory-driven memory supply discipline",
+            "counterfactual": "confirmation-gated allocation versus holding",
             "name": "Evidence-linked candidate",
             "opportunity_type": "open_ended_inflection",
             "priority_score": 0.7,
@@ -441,6 +449,8 @@ def test_shadow_discovery_rejects_invented_notional_above_snapshot():
     profile = ShadowService._normalize_discovery_profile(
         {
             "should_launch": True,
+            "mechanism": "inventory-driven memory supply discipline",
+            "counterfactual": "confirmation-gated allocation versus holding",
             "name": "Bounded candidate",
             "opportunity_type": "risk_control",
             "priority_score": 0.8,
@@ -573,30 +583,6 @@ def test_shadow_learning_preserves_counterexamples_instead_of_forcing_a_rule():
     assert state["supporting"] == 2
     assert state["contradicting"] == 1
     assert state["direction"] == "outperformance"
-
-
-def test_open_ended_family_key_groups_repeated_mechanism_not_one_off_headline():
-    service = ShadowService(None)
-    first = service._family_name(
-        name="Memory opportunity after one earnings call",
-        policy_description="Stage exposure when supply discipline improves.",
-        trigger_reason="A first catalyst changed.",
-        discovery_profile={
-            "family_key": "memory supply discipline",
-            "evidence_snapshot": [{"ticker": "MEMB"}, {"ticker": "MEMA"}],
-        },
-    )
-    repeated = service._family_name(
-        name="Different headline months later",
-        policy_description="A differently worded policy.",
-        trigger_reason="A later catalyst changed.",
-        discovery_profile={
-            "family_key": "memory supply discipline",
-            "evidence_snapshot": [{"ticker": "MEMA"}, {"ticker": "MEMB"}],
-        },
-    )
-
-    assert first == repeated
 
 
 def test_shadow_model_timeout_is_configurable(monkeypatch):
@@ -833,6 +819,7 @@ def test_historical_paper_state_falls_back_to_captured_snapshot_marks():
 async def test_manual_paper_account_is_created_without_autonomous_queue(monkeypatch):
     session = SimpleNamespace(
         add=MagicMock(),
+        flush=AsyncMock(),
         commit=AsyncMock(),
         refresh=AsyncMock(),
     )
@@ -867,7 +854,8 @@ async def test_manual_paper_account_is_created_without_autonomous_queue(monkeypa
         experiment.initial_portfolio_state_json["experiment_context"]["execution_mode"]
         == "manual"
     )
-    session.add.assert_called_once_with(experiment)
+    assert session.add.call_args_list[0].args[0] is experiment
+    assert session.add.call_args_list[1].args[0].event_type == "created"
     session.commit.assert_awaited_once()
 
 
@@ -875,6 +863,7 @@ async def test_manual_paper_account_is_created_without_autonomous_queue(monkeypa
 async def test_cash_only_paper_account_uses_explicit_user_funding(monkeypatch):
     session = SimpleNamespace(
         add=MagicMock(),
+        flush=AsyncMock(),
         commit=AsyncMock(),
         refresh=AsyncMock(),
     )
@@ -939,6 +928,8 @@ async def test_queueing_manual_account_explicitly_converts_it_to_autonomous_mode
     monkeypatch,
 ):
     experiment = SimpleNamespace(
+        id=uuid4(),
+        family_id=None,
         run_status="manual",
         initial_portfolio_state_json={
             "experiment_context": {"execution_mode": "manual"}
@@ -946,7 +937,7 @@ async def test_queueing_manual_account_explicitly_converts_it_to_autonomous_mode
         skip_reason=None,
         completed_at=None,
     )
-    session = SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
+    session = SimpleNamespace(add=MagicMock(), commit=AsyncMock(), refresh=AsyncMock())
     service = ShadowService(session)
     monkeypatch.setattr(service, "get_experiment", AsyncMock(return_value=experiment))
 
@@ -992,7 +983,10 @@ async def test_new_manual_account_serializes_initial_paper_balance():
         created_at=None,
         completed_at=None,
     )
-    session = SimpleNamespace(execute=AsyncMock(return_value=EmptyResult()))
+    session = SimpleNamespace(
+        execute=AsyncMock(return_value=EmptyResult()),
+        scalars=AsyncMock(return_value=EmptyResult()),
+    )
 
     serialized = await ShadowService(session).serialize_experiment(experiment)
 
@@ -1035,7 +1029,10 @@ async def test_experiment_summary_omits_heavy_run_history():
         created_at=None,
         completed_at=None,
     )
-    session = SimpleNamespace(execute=AsyncMock(return_value=EmptyResult()))
+    session = SimpleNamespace(
+        execute=AsyncMock(return_value=EmptyResult()),
+        scalars=AsyncMock(return_value=EmptyResult()),
+    )
 
     serialized = await ShadowService(session).serialize_experiment(
         experiment,

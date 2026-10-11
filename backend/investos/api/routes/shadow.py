@@ -7,11 +7,59 @@ from investos.db import get_session
 from investos.schemas.shadow import (
     ShadowExperimentCreate,
     ShadowExperimentResponse,
+    ShadowFamilyReconcile,
     ShadowOrderCreate,
 )
 from investos.services.shadow import ShadowService, execute_shadow_experiment
 
 router = APIRouter(prefix="/shadow", tags=["shadow"])
+
+
+@router.get("/lifecycle")
+async def shadow_lifecycle(session: AsyncSession = Depends(get_session)):
+    return await ShadowService(session).lifecycle_summary()
+
+
+@router.get("/families")
+async def shadow_families(session: AsyncSession = Depends(get_session)):
+    from sqlalchemy import select
+
+    from investos.models.shadow import ExperimentFamilyState
+
+    rows = (
+        await session.scalars(
+            select(ExperimentFamilyState)
+            .where(ExperimentFamilyState.superseded_by_id.is_(None))
+            .order_by(ExperimentFamilyState.family_name)
+        )
+    ).all()
+    return [
+        {
+            "id": str(row.id),
+            "description": row.description,
+            "identity": row.identity_json,
+        }
+        for row in rows
+    ]
+
+
+@router.post(
+    "/experiments/{experiment_id}/reconcile-family",
+    response_model=ShadowExperimentResponse,
+)
+async def reconcile_shadow_family(
+    experiment_id: UUID,
+    payload: ShadowFamilyReconcile,
+    session: AsyncSession = Depends(get_session),
+):
+    service = ShadowService(session)
+    try:
+        retained = await service.reconcile_family(
+            experiment_id, payload.retained_experiment_id, reason=payload.reason
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return await service.serialize_experiment(retained)
 
 
 @router.get("/experiments", response_model=list[ShadowExperimentResponse])

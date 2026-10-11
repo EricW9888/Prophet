@@ -39,6 +39,7 @@ class DashboardShadowSummaryResponse(BaseModel):
     name: str
     policy_description: str
     run_status: str
+    lifecycle_state: str = "unknown"
     created_at: datetime
     completed_at: Optional[datetime] = None
     alpha: Optional[float] = None
@@ -147,6 +148,7 @@ class DashboardSummaryResponse(BaseModel):
     deprecated_evidence_node_count: int = 0
     open_questions_count: int = 0
     pending_shadow_experiments_count: int = 0
+    shadow_lifecycle: dict[str, int] = Field(default_factory=dict)
     automation_enabled: bool = False
     jobs: list[AutomationJobStatus] = []
     recent_transactions: list[DashboardTransactionResponse] = []

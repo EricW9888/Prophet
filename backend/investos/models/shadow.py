@@ -7,10 +7,12 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -27,6 +29,13 @@ class ExperimentFamilyState(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     family_name: Mapped[str] = mapped_column(String, unique=True)
+    semantic_key: Mapped[Optional[str]] = mapped_column(
+        String, unique=True, nullable=True
+    )
+    identity_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    superseded_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("experiment_family_states.id"), nullable=True
+    )
 
     description: Mapped[str] = mapped_column(String)
     trigger_conditions_json: Mapped[dict] = mapped_column(JSONB)
@@ -44,12 +53,26 @@ class ShadowExperiment(Base):
     """A specific instance of replay."""
 
     __tablename__ = "shadow_experiments"
+    __table_args__ = (
+        Index(
+            "uq_shadow_active_family",
+            "family_id",
+            unique=True,
+            postgresql_where=text("run_status IN ('queued', 'pending', 'running')"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     family_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("experiment_family_states.id"), nullable=True
+    )
+    superseded_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("shadow_experiments.id"), nullable=True
+    )
+    previous_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("shadow_experiments.id"), nullable=True
     )
 
     name: Mapped[str] = mapped_column(String)
@@ -73,6 +96,23 @@ class ShadowExperiment(Base):
     )
     completed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+
+class ShadowLifecycleEvent(Base):
+    """Append-only run transitions and explicit reconciliation decisions."""
+
+    __tablename__ = "shadow_lifecycle_events"
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    experiment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("shadow_experiments.id"), index=True
+    )
+    event_type: Mapped[str] = mapped_column(String)
+    detail_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
     )
 
 

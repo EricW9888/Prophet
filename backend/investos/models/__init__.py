@@ -70,6 +70,7 @@ from .shadow import (
     ShadowEvidenceEvent,
     ShadowExperiment,
     ShadowFill,
+    ShadowLifecycleEvent,
     ShadowOrder,
 )
 from .source import Source, SourceQualitySegment
@@ -157,6 +158,7 @@ __all__ = [
     "ShadowEvidenceEvent",
     "ShadowOrder",
     "ShadowFill",
+    "ShadowLifecycleEvent",
     "ExperimentResult",
     "Source",
     "SourceQualitySegment",

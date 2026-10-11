@@ -54,6 +54,7 @@ htmlcov/
 .ruff_cache/
 frontend/.next/
 frontend/.next-dev/
+frontend/.next-verification/
 frontend/out/
 frontend/build/
 frontend/coverage/
