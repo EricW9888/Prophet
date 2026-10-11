@@ -77,10 +77,12 @@ from .source import Source, SourceQualitySegment
 from .subject_alias import SubjectAlias
 from .theme import Theme
 from .thesis import Thesis
+from .translation import EvidenceTranslation
 from .verification import VerificationRun
 from .watcher import ActiveWatcher, WatcherEvidenceEvaluation
 
 __all__ = [
+    "EvidenceTranslation",
     "Base",
     "TimestampMixin",
     "utcnow",

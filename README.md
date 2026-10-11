@@ -231,6 +231,7 @@ model.
 - [Product vision](docs/product-vision.md): durable product direction and principles
 - [Architecture](docs/architecture.md): current components, data flow, and invariants
 - [Limitations](docs/limitations.md): important operational and quality boundaries
+- [Presentation language](docs/presentation-language.md): supported coverage and traceable source translations
 - GitHub Issues: reproducible bugs and proposed improvements
 
 The Python package retains the historical name `investos`; the product name is

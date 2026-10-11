@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, ExternalLink, RotateCcw } from "lucide-react";
 
 import AppNav from "@/components/AppNav";
+import EvidenceTranslationPanel from "@/components/EvidenceTranslationPanel";
 import { apiFetch, EvidenceProcessingState, SourceEvidenceDetail } from "@/lib/api";
 import { formatUserLabel } from "@/lib/formatting";
 import { normalizeSourceOrigin } from "@/lib/sourceOrigin";
@@ -114,6 +115,8 @@ export default function EvidenceReceiptPage() {
                 <ReceiptMetric label="Event time" value={formatReceiptDate(receipt.event_time)} />
               </div>
             </section>
+
+            <EvidenceTranslationPanel key={evidenceId} evidenceId={evidenceId} />
 
             <ProcessingLifecycle
               processing={receipt.processing}

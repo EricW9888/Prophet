@@ -223,7 +223,11 @@ class PortfolioIntegrationSettingsUpdate(BaseModel):
     remaining_buying_power: float | None = None
 
 
+from investos.core.presentation_language import PresentationLanguage
+
+
 class IntegrationSettingsResponse(BaseModel):
+    presentation_language: PresentationLanguage = "en"
     market_data: MarketDataIntegrationSettings
     paper_trading: PaperTradingIntegrationSettings
     gmail: GmailIntegrationSettings
@@ -235,6 +239,7 @@ class IntegrationSettingsResponse(BaseModel):
 
 
 class IntegrationSettingsUpdate(BaseModel):
+    presentation_language: PresentationLanguage | None = None
     market_data: MarketDataIntegrationSettingsUpdate | None = None
     paper_trading: PaperTradingIntegrationSettingsUpdate | None = None
     gmail: GmailIntegrationSettingsUpdate | None = None

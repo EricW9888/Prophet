@@ -120,6 +120,10 @@ The main state groups are:
 - **Evidence and provenance:** `Source`, `RawEvidence`, `SourceItem`, source
   profiles, quality segments, source-performance history, and provisional
   `ResearchDiscoveryObservation` records.
+- **Presentation derivatives:** `EvidenceTranslation` retains target language,
+  actual source-text hash and recipe/provider provenance. Translation views do
+  not enter extraction, corroboration or accepted-state promotion. See
+  [Presentation language](presentation-language.md).
 - **Structured knowledge:** `Fact`, `Claim`, `Event`, `FundamentalMetric`,
   `MarketSetupSignal`, `Entity`, `Theme`, aliases, and graph `Edge` records.
 - **Research state:** `Profile`, `CoverageMap`, unresolved questions,

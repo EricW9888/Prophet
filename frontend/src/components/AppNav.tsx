@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { usePathname } from "next/navigation";
 import { type ComponentType, type SVGProps, useEffect, useRef, useState } from "react";
 
@@ -139,6 +140,7 @@ function NavLink({
 }
 
 export default function AppNav({ active }: { active: NavKey }) {
+  const { t, i18n } = useTranslation();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -172,7 +174,7 @@ export default function AppNav({ active }: { active: NavKey }) {
 
   return (
     <header className="sticky inset-x-0 top-0 z-50 w-full max-w-[100vw] overflow-x-clip border-b border-line bg-panel/95 backdrop-blur-md">
-      <nav aria-label="Primary" className="mx-auto w-full min-w-0 max-w-[1440px] px-4 sm:px-6 lg:px-8">
+      <nav lang={i18n.language} aria-label="Primary" className="mx-auto w-full min-w-0 max-w-[1440px] px-4 sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-center gap-3 py-2">
           <Link
             href="/"
@@ -186,7 +188,7 @@ export default function AppNav({ active }: { active: NavKey }) {
               <NavLink
                 key={item.key}
                 href={item.href}
-                label={item.label}
+                label={t(item.label)}
                 icon={item.icon}
                 selected={activeKey === item.key}
               />
@@ -205,7 +207,7 @@ export default function AppNav({ active }: { active: NavKey }) {
                 aria-controls="prophet-more-navigation"
                 aria-haspopup="true"
               >
-                More
+                {t("More")}
                 <ChevronDown
                   className={`h-4 w-4 transition-transform ${moreOpen ? "rotate-180" : ""}`}
                   aria-hidden="true"
@@ -219,18 +221,18 @@ export default function AppNav({ active }: { active: NavKey }) {
                 >
                   {secondaryGroups.map((group, index) => (
                     <div
-                      key={group.label}
+                      key={t(group.label)}
                       className={index === 0 ? "" : "mt-2 border-t border-line pt-2"}
                     >
                       <p className="px-3 pb-1 pt-1 text-[11px] font-semibold uppercase text-muted">
-                        {group.label}
+                        {t(group.label)}
                       </p>
                       <div className="grid grid-cols-2 gap-1">
                         {group.items.map((item) => (
                           <NavLink
                             key={item.key}
                             href={item.href}
-                            label={item.label}
+                            label={t(item.label)}
                             icon={item.icon}
                             selected={activeKey === item.key}
                             onNavigate={() => setMoreOpen(false)}
@@ -246,7 +248,7 @@ export default function AppNav({ active }: { active: NavKey }) {
             <div className="ml-auto border-l border-line pl-2">
               <NavLink
                 href={settingsItem.href}
-                label={settingsItem.label}
+                label={t(settingsItem.label)}
                 icon={settingsItem.icon}
                 selected={activeKey === settingsItem.key}
                 compact
@@ -283,7 +285,7 @@ export default function AppNav({ active }: { active: NavKey }) {
                 <NavLink
                   key={item.key}
                   href={item.href}
-                  label={item.label}
+                  label={t(item.label)}
                   icon={item.icon}
                   selected={activeKey === item.key}
                   onNavigate={() => setMobileOpen(false)}
@@ -292,16 +294,16 @@ export default function AppNav({ active }: { active: NavKey }) {
             </div>
             <div className="mt-3 grid gap-3 border-t border-line pt-3 sm:grid-cols-3">
               {secondaryGroups.map((group) => (
-                <div key={group.label}>
+                <div key={t(group.label)}>
                   <p className="px-3 pb-1 text-[11px] font-semibold uppercase text-muted">
-                    {group.label}
+                    {t(group.label)}
                   </p>
                   <div className="space-y-1">
                     {group.items.map((item) => (
                       <NavLink
                         key={item.key}
                         href={item.href}
-                        label={item.label}
+                        label={t(item.label)}
                         icon={item.icon}
                         selected={activeKey === item.key}
                         onNavigate={() => setMobileOpen(false)}
@@ -314,7 +316,7 @@ export default function AppNav({ active }: { active: NavKey }) {
             <div className="mt-3 border-t border-line pt-3">
               <NavLink
                 href={settingsItem.href}
-                label={settingsItem.label}
+                label={t(settingsItem.label)}
                 icon={settingsItem.icon}
                 selected={activeKey === settingsItem.key}
                 onNavigate={() => setMobileOpen(false)}

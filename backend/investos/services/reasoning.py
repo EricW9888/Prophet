@@ -335,7 +335,7 @@ class ReasoningService:
         return provider
 
     def _analysis_cache_label(self) -> str:
-        return f"reasoning_analysis:v4:{self._provider_label()}"
+        return f"reasoning_analysis:v5:{self._provider_label()}:{RuntimeSettingsStore.load().presentation_language}"
 
     def _is_timeout_like(self, exc: Exception) -> bool:
         name = exc.__class__.__name__.lower()
@@ -616,6 +616,9 @@ class ReasoningService:
             "credible competing explanations until a source, cross-asset pattern, or event sequence discriminates among them. "
             "The summary must be user-safe and must not expose private chain-of-thought."
         )
+        from investos.core.presentation_language import presentation_instruction
+
+        system_prompt += presentation_instruction("independent_summary")
         critique_payload = {"packet_context": packet_context}
         try:
             critique = await call_llm_json(
@@ -703,8 +706,11 @@ class ReasoningService:
             )
 
     def _analysis_system_prompt(self) -> str:
+        from investos.core.presentation_language import presentation_instruction
+
         return (
-            "Build a structured investment-research view from the supplied evidence packet. "
+            presentation_instruction("thesis_summary", "reasoning")
+            + "Build a structured investment-research view from the supplied evidence packet. "
             "Use the 'reasoning' field to provide a concise, user-safe rationale summary. "
             "Do not expose private chain-of-thought. Record the answer's material factual and causal assertions in "
             "material_assertions, with their evidence basis, exact evidence IDs or structured context paths, "

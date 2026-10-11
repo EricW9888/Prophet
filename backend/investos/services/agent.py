@@ -22,6 +22,7 @@ from investos.core.llm import (
     call_llm_tools,
     compact_exception_message,
 )
+from investos.core.presentation_language import presentation_instruction
 from investos.core.prompting import (
     compact_context_text,
     compact_packet_context,
@@ -1679,7 +1680,8 @@ class AgentService:
             }
 
             refined = await call_llm_json(
-                system_prompt=synthesis_prompt,
+                system_prompt=synthesis_prompt
+                + presentation_instruction("thesis_summary", "reasoning"),
                 user_prompt=json.dumps(synthesis_input),
                 schema=REASONING_SCHEMA,
                 timeout_seconds=25,
@@ -1781,7 +1783,8 @@ class AgentService:
             return await asyncio.wait_for(
                 call_llm_json(
                     system_prompt=(
-                        "Classify the user's turn before portfolio context is attached.\n"
+                        presentation_instruction("assistant_message")
+                        + "Classify the user's turn before portfolio context is attached.\n"
                         "Routes:\n"
                         "- conversation: pure greeting, thanks, acknowledgement, or interface chatter with no analysis request.\n"
                         "- clarify: too ambiguous to analyze safely as a standalone turn, such as an unexplained acronym or single token.\n"
@@ -2158,7 +2161,10 @@ class AgentService:
         )
         try:
             result = await call_llm_json(
-                system_prompt=strategist_system_prompt,
+                system_prompt=strategist_system_prompt
+                + presentation_instruction(
+                    "summary", "why_now", "portfolio_connection"
+                ),
                 user_prompt=strategist_user_prompt,
                 schema=STRATEGIC_PLANNING_SCHEMA,
                 timeout_seconds=12,
@@ -2505,6 +2511,9 @@ class AgentService:
                         "Surface structural bottlenecks or multi-step causal chains only when the packet supports them. "
                         "When historical analogy lenses are present, action plans should preserve the what-rhymes/what-breaks/current-channel distinction. "
                         "Populate 'rationale_summary' with a concise user-facing rationale summary. Output JSON only."
+                        + presentation_instruction(
+                            "assistant_message", "rationale_summary"
+                        )
                     ),
                     user_prompt=json.dumps(
                         agent_context, ensure_ascii=True, default=str
@@ -3549,7 +3558,8 @@ class AgentService:
             try:
                 result = await asyncio.wait_for(
                     call_llm_json(
-                        system_prompt=handoff_system_prompt,
+                        system_prompt=handoff_system_prompt
+                        + presentation_instruction("assistant_message"),
                         user_prompt=prompt_payload,
                         schema=CONVERSATIONAL_HANDOFF_SCHEMA,
                         timeout_seconds=3,
@@ -3633,6 +3643,8 @@ class AgentService:
             "If recent history shows an action was blocked by analysis-only mode and the user retries with actions allowed, call the relevant action tool. "
             f"\n\nCURRENT CONTEXT: session_topic={recent_topic}, subject={resolved_subject_name} ({resolved_subject_type}), allow_actions={allow_actions}."
         )
+
+        system_prompt += presentation_instruction("assistant_message", "content")
 
         history_context = "\n".join(
             [f"{t.role.upper()}: {t.content}" for t in safe_history]
@@ -5592,6 +5604,7 @@ class AgentService:
                         "If source records are present, explicitly name them instead of only reporting counts. "
                         "If shadow or lesson records are present, compare them to the actual portfolio baseline explicitly. "
                         "Be concise and directly useful."
+                        + presentation_instruction("assistant_message")
                     ),
                     user_prompt=json.dumps(payload, ensure_ascii=True, default=str),
                     schema=OPERATING_RESPONSE_SCHEMA,
