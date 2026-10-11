@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
 import AppNav from "@/components/AppNav";
 import PageHeader from "@/components/PageHeader";
+import WorkspaceState from "@/components/WorkspaceState";
+import { loadMonitorSnapshot } from "@/lib/monitor";
 import SourceProvenanceLinks from "@/components/SourceProvenanceLinks";
 import { apiFetch, TimelineItem, API_BASE, SourceRecord, GraphNodeDetail, GraphConnection, KnowledgeChangeSummary } from "@/lib/api";
 
@@ -263,6 +265,10 @@ export default function TimelinePage() {
   const [selectedSourceId, setSelectedSourceId] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [feedError, setFeedError] = useState<string | null>(null);
+  const [feedLoaded, setFeedLoaded] = useState(false);
+  const hasLoadedFeed = useRef(false);
+  const refreshInFlight = useRef(false);
   const [selectedNode, setSelectedNode] = useState<GraphNodeDetail | null>(null);
   const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null);
   const [graphLoading, setGraphLoading] = useState(false);
@@ -282,23 +288,28 @@ export default function TimelinePage() {
   }
 
   const loadTimeline = useCallback(async () => {
-    if (items.length === 0) {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    if (!hasLoadedFeed.current) {
       setLoading(true);
     }
     try {
-      const [timelineItems, changeSummary] = await Promise.all([
-        apiFetch<TimelineItem[]>("/timeline?limit=50"),
-        apiFetch<KnowledgeChangeSummary>("/timeline/knowledge-changes?limit=12"),
-      ]);
-      setItems(timelineItems);
-      setKnowledgeChanges(changeSummary);
-      setError(null);
+      const snapshot = await loadMonitorSnapshot(
+        () => apiFetch<TimelineItem[]>("/timeline?limit=50"),
+        () => apiFetch<KnowledgeChangeSummary>("/timeline/knowledge-changes?limit=12"),
+      );
+      setItems(snapshot.items);
+      setKnowledgeChanges(snapshot.changes);
+      setFeedError(snapshot.warning);
+      hasLoadedFeed.current = true;
+      setFeedLoaded(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load timeline.");
+      setFeedError(err instanceof Error ? err.message : "Unable to load timeline.");
     } finally {
+      refreshInFlight.current = false;
       setLoading(false);
     }
-  }, [items.length]);
+  }, []);
 
   useEffect(() => {
     void loadTimeline();
@@ -484,11 +495,13 @@ export default function TimelinePage() {
             </div>
           </section>
 
+          {error ? <WorkspaceState kind="error" title="The requested action could not complete" description={error} compact /> : null}
+          {feedError && feedLoaded ? <WorkspaceState kind="degraded" title="Some Monitor information is unavailable" description={`${feedError} The last successfully loaded feed remains visible below.`} actionLabel="Retry refresh" onAction={() => void loadTimeline()} compact /> : null}
           <section className="relative border-l border-slate-200 dark:border-slate-800 ml-3 md:ml-4 space-y-8 py-4">
             {loading ? (
-              <div className="pl-6 text-sm text-slate-500 animate-pulse">Loading intelligence stream...</div>
-            ) : error ? (
-              <div className="pl-6 text-sm text-red-500">{error}</div>
+              <WorkspaceState kind="loading" title="Loading Monitor" description="Reading the latest stored evidence and knowledge changes." className="ml-6" />
+            ) : feedError && !feedLoaded ? (
+              <WorkspaceState kind="error" title="Monitor is unavailable" description={feedError} actionLabel="Retry" onAction={() => void loadTimeline()} className="ml-6" />
             ) : visibleItems.length === 0 ? (
               <div className="pl-6 text-sm text-slate-500">
                 {feedMode === "attention"
