@@ -1520,8 +1520,39 @@ function ShadowComparisonChart({ experiment }: { experiment: ShadowExperiment })
         <ComparisonBar label="Actual" value={actual} maxAbs={maxAbs} tone="slate" />
         <ComparisonBar label="Alpha" value={experiment.result.alpha} maxAbs={maxAbs} tone={experiment.result.alpha >= 0 ? "emerald" : "rose"} />
       </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <Metric label="Observed max drawdown" value={experiment.result.max_drawdown == null ? "Unavailable" : formatPct(experiment.result.max_drawdown)} />
+        <Metric label="Sharpe per observed interval" value={experiment.result.sharpe_ratio == null ? "Unavailable" : experiment.result.sharpe_ratio.toFixed(2)} />
+      </div>
+      <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+        {experiment.result.performance_metrics_json?.observation_count ?? 0} captured equity observations.
+        Drawdown covers observed checkpoints; declines between them may be missed.
+        Sharpe uses simple returns against zero-return paper cash and is not annualized.
+        {experiment.result.performance_metrics_json?.cadence_seconds != null && ` Observed interval: ${(experiment.result.performance_metrics_json.cadence_seconds / 3600).toFixed(1)} hours.`}
+      </p>
+      {experiment.result.performance_metrics_json?.first_observed_at && experiment.result.performance_metrics_json?.last_observed_at && (
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          Measured window: {formatDate(experiment.result.performance_metrics_json.first_observed_at)} to {formatDate(experiment.result.performance_metrics_json.last_observed_at)}.
+        </p>
+      )}
+      {experiment.result.max_drawdown == null && <p className="mt-1 text-xs text-slate-500">Drawdown unavailable: {metricUnavailableReason(experiment.result.performance_metrics_json?.drawdown_reason)}.</p>}
+      {experiment.result.sharpe_ratio == null && <p className="mt-1 text-xs text-slate-500">Sharpe unavailable: {metricUnavailableReason(experiment.result.performance_metrics_json?.sharpe_reason)}.</p>}
     </div>
   );
+}
+
+function metricUnavailableReason(reason?: string | null): string {
+  switch (reason) {
+    case "legacy_unverified_metrics": return "this older result lacks verified measurement inputs";
+    case "insufficient_observations": return "at least two dated equity observations are needed";
+    case "insufficient_returns": return "at least two return intervals are needed";
+    case "irregular_observation_cadence": return "equity observations are not equally spaced";
+    case "zero_return_variance": return "observed returns have no measurable variation";
+    case "unsupported_external_cash_flows": return "external cash flows are present or unknown";
+    case "account_history_rebuilt": return "the account history was corrected after observations were captured";
+    case "nonpositive_starting_equity": return "starting equity is not positive";
+    default: return "the captured inputs do not support this measurement";
+  }
 }
 
 function ComparisonBar({

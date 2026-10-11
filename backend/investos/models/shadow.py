@@ -274,8 +274,9 @@ class ExperimentResult(Base):
     actual_return: Mapped[float] = mapped_column(Float)
     alpha: Mapped[float] = mapped_column(Float)
 
-    max_drawdown: Mapped[float] = mapped_column(Float)
+    max_drawdown: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     sharpe_ratio: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    performance_metrics_json: Mapped[dict] = mapped_column(JSONB, default=dict)
 
     reasoning: Mapped[str] = mapped_column(String)
     reasoning_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
