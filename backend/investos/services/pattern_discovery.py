@@ -27,6 +27,7 @@ from investos.services.graph_edge_state import GraphEdgeStateService
 from investos.services.knowledge_audit import KnowledgeAuditService
 from investos.services.market_setup import MarketSetupSignalService
 from investos.services.portfolio_peers import PortfolioPeerContextService
+from investos.services.question_lifecycle import QuestionLifecycleService
 
 PATTERN_DISCOVERY_SCHEMA = {
     "type": "object",
@@ -666,7 +667,6 @@ class PatternDiscoveryService:
                 await self.session.execute(
                     select(UnresolvedQuestion).where(
                         UnresolvedQuestion.coverage_map_id == coverage.id,
-                        UnresolvedQuestion.status.in_(["open", "investigating"]),
                     )
                 )
             )
@@ -677,15 +677,22 @@ class PatternDiscoveryService:
             self._normalized_text(row.question_text) == question_key for row in existing
         ):
             return None
-        question = UnresolvedQuestion(
-            coverage_map_id=coverage.id,
-            question_text=question_text,
-            urgency=5 if hypothesis["confidence"] >= 0.85 else 4,
-            originating_evidence_id=first_raw_id,
-            status="open",
+        question = await QuestionLifecycleService(self.session).ensure_question(
+            coverage,
+            {
+                "question_text": question_text,
+                "urgency": 5 if hypothesis["confidence"] >= 0.85 else 4,
+                "mechanism": hypothesis["proposed_mechanism"],
+                "time_horizon": "current pattern review",
+                "decision_relevance": "provisional pattern falsification",
+            },
+            existing,
         )
-        self.session.add(question)
-        await self.session.flush()
+        if question is None:
+            return None
+        QuestionLifecycleService(self.session).record(
+            question, "pattern_evidence", evidence_id=str(first_raw_id)
+        )
         await self.edge_state.ensure_edge(
             source_type="market_setup_signal",
             source_id=signal.id,

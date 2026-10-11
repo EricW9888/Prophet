@@ -13,7 +13,7 @@ from investos.models.catalog import (
     SourceValueProfile,
 )
 from investos.models.conclusion import ConclusionState
-from investos.models.coverage import UnresolvedQuestion
+from investos.models.coverage import CoverageMap, UnresolvedQuestion
 from investos.models.entity import Entity, Security
 from investos.models.evidence import RawEvidence
 from investos.models.graph import Edge
@@ -26,6 +26,10 @@ from investos.models.source import Source
 from investos.models.theme import Theme
 from investos.services.canonical_state import CanonicalStateService
 from investos.services.portfolio_peers import PortfolioPeerContextService
+from investos.services.question_lifecycle import (
+    ACTIVE_QUESTION_STATUSES,
+    QuestionLifecycleService,
+)
 from investos.services.review import ReviewService
 from investos.services.risk import RiskService
 from investos.services.runtime_settings import RuntimeSettingsStore
@@ -638,7 +642,11 @@ class OperatingStateService:
             (
                 await self.session.execute(
                     select(UnresolvedQuestion)
-                    .where(UnresolvedQuestion.status == "open")
+                    .join(CoverageMap)
+                    .where(
+                        UnresolvedQuestion.status.in_(ACTIVE_QUESTION_STATUSES),
+                        QuestionLifecycleService.portfolio_clause(),
+                    )
                     .order_by(
                         UnresolvedQuestion.urgency.desc(),
                         UnresolvedQuestion.created_at.asc(),
@@ -652,8 +660,11 @@ class OperatingStateService:
         open_question_count = int(
             (
                 await self.session.execute(
-                    select(func.count(UnresolvedQuestion.id)).where(
-                        UnresolvedQuestion.status == "open"
+                    select(func.count(UnresolvedQuestion.id))
+                    .join(CoverageMap)
+                    .where(
+                        QuestionLifecycleService.portfolio_clause(),
+                        UnresolvedQuestion.status.in_(ACTIVE_QUESTION_STATUSES),
                     )
                 )
             ).scalar_one()

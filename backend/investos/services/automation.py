@@ -38,6 +38,12 @@ from investos.services.media_workspace import MediaIngestionPolicy
 from investos.services.opportunity import OpportunityDiscoveryService
 from investos.services.pattern_discovery import PatternDiscoveryService
 from investos.services.push_notification import PushNotificationService
+from investos.services.question_lifecycle import (
+    ACTIVE_QUESTION_STATUSES,
+    RESEARCH_QUESTION_STATUSES,
+    RESOLUTION_QUESTION_STATUSES,
+    QuestionLifecycleService,
+)
 from investos.services.relation_review import RelationReviewService
 from investos.services.research import ResearchService
 from investos.services.review import ReviewService
@@ -457,13 +463,21 @@ class AutomationCoordinator:
                 )
                 if question is None:
                     telemetry.last_status = "ok"
-                    telemetry.detail = "no_open_questions"
+                    telemetry.detail = "no_due_eligible_questions"
                     return
                 if not configured_research_providers(
                     RuntimeSettingsStore.load().research
                 ):
                     telemetry.last_status = "waiting_for_config"
                     telemetry.detail = "research_provider_not_configured"
+                    QuestionLifecycleService(session).transition(
+                        question,
+                        status="awaiting_provider",
+                        outcome="research_provider_not_configured",
+                        next_action="research",
+                        delay_hours=24,
+                    )
+                    await session.commit()
                     return
                 result = await ResearchService(session).run_targeted_question(question)
                 telemetry.last_status = result.telemetry_status
@@ -522,31 +536,29 @@ class AutomationCoordinator:
         telemetry.last_run_at = datetime.now(UTC)
         async with async_session_maker() as session:
             try:
-                question = await self._select_resolution_question(session)
-                if question is None:
-                    telemetry.last_status = "ok"
-                    telemetry.detail = "no_investigating_questions_ready"
-                    return
-                resolved = await ResearchService(session)._maybe_resolve_question(
-                    question,
-                    question.originating_evidence_id,
-                )
+                outcomes = []
+                for _ in range(3):
+                    question = await self._select_resolution_question(session)
+                    if question is None:
+                        break
+                    resolved = await ResearchService(session)._maybe_resolve_question(
+                        question, question.originating_evidence_id
+                    )
+                    outcomes.append(question.last_material_outcome)
+                    self._log_job_action(
+                        job_name="question_resolution",
+                        status=question.last_material_outcome,
+                        summary=f"Question assessment: {question.question_text}",
+                        metadata={
+                            "question_id": str(question.id),
+                            "evidence_id": str(question.originating_evidence_id),
+                            "resolved": resolved,
+                            "next_action": question.next_action,
+                        },
+                    )
                 telemetry.last_status = "ok"
                 telemetry.detail = (
-                    f"question={question.id} resolved={str(resolved).lower()}"
-                )
-                self._log_job_action(
-                    job_name="question_resolution",
-                    status="resolved" if resolved else "still_open",
-                    summary=(
-                        f"Question resolution closed: {question.question_text}"
-                        if resolved
-                        else f"Question resolution retained for more evidence: {question.question_text}"
-                    ),
-                    metadata={
-                        "question_id": str(question.id),
-                        "evidence_id": str(question.originating_evidence_id),
-                    },
+                    ", ".join(outcomes) if outcomes else "no_due_eligible_questions"
                 )
             except Exception as exc:
                 telemetry.last_status = "error"
@@ -557,20 +569,33 @@ class AutomationCoordinator:
                     summary=f"Question resolution failed: {exc}",
                 )
 
-    async def _select_resolution_question(
-        self,
-        session,
-    ) -> UnresolvedQuestion | None:
+    async def _due_question(self, session, *, resolution=False):
+        lifecycle = QuestionLifecycleService(session)
+        await lifecycle.retire_ineligible()
+        await session.commit()
+        states = (
+            RESOLUTION_QUESTION_STATUSES if resolution else RESEARCH_QUESTION_STATUSES
+        )
         candidates = (
             (
                 await session.execute(
                     select(UnresolvedQuestion)
+                    .join(CoverageMap)
                     .where(
-                        UnresolvedQuestion.status == "investigating",
-                        UnresolvedQuestion.originating_evidence_id.is_not(None),
+                        UnresolvedQuestion.status.in_(states),
+                        lifecycle.portfolio_clause(),
+                        lifecycle.due_clause(),
+                        UnresolvedQuestion.next_action
+                        == ("assess_evidence" if resolution else "research"),
+                        *(
+                            [UnresolvedQuestion.originating_evidence_id.is_not(None)]
+                            if resolution
+                            else []
+                        ),
                     )
                     .order_by(
                         desc(UnresolvedQuestion.urgency),
+                        UnresolvedQuestion.next_review_at.asc().nullsfirst(),
                         UnresolvedQuestion.created_at.asc(),
                     )
                     .limit(50)
@@ -580,37 +605,28 @@ class AutomationCoordinator:
             .all()
         )
         for question in candidates:
-            if self._is_artifact_question(question):
-                question.status = "obsolete"
+            if self._is_artifact_question(
+                question
+            ) or await self._is_artifact_question_subject(session, question):
+                lifecycle.transition(
+                    question, status="archived", outcome="internal_artifact"
+                )
                 await session.commit()
-                continue
-            if await self._is_artifact_question_subject(session, question):
-                question.status = "obsolete"
-                await session.commit()
-                continue
-            if not await self._is_portfolio_relevant_question_subject(
-                session, question
-            ):
-                continue
-            if AgentActionLogService.has_recent_question_attempt(
-                str(question.id),
-                statuses=(
-                    "question_resolved",
-                    "question_still_open",
-                    "resolution_assessment_deferred",
-                ),
-                within_seconds=24 * 60 * 60,
-            ):
                 continue
             return question
         return None
 
-    async def _select_research_question(
-        self,
-        session,
-    ) -> tuple[
-        UnresolvedQuestion | None, ReviewQueueItem | None, dict[str, str | None]
-    ]:
+    async def _select_resolution_question(self, session) -> UnresolvedQuestion | None:
+        return await self._due_question(session, resolution=True)
+
+    async def _select_research_question(self, session):
+        question = await self._due_question(session)
+        if question is not None:
+            return (
+                question,
+                None,
+                await self._question_subject_context(session, question),
+            )
         await ReviewService(session).refresh_queue()
         review_items = (
             (
@@ -629,52 +645,19 @@ class AutomationCoordinator:
         )
         for item in review_items:
             question = await self._question_for_review_item(session, item)
-            if question is None:
-                continue
-            if AgentActionLogService.has_recent_question_attempt(str(question.id)):
-                continue
-            return (
-                question,
-                item,
-                await self._question_subject_context(session, question),
-            )
-
-        fallback_questions = (
-            (
-                await session.execute(
-                    select(UnresolvedQuestion)
-                    .where(UnresolvedQuestion.status == "open")
-                    .order_by(
-                        desc(UnresolvedQuestion.urgency),
-                        UnresolvedQuestion.created_at.asc(),
-                    )
+            if (
+                question is not None
+                and await self._is_portfolio_relevant_question_subject(
+                    session, question
                 )
-            )
-            .scalars()
-            .all()
-        )
-        for question in fallback_questions:
-            if self._is_artifact_question(question):
-                question.status = "obsolete"
-                await session.flush()
-                await session.commit()
-                continue
-            if await self._is_artifact_question_subject(session, question):
-                question.status = "obsolete"
-                await session.flush()
-                await session.commit()
-                continue
-            if not await self._is_portfolio_relevant_question_subject(
-                session, question
             ):
-                continue
-            if AgentActionLogService.has_recent_question_attempt(str(question.id)):
-                continue
-            return (
-                question,
-                None,
-                await self._question_subject_context(session, question),
-            )
+                await session.commit()
+                return (
+                    question,
+                    item,
+                    await self._question_subject_context(session, question),
+                )
+        await session.commit()
         return (
             None,
             None,
@@ -696,7 +679,7 @@ class AutomationCoordinator:
                     select(UnresolvedQuestion)
                     .where(
                         UnresolvedQuestion.coverage_map_id == coverage.id,
-                        UnresolvedQuestion.status.in_(["open", "investigating"]),
+                        UnresolvedQuestion.superseded_by_id.is_(None),
                     )
                     .order_by(
                         desc(UnresolvedQuestion.urgency),
@@ -709,16 +692,31 @@ class AutomationCoordinator:
         )
         for question in existing_questions:
             if self._is_artifact_question(question):
-                question.status = "obsolete"
+                if question.status not in ACTIVE_QUESTION_STATUSES:
+                    continue
+                QuestionLifecycleService(session).transition(
+                    question, status="archived", outcome="internal_artifact"
+                )
                 await session.flush()
                 await session.commit()
                 continue
             if await self._is_artifact_question_subject(session, question):
-                question.status = "obsolete"
+                if question.status not in ACTIVE_QUESTION_STATUSES:
+                    continue
+                QuestionLifecycleService(session).transition(
+                    question, status="archived", outcome="internal_artifact"
+                )
                 await session.flush()
                 await session.commit()
                 continue
-            if question.status == "open":
+            if (
+                question.status in RESEARCH_QUESTION_STATUSES
+                and question.next_action == "research"
+                and (
+                    question.next_review_at is None
+                    or question.next_review_at <= datetime.now(UTC)
+                )
+            ):
                 return question
         if existing_questions:
             return None
@@ -726,16 +724,24 @@ class AutomationCoordinator:
         if item.item_type != "position" or float(item.priority_score or 0.0) < 40.0:
             return None
 
-        question = UnresolvedQuestion(
-            coverage_map_id=coverage.id,
-            question_text=await self._default_position_research_question(
-                session, item.item_id
-            ),
-            urgency=5 if float(item.priority_score or 0.0) >= 60.0 else 4,
+        question = await QuestionLifecycleService(session).ensure_question(
+            coverage,
+            {
+                "question_text": await self._default_position_research_question(
+                    session, item.item_id
+                ),
+                "urgency": 5 if float(item.priority_score or 0.0) >= 60.0 else 4,
+                "mechanism": "portfolio thesis materiality",
+                "time_horizon": "current review cycle",
+                "decision_relevance": "position review",
+            },
+            existing_questions,
         )
-        session.add(question)
-        await session.flush()
-        return question
+        return (
+            question
+            if question and question.status in RESEARCH_QUESTION_STATUSES
+            else None
+        )
 
     async def _coverage_for_review_item(
         self, session, item: ReviewQueueItem
@@ -847,36 +853,15 @@ class AutomationCoordinator:
         )
         return is_artifact_subject_name(name)
 
-    async def _is_portfolio_relevant_question_subject(
-        self, session, question: UnresolvedQuestion
-    ) -> bool:
-        coverage = await session.get(CoverageMap, question.coverage_map_id)
-        if coverage is None:
-            return False
-        if coverage.subject_type == "portfolio":
-            return True
-        if coverage.subject_type == "position":
-            position = await session.get(Position, coverage.subject_id)
-            return bool(
-                position
-                and position.list_type in {"holding", "watchlist", "considering"}
-            )
-        if coverage.subject_type == "entity":
-            linked_position = (
-                await session.execute(
-                    select(Position)
-                    .join(Security, Position.security_id == Security.id)
-                    .where(
-                        Security.entity_id == coverage.subject_id,
-                        Position.list_type.in_(["holding", "watchlist", "considering"]),
-                    )
-                    .limit(1)
+    async def _is_portfolio_relevant_question_subject(self, session, question):
+        return bool(
+            await session.scalar(
+                select(CoverageMap.id).where(
+                    CoverageMap.id == question.coverage_map_id,
+                    QuestionLifecycleService.portfolio_clause(),
                 )
-            ).scalar_one_or_none()
-            return linked_position is not None
-        # Themes can be portfolio-relevant, but broad theme questions should be
-        # selected by strategist/review paths rather than the blind fallback.
-        return False
+            )
+        )
 
     async def _subject_name_for_context(
         self, session, subject_type: str, subject_id
@@ -892,6 +877,10 @@ class AutomationCoordinator:
                         if entity is None
                         else f"{security.ticker} · {entity.name}"
                     )
+        if subject_type == "security":
+            security = await session.get(Security, subject_id)
+            if security is not None:
+                return security.ticker
         if subject_type == "entity":
             entity = await session.get(Entity, subject_id)
             if entity is not None:

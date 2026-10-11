@@ -9,7 +9,13 @@ from .catalog import (
     SourceValueProfile,
 )
 from .conclusion import ConclusionRevision, ConclusionState
-from .coverage import CoverageMap, MissingEvidenceClass, Resolution, UnresolvedQuestion
+from .coverage import (
+    CoverageMap,
+    MissingEvidenceClass,
+    QuestionHistory,
+    Resolution,
+    UnresolvedQuestion,
+)
 from .decision import DecisionJournal, DecisionReview
 from .entity import Entity, Security
 from .epistemic import (
@@ -90,6 +96,7 @@ __all__ = [
     "CoverageMap",
     "MissingEvidenceClass",
     "UnresolvedQuestion",
+    "QuestionHistory",
     "Resolution",
     "DecisionJournal",
     "DecisionReview",

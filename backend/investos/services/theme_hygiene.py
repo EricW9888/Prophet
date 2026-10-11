@@ -14,7 +14,6 @@ from investos.models.conclusion import ConclusionRevision, ConclusionState
 from investos.models.coverage import (
     CoverageMap,
     MissingEvidenceClass,
-    Resolution,
     UnresolvedQuestion,
 )
 from investos.models.decision import DecisionJournal
@@ -33,6 +32,7 @@ from investos.services.artifact_hygiene import (
     strip_research_wrappers,
 )
 from investos.services.knowledge_audit import KnowledgeAuditService
+from investos.services.question_lifecycle import QuestionLifecycleService
 
 
 class ThemeHygieneService:
@@ -293,49 +293,29 @@ class ThemeHygieneService:
         )
         moved["coverage"] = len(cov_ids)
         if cov_ids:
-            q_ids = (
-                (
-                    await self.session.execute(
-                        select(UnresolvedQuestion.id).where(
-                            UnresolvedQuestion.coverage_map_id.in_(cov_ids)
-                        )
+            questions = (
+                await self.session.scalars(
+                    select(UnresolvedQuestion).where(
+                        UnresolvedQuestion.coverage_map_id.in_(cov_ids)
                     )
                 )
-                .scalars()
-                .all()
-            )
-            c_ids = (
-                (
-                    await self.session.execute(
-                        select(MissingEvidenceClass.id).where(
-                            MissingEvidenceClass.coverage_map_id.in_(cov_ids)
-                        )
-                    )
+            ).all()
+            for question in questions:
+                QuestionLifecycleService(self.session).transition(
+                    question,
+                    status="archived",
+                    outcome="subject_retired",
+                    retired_subject_id=str(theme_id),
                 )
-                .scalars()
-                .all()
-            )
-            if q_ids or c_ids:
-                await self.session.execute(
-                    delete(Resolution).where(
-                        or_(
-                            Resolution.unresolved_question_id.in_(q_ids or [None]),
-                            Resolution.missing_evidence_class_id.in_(c_ids or [None]),
-                        )
-                    )
-                )
+            # Keep coverage and resolutions as historical provenance even when
+            # the operational artifact theme itself is removed.
             await self.session.execute(
-                delete(UnresolvedQuestion).where(
-                    UnresolvedQuestion.coverage_map_id.in_(cov_ids)
+                update(MissingEvidenceClass)
+                .where(
+                    MissingEvidenceClass.coverage_map_id.in_(cov_ids),
+                    MissingEvidenceClass.resolved_at.is_(None),
                 )
-            )
-            await self.session.execute(
-                delete(MissingEvidenceClass).where(
-                    MissingEvidenceClass.coverage_map_id.in_(cov_ids)
-                )
-            )
-            await self.session.execute(
-                delete(CoverageMap).where(CoverageMap.id.in_(cov_ids))
+                .values(resolved_at=datetime.now(UTC))
             )
 
         prof_ids = (

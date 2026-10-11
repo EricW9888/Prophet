@@ -36,6 +36,10 @@ from investos.schemas.review import ReviewQueueItemResponse
 from investos.services.agent_action_log import AgentActionLogService
 from investos.services.operating_state import OperatingStateService
 from investos.services.portfolio import PortfolioService
+from investos.services.question_lifecycle import (
+    ACTIVE_QUESTION_STATUSES,
+    QuestionLifecycleService,
+)
 from investos.services.research import ResearchService
 from investos.services.review import ReviewService
 from investos.services.risk import RiskService
@@ -100,7 +104,12 @@ class DashboardService:
             ]
         )
         open_questions_count = await self._scalar_count(
-            select(UnresolvedQuestion).where(UnresolvedQuestion.status == "open")
+            select(UnresolvedQuestion)
+            .join(CoverageMap)
+            .where(
+                UnresolvedQuestion.status.in_(ACTIVE_QUESTION_STATUSES),
+                QuestionLifecycleService.portfolio_clause(),
+            )
         )
         pending_shadow_experiments_count = await self._scalar_count(
             select(ShadowExperiment).where(
@@ -335,7 +344,10 @@ class DashboardService:
             await self.session.execute(
                 select(UnresolvedQuestion, CoverageMap)
                 .join(CoverageMap, UnresolvedQuestion.coverage_map_id == CoverageMap.id)
-                .where(UnresolvedQuestion.status == "open")
+                .where(
+                    UnresolvedQuestion.status.in_(ACTIVE_QUESTION_STATUSES),
+                    QuestionLifecycleService.portfolio_clause(),
+                )
                 .order_by(
                     desc(UnresolvedQuestion.urgency),
                     desc(UnresolvedQuestion.created_at),
@@ -494,7 +506,12 @@ class DashboardService:
             automation_enabled=True,
             provider_configured=bool(runtime.research.api_key),
             open_question_count=await self._scalar_count(
-                select(UnresolvedQuestion).where(UnresolvedQuestion.status == "open")
+                select(UnresolvedQuestion)
+                .join(CoverageMap)
+                .where(
+                    UnresolvedQuestion.status.in_(ACTIVE_QUESTION_STATUSES),
+                    QuestionLifecycleService.portfolio_clause(),
+                )
             ),
             pending_evidence_count=pending_evidence_count,
             latest_run_at=None if research_loop is None else research_loop.last_run_at,

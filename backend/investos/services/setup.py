@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from investos.config import settings
 from investos.core.providers import llm_provider_capability
 from investos.models import Base
-from investos.models.coverage import UnresolvedQuestion
+from investos.models.coverage import CoverageMap, UnresolvedQuestion
 from investos.models.evidence import RawEvidence
 from investos.models.portfolio import Position
 from investos.models.profile import Profile
@@ -20,6 +20,10 @@ from investos.schemas.setup import (
     DevelopmentResetResponse,
     SetupStatusResponse,
     SetupStepResponse,
+)
+from investos.services.question_lifecycle import (
+    ACTIVE_QUESTION_STATUSES,
+    QuestionLifecycleService,
 )
 from investos.services.runtime_settings import RuntimeSettingsStore
 
@@ -47,7 +51,12 @@ class SetupService:
         evidence_count = await self._count(select(RawEvidence))
         profile_count = await self._count(select(Profile))
         open_questions = await self._count(
-            select(UnresolvedQuestion).where(UnresolvedQuestion.status == "open")
+            select(UnresolvedQuestion)
+            .join(CoverageMap)
+            .where(
+                UnresolvedQuestion.status.in_(ACTIVE_QUESTION_STATUSES),
+                QuestionLifecycleService.portfolio_clause(),
+            )
         )
         steps: list[SetupStepResponse] = []
         steps.append(

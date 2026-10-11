@@ -26,6 +26,7 @@ from investos.services.retrieval import RetrievalService
 from investos.services.review import ReviewService
 from investos.workers.coverage import CoverageWorker
 from investos.workers.extraction import ExtractionWorker
+from tests.test_question_lifecycle import question_session, tracked_scope
 
 
 class _GraphDetailProbe(GraphService):
@@ -235,7 +236,9 @@ class _CoverageFallbackSession:
 
     async def execute(self, statement):
         sql = str(statement).lower()
-        if "unresolved_questions" in sql or "missing_evidence_classes" in sql:
+        if (
+            "unresolved_questions" in sql or "missing_evidence_classes" in sql
+        ) and not sql.startswith("select"):
             raise AssertionError(
                 "Fallback coverage audit must not rewrite durable gap state"
             )
@@ -249,8 +252,11 @@ class _CoverageFallbackSession:
 
 
 @pytest.mark.asyncio
-async def test_coverage_question_refresh_reconciles_without_destroying_state():
-    coverage_map_id = uuid4()
+async def test_coverage_question_refresh_reconciles_without_destroying_state(
+    question_session,
+):
+    coverage, _ = await tracked_scope(question_session)
+    coverage_map_id = coverage.id
     created_at = datetime(2026, 6, 20, tzinfo=timezone.utc)
     answered = UnresolvedQuestion(
         coverage_map_id=coverage_map_id,
@@ -280,7 +286,9 @@ async def test_coverage_question_refresh_reconciles_without_destroying_state():
         status="open",
         created_at=created_at,
     )
-    session = _CoverageReconcileSession([answered, investigating, duplicate, stale])
+    session = question_session
+    session.add_all([answered, investigating, duplicate, stale])
+    await session.flush()
 
     await CoverageWorker(session)._reconcile_unresolved_questions(
         coverage_map_id,
@@ -304,13 +312,19 @@ async def test_coverage_question_refresh_reconciles_without_destroying_state():
     assert answered.urgency == 4
     assert investigating.status == "investigating"
     assert investigating.urgency == 5
-    assert duplicate.status == "obsolete"
-    assert stale.status == "obsolete"
-    assert len(session.added) == 1
-    assert (
-        session.added[0].question_text
-        == "What primary source quantifies committed capacity?"
+    assert duplicate.status == "superseded"
+    assert duplicate.superseded_by_id == investigating.id
+    assert stale.status == "archived"
+    from sqlalchemy import select
+
+    new_question = await session.scalar(
+        select(UnresolvedQuestion).where(
+            UnresolvedQuestion.coverage_map_id == coverage_map_id,
+            UnresolvedQuestion.question_text
+            == "What primary source quantifies committed capacity?",
+        )
     )
+    assert new_question is not None and new_question.status == "needs_research"
 
 
 @pytest.mark.asyncio
