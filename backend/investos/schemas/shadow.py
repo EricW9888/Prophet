@@ -1,10 +1,12 @@
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from investos.schemas.lesson import LessonResponse
+from investos.services.shadow_metrics import result_metrics
 
 
 class ShadowExperimentCreate(BaseModel):
@@ -134,9 +136,26 @@ class ExperimentResultResponse(BaseModel):
     shadow_return: float
     actual_return: float
     alpha: float
-    max_drawdown: float
+    max_drawdown: Optional[float] = None
     sharpe_ratio: Optional[float] = None
+    performance_metrics_json: dict = Field(default_factory=dict)
     reasoning: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def expose_measured_metrics(cls, value):
+        payload = (
+            dict(value)
+            if isinstance(value, dict)
+            else {field: getattr(value, field, None) for field in cls.model_fields}
+        )
+        metrics = result_metrics(SimpleNamespace(**payload))
+        payload.update(
+            max_drawdown=metrics.get("max_drawdown"),
+            sharpe_ratio=metrics.get("sharpe_ratio"),
+            performance_metrics_json=metrics,
+        )
+        return payload
 
     model_config = ConfigDict(from_attributes=True)
 

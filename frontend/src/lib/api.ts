@@ -779,6 +779,8 @@ export type ShadowExperiment = {
       actual_return?: number | null;
       alpha?: number | null;
       max_drawdown?: number | null;
+      sharpe_ratio?: number | null;
+      performance_metrics?: Record<string, unknown>;
       reasoning?: string | null;
     };
     decision_history_summary?: Array<{
@@ -901,8 +903,23 @@ export type ShadowExperiment = {
     shadow_return: number;
     actual_return: number;
     alpha: number;
-    max_drawdown: number;
+    max_drawdown?: number | null;
     sharpe_ratio?: number | null;
+    performance_metrics_json?: {
+      version?: number;
+      observation_count?: number;
+      return_count?: number;
+      first_observed_at?: string;
+      last_observed_at?: string;
+      cadence_seconds?: number;
+      coverage?: string;
+      drawdown_status?: string;
+      drawdown_reason?: string | null;
+      sharpe_status?: string;
+      sharpe_reason?: string | null;
+      annualization?: string;
+      cash_comparator_return?: number;
+    };
     reasoning: string;
   } | null;
   lesson?: Lesson | null;

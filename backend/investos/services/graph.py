@@ -46,6 +46,7 @@ from investos.schemas.graph import (
 from investos.services.canonical_state import CanonicalStateService
 from investos.services.evidence_provenance import build_evidence_source_reference
 from investos.services.graph_registry import durable_graph_model_map
+from investos.services.shadow_metrics import result_metrics
 from investos.services.source import SourceService
 
 CONVERSATION_SOURCE_NAME = "Prophet Agent Conversation"
@@ -1334,16 +1335,14 @@ class GraphService:
                 ),
             }
         elif node_type == "experiment_result":
+            metrics = result_metrics(node)
             properties = {
                 "shadow_return": round(float(node.shadow_return or 0.0), 4),
                 "actual_return": round(float(node.actual_return or 0.0), 4),
                 "alpha": round(float(node.alpha or 0.0), 4),
-                "max_drawdown": round(float(node.max_drawdown or 0.0), 4),
-                "sharpe_ratio": (
-                    round(float(node.sharpe_ratio or 0.0), 4)
-                    if node.sharpe_ratio is not None
-                    else None
-                ),
+                "max_drawdown": metrics.get("max_drawdown"),
+                "sharpe_ratio": metrics.get("sharpe_ratio"),
+                "performance_metrics": metrics,
             }
 
         if attachment:

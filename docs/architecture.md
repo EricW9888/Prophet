@@ -216,6 +216,9 @@ telemetry, but are not presented as meaningful agent activity.
 
 ## Frontend Surfaces
 
+Shadow risk-statistic conventions and availability boundaries are documented in
+[Shadow metrics](shadow-metrics.md).
+
 The Next.js App Router pages under `frontend/src/app/` expose the implemented
 workflows:
 

@@ -50,9 +50,14 @@ from investos.services.paper_broker import (
 from investos.services.portfolio_peers import PortfolioPeerContextService
 from investos.services.review import ReviewService
 from investos.services.runtime_settings import RuntimeSettingsStore
+from investos.services.shadow_metrics import (
+    calculate_shadow_metrics,
+    result_metrics,
+    unavailable_metrics,
+)
 
 _EXPERIMENT_RUN_LOCKS: dict[UUID, asyncio.Lock] = {}
-_SHADOW_LEARNING_SCHEMA_VERSION = 2
+_SHADOW_LEARNING_SCHEMA_VERSION = 3
 
 SHADOW_GUIDANCE_SCHEMA = {
     "type": "object",
@@ -1466,6 +1471,18 @@ class ShadowService:
                 "last_updated_at": None,
             }
             run_details["progress"] = progress
+            initial_shadow = self._coerce_shadow_state(
+                deepcopy(current_state.get("shadow_state") or {}),
+                fallback_snapshot=current_state,
+            )
+            run_details["performance_observations"] = [
+                {
+                    "captured_at": current_state.get("captured_at"),
+                    "equity": self._shadow_portfolio_total(initial_shadow, []),
+                    "net_external_cash_flow": 0.0,
+                }
+            ]
+            run_details.pop("performance_invalidated_reason", None)
             current_state["run_details"] = run_details
             experiment.final_portfolio_state_json = current_state
             await self.session.commit()
@@ -1863,6 +1880,26 @@ class ShadowService:
                 }
             )
             alpha = shadow_return - actual_return
+            performance_observations = list(
+                run_details.get("performance_observations") or []
+            )
+            performance_observations.append(
+                {
+                    "captured_at": now.isoformat(),
+                    "equity": shadow_total_value,
+                    # The paper account has no deposit/withdrawal path. Trading,
+                    # dividends, splits and fees remain internal portfolio activity.
+                    "net_external_cash_flow": 0.0,
+                }
+            )
+            invalidated_reason = run_details.get("performance_invalidated_reason")
+            metrics = (
+                unavailable_metrics(
+                    invalidated_reason, observation_count=len(performance_observations)
+                )
+                if invalidated_reason
+                else calculate_shadow_metrics(performance_observations)
+            )
             decision_history.append(
                 {
                     "step_index": step_number,
@@ -1971,6 +2008,8 @@ class ShadowService:
                 "ending_actual_total_value": round(actual_total_value, 2),
                 "run_log": prior_log + run_log,
                 "checkpoint_log": checkpoint_log,
+                "performance_observations": performance_observations,
+                "performance_invalidated_reason": invalidated_reason,
                 "decision_history": decision_history,
                 "pending_evidence_events": remaining_evidence_events,
                 "evidence_event_log": evidence_event_log,
@@ -2003,7 +2042,7 @@ class ShadowService:
                 self._build_experiment_report(
                     experiment=experiment,
                     result=self._transient_result(
-                        experiment.id, shadow_return, actual_return, alpha
+                        experiment.id, shadow_return, actual_return, alpha, metrics
                     ),
                     run_log=prior_log + run_log,
                 )
@@ -2028,8 +2067,9 @@ class ShadowService:
                     shadow_return=shadow_return,
                     actual_return=actual_return,
                     alpha=alpha,
-                    max_drawdown=min(0.0, shadow_return),
-                    sharpe_ratio=alpha if alpha != 0 else 0.0,
+                    max_drawdown=metrics["max_drawdown"],
+                    sharpe_ratio=metrics["sharpe_ratio"],
+                    performance_metrics_json=metrics,
                     reasoning=(
                         f"{guidance.get('guidance_summary', 'Shadow experiment followed the stated policy.')} "
                         "The run used current deterministic position state, accepted conclusion stances, "
@@ -2042,8 +2082,9 @@ class ShadowService:
                 result.shadow_return = shadow_return
                 result.actual_return = actual_return
                 result.alpha = alpha
-                result.max_drawdown = min(0.0, shadow_return)
-                result.sharpe_ratio = alpha if alpha != 0 else 0.0
+                result.max_drawdown = metrics["max_drawdown"]
+                result.sharpe_ratio = metrics["sharpe_ratio"]
+                result.performance_metrics_json = metrics
                 result.reasoning = (
                     f"{guidance.get('guidance_summary', 'Shadow experiment followed the stated policy.')} "
                     "The run used current deterministic position state, accepted conclusion stances, "
@@ -2131,14 +2172,17 @@ class ShadowService:
         shadow_return: float,
         actual_return: float,
         alpha: float,
+        metrics: dict[str, Any] | None = None,
     ) -> ExperimentResult:
+        metrics = metrics or unavailable_metrics("insufficient_observations")
         return ExperimentResult(
             experiment_id=experiment_id,
             shadow_return=shadow_return,
             actual_return=actual_return,
             alpha=alpha,
-            max_drawdown=min(0.0, shadow_return),
-            sharpe_ratio=alpha if alpha != 0 else 0.0,
+            max_drawdown=metrics["max_drawdown"],
+            sharpe_ratio=metrics["sharpe_ratio"],
+            performance_metrics_json=metrics,
             reasoning="Interim shadow checkpoint.",
         )
 
@@ -2861,11 +2905,36 @@ class ShadowService:
                     or experiment.initial_portfolio_state_json
                     or {}
                 )
+                state_container = deepcopy(state_container)
+                details = dict(state_container.get("run_details") or {})
+                details["performance_invalidated_reason"] = "account_history_rebuilt"
+                state_container["run_details"] = details
                 self._store_paper_account_state(
                     experiment=experiment,
                     shadow_state=shadow_state,
                     state_container=state_container,
                 )
+                result = (
+                    await self.session.execute(
+                        select(ExperimentResult).where(
+                            ExperimentResult.experiment_id == experiment.id
+                        )
+                    )
+                ).scalar_one_or_none()
+                if result is not None:
+                    prior_metrics = result_metrics(result)
+                    invalid_metrics = unavailable_metrics(
+                        "account_history_rebuilt",
+                        observation_count=len(
+                            details.get("performance_observations") or []
+                        ),
+                    )
+                    # Preserve the superseded calculation with its original inputs.
+                    invalid_metrics["superseded_measurement"] = prior_metrics
+                    result.max_drawdown = None
+                    result.sharpe_ratio = None
+                    result.performance_metrics_json = invalid_metrics
+                    await self._ensure_experiment_lesson(experiment, result)
                 rebuilt += 1
                 await self.session.commit()
         return {"attempted": attempted, "rebuilt": rebuilt, "failed": failed}
@@ -3462,6 +3531,14 @@ class ShadowService:
                 **self._paper_account_summary(display_shadow_state),
             }
         report = deepcopy(current_state.get("report") or {})
+        if result is not None:
+            metrics = result_metrics(result)
+            report["outcome_summary"] = {
+                **dict(report.get("outcome_summary") or {}),
+                "max_drawdown": metrics.get("max_drawdown"),
+                "sharpe_ratio": metrics.get("sharpe_ratio"),
+                "performance_metrics": metrics,
+            }
         if not include_details:
             run_details = {
                 key: run_details[key]
@@ -3711,6 +3788,8 @@ class ShadowService:
                 if observation_window_is_valid
                 else "zero_duration_observation_window"
             ),
+            "performance_metrics": result_metrics(result),
+            "calibration_basis": "terminal_alpha_not_risk_adjusted_or_causal_validation",
         }
         if existing_observation is None and observation_window_is_valid:
             report = (experiment.final_portfolio_state_json or {}).get("report") or {}
@@ -3828,6 +3907,8 @@ class ShadowService:
         )
         lesson.metadata_json = {
             "learning_schema_version": _SHADOW_LEARNING_SCHEMA_VERSION,
+            "calibration_basis": "terminal_alpha_not_risk_adjusted_or_causal_validation",
+            "latest_performance_metrics": result_metrics(result),
             "direction": direction,
             "average_alpha": average_alpha,
             "consistency": consistency,
@@ -3969,6 +4050,7 @@ class ShadowService:
         guidance = run_details.get("guidance") or {}
         decision_history = run_details.get("decision_history") or []
         alpha = float(result.alpha or 0.0)
+        metrics = result_metrics(result)
         performance_direction = self._performance_direction(alpha)
         outperformed = performance_direction == "outperformed"
         strongest_actions = sorted(
@@ -4087,7 +4169,9 @@ class ShadowService:
                 "shadow_return": float(result.shadow_return or 0.0),
                 "actual_return": float(result.actual_return or 0.0),
                 "alpha": alpha,
-                "max_drawdown": float(result.max_drawdown or 0.0),
+                "max_drawdown": metrics.get("max_drawdown"),
+                "sharpe_ratio": metrics.get("sharpe_ratio"),
+                "performance_metrics": metrics,
                 "reasoning": result.reasoning,
             },
             "learning_summary": {
