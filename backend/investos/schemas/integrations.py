@@ -1,6 +1,12 @@
-from typing import Any
+from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+
+class MailboxIdentityReviewRequest(BaseModel):
+    decision: Literal["link_existing", "create_distinct"]
+    existing_evidence_id: UUID | None = None
 
 
 class MarketDataIntegrationSettings(BaseModel):

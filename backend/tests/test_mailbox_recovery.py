@@ -14,10 +14,27 @@ from sqlalchemy.pool import NullPool
 from investos.config import settings
 from investos.core.storage import LocalStorage
 from investos.models.evidence import RawEvidence
+from investos.models.mailbox import MailboxReceiptIdentity
 from investos.models.portfolio import Transaction
 from investos.models.review import ReviewQueueItem
 from investos.schemas.portfolio import TransactionCreate
 from investos.services.mailbox import GmailMailboxService
+from investos.services.mailbox_identity import MailboxScope
+
+
+def synthetic_scope(folder="Synthetic"):
+    return MailboxScope.from_runtime(
+        SimpleNamespace(
+            imap_host="mail.example.test",
+            imap_port=993,
+            username="synthetic",
+            folder=folder,
+        ),
+        "11",
+    )
+
+
+DEFAULT_SCOPE = synthetic_scope()
 
 
 @pytest.fixture
@@ -40,6 +57,7 @@ async def mailbox_service(tmp_path):
 def receipt(sender="notifications@robinhood.com"):
     message = EmailMessage()
     message["From"] = sender
+    message["Message-ID"] = f"<{uuid4()}@example.test>"
     message["Subject"] = "Your individual account deposit is complete"
     message["Date"] = "Mon, 03 Aug 2026 15:00:00 +0000"
     message.set_content("Your individual account deposit is complete. Amount: $123.45")
@@ -51,6 +69,7 @@ def order_receipt(
 ):
     message = EmailMessage()
     message["From"] = sender
+    message["Message-ID"] = f"<{uuid4()}@example.test>"
     message["Subject"] = f"Your {ticker} order was executed"
     message["Date"] = "Mon, 03 Aug 2026 15:00:00 +0000"
     message.set_content(
@@ -64,8 +83,8 @@ async def test_interrupted_import_recovers_existing_evidence_once(
     mailbox_service, monkeypatch
 ):
     service = mailbox_service
-    uid = str(uuid4())
-    runtime = SimpleNamespace(folder="Synthetic")
+    uid = str(uuid4().int % (2**32 - 1) + 1)
+    runtime = synthetic_scope()
     original = service.portfolio.add_sourced_transaction_by_ticker
     monkeypatch.setattr(
         service.portfolio,
@@ -88,8 +107,11 @@ async def test_interrupted_import_recovers_existing_evidence_once(
     assert await service._already_ingested(uid, runtime)
     count = await service.session.scalar(
         select(func.count())
-        .select_from(RawEvidence)
-        .where(RawEvidence.external_id == service._external_id_for_uid(uid, runtime))
+        .select_from(MailboxReceiptIdentity)
+        .where(
+            MailboxReceiptIdentity.identity_key
+            == service._external_id_for_uid(uid, runtime)
+        )
     )
     assert count == 1
     posted = (
@@ -131,12 +153,14 @@ async def test_model_confidence_cannot_post_unverified_cash(
     )
     post = AsyncMock()
     monkeypatch.setattr(service.portfolio, "add_sourced_transaction_by_ticker", post)
-    uid = str(uuid4())
-    result = await service._process_message(uid, receipt("not-a-broker@example.test"))
+    uid = str(uuid4().int % (2**32 - 1) + 1)
+    result = await service._process_message(
+        uid, receipt("not-a-broker@example.test"), DEFAULT_SCOPE
+    )
     assert result["needs_reconciliation"]
     assert not result["transaction_created"]
     post.assert_not_awaited()
-    assert await service._already_ingested(uid)
+    assert await service._already_ingested(uid, DEFAULT_SCOPE)
     review = await service.session.scalar(
         select(ReviewQueueItem)
         .where(ReviewQueueItem.item_type == "mailbox_receipt")
@@ -168,10 +192,11 @@ async def test_mailbox_adopts_matching_legacy_fill_despite_float_tail(
     legacy.price = Decimal("628.8700000000000045")
     await service.session.commit()
 
-    uid = str(uuid4())
+    uid = str(uuid4().int % (2**32 - 1) + 1)
     result = await service._process_message(
         uid,
         order_receipt(ticker=ticker, quantity="0.75", price="628.87"),
+        DEFAULT_SCOPE,
     )
 
     assert not result["transaction_created"]
@@ -187,13 +212,17 @@ async def test_mailbox_adopts_matching_legacy_fill_despite_float_tail(
         .all()
     )
     assert len(transactions) == 1
-    assert transactions[0].source_identity == f"email_order_confirmation:{uid}"
+    evidence = await service._existing_receipt(uid, DEFAULT_SCOPE)
+    assert (
+        transactions[0].source_identity
+        == f"email_order_confirmation:{evidence.external_id}"
+    )
     assert transactions[0].provenance_json["legacy_transaction_adopted"] is True
 
 
 async def test_incomplete_ingestion_commit_is_found_by_metadata(mailbox_service):
     service = mailbox_service
-    uid = str(uuid4())
+    uid = str(uuid4().int % (2**32 - 1) + 1)
     source = await service._get_or_create_email_source()
     evidence = RawEvidence(
         source_id=source.id,
@@ -202,13 +231,17 @@ async def test_incomplete_ingestion_commit_is_found_by_metadata(mailbox_service)
     )
     service.session.add(evidence)
     await service.session.commit()
-    assert (await service._existing_receipt(uid)).id == evidence.id
-    assert not await service._already_ingested(uid)
+    assert await service._existing_receipt(uid, DEFAULT_SCOPE) is None
+    result = await service._process_message(uid, receipt(), DEFAULT_SCOPE)
+    assert result["needs_reconciliation"]
+    assert result["evidence_id"] != str(evidence.id)
+    assert evidence.external_id is None
+    assert evidence.metadata_json["external_id"] == uid
 
 
 async def test_deferred_receipts_rotate_behind_unattempted_work(mailbox_service):
     service = mailbox_service
-    runtime = SimpleNamespace(folder=f"Synthetic-{uuid4()}")
+    runtime = synthetic_scope(f"Synthetic-{uuid4()}")
     await service._preserve_deferred_receipt("1", receipt(), runtime)
     await service.session.commit()
     first_id = (await service._existing_receipt("1", runtime)).id
@@ -243,8 +276,8 @@ async def test_deferred_reclassification_reuses_receipt(
     mailbox_service, monkeypatch, outcome
 ):
     service = mailbox_service
-    uid = str(uuid4())
-    runtime = SimpleNamespace(folder="Synthetic")
+    uid = str(uuid4().int % (2**32 - 1) + 1)
+    runtime = synthetic_scope()
     message = receipt() if outcome == "supported" else receipt("sender@example.test")
     await service._preserve_deferred_receipt(uid, message, runtime)
     await service.session.commit()
@@ -285,9 +318,10 @@ async def test_deferred_reclassification_reuses_receipt(
     assert (
         await service.session.scalar(
             select(func.count())
-            .select_from(RawEvidence)
+            .select_from(MailboxReceiptIdentity)
             .where(
-                RawEvidence.external_id == service._external_id_for_uid(uid, runtime)
+                MailboxReceiptIdentity.identity_key
+                == service._external_id_for_uid(uid, runtime)
             )
         )
         == 1

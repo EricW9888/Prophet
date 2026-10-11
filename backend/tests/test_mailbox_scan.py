@@ -5,6 +5,17 @@ import pytest
 
 from investos.services import mailbox as module
 from investos.services.mailbox import GmailMailboxService
+from investos.services.mailbox_identity import MailboxScope
+
+TEST_SCOPE = MailboxScope.from_runtime(
+    SimpleNamespace(
+        imap_host="mail.example.test",
+        imap_port=993,
+        username="synthetic",
+        folder="Statements",
+    ),
+    "11",
+)
 
 
 @pytest.mark.parametrize(
@@ -26,7 +37,20 @@ def test_scan_status_does_not_hide_failures(statuses, failed, expected):
 
 
 @pytest.mark.parametrize(
-    "failure", [None, "select", "search", "fetch", "commit", "model", "backlog"]
+    "failure",
+    [
+        None,
+        "select",
+        "validity",
+        "capability",
+        "search",
+        "fetch",
+        "provider",
+        "gmail_ids",
+        "commit",
+        "model",
+        "backlog",
+    ],
 )
 async def test_scan_counts_only_committed_messages(monkeypatch, tmp_path, failure):
     class Mailbox:
@@ -36,15 +60,37 @@ async def test_scan_counts_only_committed_messages(monkeypatch, tmp_path, failur
         def select(self, *_, **__):
             return ("NO" if failure == "select" else "OK"), [b"1"]
 
-        def uid(self, action, *_):
+        def response(self, name):
+            assert name == "UIDVALIDITY"
+            return "UIDVALIDITY", [None if failure == "validity" else b"11"]
+
+        def capability(self):
+            return "OK", [
+                (
+                    b"IMAP4rev1 X-GM-EXT-1"
+                    if failure in {"provider", "gmail_ids"}
+                    else b"IMAP4rev1"
+                )
+            ]
+
+        def uid(self, action, *args):
             if action == "SEARCH":
                 return ("NO" if failure == "search" else "OK"), [
                     b"1 2 3" if failure in {"model", "backlog"} else b"1"
                 ]
             if failure == "fetch":
                 return "NO", [None]
+            if failure in {"provider", "gmail_ids"}:
+                assert args[1] == "(X-GM-MSGID BODY.PEEK[])"
             return "OK", [
-                (b"1", b"Subject: Synthetic confirmation\r\n\r\nSynthetic body")
+                (
+                    (
+                        b"1 (X-GM-MSGID 7001 BODY[] {48}"
+                        if failure == "gmail_ids"
+                        else b"1"
+                    ),
+                    b"Subject: Synthetic confirmation\r\n\r\nSynthetic body",
+                )
             ]
 
         def logout(self):
@@ -67,7 +113,7 @@ async def test_scan_counts_only_committed_messages(monkeypatch, tmp_path, failur
     monkeypatch.setattr(module.imaplib, "IMAP4_SSL", connect)
     monkeypatch.setattr(module, "REPO_ROOT", tmp_path)
     runtime = SimpleNamespace(
-        imap_host="mail.example.test",
+        imap_host="imap.gmail.com" if failure == "capability" else "mail.example.test",
         imap_port=993,
         username="test",
         password="test-placeholder",
@@ -90,7 +136,7 @@ async def test_scan_counts_only_committed_messages(monkeypatch, tmp_path, failur
     monkeypatch.setattr(GmailMailboxService, "_prioritize_pending_uids", preserve_order)
     if failure == "backlog":
 
-        async def completed(self, uid, runtime=None):
+        async def completed(self, uid, identity):
             return uid == "1"
 
         monkeypatch.setattr(GmailMailboxService, "_already_ingested", completed)
@@ -102,7 +148,7 @@ async def test_scan_counts_only_committed_messages(monkeypatch, tmp_path, failur
     )
     if failure == "model":
 
-        async def process(self, uid, message, runtime=None, *, allow_model=True):
+        async def process(self, uid, message, identity, *, allow_model=True, **kwargs):
             assert allow_model is (uid == "1")
             return (
                 {"transaction_created": True}
@@ -116,7 +162,7 @@ async def test_scan_counts_only_committed_messages(monkeypatch, tmp_path, failur
     )
     service = GmailMailboxService(session)
 
-    if failure in {"select", "search"}:
+    if failure in {"select", "validity", "capability", "search"}:
         with pytest.raises(RuntimeError, match="gmail_"):
             await service._scan_mailbox(runtime=runtime, search_mode="ALL", limit=10)
         session.commit.assert_not_awaited()
@@ -137,10 +183,16 @@ async def test_scan_counts_only_committed_messages(monkeypatch, tmp_path, failur
         assert result["transactions_created"] == 1
         assert result["status"] == "partial"
         return
-    assert result["status"] == ("partial" if failure else "ok")
-    assert result["failed_messages"] == int(bool(failure))
-    assert result["processed_messages"] == int(not failure)
-    assert result["transactions_created"] == int(not failure)
+    if failure == "gmail_ids":
+        assert (
+            GmailMailboxService._process_message.call_args.kwargs["provider_message_id"]
+            == "7001"
+        )
+    failed = failure not in {None, "gmail_ids"}
+    assert result["status"] == ("partial" if failed else "ok")
+    assert result["failed_messages"] == int(failed)
+    assert result["processed_messages"] == int(not failed)
+    assert result["transactions_created"] == int(not failed)
 
 
 @pytest.mark.parametrize("allow_model", [False, True])
@@ -162,7 +214,17 @@ async def test_unavailable_classifier_defers_without_posting_unknown_mail(
     message = EmailMessage()
     message["From"] = "sender@example.test"
     message.set_content("Synthetic unknown message")
-    result = await service._process_message("1", message, allow_model=allow_model)
+    monkeypatch.setattr(
+        service.identities,
+        "resolve",
+        AsyncMock(
+            return_value=SimpleNamespace(external_id="synthetic", metadata_json={})
+        ),
+    )
+    monkeypatch.setattr(service, "_already_ingested", AsyncMock(return_value=False))
+    result = await service._process_message(
+        "1", message, TEST_SCOPE, allow_model=allow_model
+    )
     assert result == {"classification_deferred": True}
     assert classifier.await_count == int(allow_model)
     defer.assert_awaited_once()
@@ -190,7 +252,7 @@ async def test_evidence_alone_does_not_prove_a_posted_transaction(
             )
         ),
     )
-    assert await service._already_ingested("1") is complete
+    assert await service._already_ingested("1", TEST_SCOPE) is complete
 
 
 @pytest.mark.parametrize(
@@ -298,14 +360,9 @@ async def test_retry_order_is_bounded_and_stable_for_large_folders(size):
     session = AsyncMock()
     session.execute.return_value = SimpleNamespace(all=lambda: [])
     service = GmailMailboxService(session)
-    uids = [str(i).encode() for i in range(size)]
-    assert (
-        await service._prioritize_pending_uids(
-            uids, SimpleNamespace(folder="Synthetic")
-        )
-        == uids
-    )
-    assert session.execute.await_count == (size * 2 + 999) // 1000
+    uids = [str(i + 1).encode() for i in range(size)]
+    assert await service._prioritize_pending_uids(uids, TEST_SCOPE) == uids
+    assert session.execute.await_count == (size + 999) // 1000
     for call in session.execute.call_args_list:
         params = call.args[0].compile().params
         assert (

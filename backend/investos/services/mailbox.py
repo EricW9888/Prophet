@@ -14,7 +14,7 @@ from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
 import httpx
-from sqlalchemy import or_, select, text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.core.dates import parse_iso_datetime
@@ -22,16 +22,17 @@ from investos.core.imap_utils import build_imap_search_query
 from investos.core.llm import LLMProviderCooldownError, call_llm_json
 from investos.core.prompting import bounded_document_excerpt
 from investos.models.evidence import RawEvidence
+from investos.models.mailbox import MailboxReceiptIdentity
 from investos.models.portfolio import Transaction
 from investos.models.review import ReviewQueueItem
 from investos.models.source import Source
-from investos.schemas.evidence import RawEvidenceCreate
 from investos.schemas.integrations import (
     GmailIntegrationTestRequest,
     GmailIntegrationTestResponse,
 )
 from investos.schemas.portfolio import TransactionCreate
 from investos.services.ingestion import IngestionService
+from investos.services.mailbox_identity import MailboxIdentityService, MailboxScope
 from investos.services.portfolio import (
     MailboxTransactionReconciliationRequired,
     PortfolioService,
@@ -93,6 +94,7 @@ class GmailMailboxService:
         self.session = session
         self.ingestion = IngestionService(session)
         self.portfolio = PortfolioService(session)
+        self.identities = MailboxIdentityService(session, self)
 
     async def sync_recent_messages(self, limit: int | None = None) -> dict[str, Any]:
         runtime = RuntimeSettingsStore.load().gmail
@@ -194,6 +196,25 @@ class GmailMailboxService:
             if status != "OK":
                 raise RuntimeError("gmail_folder_unavailable")
 
+            _, validity_data = await asyncio.to_thread(mailbox.response, "UIDVALIDITY")
+            if not validity_data or not isinstance(validity_data[0], bytes):
+                raise RuntimeError("gmail_mailbox_identity_unavailable")
+            identity = MailboxScope.from_runtime(
+                runtime, validity_data[0].decode("ascii")
+            )
+            capability_status, capability_data = await asyncio.to_thread(
+                mailbox.capability
+            )
+            if capability_status != "OK":
+                raise RuntimeError("gmail_capabilities_unavailable")
+            gmail_ids = b"X-GM-EXT-1" in b" ".join(capability_data).upper().split()
+            if (
+                runtime.imap_host.strip().lower()
+                in {"imap.gmail.com", "imap.googlemail.com"}
+                and not gmail_ids
+            ):
+                raise RuntimeError("gmail_provider_identity_capability_unavailable")
+
             search_query = build_imap_search_query(runtime, search_mode)
             log_path = REPO_ROOT / "data" / "backfill_status.log"
             log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -215,13 +236,11 @@ class GmailMailboxService:
             # processed emails. Old gaps then make progress on every catch-up.
             pending_uids = []
             for uid_bytes in uids:
-                if await self._already_ingested(
-                    uid_bytes.decode("utf-8"), runtime=runtime
-                ):
+                if await self._already_ingested(uid_bytes.decode("utf-8"), identity):
                     skipped_existing += 1
                 else:
                     pending_uids.append(uid_bytes)
-            pending_uids = await self._prioritize_pending_uids(pending_uids, runtime)
+            pending_uids = await self._prioritize_pending_uids(pending_uids, identity)
             targeted_uids = pending_uids[:limit]
             remaining_messages = len(pending_uids) - len(targeted_uids)
             with open(log_path, "a") as f:
@@ -259,14 +278,19 @@ class GmailMailboxService:
                             )
 
                         try:
-                            if await local_service._already_ingested(
-                                uid, runtime=runtime
-                            ):
+                            if await local_service._already_ingested(uid, identity):
                                 skipped_existing += 1
                                 return
 
                             status, raw_data = await asyncio.to_thread(
-                                mailbox.uid, "FETCH", uid, "(BODY.PEEK[])"
+                                mailbox.uid,
+                                "FETCH",
+                                uid,
+                                (
+                                    "(X-GM-MSGID BODY.PEEK[])"
+                                    if gmail_ids
+                                    else "(BODY.PEEK[])"
+                                ),
                             )
                             if (
                                 status != "OK"
@@ -276,23 +300,47 @@ class GmailMailboxService:
                             ):
                                 raise RuntimeError("gmail_fetch_failed")
                             message = email.message_from_bytes(raw_data[0][1])
+                            provider_id = None
+                            if gmail_ids:
+                                match = re.search(
+                                    rb"\bX-GM-MSGID\s+(\d+)\b", raw_data[0][0]
+                                )
+                                if not match:
+                                    raise RuntimeError(
+                                        "gmail_provider_message_id_unavailable"
+                                    )
+                                provider_id = match.group(1).decode("ascii")
                             if not local_service._is_allowed_message(message, runtime):
-                                await local_service._record_skip(
-                                    uid, message, runtime=runtime
+                                skip_result = await local_service._record_skip(
+                                    uid,
+                                    message,
+                                    identity,
+                                    provider_message_id=provider_id,
+                                    raw_bytes=raw_data[0][1],
                                 )
                                 await session.commit()
-                                skipped_irrelevant += 1
+                                if skip_result.get("needs_reconciliation"):
+                                    review_messages += 1
+                                elif skip_result.get("skipped_existing"):
+                                    skipped_existing += 1
+                                else:
+                                    skipped_irrelevant += 1
                                 return
 
                             result = await local_service._process_message(
                                 uid,
                                 message,
-                                runtime=runtime,
+                                identity,
                                 allow_model=model_available,
+                                provider_message_id=provider_id,
+                                raw_bytes=raw_data[0][1],
                             )
                             # A deferred receipt is durable retry work, not a
                             # completed classification or posted transaction.
                             await session.commit()
+                            if result.get("skipped_existing"):
+                                skipped_existing += 1
+                                return
                             if result.get("classification_deferred"):
                                 deferred_messages += 1
                                 model_available = False
@@ -498,14 +546,11 @@ class GmailMailboxService:
             return "gmail_scope_required"
         return None
 
-    def _external_id_for_uid(self, uid: str, runtime=None) -> str:
-        if runtime is None:
-            return uid
-        folder = str(getattr(runtime, "folder", "") or "INBOX").strip() or "INBOX"
-        return f"gmail:{folder}:{uid}"
+    def _external_id_for_uid(self, uid: str, identity: MailboxScope) -> str:
+        return identity.occurrence_key(uid)
 
-    async def _already_ingested(self, uid: str, runtime=None) -> bool:
-        existing = await self._existing_receipt(uid, runtime)
+    async def _already_ingested(self, uid: str, identity: MailboxScope) -> bool:
+        existing = await self._existing_receipt(uid, identity)
         if existing is None:
             return False
         metadata = existing.metadata_json or {}
@@ -527,13 +572,15 @@ class GmailMailboxService:
             )
         return True
 
-    async def _prioritize_pending_uids(self, uids: list[bytes], runtime) -> list[bytes]:
+    async def _prioritize_pending_uids(
+        self, uids: list[bytes], identity: MailboxScope
+    ) -> list[bytes]:
         if not uids:
             return []
         external_ids = {
-            self._external_id_for_uid(uid.decode("utf-8"), runtime): uid for uid in uids
+            self._external_id_for_uid(uid.decode("utf-8"), identity): uid
+            for uid in uids
         }
-        external_ids.update({uid.decode("utf-8"): uid for uid in uids})
         rows = []
         keys = list(external_ids)
         # Keep large historical folders below the driver's bind-parameter limit.
@@ -543,15 +590,14 @@ class GmailMailboxService:
                 (
                     await self.session.execute(
                         select(
-                            RawEvidence.external_id, RawEvidence.metadata_json
-                        ).where(
-                            or_(
-                                RawEvidence.external_id.in_(batch),
-                                RawEvidence.metadata_json["external_id"].astext.in_(
-                                    batch
-                                ),
-                            )
+                            MailboxReceiptIdentity.identity_key,
+                            RawEvidence.metadata_json,
                         )
+                        .join(
+                            RawEvidence,
+                            MailboxReceiptIdentity.raw_evidence_id == RawEvidence.id,
+                        )
+                        .where(MailboxReceiptIdentity.identity_key.in_(batch))
                     )
                 ).all()
             )
@@ -571,30 +617,14 @@ class GmailMailboxService:
             key=lambda uid: attempted_at.get(uid, datetime.min.replace(tzinfo=UTC)),
         )
 
-    async def _preserve_deferred_receipt(self, uid: str, message: Message, runtime):
-        evidence = await self._existing_receipt(uid, runtime)
-        if evidence is None:
-            source = await self._get_or_create_email_source()
-            sender = self._decode_header(message.get("From", ""))
-            subject = self._decode_header(message.get("Subject", ""))
-            evidence = await self.ingestion.ingest_text(
-                RawEvidenceCreate(
-                    title=subject,
-                    source_id=source.id,
-                    source_item_type="email",
-                    author=sender,
-                    public_time=self._parse_email_datetime(message.get("Date")),
-                    metadata_json={
-                        "external_id": self._external_id_for_uid(uid, runtime),
-                        "uid": uid,
-                        "skip_extraction": True,
-                        "operational_mailbox": True,
-                    },
-                    content=f"From: {sender}\nSubject: {subject}\n\n{self._extract_text_body(message)}",
-                ),
-                process_now=False,
-            )
-        evidence.external_id = self._external_id_for_uid(uid, runtime)
+    async def _preserve_deferred_receipt(
+        self, uid: str, message: Message, identity: MailboxScope
+    ):
+        evidence = await self.identities.resolve(uid, message, identity)
+        if (evidence.metadata_json or {}).get("identity_review", {}).get(
+            "status"
+        ) == "pending":
+            return {"needs_reconciliation": True, "transaction_created": False}
         evidence.is_processed = True  # Operational receipt, not research evidence.
         evidence.metadata_json = {
             **(evidence.metadata_json or {}),
@@ -603,25 +633,10 @@ class GmailMailboxService:
         }
         return {"classification_deferred": True}
 
-    async def _existing_receipt(self, uid: str, runtime=None) -> RawEvidence | None:
-        external_id = self._external_id_for_uid(uid, runtime)
-        external_ids = [uid] if external_id == uid else [external_id, uid]
-        existing = (
-            await self.session.execute(
-                select(RawEvidence)
-                .where(
-                    or_(
-                        RawEvidence.external_id.in_(external_ids),
-                        RawEvidence.metadata_json["external_id"].astext.in_(
-                            external_ids
-                        ),
-                    )
-                )
-                .order_by(RawEvidence.ingest_time.asc(), RawEvidence.id.asc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        return existing
+    async def _existing_receipt(
+        self, uid: str, identity: MailboxScope
+    ) -> RawEvidence | None:
+        return await self.identities.existing(identity.occurrence_key(uid))
 
     def _parse_robinhood_deterministic(
         self, body: str, subject: str = ""
@@ -994,13 +1009,44 @@ class GmailMailboxService:
         return None
 
     async def _process_message(
-        self, uid: str, message: Message, runtime=None, *, allow_model: bool = True
+        self,
+        uid: str,
+        message: Message,
+        identity: MailboxScope,
+        *,
+        allow_model: bool = True,
+        provider_message_id: str | None = None,
+        raw_bytes: bytes | None = None,
     ) -> dict[str, Any]:
         subject = self._decode_header(message.get("Subject", ""))
         sender = self._decode_header(message.get("From", ""))
         body = self._extract_text_body(message)
         public_time = self._parse_email_datetime(message.get("Date"))
-        external_id = self._external_id_for_uid(uid, runtime)
+        evidence = await self.identities.resolve(
+            uid,
+            message,
+            identity,
+            provider_message_id=provider_message_id,
+            raw_bytes=raw_bytes,
+        )
+        if (evidence.metadata_json or {}).get("identity_review", {}).get(
+            "status"
+        ) == "pending":
+            return {
+                "transaction_created": False,
+                "needs_reconciliation": True,
+                "evidence_id": str(evidence.id),
+            }
+        if await self._already_ingested(uid, identity):
+            return {
+                "transaction_created": False,
+                "skipped_existing": True,
+                "evidence_id": str(evidence.id),
+            }
+        # Adopted legacy evidence keeps its original transaction source identity.
+        external_id = evidence.external_id or (evidence.metadata_json or {}).get(
+            "external_id"
+        )
 
         # 1. Try Deterministic Parsers first (Fast, Accurate, Free)
         classification = None
@@ -1019,14 +1065,14 @@ class GmailMailboxService:
         # 2. Fallback to LLM if no deterministic match found
         if not classification:
             if not allow_model:
-                return await self._preserve_deferred_receipt(uid, message, runtime)
+                return await self._preserve_deferred_receipt(uid, message, identity)
             try:
                 classification = await self._classify_message(
                     subject=subject, sender=sender, body=body
                 )
             except (LLMProviderCooldownError, httpx.HTTPError, TimeoutError):
                 # Preserve retry work without treating storage as ledger completion.
-                return await self._preserve_deferred_receipt(uid, message, runtime)
+                return await self._preserve_deferred_receipt(uid, message, identity)
 
         source = await self._get_or_create_email_source()
 
@@ -1054,17 +1100,6 @@ class GmailMailboxService:
             or classification.get("confidence", 0) < confidence_floor
         )
         if classification["document_type"] not in allowed_types:
-            evidence = await self._existing_receipt(uid, runtime)
-            if evidence is None:
-                evidence = RawEvidence(
-                    external_id=external_id,
-                    source_id=source.id,
-                    source_item_type="email",
-                    title=subject,
-                    public_time=public_time,
-                    event_time=public_time,
-                )
-                self.session.add(evidence)
             evidence.is_processed = True
             evidence.metadata_json = {
                 **(evidence.metadata_json or {}),
@@ -1082,28 +1117,6 @@ class GmailMailboxService:
                 "skipped_irrelevant": True,
             }
 
-        evidence = await self._existing_receipt(uid, runtime)
-        if evidence is None:
-            evidence = await self.ingestion.ingest_text(
-                RawEvidenceCreate(
-                    title=subject,
-                    source_id=source.id,
-                    source_item_type="email_order_confirmation",
-                    author=sender,
-                    public_time=public_time,
-                    metadata_json={
-                        "content_type": "text/html",
-                        "sender": sender,
-                        "uid": uid,
-                        "external_id": external_id,
-                        "mailbox_classification": classification,
-                        "skip_extraction": True,
-                        "operational_mailbox": True,
-                    },
-                    content=f"From: {sender}\nSubject: {subject}\n\n{body}",
-                ),
-                process_now=False,
-            )
         evidence.external_id = external_id
         evidence.source_item_type = "email_order_confirmation"
         evidence.metadata_json = {
@@ -1504,19 +1517,36 @@ class GmailMailboxService:
 
         return sender_match and domain_match and subject_match
 
-    async def _record_skip(self, uid: str, message: Message, runtime=None) -> None:
+    async def _record_skip(
+        self,
+        uid: str,
+        message: Message,
+        identity: MailboxScope,
+        *,
+        provider_message_id: str | None = None,
+        raw_bytes: bytes | None = None,
+    ) -> dict[str, bool]:
         """Mark a message as skipped in the database so we don't scan it again."""
-        source = await self._get_or_create_email_source()
-        subject = self._decode_header(message.get("Subject", "(no subject)"))
-        external_id = self._external_id_for_uid(uid, runtime)
-        evidence = RawEvidence(
-            external_id=external_id,
-            source_id=source.id,
-            source_item_type="email_skip",
-            title=subject,
-            is_processed=True,
-            metadata_json={"skipped": True, "reason": "filter_rule", "uid": uid},
+        evidence = await self.identities.resolve(
+            uid,
+            message,
+            identity,
+            provider_message_id=provider_message_id,
+            raw_bytes=raw_bytes,
         )
-        self.session.add(evidence)
+        if (evidence.metadata_json or {}).get("identity_review", {}).get(
+            "status"
+        ) == "pending":
+            return {"needs_reconciliation": True}
+        if await self._already_ingested(uid, identity):
+            return {"skipped_existing": True}
+        evidence.metadata_json = {
+            **(evidence.metadata_json or {}),
+            "skipped": True,
+            "reason": "filter_rule",
+            "operational_mailbox": False,
+            "mailbox_status": "irrelevant",
+        }
         # Flush but don't commit here, as it's part of a larger scan transaction
         await self.session.flush()
+        return {"skipped_irrelevant": True}
