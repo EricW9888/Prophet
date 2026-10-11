@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 from sqlalchemy import select, update
@@ -48,6 +48,10 @@ from investos.services.question_lifecycle import (
 )
 from investos.services.runtime_settings import RuntimeSettingsStore
 from investos.services.source_learning import SourceLearningService
+from investos.services.work_outcomes import (
+    evidence_work_outcome,
+    group_research_operations,
+)
 from investos.workers.extraction import ExtractionWorker
 
 QUESTION_RESOLUTION_SCHEMA = {
@@ -84,15 +88,25 @@ class ResearchRunResult:
     @property
     def telemetry_status(self) -> str:
         """Translate the structured research outcome into operator severity."""
-        if self.started or self.evidence_id is not None:
-            return "ok"
+        if self.evidence_id is not None:
+            return (
+                "warning"
+                if self.loop_detail
+                and evidence_work_outcome(self.loop_detail)
+                in {"deferred", "failed", "rejected"}
+                else "ok"
+            )
+        if self.started:
+            return "no_new_evidence"
         if self.reason == "research_provider_not_configured":
             return "waiting_for_config"
         if self.reason in {
             "duplicate_recent_research",
             "research_artifact_query_blocked",
         }:
-            return "ok"
+            return "skipped"
+        if self.reason in {"no_result", "no_usable_source_content", "empty_result"}:
+            return "no_new_evidence"
         return "warning"
 
 
@@ -235,6 +249,11 @@ class ResearchService:
 
     @classmethod
     def _append_usage_log(cls, entry: dict[str, Any]) -> None:
+        entry = {
+            **entry,
+            "phase": entry.get("phase")
+            or ("ingest" if entry.get("evidence_id") else "discovery"),
+        }
         try:
             path = cls._usage_log_path()
             with path.open("a", encoding="utf-8") as handle:
@@ -291,7 +310,9 @@ class ResearchService:
     @classmethod
     async def current_usage_snapshot(cls) -> dict[str, Any]:
         research = RuntimeSettingsStore.load().research
-        recent_requests = cls.recent_request_log()
+        recent_requests = group_research_operations(cls.recent_request_log(limit=200))[
+            :40
+        ]
         configured = configured_research_providers(research)
         provider_label = " then ".join(
             RESEARCH_PROVIDER_CAPABILITIES[item].label for item in configured
@@ -904,6 +925,8 @@ class ResearchService:
         query_variants: list[str] | None = None,
         initial_fallback_reason: str | None = None,
     ) -> ResearchSearchResult:
+        metadata = dict(metadata)
+        metadata.setdefault("operation_id", uuid4().hex)
         research = RuntimeSettingsStore.load().research
         configured = configured_research_providers(research)
         if provider_order is not None:
@@ -1165,6 +1188,8 @@ class ResearchService:
         metadata_json: dict | None = None,
         process_after_ingest: bool,
     ) -> ResearchRunResult:
+        metadata_json = dict(metadata_json or {})
+        metadata_json.setdefault("operation_id", uuid4().hex)
         query = self._normalize_search_query(query)
         title = self._clean_research_title(
             title=title, query=query, metadata_json=metadata_json
@@ -1432,6 +1457,15 @@ class ResearchService:
                         )
                     else:
                         status = "ok"
+                    work_outcome = (
+                        evidence_work_outcome(loop_detail) if loop_detail else "fetched"
+                    )
+                    actually_processed = bool(
+                        ((loop_detail or {}).get("processing") or {}).get(
+                            "extraction_status"
+                        )
+                        == "completed"
+                    )
                     self._append_usage_log(
                         {
                             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -1446,7 +1480,8 @@ class ResearchService:
                             "request_id": discovery.request_id,
                             "metadata": evidence_metadata,
                             "evidence_id": str(evidence.id),
-                            "processed": process_after_ingest,
+                            "processed": actually_processed,
+                            "outcome": work_outcome,
                             "processing_error": processing_error,
                         }
                     )
@@ -1463,7 +1498,8 @@ class ResearchService:
                             **evidence_metadata,
                             "evidence_id": str(evidence.id),
                             "source_url": source_url,
-                            "processed": process_after_ingest,
+                            "processed": actually_processed,
+                            "outcome": work_outcome,
                             "processing_error": processing_error,
                             "processing": (loop_detail or {}).get("processing"),
                         },

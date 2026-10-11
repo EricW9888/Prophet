@@ -685,7 +685,7 @@ async def test_tavily_usage_failure_only_reports_ready_with_free_provider(
         "investos.services.research.httpx.AsyncClient",
         lambda **_kwargs: FailingClient(),
     )
-    monkeypatch.setattr(ResearchService, "recent_request_log", lambda: [])
+    monkeypatch.setattr(ResearchService, "recent_request_log", lambda **_kwargs: [])
 
     snapshot = await ResearchService.current_usage_snapshot()
 

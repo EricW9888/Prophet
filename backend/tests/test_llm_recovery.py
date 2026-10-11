@@ -194,3 +194,14 @@ async def test_local_provider_is_blocked_at_the_call_boundary(monkeypatch):
             schema={"type": "object"},
             provider_override="ollama",
         )
+
+
+@pytest.fixture(autouse=True)
+def isolated_provider_health(monkeypatch, tmp_path):
+    from investos.core.provider_health import ProviderHealthStore
+
+    monkeypatch.setattr(
+        ProviderHealthStore,
+        "_path",
+        staticmethod(lambda: tmp_path / "provider-health.json"),
+    )

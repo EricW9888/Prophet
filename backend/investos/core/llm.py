@@ -14,6 +14,11 @@ import fastjsonschema
 import httpx
 
 from investos.config import settings
+from investos.core.provider_health import (
+    LLMProviderCooldownError,
+    _probe_call,
+    guarded_provider_call,
+)
 from investos.core.providers import (
     llm_provider_capability,
     llm_recovery_provider_ids,
@@ -70,10 +75,6 @@ class AsyncRateLimiter:
 
     async def __aexit__(self, *exc: Any) -> None:
         self.release()
-
-
-class LLMProviderCooldownError(RuntimeError):
-    """Raised when a hosted provider is temporarily held after rate limiting."""
 
 
 class CodexCLIFailedError(RuntimeError):
@@ -460,6 +461,7 @@ def _balanced_json_objects(text: str) -> list[str]:
     return results
 
 
+@guarded_provider_call
 async def call_llm_json(
     system_prompt: str,
     user_prompt: str,
@@ -548,6 +550,7 @@ async def call_llm_json(
     raise RuntimeError(f"Unsupported LLM_PROVIDER={settings.LLM_PROVIDER}")
 
 
+@guarded_provider_call
 async def call_llm_json_streaming(
     system_prompt: str,
     user_prompt: str,
@@ -918,7 +921,11 @@ async def _call_nvidia_json(
         ],
         "temperature": 0.0,
         "top_p": 0.9,
-        "max_tokens": settings.LLM_STRUCTURED_MAX_TOKENS,
+        "max_tokens": (
+            min(64, settings.LLM_STRUCTURED_MAX_TOKENS)
+            if _probe_call.get()
+            else settings.LLM_STRUCTURED_MAX_TOKENS
+        ),
         "stream": False,
         "response_format": response_format,
         **llm_structured_request_options("nvidia_nim", request_model),
@@ -967,7 +974,11 @@ async def _call_nvidia_json(
                 ],
                 "temperature": 0.0,
                 "top_p": 0.9,
-                "max_tokens": settings.LLM_STRUCTURED_MAX_TOKENS,
+                "max_tokens": (
+                    min(64, settings.LLM_STRUCTURED_MAX_TOKENS)
+                    if _probe_call.get()
+                    else settings.LLM_STRUCTURED_MAX_TOKENS
+                ),
                 "stream": False,
                 "response_format": response_format,
                 **llm_structured_request_options("nvidia_nim", request_model),
@@ -996,6 +1007,7 @@ async def _call_nvidia_json(
                 ) from repair_exc
 
 
+@guarded_provider_call
 async def call_llm_tools(
     system_prompt: str,
     user_prompt: str,
@@ -1135,7 +1147,11 @@ async def _call_nvidia_json_streaming(
             {"role": "user", "content": user_prompt},
         ],
         "temperature": 0.0,
-        "max_tokens": settings.LLM_STRUCTURED_MAX_TOKENS,
+        "max_tokens": (
+            min(64, settings.LLM_STRUCTURED_MAX_TOKENS)
+            if _probe_call.get()
+            else settings.LLM_STRUCTURED_MAX_TOKENS
+        ),
         "stream": True,
         "response_format": response_format,
         **llm_structured_request_options("nvidia_nim", request_model),

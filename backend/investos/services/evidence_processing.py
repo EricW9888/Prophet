@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import case, or_, select
+from sqlalchemy import case, or_, select, true
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -144,7 +144,9 @@ class EvidenceProcessingService:
         )
         return ExtractionClaim(True, "claimed", state)
 
-    async def next_due_evidence(self) -> RawEvidence | None:
+    async def next_due_evidence(
+        self, *, model_available: bool = True
+    ) -> RawEvidence | None:
         """Return the oldest evidence whose extraction stage may make progress."""
 
         now = datetime.now(UTC)
@@ -161,6 +163,16 @@ class EvidenceProcessingService:
                     )
                     .where(RawEvidence.is_processed.is_(False))
                     .where(RawEvidence.raw_content_ref.is_not(None))
+                    .where(
+                        true()
+                        if model_available
+                        else or_(
+                            RawEvidence.source_item_type == "conversation_turn",
+                            RawEvidence.metadata_json["skip_extraction"]
+                            .as_boolean()
+                            .is_(True),
+                        )
+                    )
                     .where(
                         or_(
                             EvidenceProcessingState.id.is_(None),

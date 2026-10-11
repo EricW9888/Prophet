@@ -184,7 +184,13 @@ def test_scheduler_defaults_coalesce_stale_interval_runs():
 
 
 @pytest.mark.asyncio
-async def test_scheduled_job_marks_shutdown_cancellation_as_lifecycle_state():
+async def test_scheduled_job_marks_shutdown_cancellation_as_lifecycle_state(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "investos.services.automation.ProviderHealthStore.public_status",
+        lambda: {"state": "healthy"},
+    )
     coordinator = AutomationCoordinator()
     coordinator.telemetry["research_loop"] = JobTelemetry(
         "research_loop", interval_seconds=60
@@ -201,7 +207,11 @@ async def test_scheduled_job_marks_shutdown_cancellation_as_lifecycle_state():
 
 
 @pytest.mark.asyncio
-async def test_scheduled_job_reraises_non_shutdown_cancellation():
+async def test_scheduled_job_reraises_non_shutdown_cancellation(monkeypatch):
+    monkeypatch.setattr(
+        "investos.services.automation.ProviderHealthStore.public_status",
+        lambda: {"state": "healthy"},
+    )
     coordinator = AutomationCoordinator()
     coordinator.telemetry["research_loop"] = JobTelemetry(
         "research_loop", interval_seconds=60

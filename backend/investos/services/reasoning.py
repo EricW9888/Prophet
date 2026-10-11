@@ -399,6 +399,9 @@ class ReasoningService:
             self.session.add(run)
             await self.session.flush()
         else:
+            from investos.core.provider_health import ProviderHealthStore
+
+            ProviderHealthStore.require_available()
             started_at = perf_counter()
             result = await self._reason_with_llm(
                 prompt_context, system_prompt=system_prompt, on_chunk=on_chunk

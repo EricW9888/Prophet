@@ -429,6 +429,21 @@ class ExtractionWorker:
                 "processing": processing.summary(processing_state),
             }
 
+        from investos.core.provider_health import (
+            LLMProviderCooldownError,
+            ProviderHealthStore,
+        )
+
+        try:
+            ProviderHealthStore.require_available()
+        except LLMProviderCooldownError:
+            await self.session.commit()
+            return {
+                "deferred": True,
+                "outcome": "provider_deferred",
+                "processing": processing.summary(processing_state),
+            }
+
         claim = await processing.claim_extraction(
             evidence,
             source_item=existing_source_item,

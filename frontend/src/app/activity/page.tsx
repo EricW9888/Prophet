@@ -9,7 +9,7 @@ import { AgentActionLogItem, apiFetch } from "@/lib/api";
 import { formatUserLabel } from "@/lib/formatting";
 
 const SOURCES = ["all", "automation", "chat", "research"] as const;
-const STATUSES = ["all", "ok", "processed_with_errors", "error", "empty_result", "blocked"] as const;
+const STATUSES = ["all", "ok", "processed_with_errors", "deferred", "rejected", "skipped", "no_new_knowledge", "no_new_evidence", "error", "empty_result", "blocked"] as const;
 type FeedItem = AgentActionLogItem & {
   displaySource: string;
   displayTitle: string;
@@ -33,9 +33,10 @@ function actionAccent(status: string) {
   if (normalized.includes("error") || normalized.includes("failed")) {
     return "border-red-200 bg-red-50/70 text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300";
   }
-  if (normalized.includes("blocked") || normalized.includes("empty")) {
+  if (normalized.includes("blocked") || normalized.includes("empty") || ["deferred", "rejected", "warning", "waiting_for_config"].includes(normalized)) {
     return "border-amber-200 bg-amber-50/70 text-amber-700 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300";
   }
+  if (["skipped", "no_new_knowledge", "no_new_evidence", "idle"].includes(normalized)) return "border-slate-200 bg-slate-50/70 text-slate-600 dark:border-slate-800 dark:bg-slate-950/20 dark:text-slate-300";
   return "border-emerald-200 bg-emerald-50/70 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300";
 }
 

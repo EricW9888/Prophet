@@ -29,6 +29,6 @@ async def get_dashboard_summary(
             for item in coordinator.status()
         ]
     return await DashboardService(session).get_summary(
-        automation_enabled=bool(coordinator),
+        automation_enabled=bool(coordinator and coordinator.enabled),
         jobs=jobs,
     )

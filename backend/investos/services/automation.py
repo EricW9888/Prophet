@@ -10,6 +10,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import desc, select
 
 from investos.config import settings
+from investos.core.provider_health import ProviderHealthStore, probe_llm_provider
 from investos.core.research_providers import configured_research_providers
 from investos.db import async_session_maker
 from investos.models.coverage import CoverageMap, UnresolvedQuestion
@@ -52,6 +53,7 @@ from investos.services.runtime_settings import RuntimeSettingsStore
 from investos.services.shadow import ShadowService
 from investos.services.source import SourceService
 from investos.services.theme_hygiene import ThemeHygieneService
+from investos.services.work_outcomes import evidence_work_outcome
 from investos.services.youtube import YouTubeService
 from investos.workers.extraction import ExtractionWorker
 
@@ -67,6 +69,23 @@ class JobTelemetry:
 
 
 class AutomationCoordinator:
+    LLM_DEPENDENT_JOBS = frozenset(
+        {
+            "research_loop",
+            "question_resolution",
+            "relation_review",
+            "agent_reflection",
+            "shadow_discovery",
+            "opportunity_discovery",
+            "strategist_cycle",
+            "pattern_discovery",
+            "youtube_channel_review",
+            "source_claim_assessment",
+            "market_setup_assessment",
+            "investment_object_backfill",
+        }
+    )
+
     def __init__(self) -> None:
         self.scheduler = AsyncIOScheduler(
             timezone="UTC",
@@ -79,9 +98,49 @@ class AutomationCoordinator:
         self.telemetry: dict[str, JobTelemetry] = {}
         self._shutting_down = False
 
+    @property
+    def enabled(self):
+        return bool(settings.AUTOMATION_ENABLED and self.scheduler.running)
+
+    def _provider_defers(self, name):
+        if name not in self.LLM_DEPENDENT_JOBS:
+            return False
+        health = ProviderHealthStore.public_status()
+        if health["state"] not in {
+            "open",
+            "probing",
+            "storage_unavailable",
+            "waiting_for_config",
+        }:
+            return False
+        telemetry = self.telemetry.get(name)
+        if telemetry:
+            detail = f"provider={health.get('provider', 'unknown')} state={health['state']} next_probe={health.get('next_probe_at')}"
+            changed = telemetry.last_status != "deferred" or telemetry.detail != detail
+            telemetry.last_status = "deferred"
+            telemetry.detail = detail
+            if changed:
+                self._log_job_action(
+                    job_name=name,
+                    status="deferred",
+                    summary="Model-dependent work deferred until the shared provider probe succeeds.",
+                    metadata={"provider_health": health},
+                )
+        return True
+
+    async def _run_provider_health_probe(self):
+        health = await probe_llm_provider()
+        telemetry = self.telemetry["provider_health_probe"]
+        telemetry.last_run_at = datetime.now(UTC)
+        telemetry.last_status = "ok" if health["state"] == "healthy" else "deferred"
+        telemetry.detail = f"provider_health={health['state']} next_probe={health.get('next_probe_at')}"
+
     def start(self) -> None:
         if not settings.AUTOMATION_ENABLED:
             return
+        self._register_job(
+            "provider_health_probe", self._run_provider_health_probe, 30, True
+        )
         self._shutting_down = False
         self._register_job(
             "database_backup", self._run_database_backup, 86400, settings.BACKUP_ENABLED
@@ -227,6 +286,7 @@ class AutomationCoordinator:
     async def run_job(self, name: str) -> None:
         self.sync_runtime_jobs()
         mapping = {
+            "provider_health_probe": self._run_provider_health_probe,
             "database_backup": self._run_database_backup,
             "integrity_audit": self._run_integrity_audit,
             "market_data_refresh": self._run_market_data_refresh,
@@ -256,6 +316,8 @@ class AutomationCoordinator:
         }
         if name not in mapping:
             raise ValueError(f"Unknown job: {name}")
+        if self._provider_defers(name):
+            return
         await mapping[name]()
 
     def _register_job(
@@ -331,6 +393,8 @@ class AutomationCoordinator:
     ) -> Callable[[], object]:
         async def runner() -> None:
             try:
+                if self._provider_defers(name):
+                    return
                 result = func()
                 if hasattr(result, "__await__"):
                     await result
@@ -1477,40 +1541,53 @@ class AutomationCoordinator:
         telemetry.last_run_at = datetime.now(UTC)
         async with async_session_maker() as session:
             try:
-                evidence = await EvidenceProcessingService(session).next_due_evidence()
+                health = ProviderHealthStore.public_status()
+                model_available = health["state"] in {"healthy", "unobserved"}
+                evidence = await EvidenceProcessingService(session).next_due_evidence(
+                    model_available=model_available
+                )
                 if not evidence:
-                    telemetry.last_status = "ok"
-                    telemetry.detail = "no_pending_evidence"
+                    telemetry.last_status = (
+                        "no_new_evidence" if model_available else "deferred"
+                    )
+                    telemetry.detail = (
+                        "no_pending_evidence"
+                        if model_available
+                        else f"model_extraction_deferred:{health['state']}; deterministic receipts remain eligible"
+                    )
                     return
                 loop_detail = await ExtractionWorker(session).process_evidence(
                     evidence.id
                 )
-                telemetry.last_status = "ok"
                 processing_status = ((loop_detail or {}).get("processing") or {}).get(
                     "overall_status"
                 ) or "unknown"
-                telemetry.last_status = (
-                    "warning"
-                    if processing_status
-                    in {
-                        "blocked_missing_content",
-                        "retry_exhausted",
-                        "retry_scheduled",
-                    }
-                    else "ok"
+                outcome = evidence_work_outcome(loop_detail)
+                status = {
+                    "failed": "error",
+                    "rejected": "rejected",
+                    "deferred": "deferred",
+                    "skipped": "skipped",
+                    "no_new_knowledge": "no_new_knowledge",
+                }.get(outcome, "ok")
+                repeated_defer = (
+                    status == "deferred"
+                    and telemetry.last_status == "deferred"
+                    and telemetry.detail
+                    and f"evidence={evidence.id}" in telemetry.detail
                 )
-                telemetry.detail = (
-                    f"evidence={evidence.id} processing={processing_status}"
-                )
+                telemetry.last_status = status
+                telemetry.detail = f"evidence={evidence.id} outcome={outcome} processing={processing_status}"
+                if repeated_defer:
+                    return
                 self._log_job_action(
                     job_name="evidence_processing",
                     status=telemetry.last_status,
-                    summary=(
-                        f"Evidence {evidence.id} is {processing_status.replace('_', ' ')}."
-                    ),
+                    summary=(f"Evidence work: {outcome.replace('_', ' ')}."),
                     metadata={
                         "evidence_id": str(evidence.id),
                         "loop_detail": loop_detail,
+                        "outcome": outcome,
                     },
                 )
             except Exception as exc:

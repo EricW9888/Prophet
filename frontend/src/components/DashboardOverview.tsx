@@ -14,9 +14,10 @@ import {
 } from "recharts";
 
 import { apiFetch, DashboardSummary } from "@/lib/api";
-import { automationJobHealth, type AutomationHealth } from "@/lib/automation";
+import { automationJobHealth, automationOverallHealth, type AutomationHealth } from "@/lib/automation";
 import WorkspaceState from "@/components/WorkspaceState";
 import ShadowLifecycleSummary from "@/components/ShadowLifecycleSummary";
+import ProviderWorkSummary from "@/components/ProviderWorkSummary";
 import QuestionBacklog from "@/components/QuestionBacklog";
 import {
   safeFormatCurrency,
@@ -132,8 +133,8 @@ export default function DashboardOverview() {
     );
   }
 
-  const automationHealthy =
-    summary.automation_enabled && summary.jobs.every((job) => job.last_status !== "error");
+  const automationLabel = automationOverallHealth(summary.automation_enabled, summary.jobs);
+  const automationHealthy = automationLabel === "Operational";
 
   const reviewItems = summary?.review_queue ?? [];
   const visibleReviewItems = showAllQueueItems ? reviewItems.slice(0, 8) : reviewItems.slice(0, 3);
@@ -277,6 +278,7 @@ export default function DashboardOverview() {
             }
           />
           <div className="space-y-4">
+            <ProviderWorkSummary usage={summary.llm_usage} operations={summary.recent_research_actions} />
             <div className="border-b border-slate-200 pb-4 dark:border-slate-800">
               <div className="flex items-center justify-between gap-3">
                 <div className="text-xs font-medium text-slate-500">
@@ -290,8 +292,8 @@ export default function DashboardOverview() {
                 {summary.recent_agent_actions.length === 0 ? (
                   <ActivityRow
                     label="System heartbeat"
-                    value={automationHealthy ? "Running" : "Needs review"}
-                    detail="Automation is enabled, but there are no recent action records yet."
+                    value={automationLabel}
+                    detail={summary.automation_enabled ? "No recent completed action records yet." : "Automatic jobs are disabled."}
                   />
                 ) : (
                   summary.recent_agent_actions.slice(0, 5).map((action) => (
@@ -374,7 +376,7 @@ export default function DashboardOverview() {
               />
               <CompactSnapshot
                 label="Heartbeat"
-                value={automationHealthy ? "Healthy" : "Needs review"}
+                value={automationLabel}
                 detail={marketDataStatus(summary)}
               />
             </div>

@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from investos.core.research_providers import configured_research_providers
 from investos.models.conclusion import ConclusionState
 from investos.models.coverage import CoverageMap, UnresolvedQuestion
 from investos.models.entity import Entity, Security
@@ -13,7 +14,7 @@ from investos.models.knowledge import Claim, Event, Fact
 from investos.models.lesson import Lesson
 from investos.models.portfolio import Position, Transaction
 from investos.models.profile import Profile
-from investos.models.reasoning import ReasoningRun
+from investos.models.reasoning import CritiqueRun, ReasoningRun
 from investos.models.review import ReviewQueueItem
 from investos.models.shadow import ExperimentResult, ShadowExperiment
 from investos.models.source import Source
@@ -46,6 +47,7 @@ from investos.services.risk import RiskService
 from investos.services.runtime_settings import RuntimeSettingsStore
 from investos.services.shadow_lifecycle import lifecycle_counts, lifecycle_state
 from investos.services.transaction_provenance import transaction_source_summary
+from investos.services.work_outcomes import group_research_operations, model_run_outcome
 
 
 class DashboardService:
@@ -146,7 +148,9 @@ class DashboardService:
             review_queue=await self._review_queue(),
             recent_lessons=await self._recent_lessons(),
             trusted_sources=await self._trusted_sources(),
-            research_activity=await self._research_activity(jobs),
+            research_activity=await self._research_activity(
+                jobs, automation_enabled=automation_enabled
+            ),
             recent_research_actions=self._recent_research_actions(),
             recent_agent_actions=self._recent_agent_actions(),
             portfolio_monitor=await self._portfolio_monitor(),
@@ -463,7 +467,7 @@ class DashboardService:
         ]
 
     async def _research_activity(
-        self, jobs: list[AutomationJobStatus]
+        self, jobs: list[AutomationJobStatus], *, automation_enabled: bool = False
     ) -> DashboardResearchActivityResponse:
         runtime = RuntimeSettingsStore.load()
         pending_evidence_count = await self._scalar_count(
@@ -505,8 +509,8 @@ class DashboardService:
             )
         )
         return DashboardResearchActivityResponse(
-            automation_enabled=True,
-            provider_configured=bool(runtime.research.api_key),
+            automation_enabled=automation_enabled,
+            provider_configured=bool(configured_research_providers(runtime.research)),
             open_question_count=await self._scalar_count(
                 select(UnresolvedQuestion)
                 .join(CoverageMap)
@@ -563,7 +567,9 @@ class DashboardService:
         return DashboardPortfolioMonitorResponse.model_validate(payload)
 
     def _recent_research_actions(self) -> list[DashboardResearchActionResponse]:
-        items = ResearchService.recent_request_log(limit=4)
+        items = group_research_operations(
+            ResearchService.recent_request_log(limit=100)
+        )[:4]
         return [
             DashboardResearchActionResponse(
                 timestamp=str(item.get("timestamp") or ""),
@@ -572,6 +578,7 @@ class DashboardService:
                 title=item.get("title"),
                 query=item.get("query"),
                 search_depth=item.get("search_depth"),
+                phases=item.get("phases") or [],
             )
             for item in items
         ]
@@ -587,8 +594,14 @@ class DashboardService:
         )
         search_depth = item.get("search_depth")
         depth_suffix = f" · {search_depth}" if search_depth else ""
+        if item.get("evidence_id"):
+            outcome = str(
+                item.get("outcome")
+                or ("enriched" if item.get("processed") else "fetched")
+            )
+            return f"Source content fetched for {clean_title}; work outcome: {outcome.replace('_', ' ')}"
         if status in {"ok", "research_ok"}:
-            return f"Searched {clean_title}{depth_suffix}"
+            return f"Source candidates discovered for {clean_title}{depth_suffix}; fetch and knowledge promotion are separate phases."
         if status == "processed_with_errors":
             return f"Searched {clean_title}{depth_suffix} with downstream processing issues"
         if status in {"research_failed", "error"}:
@@ -851,19 +864,35 @@ class DashboardService:
             .all()
         )
         analysis_runs = [run for run in runs if run.run_type == "analysis"]
-        cached_runs = [
-            run for run in analysis_runs if run.model_used.startswith("cached:")
-        ]
+        outcomes = [model_run_outcome(run) for run in analysis_runs]
+        critiques = (
+            await self.session.scalars(
+                select(CritiqueRun).where(CritiqueRun.created_at >= since)
+            )
+        ).all()
         verification_runs = [run for run in runs if run.run_type == "verification"]
         durations = [
             float(run.duration_ms or 0) for run in runs if run.duration_ms is not None
         ]
         return DashboardLlmUsageResponse(
             analysis_runs_24h=len(analysis_runs),
-            cached_runs_24h=len(cached_runs),
+            cached_runs_24h=outcomes.count("cache_hit"),
+            live_analysis_runs_24h=outcomes.count("live_success"),
+            fallback_runs_24h=outcomes.count("fallback"),
+            deferred_runs_24h=outcomes.count("deferred"),
+            failed_runs_24h=outcomes.count("failed"),
+            unclassified_runs_24h=outcomes.count("unclassified"),
+            critique_runs_24h=len(critiques),
+            live_critique_runs_24h=sum(
+                model_run_outcome(run) == "live_success" for run in critiques
+            ),
             verification_runs_24h=len(verification_runs),
-            total_input_tokens_24h=sum(int(run.input_tokens or 0) for run in runs),
-            total_output_tokens_24h=sum(int(run.output_tokens or 0) for run in runs),
+            total_input_tokens_24h=sum(
+                int(run.input_tokens or 0) for run in [*runs, *critiques]
+            ),
+            total_output_tokens_24h=sum(
+                int(run.output_tokens or 0) for run in [*runs, *critiques]
+            ),
             avg_duration_ms=(
                 0.0 if not durations else round(sum(durations) / len(durations), 1)
             ),

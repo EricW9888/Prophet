@@ -2,6 +2,15 @@ import type { AutomationStatus } from "@/lib/api";
 
 type AutomationJob = AutomationStatus["jobs"][number];
 
+export function automationOverallHealth(enabled: boolean, jobs: AutomationJob[]) {
+  if (!enabled) return "Disabled";
+  const active = jobs.filter(job => job.enabled);
+  if (active.some(job => ["error", "warning", "partial", "busy", "waiting_for_config", "deferred", "rejected"].includes(job.last_status))) return "Needs review";
+  if (active.some(job => automationJobOutcome(job) === "unknown")) return "Unknown";
+  if (!active.length || active.some(job => !job.last_run_at)) return "Starting";
+  return "Operational";
+}
+
 export function automationJobOutcome(job: AutomationJob) {
   if (!job.enabled || job.last_status === "disabled") return "disabled";
   switch (job.last_status) {
@@ -12,6 +21,11 @@ export function automationJobOutcome(job: AutomationJob) {
     case "running":
     case "cancelled":
     case "ok":
+    case "deferred":
+    case "skipped":
+    case "rejected":
+    case "no_new_evidence":
+    case "no_new_knowledge":
       return job.last_status;
     case "partial":
     case "busy":
@@ -43,7 +57,7 @@ export function automationJobHealth(
   if (outcome === "error") {
     return { label, detail: job.detail || "last run failed", tone: "warn" };
   }
-  if (outcome === "warning" || outcome === "waiting_for_config") {
+  if (outcome === "warning" || outcome === "waiting_for_config" || outcome === "deferred" || outcome === "rejected") {
     return { label, detail: job.detail || "needs attention", tone: "warn" };
   }
   if (outcome === "running") {

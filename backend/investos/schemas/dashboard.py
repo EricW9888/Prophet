@@ -54,6 +54,13 @@ class DashboardLlmUsageResponse(BaseModel):
     total_input_tokens_24h: int
     total_output_tokens_24h: int
     avg_duration_ms: float = 0.0
+    live_analysis_runs_24h: int = 0
+    fallback_runs_24h: int = 0
+    deferred_runs_24h: int = 0
+    failed_runs_24h: int = 0
+    unclassified_runs_24h: int = 0
+    critique_runs_24h: int = 0
+    live_critique_runs_24h: int = 0
 
 
 class DashboardLessonResponse(BaseModel):
@@ -87,6 +94,7 @@ class DashboardResearchActivityResponse(BaseModel):
 
 
 class DashboardResearchActionResponse(BaseModel):
+    phases: list[dict] = Field(default_factory=list)
     timestamp: str
     status: str
     summary: str

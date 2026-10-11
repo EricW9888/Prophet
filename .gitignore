@@ -9,6 +9,7 @@ secrets.*
 **/secrets/**
 runtime_settings.json
 runtime_settings.json.*
+*.provider-health.json
 data/
 backend/data/
 .prophet-local/
