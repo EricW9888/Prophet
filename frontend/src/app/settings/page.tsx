@@ -23,6 +23,7 @@ import {
 } from "@/lib/formatting";
 import { ArrowRight, Clock, Database, Landmark, Zap, Search, Shield, Trash2, CheckCircle2, AlertCircle, Terminal } from "lucide-react";
 import LiveLogConsole from "@/components/LiveLogConsole";
+import MailboxIdentityReviews from "@/components/MailboxIdentityReviews";
 import { automationJobOutcome } from "@/lib/automation";
 
 type SettingsTab = "overview" | "data" | "research" | "system";
@@ -570,6 +571,7 @@ export default function SettingsPage() {
                     ) : null}
                   </div>
                 ) : null}
+                <MailboxIdentityReviews />
               </section>
 
               <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">

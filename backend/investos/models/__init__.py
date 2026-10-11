@@ -36,6 +36,7 @@ from .inference_policy import InferenceLog, InferencePolicy
 from .knowledge import Claim, Event, Fact
 from .knowledge_mutation import KnowledgeMutation
 from .lesson import Lesson, LessonObservation
+from .mailbox import MailboxReceiptIdentity
 from .market_calendar import MarketCalendar
 from .market_setup import MarketSetupSignal
 from .notification import (
@@ -102,6 +103,7 @@ __all__ = [
     "RetrievalBudget",
     "ResearchTriggerPolicy",
     "RawEvidence",
+    "MailboxReceiptIdentity",
     "EvidenceProcessingState",
     "ResearchDiscoveryObservation",
     "SourceItem",

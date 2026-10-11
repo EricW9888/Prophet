@@ -1,4 +1,5 @@
 import asyncio
+from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +8,7 @@ from investos.db import async_session_maker, get_session
 from investos.schemas.integrations import (
     IntegrationSettingsResponse,
     IntegrationSettingsUpdate,
+    MailboxIdentityReviewRequest,
     PlaidPublicTokenExchangeRequest,
     ResearchUsageSnapshot,
 )
@@ -103,6 +105,27 @@ async def sync_gmail(session: AsyncSession = Depends(get_session)):
         result = await service.sync_recent_messages()
         return result
     except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/gmail/identity-reviews")
+async def list_mailbox_identity_reviews(session: AsyncSession = Depends(get_session)):
+    return await GmailMailboxService(session).identities.reviews()
+
+
+@router.post("/gmail/identity-reviews/{evidence_id}")
+async def reconcile_mailbox_identity(
+    evidence_id: UUID,
+    payload: MailboxIdentityReviewRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        return await GmailMailboxService(session).identities.reconcile(
+            evidence_id,
+            decision=payload.decision,
+            existing_evidence_id=payload.existing_evidence_id,
+        )
+    except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
