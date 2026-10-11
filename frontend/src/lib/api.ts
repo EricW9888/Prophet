@@ -451,6 +451,7 @@ export type ProfileDetail = {
 };
 
 export type AutomationStatus = {
+  provider_health?: ProviderHealth;
   automation_enabled: boolean;
   jobs: Array<{
     name: string;
@@ -1040,6 +1041,7 @@ export type DashboardSummary = {
     latest_item_processed: boolean;
   };
   recent_research_actions: Array<{
+    phases: Array<{ phase: string; status: string; outcome?: string }>;
     timestamp: string;
     status: string;
     summary: string;
@@ -1094,6 +1096,13 @@ export type DashboardSummary = {
     total_input_tokens_24h: number;
     total_output_tokens_24h: number;
     avg_duration_ms: number;
+    live_analysis_runs_24h: number;
+    fallback_runs_24h: number;
+    deferred_runs_24h: number;
+    failed_runs_24h: number;
+    unclassified_runs_24h: number;
+    critique_runs_24h: number;
+    live_critique_runs_24h: number;
   };
   active_benchmark_ticker?: string | null;
   portfolio_return_pct?: number | null;
@@ -1102,6 +1111,16 @@ export type DashboardSummary = {
   top_sector?: string | null;
   top_sector_weight_pct: number;
   current_regime?: string | null;
+};
+
+export type ProviderHealth = {
+  provider?: string;
+  state: string;
+  failure_code?: string | null;
+  failure_count?: number;
+  next_probe_at?: string | null;
+  lease_until?: string | null;
+  last_success_at?: string | null;
 };
 
 export type AgentActionLogEntry = {

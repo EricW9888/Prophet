@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 import httpx
+import pytest
 
 from investos.core.llm import (
     AsyncRateLimiter,
@@ -181,3 +182,14 @@ async def test_non_retryable_codex_failure_opens_recovery_cooldown(monkeypatch):
 
     assert _cooldown_remaining("codex_cli") > 0
     _provider_cooldowns.pop("codex_cli", None)
+
+
+@pytest.fixture(autouse=True)
+def isolated_provider_health(monkeypatch, tmp_path):
+    from investos.core.provider_health import ProviderHealthStore
+
+    monkeypatch.setattr(
+        ProviderHealthStore,
+        "_path",
+        staticmethod(lambda: tmp_path / "provider-health.json"),
+    )

@@ -1645,6 +1645,18 @@ class ShadowService:
         if experiment.start_point > now:
             return experiment
         deadline_reached = experiment.end_point <= now
+        if not deadline_reached:
+            from investos.core.provider_health import (
+                LLMProviderCooldownError,
+                ProviderHealthStore,
+            )
+
+            try:
+                ProviderHealthStore.require_available()
+            except LLMProviderCooldownError:
+                # Deterministic paper maintenance and deadline closure continue;
+                # an unavailable model cannot consume a policy checkpoint.
+                return experiment
         positions = await self._positions_with_stance()
         if not positions and not (experiment.initial_portfolio_state_json or {}).get(
             "shadow_state"

@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from investos.core.provider_health import ProviderHealthStore, probe_llm_provider
 from investos.db import get_session
 from investos.models.coverage import CoverageMap, QuestionHistory, UnresolvedQuestion
 from investos.schemas.automation import AutomationJobStatus, AutomationStatusResponse
@@ -16,6 +17,16 @@ from investos.services.question_lifecycle import (
 )
 
 router = APIRouter(prefix="/automation", tags=["automation"])
+
+
+@router.get("/provider-health")
+async def provider_health():
+    return ProviderHealthStore.public_status()
+
+
+@router.post("/provider-health/probe")
+async def probe_provider_health():
+    return await probe_llm_provider()
 
 
 @router.get("/questions")
@@ -172,15 +183,16 @@ async def get_automation_status(request: Request):
             for item in coordinator.status()
         ]
     return AutomationStatusResponse(
-        automation_enabled=bool(coordinator),
+        automation_enabled=bool(coordinator and coordinator.enabled),
         jobs=jobs,
+        provider_health=ProviderHealthStore.public_status(),
     )
 
 
 @router.post("/run/{job_name}", response_model=AutomationStatusResponse)
 async def run_automation_job(job_name: str, request: Request):
     coordinator = getattr(request.app.state, "automation", None)
-    if not coordinator:
+    if not coordinator or not coordinator.enabled:
         raise HTTPException(
             status_code=503, detail="Automation coordinator is not running"
         )
@@ -199,4 +211,8 @@ async def run_automation_job(job_name: str, request: Request):
         )
         for item in coordinator.status()
     ]
-    return AutomationStatusResponse(automation_enabled=True, jobs=jobs)
+    return AutomationStatusResponse(
+        automation_enabled=bool(coordinator.enabled),
+        jobs=jobs,
+        provider_health=ProviderHealthStore.public_status(),
+    )

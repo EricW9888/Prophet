@@ -159,7 +159,7 @@ async def test_reflection_without_review_pressure_does_not_start_agent_turn():
 @pytest.mark.parametrize(
     ("result", "expected"),
     [
-        (ResearchRunResult(started=True, reason="ok"), "ok"),
+        (ResearchRunResult(started=True, reason="ok"), "no_new_evidence"),
         (
             ResearchRunResult(started=False, reason="research_provider_not_configured"),
             "waiting_for_config",
@@ -170,7 +170,7 @@ async def test_reflection_without_review_pressure_does_not_start_agent_turn():
         ),
         (
             ResearchRunResult(started=False, reason="duplicate_recent_research"),
-            "ok",
+            "skipped",
         ),
     ],
 )

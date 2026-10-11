@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class AutomationJobStatus(BaseModel):
@@ -16,3 +16,4 @@ class AutomationJobStatus(BaseModel):
 class AutomationStatusResponse(BaseModel):
     automation_enabled: bool
     jobs: list[AutomationJobStatus]
+    provider_health: dict = Field(default_factory=dict)

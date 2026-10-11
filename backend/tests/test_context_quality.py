@@ -425,7 +425,7 @@ async def test_research_usage_accepts_current_tavily_key_usage_object(monkeypatc
         "investos.services.research.httpx.AsyncClient",
         lambda **kwargs: FakeClient(),
     )
-    monkeypatch.setattr(ResearchService, "recent_request_log", lambda: [])
+    monkeypatch.setattr(ResearchService, "recent_request_log", lambda **_kwargs: [])
 
     snapshot = await ResearchService.current_usage_snapshot()
     validated = ResearchUsageSnapshot.model_validate(snapshot)
