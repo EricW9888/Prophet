@@ -86,6 +86,13 @@ understood.
 
 ## Analytical Reliability
 
+Presentation language support covers navigation, language controls, evidence
+translation views and selected newly generated summaries. Other UI and
+deterministic fallback text remains English. Machine-translated derivatives
+retain source-version provenance and protected-span checks, but those checks do
+not certify semantic fidelity. Original evidence and accepted conclusions remain
+unchanged. See [Presentation language](presentation-language.md).
+
 The model can misclassify a subject, omit a material driver, misuse context, or
 produce an incorrect synthesis. Deterministic promotion and corroboration rules
 reduce unsupported state changes but cannot guarantee that an accepted view is

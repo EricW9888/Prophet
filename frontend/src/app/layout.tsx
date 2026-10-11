@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import JobCompletionNoticeHost from "@/components/JobCompletionNoticeHost";
 import MobileRefreshControl from "@/components/MobileRefreshControl";
 import PwaRegistration from "@/components/PwaRegistration";
+import PresentationLanguageProvider from "@/components/PresentationLanguageProvider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -52,7 +53,7 @@ export default function RootLayout({
         <PwaRegistration />
         <MobileRefreshControl />
         <JobCompletionNoticeHost />
-        {children}
+        <PresentationLanguageProvider>{children}</PresentationLanguageProvider>
       </body>
     </html>
   );

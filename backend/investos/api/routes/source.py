@@ -207,6 +207,66 @@ async def cancel_youtube_ingestion_job(job_id: UUID, request: Request):
     return {"ok": True, "detail": "Video ingestion cancellation signal sent."}
 
 
+from investos.core.presentation_language import PresentationLanguage
+from investos.services.runtime_settings import RuntimeSettingsStore
+from investos.services.translation import TranslationService
+
+
+@router.get("/evidence/{evidence_id}/original-text")
+async def get_original_evidence_text(
+    evidence_id: UUID, session: AsyncSession = Depends(get_session)
+):
+    try:
+        evidence, content, source_hash = await TranslationService(session).original(
+            evidence_id
+        )
+        return {
+            "evidence_id": str(evidence.id),
+            "source_hash": source_hash,
+            "text": content,
+        }
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.get("/evidence/{evidence_id}/translation")
+async def get_evidence_translation(
+    evidence_id: UUID,
+    language: PresentationLanguage | None = None,
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        return await TranslationService(session).view(
+            evidence_id, language or RuntimeSettingsStore.load().presentation_language
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.post("/evidence/{evidence_id}/translation")
+async def generate_evidence_translation(
+    evidence_id: UUID,
+    language: PresentationLanguage | None = None,
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        result = await TranslationService(session).view(
+            evidence_id,
+            language or RuntimeSettingsStore.load().presentation_language,
+            generate=True,
+        )
+        await session.commit()
+        return result
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
 @router.get("/evidence/{evidence_id}", response_model=SourceEvidenceDetail)
 async def get_source_evidence_detail(
     evidence_id: UUID,

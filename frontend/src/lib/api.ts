@@ -1167,6 +1167,7 @@ export type ActiveWatcher = {
 };
 
 export type IntegrationSettings = {
+  presentation_language: import("./language-resources").PresentationLanguage;
   gmail: {
     enabled: boolean;
     imap_host: string;

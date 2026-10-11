@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePlaidLink } from "react-plaid-link";
 import AppNav from "@/components/AppNav";
+import LanguageSettings from "@/components/LanguageSettings";
 import FloatingNotice from "@/components/FloatingNotice";
 import FloatingSaveBar from "@/components/FloatingSaveBar";
 import PageHeader from "@/components/PageHeader";
@@ -149,6 +150,7 @@ export default function SettingsPage() {
       setResearchApiKey("");
       setPlaidClientId("");
       setPlaidSecret("");
+      window.dispatchEvent(new Event("prophet:language-saved"));
       setNotice("Settings saved successfully.");
       await loadState();
     } catch (err) {
@@ -325,6 +327,8 @@ export default function SettingsPage() {
             </div>
           )}
         />
+
+        <LanguageSettings value={settings.presentation_language ?? "en"} onChange={language => updateSettings(current => ({ ...current, presentation_language: language }))} />
 
         <div className="space-y-6 animate-in fade-in duration-300">
           {activeTab === "overview" && (

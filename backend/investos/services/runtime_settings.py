@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, Field
 
 from investos.config import settings
+from investos.core.presentation_language import PresentationLanguage
 from investos.core.providers import (
     LLM_PROVIDER_CAPABILITIES,
     llm_provider_capability,
@@ -93,6 +94,7 @@ class PlaidRuntimeSettings(BaseModel):
 
 
 class RuntimeSettings(BaseModel):
+    presentation_language: PresentationLanguage = "en"
     market_data: MarketDataRuntimeSettings = Field(
         default_factory=MarketDataRuntimeSettings
     )
@@ -249,6 +251,7 @@ class RuntimeSettingsStore:
                 )
 
         return IntegrationSettingsResponse(
+            presentation_language=runtime.presentation_language,
             market_data=MarketDataIntegrationSettings(
                 enabled=runtime.market_data.enabled,
                 provider=runtime.market_data.provider,
@@ -397,6 +400,8 @@ class RuntimeSettingsStore:
         cls, payload: IntegrationSettingsUpdate
     ) -> IntegrationSettingsResponse:
         runtime = cls.load()
+        if payload.presentation_language is not None:
+            runtime.presentation_language = payload.presentation_language
         if payload.market_data is not None:
             runtime.market_data = cls._update_market_data(
                 runtime.market_data, payload.market_data
