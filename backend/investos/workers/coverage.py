@@ -17,6 +17,10 @@ from investos.models.graph import Edge
 from investos.models.knowledge import Claim, Fact
 from investos.services.artifact_hygiene import is_artifact_subject_name
 from investos.services.canonical_state import CanonicalStateService
+from investos.services.question_lifecycle import (
+    ACTIVE_QUESTION_STATUSES,
+    QuestionLifecycleService,
+)
 
 COVERAGE_SCHEMA = {
     "type": "object",
@@ -43,8 +47,19 @@ COVERAGE_SCHEMA = {
                 "properties": {
                     "question_text": {"type": "string"},
                     "urgency": {"type": "integer"},
+                    "mechanism": {"type": "string"},
+                    "time_horizon": {"type": "string"},
+                    "decision_relevance": {"type": "string"},
+                    "existing_question_id": {"type": ["string", "null"]},
                 },
-                "required": ["question_text", "urgency"],
+                "required": [
+                    "question_text",
+                    "urgency",
+                    "mechanism",
+                    "time_horizon",
+                    "decision_relevance",
+                    "existing_question_id",
+                ],
             },
         },
     },
@@ -210,7 +225,31 @@ class CoverageWorker:
             await self.session.commit()
             return c_map
 
+        existing_questions = list(
+            (
+                await self.session.execute(
+                    select(UnresolvedQuestion)
+                    .where(UnresolvedQuestion.coverage_map_id == c_map.id)
+                    .order_by(
+                        UnresolvedQuestion.urgency.desc(),
+                        UnresolvedQuestion.created_at.asc(),
+                    )
+                    .limit(30)
+                )
+            )
+            .scalars()
+            .all()
+        )
         evidence_context = {
+            "existing_uncertainties": [
+                dict(
+                    id=str(row.id),
+                    question_text=row.question_text,
+                    dimensions=row.uncertainty_json or {},
+                    status=row.status,
+                )
+                for row in existing_questions
+            ],
             "subject_name": subject_name,
             "subject_type": subject_type,
             "facts": [
@@ -243,7 +282,10 @@ class CoverageWorker:
                 system_prompt=(
                     "Audit coverage for an Prophet profile. "
                     "Identify what evidence classes are missing and what questions remain unresolved. "
-                    "Do not assume completeness. Keep the list short and decision-relevant."
+                    "Do not assume completeness. Keep the list short and decision-relevant. "
+                    "Describe each uncertainty by mechanism, time_horizon and decision_relevance. "
+                    "For a paraphrase of an existing uncertainty, return its existing_question_id and reuse its exact dimensions. "
+                    "Different mechanisms, horizons and decisions must remain distinct. Do not treat exhausted research as answered."
                 ),
                 user_prompt=json.dumps(evidence_context, ensure_ascii=True),
                 schema=COVERAGE_SCHEMA,
@@ -331,69 +373,74 @@ class CoverageWorker:
                 item.resolved_at = utcnow()
 
     async def _reconcile_unresolved_questions(
-        self,
-        coverage_map_id: UUID,
-        unresolved_questions: list[dict[str, object]],
+        self, coverage_map_id: UUID, unresolved_questions: list[dict[str, object]]
     ) -> None:
+        coverage = await self.session.get(CoverageMap, coverage_map_id)
+        if coverage is None:
+            return
+        lifecycle = QuestionLifecycleService(self.session)
         existing = list(
             (
                 await self.session.execute(
                     select(UnresolvedQuestion)
                     .where(UnresolvedQuestion.coverage_map_id == coverage_map_id)
-                    .order_by(UnresolvedQuestion.created_at.asc())
+                    .order_by(UnresolvedQuestion.created_at)
                 )
             )
             .scalars()
             .all()
         )
-        status_rank = {"answered": 0, "investigating": 1, "open": 2, "obsolete": 3}
-        grouped: dict[str, list[UnresolvedQuestion]] = {}
-        for item in existing:
-            key = self._normalized_gap_key(item.question_text)
-            if key:
-                grouped.setdefault(key, []).append(item)
-
-        existing_by_key: dict[str, UnresolvedQuestion] = {}
-        for key, items in grouped.items():
-            items.sort(
-                key=lambda item: (status_rank.get(item.status, 4), item.created_at)
-            )
-            existing_by_key[key] = items[0]
-            for duplicate in items[1:]:
-                if duplicate.status in {"open", "investigating"}:
-                    duplicate.status = "obsolete"
-
-        incoming_keys: set[str] = set()
-        for payload in unresolved_questions[:5]:
-            question_text = " ".join(
-                str(payload.get("question_text") or "").split()
-            ).strip()
-            key = self._normalized_gap_key(question_text)
-            if not key or key in incoming_keys:
-                continue
-            incoming_keys.add(key)
-            try:
-                urgency = max(1, min(5, int(payload.get("urgency") or 1)))
-            except (TypeError, ValueError):
-                urgency = 1
-            item = existing_by_key.get(key)
-            if item is None:
-                self.session.add(
-                    UnresolvedQuestion(
-                        coverage_map_id=coverage_map_id,
-                        question_text=question_text,
-                        urgency=urgency,
+        grouped = {}
+        for question in existing:
+            grouped.setdefault(
+                question.semantic_key
+                or self._normalized_gap_key(question.question_text),
+                [],
+            ).append(question)
+        for rows in grouped.values():
+            rows.sort(key=lambda row: (row.status != "answered", row.created_at))
+            for duplicate in rows[1:]:
+                if duplicate.status in ACTIVE_QUESTION_STATUSES:
+                    duplicate.superseded_by_id = rows[0].id
+                    lifecycle.transition(
+                        duplicate,
+                        status="superseded",
+                        outcome="duplicate_prompt",
+                        canonical_question_id=str(rows[0].id),
                     )
+        retained = set()
+        for payload in unresolved_questions[:5]:
+            # Exact legacy matching is only a bridge to structured identity.
+            if not payload.get("existing_question_id"):
+                match = next(
+                    (
+                        row
+                        for row in existing
+                        if row.status != "superseded"
+                        and self._normalized_gap_key(row.question_text)
+                        == self._normalized_gap_key(
+                            str(payload.get("question_text") or "")
+                        )
+                    ),
+                    None,
                 )
-                continue
-            item.question_text = question_text
-            item.urgency = urgency
-            if item.status == "obsolete":
-                item.status = "open"
-
-        for key, item in existing_by_key.items():
-            if key not in incoming_keys and item.status in {"open", "investigating"}:
-                item.status = "obsolete"
+                if match is not None:
+                    payload = {**payload, "existing_question_id": str(match.id)}
+            question = await lifecycle.ensure_question(coverage, payload, existing)
+            if question is not None:
+                retained.add(question.id)
+                if question not in existing:
+                    existing.append(question)
+        for question in existing:
+            if (
+                question.id not in retained
+                and question.status in ACTIVE_QUESTION_STATUSES
+            ):
+                lifecycle.transition(
+                    question,
+                    status="archived",
+                    outcome="coverage_no_longer_prioritized",
+                )
 
     def _fallback_coverage_audit(
         self,

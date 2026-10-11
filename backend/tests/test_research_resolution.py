@@ -70,15 +70,16 @@ async def test_processed_source_can_close_research_question(monkeypatch):
     assert resolved is True
     assert question.status == "answered"
     assert session.commits == 1
-    assert len(session.added) == 1
-    resolution = session.added[0]
+    resolutions = [row for row in session.added if isinstance(row, Resolution)]
+    assert len(resolutions) == 1
+    resolution = resolutions[0]
     assert isinstance(resolution, Resolution)
     assert resolution.resolving_evidence_ids == [evidence_id]
     assert "Remaining uncertainty" in resolution.summary
 
 
 @pytest.mark.asyncio
-async def test_related_source_keeps_question_investigating(monkeypatch):
+async def test_related_source_returns_to_bounded_research(monkeypatch):
     evidence_id = uuid4()
     question = SimpleNamespace(
         id=uuid4(),
@@ -114,6 +115,8 @@ async def test_related_source_keeps_question_investigating(monkeypatch):
     )
 
     assert resolved is False
-    assert question.status == "investigating"
-    assert session.added == []
-    assert session.commits == 0
+    assert question.status == "needs_research"
+    assert question.next_action == "research"
+    assert question.next_review_at is not None
+    assert not any(isinstance(row, Resolution) for row in session.added)
+    assert session.commits == 1

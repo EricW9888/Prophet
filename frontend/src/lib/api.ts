@@ -352,6 +352,12 @@ export type ProfileDetail = {
     question_text: string;
     urgency: number;
     status: string;
+    owner: string;
+    next_action?: string | null;
+    next_review_at?: string | null;
+    last_material_outcome: string;
+    research_attempt_count: number;
+    resolution_attempt_count: number;
     created_at: string;
   }>;
   recent_evidence: Array<{

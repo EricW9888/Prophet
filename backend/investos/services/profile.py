@@ -27,6 +27,7 @@ from investos.schemas.profile import (
 from investos.services.fundamentals import FundamentalMetricService
 from investos.services.historical import HistoricalEpisodeService
 from investos.services.market_setup import MarketSetupSignalService
+from investos.services.question_lifecycle import ACTIVE_QUESTION_STATUSES
 
 
 class ProfileService:
@@ -153,7 +154,7 @@ class ProfileService:
                         select(UnresolvedQuestion)
                         .where(
                             UnresolvedQuestion.coverage_map_id == coverage.id,
-                            UnresolvedQuestion.status.in_(["open", "investigating"]),
+                            UnresolvedQuestion.status.in_(ACTIVE_QUESTION_STATUSES),
                         )
                         .order_by(
                             desc(UnresolvedQuestion.urgency),

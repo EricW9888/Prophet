@@ -24,6 +24,7 @@ from investos.core.url_security import UnsafeUrlError, UrlFetchNetworkError
 from investos.models.coverage import CoverageMap, Resolution, UnresolvedQuestion
 from investos.models.entity import Entity, Security
 from investos.models.evidence import (
+    EvidenceProcessingState,
     RawEvidence,
     ResearchDiscoveryObservation,
     SourceItem,
@@ -37,7 +38,14 @@ from investos.services.artifact_hygiene import (
     is_artifact_subject_name,
     strip_research_wrappers,
 )
+from investos.services.evidence_processing import EvidenceProcessingService
 from investos.services.ingestion import IngestionService
+from investos.services.question_lifecycle import (
+    MAX_EXTRACTION_WAIT_DAYS,
+    MAX_RESEARCH_ATTEMPTS,
+    RETRY_HOURS,
+    QuestionLifecycleService,
+)
 from investos.services.runtime_settings import RuntimeSettingsStore
 from investos.services.source_learning import SourceLearningService
 from investos.workers.extraction import ExtractionWorker
@@ -47,10 +55,19 @@ QUESTION_RESOLUTION_SCHEMA = {
     "additionalProperties": False,
     "properties": {
         "answered": {"type": "boolean"},
+        "outcome": {
+            "type": "string",
+            "enum": [
+                "answered",
+                "partial_answer",
+                "irrelevant",
+                "insufficient_evidence",
+            ],
+        },
         "summary": {"type": "string"},
         "remaining_uncertainty": {"type": ["string", "null"]},
     },
-    "required": ["answered", "summary", "remaining_uncertainty"],
+    "required": ["answered", "outcome", "summary", "remaining_uncertainty"],
 }
 
 
@@ -502,6 +519,14 @@ class ResearchService:
     async def run_targeted_question(
         self, question: UnresolvedQuestion
     ) -> ResearchRunResult:
+        lifecycle = QuestionLifecycleService(self.session)
+        if (
+            int(getattr(question, "research_attempt_count", 0) or 0)
+            >= MAX_RESEARCH_ATTEMPTS
+        ):
+            lifecycle.retry_research(question, "research_budget_exhausted")
+            await self.session.commit()
+            return ResearchRunResult(started=False, reason="research_budget_exhausted")
         metadata = await self._question_metadata(question)
         subject_name = metadata.get("subject_name")
         if self._is_artifact_research_query(
@@ -510,7 +535,9 @@ class ResearchService:
             title_fragment = self._title_fragment(question.question_text)
             title = f"Research skipped: {title_fragment}"
             normalized_query = self._normalize_search_query(question.question_text)
-            question.status = "obsolete"
+            lifecycle.transition(
+                question, status="archived", outcome="internal_artifact"
+            )
             await self.session.commit()
             self._log_research_action(
                 status="research_artifact_query_blocked",
@@ -547,13 +574,50 @@ class ResearchService:
             },
             process_after_ingest=True,
         )
-        if result.started and result.evidence_id is not None:
-            question.status = "investigating"
+        if result.evidence_id is not None:
+            question.research_attempt_count = (
+                int(getattr(question, "research_attempt_count", 0) or 0) + 1
+            )
             question.originating_evidence_id = result.evidence_id
+            lifecycle.transition(
+                question,
+                status="awaiting_resolution",
+                outcome=(
+                    "source_fetched" if result.started else "existing_source_reused"
+                ),
+                next_action="assess_evidence",
+                evidence_id=str(result.evidence_id),
+            )
             await self.session.commit()
             await self._maybe_resolve_question(question, result.evidence_id)
         elif result.reason == "research_artifact_query_blocked":
-            question.status = "obsolete"
+            lifecycle.transition(
+                question, status="archived", outcome="internal_artifact"
+            )
+            await self.session.commit()
+        else:
+            if result.reason in {
+                "research_provider_not_configured",
+                "provider_error",
+                "research_failed",
+                "research_provider_limit_exceeded",
+                "rate_limited",
+                "auth_error",
+                "timeout",
+                "unavailable",
+            }:
+                lifecycle.transition(
+                    question,
+                    status="awaiting_provider",
+                    outcome=result.reason,
+                    next_action="research",
+                    delay_hours=RETRY_HOURS,
+                )
+            else:
+                question.research_attempt_count = (
+                    int(getattr(question, "research_attempt_count", 0) or 0) + 1
+                )
+                lifecycle.retry_research(question, result.reason)
             await self.session.commit()
         return result
 
@@ -562,12 +626,78 @@ class ResearchService:
         question: UnresolvedQuestion,
         evidence_id: UUID,
     ) -> bool:
+        lifecycle = QuestionLifecycleService(self.session)
         source_item = (
             await self.session.execute(
                 select(SourceItem).where(SourceItem.raw_evidence_id == evidence_id)
             )
         ).scalar_one_or_none()
-        if source_item is None:
+        processing_status = str(
+            getattr(source_item, "processing_status", "processed") or "pending"
+        )
+        if processing_status in {"rejected_irrelevant", "irrelevant"}:
+            lifecycle.retry_research(
+                question, "irrelevant_evidence", evidence_id=str(evidence_id)
+            )
+            await self.session.commit()
+            return False
+        if source_item is None or processing_status in {
+            "pending",
+            "extraction_pending",
+            "extraction_deferred",
+            "extraction_retry_scheduled",
+            "processed_with_fallback",
+            "extraction_retry_exhausted",
+            "retry_exhausted",
+            "missing_raw_content",
+        }:
+            state = (
+                await self.session.execute(
+                    select(EvidenceProcessingState).where(
+                        EvidenceProcessingState.raw_evidence_id == evidence_id
+                    )
+                )
+            ).scalar_one_or_none()
+            if state is None:
+                raw = await self.session.get(RawEvidence, evidence_id)
+                if raw is not None:
+                    state = await EvidenceProcessingService(
+                        self.session
+                    ).ensure_for_evidence(raw, source_item=source_item)
+            expired = bool(
+                state
+                and state.created_at
+                and state.created_at
+                < datetime.now(timezone.utc) - timedelta(days=MAX_EXTRACTION_WAIT_DAYS)
+            )
+            terminal = (
+                state
+                and state.extraction_status
+                in {"retry_exhausted", "blocked_missing_content", "not_applicable"}
+            ) or processing_status in {
+                "extraction_retry_exhausted",
+                "retry_exhausted",
+                "missing_raw_content",
+            }
+            if terminal or expired:
+                lifecycle.retry_research(
+                    question, "extraction_unavailable", evidence_id=str(evidence_id)
+                )
+            elif state is None and source_item is None:
+                # Missing durable extraction state must not strand legacy work.
+                lifecycle.retry_research(
+                    question, "missing_processed_evidence", evidence_id=str(evidence_id)
+                )
+            else:
+                lifecycle.transition(
+                    question,
+                    status="awaiting_extraction",
+                    outcome="extraction_pending",
+                    next_action="assess_evidence",
+                    delay_hours=RETRY_HOURS,
+                    evidence_id=str(evidence_id),
+                )
+            await self.session.commit()
             return False
 
         evidence_text = "\n\n".join(
@@ -576,6 +706,12 @@ class ResearchService:
             if part and part.strip()
         )[:12000]
         if len(evidence_text) < 80:
+            lifecycle.retry_research(
+                question,
+                "insufficient_processed_evidence",
+                evidence_id=str(evidence_id),
+            )
+            await self.session.commit()
             return False
 
         try:
@@ -584,7 +720,9 @@ class ResearchService:
                     "Assess whether the supplied processed source directly answers the specific research question. "
                     "Related context, a plausible inference, or a lead for more research is not enough. Set answered=true "
                     "only when the source contains a concrete answer that can be summarized without adding unstated facts. "
-                    "Keep the summary concise and state any material residual uncertainty."
+                    "Keep the summary concise and state any material residual uncertainty. "
+                    "Return outcome=answered only with answered=true; distinguish a supported partial answer, "
+                    "irrelevant evidence, and insufficient evidence."
                 ),
                 user_prompt=json.dumps(
                     {
@@ -597,6 +735,15 @@ class ResearchService:
                 timeout_seconds=30,
             )
         except Exception as exc:
+            lifecycle.transition(
+                question,
+                status="awaiting_provider",
+                outcome="resolution_provider_unavailable",
+                next_action="assess_evidence",
+                delay_hours=RETRY_HOURS,
+                evidence_id=str(evidence_id),
+            )
+            await self.session.commit()
             self._log_research_action(
                 status="resolution_assessment_deferred",
                 summary=(
@@ -612,7 +759,22 @@ class ResearchService:
             )
             return False
 
-        if not assessment.get("answered"):
+        question.resolution_attempt_count = (
+            int(getattr(question, "resolution_attempt_count", 0) or 0) + 1
+        )
+        outcome = assessment.get("outcome") or (
+            "answered" if assessment.get("answered") else "insufficient_evidence"
+        )
+        if not assessment.get("answered") or outcome != "answered":
+            lifecycle.retry_research(
+                question,
+                outcome,
+                partial=outcome == "partial_answer",
+                evidence_id=str(evidence_id),
+                assessment_summary=str(assessment.get("summary") or ""),
+                remaining_uncertainty=assessment.get("remaining_uncertainty"),
+            )
+            await self.session.commit()
             self._log_research_action(
                 status="question_still_open",
                 summary=(
@@ -631,12 +793,15 @@ class ResearchService:
 
         existing = (
             await self.session.execute(
-                select(Resolution).where(
-                    Resolution.unresolved_question_id == question.id
-                )
+                select(Resolution)
+                .where(Resolution.unresolved_question_id == question.id)
+                .order_by(Resolution.resolved_at.desc())
+                .limit(1)
             )
         ).scalar_one_or_none()
-        if existing is None:
+        if existing is None or evidence_id not in (
+            existing.resolving_evidence_ids or []
+        ):
             summary = str(assessment.get("summary") or "").strip()
             uncertainty = str(assessment.get("remaining_uncertainty") or "").strip()
             if uncertainty:
@@ -649,7 +814,13 @@ class ResearchService:
                     or "Processed evidence directly answered the research question.",
                 )
             )
-        question.status = "answered"
+        lifecycle.transition(
+            question,
+            status="answered",
+            outcome="direct_answer",
+            evidence_id=str(evidence_id),
+            assessment_summary=str(assessment.get("summary") or ""),
+        )
         await self.session.commit()
         self._log_research_action(
             status="question_resolved",

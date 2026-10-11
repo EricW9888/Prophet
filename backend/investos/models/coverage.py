@@ -96,8 +96,43 @@ class UnresolvedQuestion(Base):
     )
 
     status: Mapped[str] = mapped_column(
-        String, default="open"
-    )  # open|investigating|answered|obsolete
+        String, default="needs_research"
+    )  # Lifecycle states are defined by QuestionLifecycleService.
+    semantic_key: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True, unique=True, index=True
+    )
+    uncertainty_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    owner: Mapped[str] = mapped_column(String, default="research_automation")
+    next_action: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True, default="research"
+    )
+    next_review_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=utcnow, index=True
+    )
+    last_material_outcome: Mapped[str] = mapped_column(String, default="unassessed")
+    research_attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    resolution_attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    superseded_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("unresolved_questions.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+
+class QuestionHistory(Base):
+    """Append-only prompts, evidence outcomes, transitions and retirement reasons."""
+
+    __tablename__ = "question_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    question_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("unresolved_questions.id"), index=True
+    )
+    event_type: Mapped[str] = mapped_column(String)
+    detail_json: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )

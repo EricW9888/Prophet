@@ -31,6 +31,13 @@ class UnresolvedQuestionResponse(BaseModel):
     question_text: str
     urgency: int
     status: str
+    owner: str = "research_automation"
+    next_action: Optional[str] = None
+    next_review_at: Optional[datetime] = None
+    last_material_outcome: str = "unassessed"
+    uncertainty_json: dict = {}
+    research_attempt_count: int = 0
+    resolution_attempt_count: int = 0
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

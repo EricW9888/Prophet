@@ -347,7 +347,11 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
                     <div key={item.id}>
                       <p className="text-sm text-slate-800 dark:text-slate-300">{item.question_text}</p>
                       <div className="mt-1 text-[10px] text-sky-600 dark:text-sky-400 font-mono">
-                        Status: {item.status} | Urgency: {item.urgency}
+                        Status: {item.status.replaceAll("_", " ")} · Urgency: {item.urgency}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {item.last_material_outcome.replaceAll("_", " ")} · Next: {item.next_action?.replaceAll("_", " ") ?? "No scheduled work"}
+                        {item.next_review_at ? ` · ${new Date(item.next_review_at).toLocaleString()}` : ""}
                       </div>
                     </div>
                   ))}

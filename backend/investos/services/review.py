@@ -28,6 +28,10 @@ from investos.services.artifact_hygiene import (
 )
 from investos.services.canonical_state import CanonicalStateService
 from investos.services.ownership_signals import OwnershipSignalService
+from investos.services.question_lifecycle import (
+    ACTIVE_QUESTION_STATUSES,
+    QuestionLifecycleService,
+)
 from investos.services.source_claim_policy import (
     days_between,
     source_claim_due_at,
@@ -108,7 +112,10 @@ class ReviewService:
             await self.session.execute(
                 select(UnresolvedQuestion, CoverageMap)
                 .join(CoverageMap, UnresolvedQuestion.coverage_map_id == CoverageMap.id)
-                .where(UnresolvedQuestion.status == "open")
+                .where(
+                    UnresolvedQuestion.status.in_(ACTIVE_QUESTION_STATUSES),
+                    QuestionLifecycleService.portfolio_clause(),
+                )
                 .order_by(
                     desc(UnresolvedQuestion.urgency),
                     desc(UnresolvedQuestion.created_at),
@@ -561,7 +568,7 @@ class ReviewService:
                         select(UnresolvedQuestion)
                         .where(
                             UnresolvedQuestion.coverage_map_id == cov.id,
-                            UnresolvedQuestion.status == "open",
+                            UnresolvedQuestion.status.in_(ACTIVE_QUESTION_STATUSES),
                         )
                         .order_by(UnresolvedQuestion.created_at)
                         .limit(1)

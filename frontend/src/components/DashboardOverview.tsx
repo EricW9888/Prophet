@@ -16,6 +16,7 @@ import {
 import { apiFetch, DashboardSummary } from "@/lib/api";
 import { automationJobHealth, type AutomationHealth } from "@/lib/automation";
 import WorkspaceState from "@/components/WorkspaceState";
+import QuestionBacklog from "@/components/QuestionBacklog";
 import {
   safeFormatCurrency,
   safeFormatSignedCurrency,
@@ -183,6 +184,7 @@ export default function DashboardOverview() {
       </section>
 
       <TransactionCapturePanel transactions={summary.recent_transactions ?? []} jobs={summary.jobs} />
+      <QuestionBacklog />
 
       <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_0.85fr] gap-4 md:gap-6 items-start">
         <Panel className="xl:col-span-1">

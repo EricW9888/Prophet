@@ -37,6 +37,10 @@ from investos.schemas.portfolio import (
     TransactionCreate,
 )
 from investos.services.canonical_state import CanonicalStateService
+from investos.services.question_lifecycle import (
+    ACTIVE_QUESTION_STATUSES,
+    QuestionLifecycleService,
+)
 from investos.services.runtime_settings import RuntimeSettingsStore
 from investos.services.security_catalog import SecurityCatalogService
 from investos.services.transaction_provenance import (
@@ -1033,7 +1037,6 @@ class PortfolioService:
                 await self.session.execute(
                     select(UnresolvedQuestion).where(
                         UnresolvedQuestion.coverage_map_id == coverage.id,
-                        UnresolvedQuestion.status == "open",
                     )
                 )
             )
@@ -1047,14 +1050,16 @@ class PortfolioService:
                 f"What benchmark, peer, or macro confounders matter most for {security.ticker}?",
             ]
             for index, question_text in enumerate(seeded_questions[:5]):
-                self.session.add(
-                    UnresolvedQuestion(
-                        coverage_map_id=coverage.id,
-                        question_text=question_text.strip(),
-                        urgency=5 if index == 0 else 3,
-                        status="open",
-                    )
+                question = await QuestionLifecycleService(self.session).ensure_question(
+                    coverage,
+                    {
+                        "question_text": question_text.strip(),
+                        "urgency": 5 if index == 0 else 3,
+                    },
+                    existing_questions,
                 )
+                if question and question not in existing_questions:
+                    existing_questions.append(question)
 
         await self.session.commit()
         return ResearchObjectResponse(
@@ -1064,8 +1069,9 @@ class PortfolioService:
             ticker=security.ticker,
             entity_name=security.entity.name,
             list_type=position.list_type,
-            open_question_count=min(
-                len(payload.open_questions) if payload.open_questions else 3, 5
+            open_question_count=sum(
+                question.status in ACTIVE_QUESTION_STATUSES
+                for question in existing_questions
             ),
         )
 
