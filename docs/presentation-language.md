@@ -21,7 +21,7 @@ stored original text. Reading or generating this view never runs extraction,
 corroboration or belief promotion. A successful derivative is retained in
 `evidence_translations`, keyed by evidence ID, SHA-256 of the actual UTF-8 source
 text, target language and translation recipe version. It retains its provider and
-creation time. Source changes leave old derivatives in place but mark the current
+creation time. Source or translation-recipe changes leave old derivatives in place but mark the current
 view stale until a new derivative is requested. A late response for another
 language cannot be displayed as the selected language.
 
@@ -32,7 +32,8 @@ unique version/language constraint. Each request is bounded to 24,000 source
 characters and 45 seconds; oversized or non-UTF-8 material is disclosed instead of
 silently truncated. Failures are safe status codes, not private provider diagnostics.
 
-The request protects exact URL/citation, identifier and numeric/financial spans
+The request protects exact URL/citation, identifier and signed numeric/financial spans (including accounting parentheses,
+magnitude words and explicit units)
 with markers, then checks marker multiplicity and restored protected-span counts.
 Damaged output is rejected and never cached. This conservative check may reject
 otherwise useful prose and does not certify semantic equivalence, paragraph

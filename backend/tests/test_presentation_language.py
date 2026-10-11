@@ -119,6 +119,31 @@ def test_translation_rejects_citation_numeric_or_identifier_damage(damage):
         restore_text(damaged, spans, ORIGINAL)
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "-$12.5 million",
+        "$-12.5 million",
+        "($125.50)",
+        "−2.5%",
+        "+30 bps",
+        "1.2e-3 USD",
+        "12 millones",
+        "3 milliards",
+        "12.5亿元",
+        "125 shares",
+    ],
+)
+def test_signed_values_and_financial_units_are_protected_as_one_span(value):
+    original = f"Value: {value}."
+    masked, spans = protect_text(original)
+    assert value in spans
+    assert value not in masked
+    assert restore_text(masked, spans, original) == original
+    with pytest.raises(ValueError):
+        restore_text(masked.replace("⟦PH00000⟧", "125"), spans, original)
+
+
 @pytest.mark.asyncio
 async def test_versioned_translation_cache_preserves_original_and_knowledge(
     monkeypatch, tmp_path
@@ -164,6 +189,22 @@ async def test_versioned_translation_cache_preserves_original_and_knowledge(
                 monkeypatch.setattr(translation, "call_llm_json", call)
                 first = await service.view(evidence.id, "es")
                 assert first["status"] == "untranslated" and call.await_count == 0
+                session.add(
+                    EvidenceTranslation(
+                        evidence_id=evidence.id,
+                        source_hash=first["source_hash"],
+                        target_language="es",
+                        recipe_version="protected-spans-v1",
+                        provider="synthetic",
+                        translated_text="Older unchecked derivative",
+                    )
+                )
+                await session.flush()
+                old_policy = await service.view(evidence.id, "es")
+                assert (
+                    old_policy["status"] == "stale"
+                    and old_policy["translated_text"] is None
+                )
                 made = await service.view(evidence.id, "es", generate=True)
                 assert made["status"] == "translated"
                 assert (
@@ -200,7 +241,7 @@ async def test_versioned_translation_cache_preserves_original_and_knowledge(
                         .select_from(EvidenceTranslation)
                         .where(EvidenceTranslation.evidence_id == evidence.id)
                     )
-                    == 2
+                    == 3
                 )
             await transaction.rollback()
     finally:
