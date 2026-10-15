@@ -12,6 +12,7 @@ from investos.models.coverage import (
     UnresolvedQuestion,
 )
 from investos.models.entity import Entity, Security
+from investos.models.evidence import SourceItem
 from investos.models.graph import Edge
 from investos.models.knowledge import Claim, Event, Fact
 from investos.models.portfolio import Position
@@ -410,6 +411,9 @@ class ProfileService:
                             node_type="fact",
                             text=node.statement,
                             tier=node.tier,
+                            source_evidence_id=await self._original_evidence_id(
+                                node.source_item_id
+                            ),
                             created_at=node.created_at,
                         )
                     )
@@ -429,6 +433,9 @@ class ProfileService:
                             node_type="claim",
                             text=node.statement,
                             tier=node.tier,
+                            source_evidence_id=await self._original_evidence_id(
+                                node.source_item_id
+                            ),
                             created_at=node.created_at,
                         )
                     )
@@ -453,3 +460,7 @@ class ProfileService:
                     )
         nodes.sort(key=lambda item: item.created_at, reverse=True)
         return nodes[:10]
+
+    async def _original_evidence_id(self, source_item_id: UUID) -> UUID | None:
+        source_item = await self.session.get(SourceItem, source_item_id)
+        return source_item.raw_evidence_id if source_item else None

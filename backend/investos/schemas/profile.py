@@ -51,6 +51,7 @@ class EvidenceNodeResponse(BaseModel):
     subject_name: Optional[str] = None
     source_name: Optional[str] = None
     source_type: Optional[str] = None
+    source_evidence_id: UUID | None = None
     created_at: datetime
 
 

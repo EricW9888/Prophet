@@ -1,18 +1,30 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import AppNav from "@/components/AppNav";
 import PageHeader from "@/components/PageHeader";
 import WorkspaceState from "@/components/WorkspaceState";
+import ReviewItemActions from "@/components/ReviewItemActions";
+import { isRecordId, readResearchEntry, reviewResearchQuestion, reviewSubject } from "@/lib/workflows";
 import { API_BASE, apiFetch, ProfileListItem, ReviewQueueItem, VerificationResult } from "@/lib/api";
 
 export default function VerificationPage() {
+  return <Suspense fallback={<p className="p-6 text-muted">Loading review workspace…</p>}><VerificationWorkspace /></Suspense>;
+}
+
+function VerificationWorkspace() {
+  const searchParams = useSearchParams();
+  const targetKey = searchParams.toString();
+  const selectionKeyRef = useRef<string | null>(null);
+  const workspaceRequestRef = useRef(0);
   const [profiles, setProfiles] = useState<ProfileListItem[]>([]);
   const [queue, setQueue] = useState<ReviewQueueItem[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [selectedSubjectType, setSelectedSubjectType] = useState("entity");
+  const [selectedSubjectName, setSelectedSubjectName] = useState("");
   const [challengeText, setChallengeText] = useState("Are you sure? Re-check contradictions, missing evidence, and whether the current stance should change.");
   const [result, setResult] = useState<VerificationResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -23,34 +35,47 @@ export default function VerificationPage() {
   const [expandedSignals, setExpandedSignals] = useState<Record<string, boolean>>({});
 
   const loadWorkspace = useCallback(async () => {
+    const request = ++workspaceRequestRef.current;
     setLoading(true);
     try {
       const [items, queueItems] = await Promise.all([
         apiFetch<ProfileListItem[]>("/profiles"),
         apiFetch<ReviewQueueItem[]>("/review/queue"),
       ]);
+      if (request !== workspaceRequestRef.current) return;
       setProfiles(items);
       setQueue(queueItems);
-      const selected = items[0];
-      if (selected) {
-        setSelectedId(selected.id);
-        setSelectedSubjectId(selected.subject_id);
-        setSelectedSubjectType(selected.subject_type);
-      } else {
-        setSelectedId("");
-        setSelectedSubjectId("");
+      if (selectionKeyRef.current !== targetKey) {
+        selectionKeyRef.current = targetKey;
+        const params = new URLSearchParams(targetKey);
+        const itemId = params.get("item_id");
+        const linkedItem = queueItems.find(item => item.id === itemId);
+        const entry = readResearchEntry(params);
+        const subject = linkedItem ? reviewSubject(linkedItem) : entry.subject;
+        const selected = subject ? items.find(item => item.subject_id === subject.subject_id && item.subject_type === subject.subject_type) : (!itemId && !entry.hasEntry ? items[0] : undefined);
+        setSelectedId(selected?.id ?? "");
+        setSelectedSubjectId(selected?.subject_id ?? subject?.subject_id ?? "");
+        setSelectedSubjectType(selected?.subject_type ?? subject?.subject_type ?? "entity");
+        setSelectedSubjectName(selected?.subject_name ?? subject?.subject_name ?? "");
+        setResult(null);
+        if (linkedItem) setChallengeText(reviewResearchQuestion(linkedItem));
+        if ((itemId && (!isRecordId(itemId) || !linkedItem)) || entry.invalid) {
+          setError("The linked concern is no longer in the pending queue, or its context is unavailable. Choose a subject explicitly to prepare a challenge.");
+        }
       }
       setLoaded(true);
       setLoadError(null);
     } catch (err) {
+      if (request !== workspaceRequestRef.current) return;
       setLoadError(err instanceof Error ? err.message : "Unable to load the review workspace.");
     } finally {
-      setLoading(false);
+      if (request === workspaceRequestRef.current) setLoading(false);
     }
-  }, []);
+  }, [targetKey]);
 
   useEffect(() => {
     void loadWorkspace();
+    return () => { workspaceRequestRef.current += 1; };
   }, [loadWorkspace]);
 
   async function refreshQueue() {
@@ -63,12 +88,29 @@ export default function VerificationPage() {
   }
 
   function handleProfileChange(value: string) {
+    setResult(null);
+    setError(null);
     setSelectedId(value);
     const profile = profiles.find((item) => item.id === value);
     if (profile) {
       setSelectedSubjectId(profile.subject_id);
       setSelectedSubjectType(profile.subject_type);
+      setSelectedSubjectName(profile.subject_name);
     }
+  }
+
+  function prepareChallenge(item: ReviewQueueItem) {
+    const subject = reviewSubject(item);
+    if (!subject) return;
+    const profile = profiles.find(candidate => candidate.subject_id === subject.subject_id && candidate.subject_type === subject.subject_type);
+    setSelectedId(profile?.id ?? "");
+    setSelectedSubjectId(subject.subject_id);
+    setSelectedSubjectType(subject.subject_type);
+    setSelectedSubjectName(profile?.subject_name ?? item.item_label);
+    setChallengeText(reviewResearchQuestion(item));
+    setResult(null);
+    setError(null);
+    window.requestAnimationFrame(() => document.getElementById("challenge-text")?.focus());
   }
 
   async function runVerification(e: React.FormEvent) {
@@ -180,6 +222,7 @@ export default function VerificationPage() {
                         </span>
                       ))}
                     </div>
+                    <ReviewItemActions item={item} disabled={running} onChallenge={() => prepareChallenge(item)} />
                     <button
                       type="button"
                       onClick={() =>
@@ -211,23 +254,28 @@ export default function VerificationPage() {
             </div>
           </section>
 
-          {profiles.length === 0 ? (
+          {profiles.length === 0 && !selectedSubjectId ? (
             <WorkspaceState
               kind="empty"
               title="No subjects are ready for verification"
               description="Create or ingest research for a company, position, or theme before running a manual challenge."
             />
           ) : (
-            <form onSubmit={runVerification} className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950 space-y-4">
+            <form id="manual-challenge" onSubmit={runVerification} className="scroll-mt-24 rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950 space-y-4">
               <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Manual challenge</h2>
-              <select value={selectedId} onChange={(e) => handleProfileChange(e.target.value)} className={inputClass}>
+              <p className="text-sm text-muted">{selectedSubjectId ? `Subject: ${selectedSubjectName || selectedSubjectType}. Review the question before running verification.` : "Choose the subject you want to verify."}</p>
+              <label htmlFor="challenge-subject" className="block text-xs text-muted">Subject</label>
+              <select id="challenge-subject" disabled={running} value={selectedId} onChange={(e) => handleProfileChange(e.target.value)} className={inputClass}>
+                {!selectedId && <option value="">{selectedSubjectId ? selectedSubjectName || "Linked subject" : "Choose a subject"}</option>}
                 {profiles.map((profile) => (
                   <option key={profile.id} value={profile.id}>
                     {profile.subject_name} ({profile.subject_type})
                   </option>
                 ))}
               </select>
-              <textarea value={challengeText} onChange={(e) => setChallengeText(e.target.value)} rows={8} className={inputClass} />
+              <label htmlFor="challenge-text" className="block text-xs text-muted">Question to verify</label>
+              <textarea id="challenge-text" disabled={running} value={challengeText} onChange={(e) => setChallengeText(e.target.value)} rows={8} className={inputClass} />
+              <p className="text-xs text-muted">Preparing a challenge does not run it. Run verification uses your configured research provider.</p>
               <button disabled={running || !selectedSubjectId} className="w-full rounded-lg bg-sky-600 px-4 py-3 text-white disabled:opacity-50">
                 {running ? "Verifying..." : "Run verification"}
               </button>

@@ -365,6 +365,7 @@ export type ProfileDetail = {
     node_type: string;
     text: string;
     tier?: string | null;
+    source_evidence_id?: string | null;
     created_at: string;
   }>;
   historical_analogy_lenses: Array<{
@@ -1970,6 +1971,11 @@ export type ReviewQueueItem = {
   item_type: string;
   item_id: string;
   item_label: string;
+  subject_id?: string | null;
+  subject_type?: string | null;
+  profile_id?: string | null;
+  evidence_id?: string | null;
+  experiment_id?: string | null;
   priority_score: number;
   status: string;
   trigger_reason: string;

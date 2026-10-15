@@ -19,6 +19,7 @@ import WorkspaceState from "@/components/WorkspaceState";
 import ShadowLifecycleSummary from "@/components/ShadowLifecycleSummary";
 import ProviderWorkSummary from "@/components/ProviderWorkSummary";
 import QuestionBacklog from "@/components/QuestionBacklog";
+import ReviewItemActions from "@/components/ReviewItemActions";
 import {
   safeFormatCurrency,
   safeFormatSignedCurrency,
@@ -78,7 +79,7 @@ function SectionTitle({
   );
 }
 
-export default function DashboardOverview() {
+export default function DashboardOverview({ children }: { children?: ReactNode }) {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -111,17 +112,21 @@ export default function DashboardOverview() {
 
   if (loading) {
     return (
+      <div className="space-y-6">
       <WorkspaceState
         kind="loading"
         title="Loading your portfolio workspace"
         description="Prophet is reconciling the live book, research queue, and automation status."
         className="min-h-72"
       />
+      {children}
+      </div>
     );
   }
 
   if (!summary) {
     return (
+      <div className="space-y-6">
       <WorkspaceState
         kind="error"
         title="Portfolio workspace unavailable"
@@ -130,6 +135,8 @@ export default function DashboardOverview() {
         onAction={() => void loadSummary()}
         className="min-h-72"
       />
+      {children}
+      </div>
     );
   }
 
@@ -171,25 +178,19 @@ export default function DashboardOverview() {
             detail="Available to deploy"
           />
           <HeroMetric
-            label="Profiles"
-            value={`${summary?.profile_count ?? 0}`}
-            detail={`${summary?.open_questions_count ?? 0} questions · ${summary?.active_evidence_node_count ?? summary?.evidence_node_count ?? 0} active nodes${
-              summary?.deprecated_evidence_node_count ? ` · ${summary.deprecated_evidence_node_count} archived` : ""
-            }`}
+            label="Open questions"
+            value={`${summary?.open_questions_count ?? 0}`}
+            detail="Unresolved research questions"
           />
           <HeroMetric
             label="Attention"
             value={`${summary?.review_queue?.length ?? 0}`}
-            detail={summary?.review_queue?.[0]?.item_label ?? "All clear"}
+            detail={summary?.review_queue?.[0]?.item_label ?? "No reviews currently queued"}
             href="/verification"
           />
       </section>
 
-      <TransactionCapturePanel transactions={summary.recent_transactions ?? []} jobs={summary.jobs} />
-      <QuestionBacklog />
-      <ShadowLifecycleSummary counts={summary?.shadow_lifecycle} />
-
-      <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_0.85fr] gap-4 md:gap-6 items-start">
+      <div className="space-y-6">
         <Panel className="xl:col-span-1">
           <SectionTitle
             title="What Needs Attention"
@@ -207,7 +208,7 @@ export default function DashboardOverview() {
           <div className="space-y-3">
             {reviewItems.length === 0 ? (
               <div className="py-8 text-center text-sm italic text-slate-400 dark:text-slate-500">
-                No urgent review items right now.
+                No review items are currently queued. Monitor remains available for recent evidence.
               </div>
             ) : (
               visibleReviewItems.map((item) => (
@@ -247,6 +248,7 @@ export default function DashboardOverview() {
                       </span>
                     )}
                   </div>
+                  <ReviewItemActions item={item} />
                 </div>
               ))
             )}
@@ -262,7 +264,11 @@ export default function DashboardOverview() {
           </div>
         </Panel>
 
-        <div className="space-y-4">
+        {children}
+
+        <details className="min-w-0 rounded-lg border border-line bg-panel p-4 md:p-5">
+          <summary className="cursor-pointer text-sm font-semibold">Research activity and system status · {automationLabel}</summary>
+          <div className="mt-4 space-y-4">
           <Panel className="xl:col-span-1">
           <SectionTitle
             title="Agent Desk"
@@ -357,6 +363,7 @@ export default function DashboardOverview() {
                       score={item.priority_score}
                       detail={item.why_now_summary || item.trigger_reason}
                       tags={item.signal_tags ?? []}
+                      href={`/verification?item_id=${item.id}`}
                     />
                   ))
                 )}
@@ -382,8 +389,18 @@ export default function DashboardOverview() {
             </div>
           </div>
           </Panel>
-        </div>
+          </div>
+        </details>
       </div>
+
+      <details className="min-w-0 rounded-lg border border-line bg-panel p-4 md:p-5">
+        <summary className="cursor-pointer text-sm font-semibold">Portfolio receipts, research questions and paper experiments</summary>
+        <div className="mt-4 space-y-4">
+          <TransactionCapturePanel transactions={summary.recent_transactions ?? []} jobs={summary.jobs} />
+          <QuestionBacklog />
+          <ShadowLifecycleSummary counts={summary?.shadow_lifecycle} />
+        </div>
+      </details>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6 items-start">
         <DisclosurePanel
@@ -755,12 +772,14 @@ function ScannerRow({
   score,
   detail,
   tags,
+  href,
 }: {
   rank: number;
   label: string;
   score: number;
   detail: string;
   tags: string[];
+  href: string;
 }) {
   return (
     <div className="grid grid-cols-[34px_minmax(0,1fr)_68px] items-start gap-3 border-b border-slate-100 px-1 py-3 last:border-b-0 dark:border-slate-800">
@@ -768,7 +787,7 @@ function ScannerRow({
         #{rank}
       </div>
       <div className="min-w-0">
-        <div className="truncate text-sm font-bold text-slate-900 dark:text-slate-100">{label}</div>
+        <Link href={href} className="block truncate text-sm font-bold text-action hover:underline">{label}</Link>
         <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{detail}</div>
         {tags.length > 0 ? (
           <div className="mt-2 flex flex-wrap gap-1.5">

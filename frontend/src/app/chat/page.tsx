@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { Check, ChevronDown, PanelLeftOpen, Pencil, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -22,6 +24,7 @@ import {
 } from "@/lib/api";
 
 import { formatModelUsedLabel, formatUserLabel } from "@/lib/formatting";
+import { readResearchEntry, researchTurnContext, type ResearchSubject } from "@/lib/workflows";
 
 const ACTIVE_JOB_STORAGE_KEY = "prophet:active-chat-job";
 const ALLOW_ACTIONS_STORAGE_KEY = "prophet:allow-agent-actions";
@@ -537,6 +540,17 @@ function RunningChats({
 }
 
 export default function ChatPage() {
+  return <Suspense fallback={<p className="p-6 text-muted">Loading research workspace…</p>}><ChatWorkspace /></Suspense>;
+}
+
+function ChatWorkspace() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const entryKey = searchParams.toString();
+  const entry = useMemo(() => readResearchEntry(new URLSearchParams(entryKey)), [entryKey]);
+  const [pinnedSubject, setPinnedSubject] = useState<ResearchSubject | null>(null);
+  const conversationChosenRef = useRef(entry.hasEntry);
+  const selectionEpochRef = useRef(0);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draftMessagesBySession, setDraftMessagesBySession] = useState<Record<string, Message[]>>({});
   const [input, setInput] = useState("");
@@ -561,7 +575,7 @@ export default function ChatPage() {
   const [mobileWorkspaceOpen, setMobileWorkspaceOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
-  const lastPrefillRef = useRef<string | null>(null);
+  const lastEntryRef = useRef<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const activeJobsRef = useRef<AgentTurnJob[]>([]);
   const loadActiveJobsRef = useRef<() => Promise<void>>(async () => undefined);
@@ -586,14 +600,11 @@ export default function ChatPage() {
     composer.style.height = `${Math.max(nextHeight, 64)}px`;
   }
 
-  const loadConversations = useCallback(async (preferredSessionId?: string | null) => {
+  const loadConversations = useCallback(async () => {
     const result = await apiFetch<AgentConversationList>("/agent/conversations");
     setConversations(result.conversations);
     setActiveSessionId((current) => {
-      if (preferredSessionId) {
-        return preferredSessionId;
-      }
-      if (!current && result.conversations.length > 0) {
+      if (!conversationChosenRef.current && !current && result.conversations.length > 0) {
         return result.conversations[0].session_id;
       }
       return current;
@@ -634,6 +645,10 @@ export default function ChatPage() {
   loadActiveJobsRef.current = loadActiveJobs;
 
   function focusJob(job: AgentTurnJob) {
+    selectionEpochRef.current += 1;
+    setPinnedSubject(null);
+    conversationChosenRef.current = true;
+    if (entryKey) router.replace("/chat", { scroll: false });
     setActiveJob(job);
     setActiveJobRequestMessage(job.request_message);
     setIsTyping(isActiveTurnJob(job));
@@ -710,7 +725,7 @@ export default function ChatPage() {
         .then((trace) => setTraceCache((current) => ({ ...current, [turn.reasoning_run_id!]: trace })))
         .catch(() => undefined);
     }
-    void loadConversations(turn.session_id);
+    void loadConversations();
   }, [loadConversations]);
 
   useEffect(() => {
@@ -778,6 +793,8 @@ export default function ChatPage() {
 
   useEffect(() => {
     // Local job restoration remains in useEffect
+    let cancelled = false;
+    if (entry.hasEntry || conversationChosenRef.current) return;
     const raw = window.sessionStorage.getItem(ACTIVE_JOB_STORAGE_KEY);
     if (!raw) return;
     try {
@@ -786,18 +803,21 @@ export default function ChatPage() {
         setActiveJobRequestMessage(saved.request_message ?? null);
         void apiFetch<AgentTurnJob>(`/agent/turn-jobs/${saved.job_id}`)
           .then((job) => {
+            if (cancelled || conversationChosenRef.current) return;
             setIsTyping(["queued", "running"].includes(job.status));
             setActiveJob(job);
             persistActiveJob(job);
           })
           .catch(() => {
+            if (cancelled) return;
             window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
           });
       }
     } catch {
       window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
     }
-  }, []);
+    return () => { cancelled = true; };
+  }, [entry.hasEntry]);
 
   useEffect(() => {
     let cancelled = false;
@@ -845,10 +865,11 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
+    if (pinnedSubject && !activeSessionId) return;
     const matchingJob = activeJobs.find((job) => {
       if (!isActiveTurnJob(job)) return false;
       if (job.session_id && activeSessionId) return job.session_id === activeSessionId;
-      return !job.session_id && !activeSessionId;
+      return !job.session_id && !activeSessionId && job.job_id === activeJob?.job_id;
     });
     if (matchingJob) {
       setActiveJob(matchingJob);
@@ -866,7 +887,7 @@ export default function ChatPage() {
         setIsTyping(false);
       }
     }
-  }, [activeJob, activeJobs, activeSessionId]);
+  }, [activeJob, activeJobs, activeSessionId, pinnedSubject]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -881,13 +902,15 @@ export default function ChatPage() {
   }, [allowActions, allowActionsLoaded]);
 
   useEffect(() => {
+    let cancelled = false;
     if (!activeSessionId) {
-      setMessages([]);
+      setLoadingHistory(false);
       return;
     }
     setLoadingHistory(true);
     void apiFetch<AgentConversationHistory>(`/agent/history?session_id=${activeSessionId}`)
       .then((history) => {
+        if (cancelled) return;
         const historyMessages: Message[] = history.entries.map((entry): Message => ({
           role: entry.is_artifact
             ? "system"
@@ -928,16 +951,22 @@ export default function ChatPage() {
           matchedConversation?.subject_name ?? history.subject_type ?? "Portfolio",
         );
       })
-      .catch(() => {
+      .catch((err) => {
+        if (cancelled) return;
         const draftMessages = draftMessagesBySession[activeSessionId] ?? [];
         if (draftMessages.length > 0) {
           setMessages(draftMessages);
+        } else {
+          setMessages([]);
+          setError(err instanceof Error ? err.message : "Unable to load this conversation. Select another chat or retry.");
         }
       })
-      .finally(() => setLoadingHistory(false));
+      .finally(() => { if (!cancelled) setLoadingHistory(false); });
+    return () => { cancelled = true; };
   }, [activeSessionId, conversations, draftMessagesBySession]);
 
   useEffect(() => {
+    let cancelled = false;
     if (input.trim().length < 2) {
       setResolvedPreview(null);
       return;
@@ -946,16 +975,16 @@ export default function ChatPage() {
       void apiFetch<AgentResolve>("/agent/resolve", {
         method: "POST",
         body: JSON.stringify({
-          session_id: activeSessionId || undefined,
+          ...researchTurnContext(activeSessionId, pinnedSubject),
           message: input.trim(),
           auto_execute: false,
         }),
       })
-        .then((result) => setResolvedPreview(result))
+        .then((result) => { if (!cancelled) setResolvedPreview(result); })
         .catch(() => undefined);
     }, 250);
-    return () => window.clearTimeout(timeout);
-  }, [activeSessionId, input]);
+    return () => { cancelled = true; window.clearTimeout(timeout); };
+  }, [activeSessionId, input, pinnedSubject]);
 
   useEffect(() => {
     const pendingRunIds = Array.from(
@@ -991,19 +1020,21 @@ export default function ChatPage() {
   }, [messages, traceCache]);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const prefill = new URLSearchParams(window.location.search).get("q");
-    if (!prefill) {
-      return;
-    }
-    if (lastPrefillRef.current === prefill) {
-      return;
-    }
-    lastPrefillRef.current = prefill;
-    setInput((current) => (current.trim().length > 0 ? current : prefill));
-  }, []);
+    if (lastEntryRef.current === entryKey) return;
+    lastEntryRef.current = entryKey;
+    if (!entry.hasEntry) return;
+    selectionEpochRef.current += 1;
+    conversationChosenRef.current = true;
+    setActiveSessionId(entry.sessionId);
+    setPinnedSubject(entry.subject);
+    setSelectedSubjectName(entry.subject?.subject_name ?? "Portfolio");
+    setMessages([]);
+    setResolvedPreview(null);
+    setInput(entry.question);
+    setActiveJob(null);
+    setIsTyping(false);
+    setError(entry.invalid ? "This research link has an invalid subject or conversation. Choose a chat or describe the subject before sending." : null);
+  }, [entry, entryKey]);
 
   useEffect(() => {
     // Scroll the message list itself, never an ancestor — otherwise entering a
@@ -1033,10 +1064,12 @@ export default function ChatPage() {
     if (!activeJob || !["queued", "running"].includes(activeJob.status)) {
       return;
     }
+    let cancelled = false;
     persistActiveJob(activeJob);
     const interval = window.setInterval(() => {
       void apiFetch<AgentTurnJob>(`/agent/turn-jobs/${activeJob.job_id}`)
         .then((job) => {
+          if (cancelled) return;
           setIsTyping(["queued", "running"].includes(job.status));
           setActiveJob(job);
           upsertActiveJob(job);
@@ -1057,18 +1090,20 @@ export default function ChatPage() {
           }
         })
         .catch((err) => {
+          if (cancelled) return;
           setIsTyping(false);
           setError(err instanceof Error ? err.message : "Unable to refresh turn status.");
         });
     }, 1200);
-    return () => window.clearInterval(interval);
-  }, [activeJob, mergeAssistantTurn]);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, [activeJob, mergeAssistantTurn, entryKey]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!input.trim() || Boolean(activeJob && isActiveTurnJob(activeJob))) return;
+    if (!input.trim() || isTyping || Boolean(activeJob && isActiveTurnJob(activeJob))) return;
 
     const userMessage = input.trim();
+    const submissionEpoch = selectionEpochRef.current;
     setInput("");
     resizeComposer("");
     setError(null);
@@ -1082,7 +1117,7 @@ export default function ChatPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          session_id: activeSessionId || undefined,
+          ...researchTurnContext(activeSessionId, pinnedSubject),
           message: userMessage,
           auto_execute: allowActions,
         }),
@@ -1091,10 +1126,12 @@ export default function ChatPage() {
         throw new Error(await response.text());
       }
       const job = (await response.json()) as AgentTurnJob;
-      setActiveJob(job);
       upsertActiveJob(job);
+      if (submissionEpoch !== selectionEpochRef.current) return;
+      setActiveJob(job);
       persistActiveJob(job);
     } catch (err) {
+      if (submissionEpoch !== selectionEpochRef.current) return;
       setError(err instanceof Error ? err.message : "Unable to start this turn.");
       setActiveJobRequestMessage(null);
       setIsTyping(false);
@@ -1110,10 +1147,19 @@ export default function ChatPage() {
   }
 
   function startNewChat() {
+    selectionEpochRef.current += 1;
+    conversationChosenRef.current = true;
+    setPinnedSubject(null);
+    setSelectedSubjectName("Portfolio");
+    setInput("");
+    setActiveJob(null);
+    setActiveJobRequestMessage(null);
+    setIsTyping(false);
     setActiveSessionId(null);
     setMessages([]);
     setError(null);
     setResolvedPreview(null);
+    if (entryKey) router.replace("/chat", { scroll: false });
   }
 
   async function toggleTrace(runId: string) {
@@ -1310,7 +1356,17 @@ export default function ChatPage() {
                         <button
                           type="button"
                           onClick={() => {
+                            selectionEpochRef.current += 1;
+                            conversationChosenRef.current = true;
+                            setPinnedSubject(null);
+                            setInput("");
+                            setActiveJob(null);
+                            setActiveJobRequestMessage(null);
+                            setIsTyping(false);
+                            setMessages([]);
+                            setError(null);
                             setActiveSessionId(conversation.session_id);
+                            if (entryKey) router.replace("/chat", { scroll: false });
                             setMobileWorkspaceOpen(false);
                           }}
                           className="min-w-0 flex-1 text-left"
@@ -1417,8 +1473,15 @@ export default function ChatPage() {
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                   {activeConversation
                     ? `Talking with Prophet about ${activeConversation.subject_name ?? selectedSubjectName}.`
-                    : "Ask a question naturally. Prophet will usually resolve the right context for you."}
+                    : pinnedSubject
+                      ? `Research context: ${pinnedSubject.subject_name ?? pinnedSubject.subject_type}. Review the draft, then send when ready.`
+                      : "Ask a question naturally. Prophet will usually resolve the right context for you."}
                 </p>
+                {!activeSessionId && pinnedSubject && <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted">
+                  <span>No research has been started by opening this link.</span>
+                  <button type="button" onClick={() => { setPinnedSubject(null); setResolvedPreview(null); }} className="text-action underline">Release subject context</button>
+                  <Link href="/verification" className="text-action underline">Return to review</Link>
+                </div>}
               </div>
               <div className="flex flex-wrap gap-2 lg:hidden">
                 <button

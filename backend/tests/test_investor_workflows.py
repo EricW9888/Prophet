@@ -1,0 +1,357 @@
+"""Synthetic record identities exercise the actual PostgreSQL navigation path."""
+
+import importlib.util
+from datetime import UTC, datetime
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.pool import NullPool
+
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
+from investos.config import settings
+from investos.models.catalog import SourceClaimRecord
+from investos.models.entity import Entity, Security
+from investos.models.evidence import RawEvidence, SourceItem
+from investos.models.graph import Edge
+from investos.models.knowledge import Claim, Fact
+from investos.models.portfolio import Position
+from investos.models.profile import Profile
+from investos.models.review import ReviewQueueItem
+from investos.models.source import Source
+from investos.services.profile import ProfileService
+from investos.services.review import ReviewService
+
+
+@pytest.fixture
+async def workflow_session():
+    engine = create_async_engine(settings.SQLALCHEMY_DATABASE_URI, poolclass=NullPool)
+    async with engine.connect() as connection:
+        transaction = await connection.begin()
+        async with AsyncSession(
+            bind=connection,
+            expire_on_commit=False,
+            join_transaction_mode="create_savepoint",
+        ) as session:
+            yield session
+        await transaction.rollback()
+    await engine.dispose()
+
+
+async def test_position_concern_resolves_profile_identity_and_keeps_its_scope(
+    workflow_session,
+):
+    session = workflow_session
+    entity = Entity(name="Synthetic workflow company", entity_type="company")
+    session.add(entity)
+    await session.flush()
+    security = Security(
+        entity_id=entity.id,
+        ticker="SYNTH",
+        asset_class="equity",
+        instrument_type="common_stock",
+    )
+    session.add(security)
+    await session.flush()
+    position = Position(
+        security_id=security.id, direction="long", list_type="watchlist", quantity=0
+    )
+    profile = Profile(subject_type="entity", subject_id=entity.id)
+    session.add_all([position, profile])
+    await session.flush()
+    item = ReviewQueueItem(
+        item_type="position",
+        item_id=position.id,
+        trigger_reason="Synthetic contrary evidence",
+        priority_score=75,
+    )
+    session.add(item)
+    await session.flush()
+    rows = await ReviewService(session).list_queue()
+    result = next(row for row in rows if row.id == item.id)
+    assert result.subject_type == "entity" and result.subject_id == entity.id
+    assert result.profile_id == profile.id
+    assert len({result.id, result.item_id, result.subject_id, result.profile_id}) == 4
+    assert result.trigger_reason == item.trigger_reason
+    position_profile = Profile(subject_type="position", subject_id=position.id)
+    session.add(position_profile)
+    await session.flush()
+    result = await ReviewService(session)._navigation_context(item)
+    assert result == {
+        "subject_id": position.id,
+        "subject_type": "position",
+        "profile_id": position_profile.id,
+    }
+
+
+@pytest.mark.parametrize(
+    "kind",
+    ["entity", "position", "theme", "raw_evidence", "mailbox_identity", "unknown"],
+)
+async def test_missing_records_do_not_invent_subjects_or_profiles(
+    workflow_session, kind
+):
+    item = ReviewQueueItem(item_type=kind, item_id=uuid4())
+    assert await ReviewService(workflow_session)._navigation_context(item) == {}
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "raw_evidence",
+        "mailbox_identity",
+        "mailbox_receipt",
+        "account_transfer",
+        "corporate_action",
+    ],
+)
+async def test_receipt_reviews_link_to_the_original_without_pinning_a_research_subject(
+    workflow_session, kind
+):
+    session = workflow_session
+    raw, _ = await source_records(session)
+    item = ReviewQueueItem(item_type=kind, item_id=raw.id)
+    assert await ReviewService(session)._navigation_context(item) == {
+        "evidence_id": raw.id
+    }
+    assert await ReviewService(session)._label(kind, raw.id) == raw.title
+
+
+async def test_queue_refresh_retains_connector_legacy_and_in_progress_reviews(
+    workflow_session,
+):
+    session = workflow_session
+    retained = [
+        ReviewQueueItem(
+            item_type=kind,
+            item_id=uuid4(),
+            priority_score=80,
+            status=status,
+            trigger_reason="Synthetic retained concern",
+        )
+        for kind, status in [
+            ("mailbox_identity", "pending"),
+            ("reconciliation", "in_review"),
+            ("entity", "pending"),
+        ]
+    ]
+    active = ReviewQueueItem(
+        item_type="entity",
+        item_id=uuid4(),
+        queue_owner="review_refresh",
+        priority_score=10,
+        status="in_review",
+        trigger_reason="Synthetic human review already in progress",
+    )
+    stale = ReviewQueueItem(
+        item_type="entity",
+        item_id=uuid4(),
+        queue_owner="review_refresh",
+        priority_score=20,
+        status="pending",
+        trigger_reason="Synthetic obsolete computed concern",
+    )
+    session.add_all([*retained, active, stale])
+    await session.flush()
+    expected = {
+        item.id: (item.status, item.trigger_reason) for item in [*retained, active]
+    }
+    stale_id = stale.id
+    await ReviewService(session).refresh_queue()
+    rows = (
+        (
+            await session.execute(
+                select(ReviewQueueItem).where(
+                    ReviewQueueItem.id.in_([*expected, stale_id])
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert {row.id: (row.status, row.trigger_reason) for row in rows} == expected
+
+
+async def test_computed_deduplication_preserves_human_work_and_other_producers(
+    workflow_session,
+):
+    session = workflow_session
+    subject_id = uuid4()
+    common = dict(
+        item_type="entity",
+        item_id=subject_id,
+        trigger_reason="Synthetic independent concern",
+    )
+    active = ReviewQueueItem(
+        **common, queue_owner="review_refresh", status="in_review", priority_score=1
+    )
+    pending = ReviewQueueItem(
+        **common, queue_owner="review_refresh", status="pending", priority_score=99
+    )
+    external = [
+        ReviewQueueItem(**common, status="pending", priority_score=90) for _ in range(2)
+    ]
+    session.add_all([active, pending, *external])
+    await session.flush()
+    expected = {active.id, *(item.id for item in external)}
+    await ReviewService(session)._deduplicate_queue()
+    await session.flush()
+    rows = (
+        (
+            await session.execute(
+                select(ReviewQueueItem.id).where(ReviewQueueItem.item_id == subject_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert set(rows) == expected
+
+
+async def test_legacy_ownership_migration_preserves_rows_and_classifies_only_known_formats(
+    workflow_session,
+):
+    session = workflow_session
+    # A transactional temporary table shadows the product table. Exercise the
+    # actual Alembic upgrade without downgrading or rewriting the test database.
+    await session.execute(
+        text(
+            "CREATE TEMP TABLE review_queue_items (id UUID PRIMARY KEY, item_type TEXT NOT NULL, trigger_reason TEXT NOT NULL, status TEXT NOT NULL)"
+        )
+    )
+    examples = [
+        ("entity", "Open research question: Synthetic gap", "review_refresh"),
+        ("position", "Holding lacks a strong accepted state.", "review_refresh"),
+        (
+            "position",
+            "Holding stance is uncertain at low confidence.",
+            "review_refresh",
+        ),
+        (
+            "shadow_experiment",
+            "Evidence-linked shadow opportunity: Synthetic",
+            "review_refresh",
+        ),
+        (
+            "source_claim_record",
+            "Pending source claim due for outcome assessment: Synthetic",
+            "review_refresh",
+        ),
+        (
+            "raw_evidence",
+            "Synthetic signal. Verify the disclosure and test whether it changes the thesis mechanism. Original",
+            "review_refresh",
+        ),
+        (
+            "mailbox_identity",
+            "Open research question: Human identity decision",
+            "retained",
+        ),
+        ("position", "Reconciliation discrepancy: synthetic quantity", "retained"),
+        ("entity", "An unclassified legacy concern", "retained"),
+    ]
+    expected = {}
+    for kind, reason, owner in examples:
+        key = uuid4()
+        expected[key] = (kind, reason, "in_review", owner)
+        await session.execute(
+            text(
+                "INSERT INTO review_queue_items VALUES (:id, :kind, :reason, 'in_review')"
+            ),
+            {"id": key, "kind": kind, "reason": reason},
+        )
+    spec = importlib.util.spec_from_file_location(
+        "review_ownership_upgrade",
+        Path(__file__).parents[1]
+        / "alembic/versions/c8e5a2b0f743_review_queue_ownership.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    def upgrade(connection):
+        with Operations.context(MigrationContext.configure(connection)):
+            module.upgrade()
+
+    await (await session.connection()).run_sync(upgrade)
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, item_type, trigger_reason, status, queue_owner FROM review_queue_items"
+            )
+        )
+    ).all()
+    assert {row.id: tuple(row)[1:] for row in rows} == expected
+
+
+@pytest.mark.parametrize("node_type", ["fact", "claim"])
+async def test_subject_evidence_and_claim_review_retain_the_original_receipt(
+    workflow_session, node_type
+):
+    session = workflow_session
+    raw, source_item = await source_records(session)
+    entity = Entity(name="Synthetic provenance subject", entity_type="company")
+    session.add(entity)
+    values = dict(
+        source_item_id=source_item.id,
+        statement="Synthetic source statement",
+        confidence=0.8,
+        tier="hard_fact",
+        importance="high",
+        directness="primary",
+        novelty="breaking",
+        contradiction_role="neutral",
+    )
+    node = (
+        Fact(fact_type="financial", **values)
+        if node_type == "fact"
+        else Claim(claim_type="forecast", **values)
+    )
+    session.add(node)
+    await session.flush()
+    session.add(
+        Edge(
+            source_type=node_type,
+            source_id=node.id,
+            target_type="entity",
+            target_id=entity.id,
+            relationship_type="mentions",
+        )
+    )
+    await session.flush()
+    evidence = await ProfileService(session)._recent_evidence("entity", entity.id)
+    assert len(evidence) == 1
+    assert evidence[0].id == node.id and evidence[0].source_evidence_id == raw.id
+    assert evidence[0].source_evidence_id != evidence[0].id
+    if node_type == "claim":
+        record = SourceClaimRecord(
+            source_id=raw.source_id,
+            claim_id=node.id,
+            claim_time=datetime.now(UTC),
+            assessment="pending",
+        )
+        session.add(record)
+        await session.flush()
+        navigation = await ReviewService(session)._navigation_context(
+            ReviewQueueItem(item_type="source_claim_record", item_id=record.id)
+        )
+        assert navigation == {"evidence_id": raw.id}
+
+
+async def source_records(session):
+    source = Source(name="Synthetic workflow source", source_type="manual")
+    session.add(source)
+    await session.flush()
+    raw = RawEvidence(
+        source_id=source.id, source_item_type="manual_note", title="Synthetic original"
+    )
+    session.add(raw)
+    await session.flush()
+    source_item = SourceItem(
+        raw_evidence_id=raw.id, source_id=source.id, processing_status="completed"
+    )
+    session.add(source_item)
+    await session.flush()
+    return raw, source_item

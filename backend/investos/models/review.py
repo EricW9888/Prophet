@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,6 +13,9 @@ class ReviewQueueItem(Base):
     """Prioritized queue for human review and action."""
 
     __tablename__ = "review_queue_items"
+    __table_args__ = (
+        Index("ix_review_queue_items_owner_status", "queue_owner", "status"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -21,6 +24,9 @@ class ReviewQueueItem(Base):
         String, index=True
     )  # position|watchlist|thesis|source|conclusion
     item_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
+    queue_owner: Mapped[str] = mapped_column(
+        String, default="retained", server_default="retained"
+    )
 
     priority_score: Mapped[float] = mapped_column(Float, index=True)
 

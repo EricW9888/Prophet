@@ -203,6 +203,7 @@ class OwnershipSignalService:
                 continue
             self.session.add(
                 ReviewQueueItem(
+                    queue_owner="review_refresh",
                     item_type="raw_evidence",
                     item_id=evidence.id,
                     priority_score=signal.review_priority,
