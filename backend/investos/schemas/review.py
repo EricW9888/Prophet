@@ -10,6 +10,11 @@ class ReviewQueueItemResponse(BaseModel):
     item_type: str
     item_id: UUID
     item_label: str
+    subject_id: UUID | None = None
+    subject_type: str | None = None
+    profile_id: UUID | None = None
+    evidence_id: UUID | None = None
+    experiment_id: UUID | None = None
     priority_score: float
     status: str
     trigger_reason: str
@@ -24,3 +29,8 @@ class ReviewQueueItemResponse(BaseModel):
     coverage_weakness: float
     reasoning_run_id: Optional[UUID] = None
     created_at: datetime
+
+
+class ReviewQueuePageResponse(BaseModel):
+    items: list[ReviewQueueItemResponse]
+    total: int

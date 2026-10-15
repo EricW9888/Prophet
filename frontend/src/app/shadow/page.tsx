@@ -9,6 +9,7 @@ import ShadowLifecycleSummary from "@/components/ShadowLifecycleSummary";
 import ShadowRunHistory from "@/components/ShadowRunHistory";
 import WorkspaceState from "@/components/WorkspaceState";
 import { API_BASE, apiFetch, AutomationStatus, ShadowExperiment, ShadowFamily, ShadowLifecycleCounts } from "@/lib/api";
+import { isRecordId } from "@/lib/workflows";
 
 
 
@@ -37,6 +38,7 @@ export default function ShadowPage() {
   const [loadingDetailIds, setLoadingDetailIds] = useState<Set<string>>(new Set());
   const detailedExperimentIds = useRef<Set<string>>(new Set());
   const loadedOnceRef = useRef(false);
+  const lastLinkedRunRef = useRef("");
 
   function toggleZone(key: string) {
     setExpandedZones(prev => {
@@ -58,6 +60,14 @@ export default function ShadowPage() {
         apiFetch<ShadowLifecycleCounts>("/shadow/lifecycle"),
         apiFetch<ShadowFamily[]>("/shadow/families"),
       ]);
+      const linkedId = window.location.hash.replace(/^#experiment-/, "");
+      if (isRecordId(linkedId) && !shadowData.some(item => item.id === linkedId)) {
+        try {
+          shadowData.unshift(await apiFetch<ShadowExperiment>(`/shadow/experiments/${linkedId}`));
+        } catch {
+          setError("The linked paper run is unavailable. Other retained runs remain available below.");
+        }
+      }
       setExperiments((previous) =>
         shadowData.map((summary) => {
           if (!detailedExperimentIds.current.has(summary.id)) return summary;
@@ -94,6 +104,16 @@ export default function ShadowPage() {
   useEffect(() => {
     void loadState();
   }, []);
+
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash.startsWith("#experiment-") || hash === lastLinkedRunRef.current) return;
+    const element = document.getElementById(hash.slice(1));
+    if (element) {
+      element.scrollIntoView({ block: "start" });
+      lastLinkedRunRef.current = hash;
+    }
+  }, [experiments]);
 
   async function loadExperimentDetails(id: string, force = false) {
     if ((!force && detailedExperimentIds.current.has(id)) || loadingDetailIds.has(id)) return;
@@ -491,7 +511,7 @@ export default function ShadowPage() {
             />
           ) : (
             experiments.map((experiment) => (
-              <article key={experiment.id} className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-5 [overflow-wrap:anywhere] dark:border-slate-800 dark:bg-slate-950">
+              <article id={`experiment-${experiment.id}`} key={experiment.id} className="min-w-0 scroll-mt-24 overflow-hidden rounded-lg border border-slate-200 bg-white p-5 [overflow-wrap:anywhere] target:border-sky-500 dark:border-slate-800 dark:bg-slate-950">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">

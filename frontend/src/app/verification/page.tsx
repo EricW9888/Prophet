@@ -1,18 +1,35 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import AppNav from "@/components/AppNav";
 import PageHeader from "@/components/PageHeader";
 import WorkspaceState from "@/components/WorkspaceState";
-import { API_BASE, apiFetch, ProfileListItem, ReviewQueueItem, VerificationResult } from "@/lib/api";
+import ReviewItemActions from "@/components/ReviewItemActions";
+import { isRecordId, reviewResearchQuestion, reviewSubject, selectReviewContext } from "@/lib/workflows";
+import { API_BASE, apiFetch, ProfileListItem, ReviewQueueItem, ReviewQueuePage, VerificationResult } from "@/lib/api";
 
 export default function VerificationPage() {
+  return <Suspense fallback={<p className="p-6 text-muted">Loading review workspace…</p>}><VerificationWorkspace /></Suspense>;
+}
+
+function VerificationWorkspace() {
+  const searchParams = useSearchParams();
+  const targetKey = searchParams.toString();
+  const selectionKeyRef = useRef<string | null>(null);
+  const workspaceRequestRef = useRef(0);
   const [profiles, setProfiles] = useState<ProfileListItem[]>([]);
   const [queue, setQueue] = useState<ReviewQueueItem[]>([]);
+  const [visibleQueueCount, setVisibleQueueCount] = useState(8);
+  const [queueTotal, setQueueTotal] = useState(0);
+  const [queueOffset, setQueueOffset] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [selectedId, setSelectedId] = useState("");
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [selectedSubjectType, setSelectedSubjectType] = useState("entity");
+  const [selectedSubjectName, setSelectedSubjectName] = useState("");
+  const [contextNotice, setContextNotice] = useState<string | null>(null);
   const [challengeText, setChallengeText] = useState("Are you sure? Re-check contradictions, missing evidence, and whether the current stance should change.");
   const [result, setResult] = useState<VerificationResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -23,52 +40,118 @@ export default function VerificationPage() {
   const [expandedSignals, setExpandedSignals] = useState<Record<string, boolean>>({});
 
   const loadWorkspace = useCallback(async () => {
+    const request = ++workspaceRequestRef.current;
     setLoading(true);
     try {
-      const [items, queueItems] = await Promise.all([
+      const [items, page] = await Promise.all([
         apiFetch<ProfileListItem[]>("/profiles"),
-        apiFetch<ReviewQueueItem[]>("/review/queue"),
+        apiFetch<ReviewQueuePage>("/review/queue/page"),
       ]);
+      const queueItems = page.items;
+      const requestedId = new URLSearchParams(targetKey).get("item_id");
+      const linkedItem = isRecordId(requestedId) && !queueItems.some(item => item.id === requestedId)
+        ? await apiFetch<ReviewQueueItem | null>(`/review/queue/${requestedId}`) : null;
+      if (request !== workspaceRequestRef.current) return;
       setProfiles(items);
       setQueue(queueItems);
-      const selected = items[0];
-      if (selected) {
-        setSelectedId(selected.id);
-        setSelectedSubjectId(selected.subject_id);
-        setSelectedSubjectType(selected.subject_type);
-      } else {
-        setSelectedId("");
-        setSelectedSubjectId("");
+      setQueueTotal(page.total);
+      setQueueOffset(queueItems.length);
+      if (selectionKeyRef.current !== targetKey) {
+        selectionKeyRef.current = targetKey;
+        const context = selectReviewContext(items, linkedItem ? [...queueItems, linkedItem] : queueItems, new URLSearchParams(targetKey));
+        const subject = context.subject;
+        const selected = context.profile;
+        setSelectedId(selected?.id ?? "");
+        setSelectedSubjectId(selected?.subject_id ?? subject?.subject_id ?? "");
+        setSelectedSubjectType(selected?.subject_type ?? subject?.subject_type ?? "entity");
+        setSelectedSubjectName(selected?.subject_name ?? subject?.subject_name ?? "");
+        setResult(null);
+        if (context.question) setChallengeText(context.question);
+        setContextNotice(context.notice);
+        setError(null);
       }
       setLoaded(true);
       setLoadError(null);
     } catch (err) {
+      if (request !== workspaceRequestRef.current) return;
       setLoadError(err instanceof Error ? err.message : "Unable to load the review workspace.");
     } finally {
-      setLoading(false);
+      if (request === workspaceRequestRef.current) setLoading(false);
     }
-  }, []);
+  }, [targetKey]);
 
   useEffect(() => {
     void loadWorkspace();
+    return () => { workspaceRequestRef.current += 1; };
   }, [loadWorkspace]);
+
+  useEffect(() => {
+    if (loaded && window.location.hash === "#manual-challenge") {
+      document.getElementById("manual-challenge")?.scrollIntoView({ block: "start" });
+    }
+  }, [loaded, targetKey]);
 
   async function refreshQueue() {
     setError(null);
+    setLoading(true);
     try {
-      setQueue(await apiFetch<ReviewQueueItem[]>("/review/queue/refresh", { method: "POST" }));
+      await apiFetch<ReviewQueueItem[]>("/review/queue/refresh", { method: "POST" });
+      await loadWorkspace();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to refresh review queue.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function showMoreConcerns() {
+    if (visibleQueueCount < queue.length) {
+      setVisibleQueueCount(current => current + 8);
+      return;
+    }
+    const request = workspaceRequestRef.current;
+    setLoadingMore(true);
+    try {
+      const page = await apiFetch<ReviewQueuePage>(`/review/queue/page?offset=${queueOffset}`);
+      if (request !== workspaceRequestRef.current) return;
+      setQueue(current => [...current, ...page.items.filter(item => !current.some(existing => existing.id === item.id))]);
+      setQueueOffset(current => current + page.items.length);
+      setQueueTotal(page.items.length ? page.total : queueOffset);
+      setVisibleQueueCount(current => current + 8);
+      setLoadError(null);
+    } catch (err) {
+      if (request === workspaceRequestRef.current) setLoadError(err instanceof Error ? err.message : "Unable to load more concerns.");
+    } finally {
+      setLoadingMore(false);
     }
   }
 
   function handleProfileChange(value: string) {
+    setResult(null);
+    setError(null);
+    setContextNotice(null);
     setSelectedId(value);
     const profile = profiles.find((item) => item.id === value);
     if (profile) {
       setSelectedSubjectId(profile.subject_id);
       setSelectedSubjectType(profile.subject_type);
+      setSelectedSubjectName(profile.subject_name);
     }
+  }
+
+  function prepareChallenge(item: ReviewQueueItem) {
+    const subject = reviewSubject(item);
+    if (!subject) return;
+    const profile = profiles.find(candidate => candidate.subject_id === subject.subject_id && candidate.subject_type === subject.subject_type);
+    setSelectedId(profile?.id ?? "");
+    setSelectedSubjectId(subject.subject_id);
+    setSelectedSubjectType(subject.subject_type);
+    setSelectedSubjectName(profile?.subject_name ?? item.item_label);
+    setChallengeText(reviewResearchQuestion(item));
+    setResult(null);
+    setError(null);
+    setContextNotice(null);
+    window.requestAnimationFrame(() => document.getElementById("challenge-text")?.focus());
   }
 
   async function runVerification(e: React.FormEvent) {
@@ -109,6 +192,7 @@ export default function VerificationPage() {
             title="Review queue"
             description="Resolve thin coverage, contradictions, stale views, and simulation disagreements before they quietly shape portfolio decisions."
           />
+          {contextNotice && <WorkspaceState kind="degraded" compact title="Review context changed" description={contextNotice} />}
           {!loaded && loading ? (
             <WorkspaceState
               kind="loading"
@@ -143,7 +227,7 @@ export default function VerificationPage() {
                   The system should escalate weak coverage, unresolved questions, source conflicts, and shadow divergences here.
                 </p>
               </div>
-              <button onClick={() => void refreshQueue()} className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm">
+              <button disabled={loading || loadingMore} onClick={() => void refreshQueue()} className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm disabled:opacity-50">
                 Refresh queue
               </button>
             </div>
@@ -156,7 +240,7 @@ export default function VerificationPage() {
                   description="Prophet has not found a current contradiction, coverage gap, stale view, or simulation disagreement that needs escalation."
                 />
               ) : (
-                queue.slice(0, 8).map((item) => (
+                queue.slice(0, visibleQueueCount).map((item) => (
                   <div key={item.id} className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
                     <div className="flex items-center justify-between gap-4">
                       <div>
@@ -180,6 +264,7 @@ export default function VerificationPage() {
                         </span>
                       ))}
                     </div>
+                    <ReviewItemActions item={item} disabled={running} onChallenge={() => prepareChallenge(item)} />
                     <button
                       type="button"
                       onClick={() =>
@@ -209,25 +294,34 @@ export default function VerificationPage() {
                 ))
               )}
             </div>
+            {queue.length > 0 && <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-muted">
+              <p>Showing {Math.min(visibleQueueCount, queue.length)} of {Math.max(queueTotal, queue.length)} concerns.</p>
+              {(visibleQueueCount < queue.length || queueOffset < queueTotal) && <button type="button" disabled={loading || loadingMore} onClick={() => void showMoreConcerns()} className="text-action underline disabled:opacity-50">{loadingMore ? "Loading concerns…" : "Show more concerns"}</button>}
+            </div>}
           </section>
 
-          {profiles.length === 0 ? (
+          {profiles.length === 0 && !selectedSubjectId ? (
             <WorkspaceState
               kind="empty"
               title="No subjects are ready for verification"
               description="Create or ingest research for a company, position, or theme before running a manual challenge."
             />
           ) : (
-            <form onSubmit={runVerification} className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950 space-y-4">
+            <form id="manual-challenge" onSubmit={runVerification} className="scroll-mt-24 rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950 space-y-4">
               <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Manual challenge</h2>
-              <select value={selectedId} onChange={(e) => handleProfileChange(e.target.value)} className={inputClass}>
+              <p className="text-sm text-muted">{selectedSubjectId ? `Subject: ${selectedSubjectName || selectedSubjectType}. Review the question before running verification.` : "Choose the subject you want to verify."}</p>
+              <label htmlFor="challenge-subject" className="block text-xs text-muted">Subject</label>
+              <select id="challenge-subject" disabled={running} value={selectedId} onChange={(e) => handleProfileChange(e.target.value)} className={inputClass}>
+                {!selectedId && <option value="">{selectedSubjectId ? selectedSubjectName || "Linked subject" : "Choose a subject"}</option>}
                 {profiles.map((profile) => (
                   <option key={profile.id} value={profile.id}>
                     {profile.subject_name} ({profile.subject_type})
                   </option>
                 ))}
               </select>
-              <textarea value={challengeText} onChange={(e) => setChallengeText(e.target.value)} rows={8} className={inputClass} />
+              <label htmlFor="challenge-text" className="block text-xs text-muted">Question to verify</label>
+              <textarea id="challenge-text" disabled={running} value={challengeText} onChange={(e) => setChallengeText(e.target.value)} rows={8} className={inputClass} />
+              <p className="text-xs text-muted">Preparing a challenge does not run it. Run verification uses your configured research provider.</p>
               <button disabled={running || !selectedSubjectId} className="w-full rounded-lg bg-sky-600 px-4 py-3 text-white disabled:opacity-50">
                 {running ? "Verifying..." : "Run verification"}
               </button>

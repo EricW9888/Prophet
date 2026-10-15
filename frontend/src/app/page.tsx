@@ -8,11 +8,9 @@ export default function Home() {
       <AppNav active="portfolio" />
 
       <main className="mx-auto w-full min-w-0 max-w-[1440px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-        <DashboardOverview />
-
-        <section>
+        <DashboardOverview>
           <PositionsTable />
-        </section>
+        </DashboardOverview>
       </main>
     </div>
   );

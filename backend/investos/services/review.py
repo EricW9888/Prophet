@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import delete, desc, select
+from sqlalchemy import case, delete, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.models.catalog import SourceClaimRecord
@@ -14,14 +14,15 @@ from investos.models.coverage import (
     UnresolvedQuestion,
 )
 from investos.models.entity import Entity, Security
-from investos.models.evidence import RawEvidence
+from investos.models.evidence import RawEvidence, SourceItem
 from investos.models.knowledge import Claim, Event, Fact
 from investos.models.portfolio import Position
+from investos.models.profile import Profile
 from investos.models.review import ReviewQueueItem
 from investos.models.shadow import ExperimentResult, ShadowExperiment
 from investos.models.source import Source
 from investos.models.theme import Theme
-from investos.schemas.review import ReviewQueueItemResponse
+from investos.schemas.review import ReviewQueueItemResponse, ReviewQueuePageResponse
 from investos.services.artifact_hygiene import (
     is_artifact_question_text,
     is_artifact_subject_name,
@@ -39,13 +40,22 @@ from investos.services.source_claim_policy import (
 )
 
 SOURCE_CLAIM_REVIEW_LIMIT = 75
+RECEIPT_REVIEW_TYPES = {
+    "raw_evidence",
+    "mailbox_identity",
+    "mailbox_receipt",
+    "corporate_action",
+    "account_transfer",
+}
 
 
 class ReviewService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def list_queue(self) -> list[ReviewQueueItemResponse]:
+    async def list_queue(
+        self, *, limit: int = 100, offset: int = 0
+    ) -> list[ReviewQueueItemResponse]:
         items = (
             (
                 await self.session.execute(
@@ -54,8 +64,10 @@ class ReviewService:
                     .order_by(
                         desc(ReviewQueueItem.priority_score),
                         desc(ReviewQueueItem.created_at),
+                        ReviewQueueItem.id,
                     )
-                    .limit(100)
+                    .limit(limit)
+                    .offset(offset)
                 )
             )
             .scalars()
@@ -63,10 +75,37 @@ class ReviewService:
         )
         return [await self._serialize(item) for item in items]
 
+    async def queue_page(
+        self, *, limit: int = 100, offset: int = 0
+    ) -> ReviewQueuePageResponse:
+        return ReviewQueuePageResponse(
+            items=await self.list_queue(limit=limit, offset=offset),
+            total=await self.queue_count(),
+        )
+
+    async def queue_count(self) -> int:
+        return (
+            await self.session.scalar(
+                select(func.count())
+                .select_from(ReviewQueueItem)
+                .where(ReviewQueueItem.status.in_(["pending", "in_review"]))
+            )
+            or 0
+        )
+
+    async def queued_item(self, item_id: UUID) -> ReviewQueueItemResponse | None:
+        item = await self.session.get(ReviewQueueItem, item_id)
+        return (
+            await self._serialize(item)
+            if item and item.status in {"pending", "in_review"}
+            else None
+        )
+
     async def refresh_queue(self) -> list[ReviewQueueItemResponse]:
         await self.session.execute(
             delete(ReviewQueueItem).where(
-                ReviewQueueItem.status.in_(["pending", "in_review"])
+                ReviewQueueItem.status == "pending",
+                ReviewQueueItem.queue_owner == "review_refresh",
             )
         )
         await self.session.flush()
@@ -77,20 +116,27 @@ class ReviewService:
         await self._queue_ownership_signals()
         await self._queue_shadow_followups()
 
-        # Deduplicate: keep only the highest-priority item per (item_type, item_id)
+        # Keep human work in progress; deduplicate only this refresher's output.
         await self._deduplicate_queue()
 
         await self.session.commit()
         return await self.list_queue()
 
     async def _deduplicate_queue(self) -> None:
-        """Remove duplicate review items, keeping the highest-priority entry per (item_type, item_id)."""
+        """Converge computed reviews without deleting another producer's concern."""
         items = list(
             (
                 await self.session.execute(
                     select(ReviewQueueItem)
-                    .where(ReviewQueueItem.status.in_(["pending", "in_review"]))
-                    .order_by(desc(ReviewQueueItem.priority_score))
+                    .where(
+                        ReviewQueueItem.status.in_(["pending", "in_review"]),
+                        ReviewQueueItem.queue_owner == "review_refresh",
+                    )
+                    .order_by(
+                        case((ReviewQueueItem.status == "in_review", 0), else_=1),
+                        desc(ReviewQueueItem.priority_score),
+                        desc(ReviewQueueItem.created_at),
+                    )
                 )
             )
             .scalars()
@@ -148,6 +194,7 @@ class ReviewService:
             priority = urgency * 10.0 + coverage_weakness
             self.session.add(
                 ReviewQueueItem(
+                    queue_owner="review_refresh",
                     item_type=coverage.subject_type,
                     item_id=coverage.subject_id,
                     priority_score=priority,
@@ -262,6 +309,7 @@ class ReviewService:
                 trigger = f"Holding stance is {conclusion.current_stance} at {conclusion.confidence_band} confidence."
             self.session.add(
                 ReviewQueueItem(
+                    queue_owner="review_refresh",
                     item_type="position",
                     item_id=position.id,
                     priority_score=priority,
@@ -304,6 +352,7 @@ class ReviewService:
             priority = max(0.0, min(1.0, float(profile.get("priority_score") or 0.0)))
             self.session.add(
                 ReviewQueueItem(
+                    queue_owner="review_refresh",
                     item_type="shadow_experiment",
                     item_id=experiment.id,
                     priority_score=40.0 + (priority * 50.0),
@@ -345,6 +394,7 @@ class ReviewService:
                 continue
             self.session.add(
                 ReviewQueueItem(
+                    queue_owner="review_refresh",
                     item_type="shadow_experiment",
                     item_id=experiment.id,
                     priority_score=30.0 + (alpha * 100.0),
@@ -385,6 +435,7 @@ class ReviewService:
             priority = self._source_claim_priority(record, claim, due_at, now)
             self.session.add(
                 ReviewQueueItem(
+                    queue_owner="review_refresh",
                     item_type="source_claim_record",
                     item_id=record.id,
                     priority_score=priority,
@@ -412,6 +463,7 @@ class ReviewService:
             item_type=item.item_type,
             item_id=item.item_id,
             item_label=label,
+            **await self._navigation_context(item),
             priority_score=float(item.priority_score),
             status=item.status,
             trigger_reason=item.trigger_reason,
@@ -427,6 +479,54 @@ class ReviewService:
             reasoning_run_id=item.reasoning_run_id,
             created_at=item.created_at,
         )
+
+    async def _navigation_context(self, item: ReviewQueueItem) -> dict:
+        """Resolve record identity without treating a queue ID as a subject ID."""
+        if item.item_type == "shadow_experiment":
+            experiment = await self.session.get(ShadowExperiment, item.item_id)
+            return {"experiment_id": experiment.id} if experiment else {}
+        if item.item_type == "source_claim_record":
+            record = await self.session.get(SourceClaimRecord, item.item_id)
+            claim = await self.session.get(Claim, record.claim_id) if record else None
+            source_item = (
+                await self.session.get(SourceItem, claim.source_item_id)
+                if claim
+                else None
+            )
+            return {"evidence_id": source_item.raw_evidence_id} if source_item else {}
+        if item.item_type in RECEIPT_REVIEW_TYPES:
+            raw = await self.session.get(RawEvidence, item.item_id)
+            return {"evidence_id": raw.id} if raw else {}
+        model = {"position": Position, "entity": Entity, "theme": Theme}.get(
+            item.item_type
+        )
+        if model is None or await self.session.get(model, item.item_id) is None:
+            return {}
+        subjects = [(item.item_type, item.item_id)]
+        if item.item_type == "position":
+            position = await self.session.get(Position, item.item_id)
+            security = await self.session.get(Security, position.security_id)
+            if security and security.entity_id:
+                subjects.append(("entity", security.entity_id))
+        for subject_type, subject_id in subjects:
+            profile = (
+                await self.session.execute(
+                    select(Profile)
+                    .where(
+                        Profile.subject_type == subject_type,
+                        Profile.subject_id == subject_id,
+                    )
+                    .order_by(desc(Profile.updated_at), Profile.id)
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if profile:
+                return {
+                    "subject_id": item.item_id,
+                    "subject_type": item.item_type,
+                    "profile_id": profile.id,
+                }
+        return {"subject_id": item.item_id, "subject_type": item.item_type}
 
     @staticmethod
     def _age_phrase(dt: datetime | None) -> str:
@@ -785,6 +885,12 @@ class ReviewService:
     def _why_now_summary(self, item: ReviewQueueItem, ctx: dict | None = None) -> str:
         ctx = ctx or {}
         label = ctx.get("label") or "This item"
+        if item.item_type == "mailbox_identity":
+            return (
+                f'The identity of the receipt "{label}" is unresolved. '
+                "It is held for comparison with preserved receipts before it can affect the portfolio. "
+                f"{item.trigger_reason}"
+            )
         if item.item_type == "source_claim_record":
             source = ctx.get("source_name") or "This source"
             statement = self._shorten(ctx.get("claim_statement"), 160) or label
@@ -865,6 +971,11 @@ class ReviewService:
 
     def _next_action(self, item: ReviewQueueItem, ctx: dict | None = None) -> str:
         ctx = ctx or {}
+        if item.item_type == "mailbox_identity":
+            return (
+                "Open Settings > Data Connections > Receipt identity review, load the reviews, "
+                "and compare original messages and ledger history before confirming the same or a separate receipt."
+            )
         if item.item_type == "source_claim_record":
             return (
                 "Find direct follow-up evidence, assess the claim as correct, partially correct, "
@@ -972,7 +1083,7 @@ class ReviewService:
                 statement = self._shorten(getattr(claim, "statement", None), 90)
                 source_name = getattr(source, "name", None) or "Source claim"
                 return source_name if not statement else f"{source_name}: {statement}"
-        if item_type == "raw_evidence":
+        if item_type in RECEIPT_REVIEW_TYPES:
             raw = await self.session.get(RawEvidence, item_id)
             if raw is not None:
                 return raw.title or "Raw evidence"

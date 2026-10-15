@@ -32,6 +32,51 @@ identity; subject and time context must remain explicit when crossing surfaces.
 Translations are labeled, versioned presentation derivatives with an unchanged
 original, as defined in [Presentation language](presentation-language.md).
 
+The daily Portfolio surface puts its attention queue and holdings before
+research activity and system details. Operational receipts, research-question
+history and paper-run counts remain available in disclosure panels. An empty
+queue means no reviews are currently queued; it does not establish complete
+coverage or an absence of portfolio risk.
+
+Refreshing the queue replaces only pending computed reviews owned by that
+refresher. Connector, reconciliation and unclassified legacy concerns retain
+their IDs, and a review already in progress takes precedence over a newly
+computed duplicate. Migration `c8e5a2b0f743` adds ownership without deleting
+records; it recognizes existing generator type/format pairs and conservatively
+retains unknown legacy reviews.
+
+Review records carry resolved subject, profile, original-receipt or paper-run
+identities through the API. Queue IDs, position IDs and profile IDs are distinct;
+missing records retain their concern without an invented destination. A position
+review uses its own profile when available, then its security's entity profile.
+Its research and verification actions keep the original position subject even
+when the linked reading profile belongs to the underlying company.
+The Review surface progressively loads concerns in priority order with an
+explicit total, including concerns beyond the first API page. A linked concern
+is resolved independently of that page. Mailbox identity concerns explain
+the posting hold and direct the owner to receipt comparison in Data Connections.
+Holdings and tracked names open fresh, unsent research drafts for their positions.
+Profile facts and claims link through their source item to the unchanged receipt;
+nodes without that provenance say so explicitly.
+
+Investigate opens an unsent draft with the concern and its subject attached.
+Prepare a challenge selects that concern's subject and question; verification
+runs only when the user submits the form. Opening either link does not start
+research or verification. Research conversation links open the specified session,
+and an existing session takes precedence over an unrelated subject parameter.
+Users can release a draft's subject context or start a new unscoped chat. A late
+history or context-preview response cannot overwrite a newer selection.
+If computed reviews refresh between a click and navigation, a challenge link
+retains its original subject and unsent question only when that subject still
+has a current profile. The UI discloses that the concern is no longer queued;
+missing context never silently selects a different subject.
+
+The interaction choices draw on subject-scoped alert navigation in
+[Koyfin](https://www.koyfin.com/help/release-notes/v3-66-desktop-alerts/) and
+source traversal alongside research in [Quartr](https://quartr.com/features/ai-chat).
+These references inform presentation; Prophet's evidence and state contracts
+remain authoritative.
+
 Representative browser verification covers setup and imported receipts; daily
 review through Monitor to a source; research through evidence and verification;
 question retirement/renewal; paper lifecycle history/retry; provider failure and

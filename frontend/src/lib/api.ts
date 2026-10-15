@@ -365,6 +365,7 @@ export type ProfileDetail = {
     node_type: string;
     text: string;
     tier?: string | null;
+    source_evidence_id?: string | null;
     created_at: string;
   }>;
   historical_analogy_lenses: Array<{
@@ -1013,6 +1014,7 @@ export type DashboardSummary = {
     created_at: string;
   }>;
   review_queue: ReviewQueueItem[];
+  review_queue_total?: number;
   recent_lessons: Array<{
     id: string;
     title: string;
@@ -1970,6 +1972,11 @@ export type ReviewQueueItem = {
   item_type: string;
   item_id: string;
   item_label: string;
+  subject_id?: string | null;
+  subject_type?: string | null;
+  profile_id?: string | null;
+  evidence_id?: string | null;
+  experiment_id?: string | null;
   priority_score: number;
   status: string;
   trigger_reason: string;
@@ -1985,6 +1992,8 @@ export type ReviewQueueItem = {
   reasoning_run_id?: string | null;
   created_at: string;
 };
+
+export type ReviewQueuePage = { items: ReviewQueueItem[]; total: number };
 
 export type Lesson = {
   id: string;

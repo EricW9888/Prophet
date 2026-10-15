@@ -6,6 +6,8 @@ import { Activity, Clock3, ExternalLink, Gauge, SearchCheck } from "lucide-react
 
 import AppNav from "@/components/AppNav";
 import { apiFetch, ProfileDetail } from "@/lib/api";
+import { researchHref } from "@/lib/workflows";
+import WorkspaceState from "@/components/WorkspaceState";
 
 function compactDate(value?: string | null) {
   if (!value) return "date unavailable";
@@ -24,20 +26,27 @@ function metricDisplay(metric: ProfileDetail["fundamental_metrics"][number]) {
 
 export default function ProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
-  const profileId = resolvedParams.id;
+  return <ProfileWorkspace key={resolvedParams.id} profileId={resolvedParams.id} />;
+}
+
+function ProfileWorkspace({ profileId }: { profileId: string }) {
   const [profile, setProfile] = useState<ProfileDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retryVersion, setRetryVersion] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
     void apiFetch<ProfileDetail>(`/profiles/${profileId}`)
       .then((data) => {
+        if (cancelled) return;
         setProfile(data);
         setError(null);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "Unable to load profile."))
-      .finally(() => setLoading(false));
-  }, [profileId]);
+      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : "Unable to load profile."); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [profileId, retryVersion]);
 
   const getStanceColor = (stance: string | null | undefined) => {
     switch (stance) {
@@ -52,16 +61,18 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="animate-pulse text-slate-500 font-mono text-sm tracking-widest">LOADING PROFILE...</div>
+      <div className="min-h-screen bg-background">
+        <AppNav active="research" />
+        <main className="mx-auto max-w-5xl p-6"><WorkspaceState kind="loading" title="Loading subject and evidence" description="Reading the retained view, contrary evidence and unresolved questions." /></main>
       </div>
     );
   }
 
   if (!profile || error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background text-red-500">
-        {error ?? "Profile not found."}
+      <div className="min-h-screen bg-background">
+        <AppNav active="research" />
+        <main className="mx-auto max-w-5xl p-6"><WorkspaceState kind="error" title="Subject is unavailable" description={error ?? "This profile could not be found."} actionLabel="Retry" onAction={() => { setLoading(true); setRetryVersion(value => value + 1); }} /></main>
       </div>
     );
   }
@@ -79,7 +90,11 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
               </span>
             </div>
             <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-slate-900 dark:text-white">{profile.subject_name}</h1>
-            <p className="text-sm font-mono text-slate-500">Node ID: {profile.subject_id}</p>
+            <div className="flex flex-wrap gap-3 pt-2 text-sm">
+              <Link href={researchHref(profile, `Review the current view on ${profile.subject_name}. What changed, what evidence contradicts it, and what should I check next?`)} className="rounded border border-line px-3 py-2 text-action">Research this subject</Link>
+              <Link href={`/verification?${new URLSearchParams({ subject_id: profile.subject_id, subject_type: profile.subject_type, subject_name: profile.subject_name })}#manual-challenge`} className="rounded border border-line px-3 py-2 text-action">Prepare a challenge</Link>
+            </div>
+            <details className="text-xs text-muted"><summary className="cursor-pointer">Record identity</summary>{profile.subject_id}</details>
           </div>
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
             <div className={`flex flex-col p-3 rounded-lg border ${getStanceColor(profile.current_stance)} min-w-[140px]`}>
@@ -90,8 +105,8 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
             <div className="flex flex-col p-3 bg-white dark:bg-[#111] border border-slate-200 dark:border-slate-800 rounded-lg min-w-[140px]">
               <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 mb-1">Coverage Score</span>
               <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white leading-none">{(profile.coverage_score ?? 0).toFixed(1)}</span>
-                <span className="text-sm text-slate-400">/ 100</span>
+                <span className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white leading-none">{profile.coverage_score == null ? "Not assessed" : profile.coverage_score.toFixed(1)}</span>
+                {profile.coverage_score != null && <span className="text-sm text-slate-400">/ 100</span>}
               </div>
             </div>
           </div>
@@ -320,6 +335,7 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
                     <span className="text-xs font-mono text-slate-400">{item.tier ?? "unknown"}</span>
                   </div>
                   <p className="mt-2 text-sm text-slate-800 dark:text-slate-200">{item.text}</p>
+                  {item.source_evidence_id ? <Link href={`/sources/evidence/${item.source_evidence_id}`} className="mt-3 inline-block text-xs text-action hover:underline">Inspect original receipt and source dates</Link> : <p className="mt-3 text-xs text-muted">No original receipt is linked to this node.</p>}
                 </div>
               ))}
             </div>
@@ -372,8 +388,8 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
                 <p>{profile.bear_case ?? "Not set yet."}</p>
               </div>
             </div>
-            <Link href="/chat" className="mt-6 block w-full py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-center text-slate-900 dark:text-white rounded-lg text-sm font-medium transition-colors border border-slate-200 dark:border-slate-700">
-              Launch Research Chat
+            <Link href={researchHref(profile, `Challenge the bull and bear cases for ${profile.subject_name}. Which original evidence would change the current view?`)} className="mt-6 block w-full py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-center text-slate-900 dark:text-white rounded-lg text-sm font-medium transition-colors border border-slate-200 dark:border-slate-700">
+              Investigate the opposing case
             </Link>
           </section>
         </div>

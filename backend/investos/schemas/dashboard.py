@@ -164,6 +164,7 @@ class DashboardSummaryResponse(BaseModel):
     recent_profiles: list[ProfileListItem] = []
     open_questions: list[DashboardQuestionResponse] = []
     review_queue: list[ReviewQueueItemResponse] = []
+    review_queue_total: int = 0
     recent_lessons: list[DashboardLessonResponse] = []
     trusted_sources: list[DashboardSourceResponse] = []
     research_activity: DashboardResearchActivityResponse
