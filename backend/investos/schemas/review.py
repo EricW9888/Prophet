@@ -29,3 +29,8 @@ class ReviewQueueItemResponse(BaseModel):
     coverage_weakness: float
     reasoning_run_id: Optional[UUID] = None
     created_at: datetime
+
+
+class ReviewQueuePageResponse(BaseModel):
+    items: list[ReviewQueueItemResponse]
+    total: int

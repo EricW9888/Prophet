@@ -146,6 +146,7 @@ class DashboardService:
             recent_profiles=await self._recent_profiles(),
             open_questions=await self._open_questions(),
             review_queue=await self._review_queue(),
+            review_queue_total=await ReviewService(self.session).queue_count(),
             recent_lessons=await self._recent_lessons(),
             trusted_sources=await self._trusted_sources(),
             research_activity=await self._research_activity(

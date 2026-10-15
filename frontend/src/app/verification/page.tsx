@@ -7,8 +7,8 @@ import AppNav from "@/components/AppNav";
 import PageHeader from "@/components/PageHeader";
 import WorkspaceState from "@/components/WorkspaceState";
 import ReviewItemActions from "@/components/ReviewItemActions";
-import { reviewResearchQuestion, reviewSubject, selectReviewContext } from "@/lib/workflows";
-import { API_BASE, apiFetch, ProfileListItem, ReviewQueueItem, VerificationResult } from "@/lib/api";
+import { isRecordId, reviewResearchQuestion, reviewSubject, selectReviewContext } from "@/lib/workflows";
+import { API_BASE, apiFetch, ProfileListItem, ReviewQueueItem, ReviewQueuePage, VerificationResult } from "@/lib/api";
 
 export default function VerificationPage() {
   return <Suspense fallback={<p className="p-6 text-muted">Loading review workspace…</p>}><VerificationWorkspace /></Suspense>;
@@ -21,6 +21,10 @@ function VerificationWorkspace() {
   const workspaceRequestRef = useRef(0);
   const [profiles, setProfiles] = useState<ProfileListItem[]>([]);
   const [queue, setQueue] = useState<ReviewQueueItem[]>([]);
+  const [visibleQueueCount, setVisibleQueueCount] = useState(8);
+  const [queueTotal, setQueueTotal] = useState(0);
+  const [queueOffset, setQueueOffset] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [selectedId, setSelectedId] = useState("");
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [selectedSubjectType, setSelectedSubjectType] = useState("entity");
@@ -39,16 +43,22 @@ function VerificationWorkspace() {
     const request = ++workspaceRequestRef.current;
     setLoading(true);
     try {
-      const [items, queueItems] = await Promise.all([
+      const [items, page] = await Promise.all([
         apiFetch<ProfileListItem[]>("/profiles"),
-        apiFetch<ReviewQueueItem[]>("/review/queue"),
+        apiFetch<ReviewQueuePage>("/review/queue/page"),
       ]);
+      const queueItems = page.items;
+      const requestedId = new URLSearchParams(targetKey).get("item_id");
+      const linkedItem = isRecordId(requestedId) && !queueItems.some(item => item.id === requestedId)
+        ? await apiFetch<ReviewQueueItem | null>(`/review/queue/${requestedId}`) : null;
       if (request !== workspaceRequestRef.current) return;
       setProfiles(items);
       setQueue(queueItems);
+      setQueueTotal(page.total);
+      setQueueOffset(queueItems.length);
       if (selectionKeyRef.current !== targetKey) {
         selectionKeyRef.current = targetKey;
-        const context = selectReviewContext(items, queueItems, new URLSearchParams(targetKey));
+        const context = selectReviewContext(items, linkedItem ? [...queueItems, linkedItem] : queueItems, new URLSearchParams(targetKey));
         const subject = context.subject;
         const selected = context.profile;
         setSelectedId(selected?.id ?? "");
@@ -75,12 +85,44 @@ function VerificationWorkspace() {
     return () => { workspaceRequestRef.current += 1; };
   }, [loadWorkspace]);
 
+  useEffect(() => {
+    if (loaded && window.location.hash === "#manual-challenge") {
+      document.getElementById("manual-challenge")?.scrollIntoView({ block: "start" });
+    }
+  }, [loaded, targetKey]);
+
   async function refreshQueue() {
     setError(null);
+    setLoading(true);
     try {
-      setQueue(await apiFetch<ReviewQueueItem[]>("/review/queue/refresh", { method: "POST" }));
+      await apiFetch<ReviewQueueItem[]>("/review/queue/refresh", { method: "POST" });
+      await loadWorkspace();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to refresh review queue.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function showMoreConcerns() {
+    if (visibleQueueCount < queue.length) {
+      setVisibleQueueCount(current => current + 8);
+      return;
+    }
+    const request = workspaceRequestRef.current;
+    setLoadingMore(true);
+    try {
+      const page = await apiFetch<ReviewQueuePage>(`/review/queue/page?offset=${queueOffset}`);
+      if (request !== workspaceRequestRef.current) return;
+      setQueue(current => [...current, ...page.items.filter(item => !current.some(existing => existing.id === item.id))]);
+      setQueueOffset(current => current + page.items.length);
+      setQueueTotal(page.items.length ? page.total : queueOffset);
+      setVisibleQueueCount(current => current + 8);
+      setLoadError(null);
+    } catch (err) {
+      if (request === workspaceRequestRef.current) setLoadError(err instanceof Error ? err.message : "Unable to load more concerns.");
+    } finally {
+      setLoadingMore(false);
     }
   }
 
@@ -185,7 +227,7 @@ function VerificationWorkspace() {
                   The system should escalate weak coverage, unresolved questions, source conflicts, and shadow divergences here.
                 </p>
               </div>
-              <button onClick={() => void refreshQueue()} className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm">
+              <button disabled={loading || loadingMore} onClick={() => void refreshQueue()} className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm disabled:opacity-50">
                 Refresh queue
               </button>
             </div>
@@ -198,7 +240,7 @@ function VerificationWorkspace() {
                   description="Prophet has not found a current contradiction, coverage gap, stale view, or simulation disagreement that needs escalation."
                 />
               ) : (
-                queue.slice(0, 8).map((item) => (
+                queue.slice(0, visibleQueueCount).map((item) => (
                   <div key={item.id} className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
                     <div className="flex items-center justify-between gap-4">
                       <div>
@@ -252,6 +294,10 @@ function VerificationWorkspace() {
                 ))
               )}
             </div>
+            {queue.length > 0 && <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-muted">
+              <p>Showing {Math.min(visibleQueueCount, queue.length)} of {Math.max(queueTotal, queue.length)} concerns.</p>
+              {(visibleQueueCount < queue.length || queueOffset < queueTotal) && <button type="button" disabled={loading || loadingMore} onClick={() => void showMoreConcerns()} className="text-action underline disabled:opacity-50">{loadingMore ? "Loading concerns…" : "Show more concerns"}</button>}
+            </div>}
           </section>
 
           {profiles.length === 0 && !selectedSubjectId ? (

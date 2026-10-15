@@ -41,7 +41,7 @@ export function reviewSubject(item: ReviewQueueItem): ResearchSubject | null {
 
 export function reviewRecordLink(item: ReviewQueueItem): { href: string; label: string } | null {
   if (isRecordId(item.evidence_id)) return { href: `/sources/evidence/${item.evidence_id}`, label: "Inspect original receipt" };
-  if (isRecordId(item.profile_id)) return { href: `/profile/${item.profile_id}`, label: "Open subject and evidence" };
+  if (isRecordId(item.profile_id)) return { href: `/profile/${item.profile_id}`, label: "Open linked research profile" };
   if (isRecordId(item.experiment_id)) return { href: `/shadow#experiment-${item.experiment_id}`, label: "Inspect paper run" };
   if (item.item_type === "reconciliation") return { href: "/positions", label: "Review portfolio reconciliation" };
   return null;

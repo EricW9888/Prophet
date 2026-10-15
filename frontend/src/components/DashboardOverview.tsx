@@ -184,7 +184,7 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
           />
           <HeroMetric
             label="Attention"
-            value={`${summary?.review_queue?.length ?? 0}`}
+            value={`${summary?.review_queue_total ?? summary?.review_queue?.length ?? 0}`}
             detail={summary?.review_queue?.[0]?.item_label ?? "No reviews currently queued"}
             href="/verification"
           />

@@ -1014,6 +1014,7 @@ export type DashboardSummary = {
     created_at: string;
   }>;
   review_queue: ReviewQueueItem[];
+  review_queue_total?: number;
   recent_lessons: Array<{
     id: string;
     title: string;
@@ -1991,6 +1992,8 @@ export type ReviewQueueItem = {
   reasoning_run_id?: string | null;
   created_at: string;
 };
+
+export type ReviewQueuePage = { items: ReviewQueueItem[]; total: number };
 
 export type Lesson = {
   id: string;

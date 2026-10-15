@@ -72,9 +72,10 @@ async def test_position_concern_resolves_profile_identity_and_keeps_its_scope(
     await session.flush()
     rows = await ReviewService(session).list_queue()
     result = next(row for row in rows if row.id == item.id)
-    assert result.subject_type == "entity" and result.subject_id == entity.id
+    assert result.subject_type == "position" and result.subject_id == position.id
     assert result.profile_id == profile.id
-    assert len({result.id, result.item_id, result.subject_id, result.profile_id}) == 4
+    assert len({result.id, result.item_id, result.profile_id}) == 3
+    assert result.subject_id != entity.id
     assert result.trigger_reason == item.trigger_reason
     position_profile = Profile(subject_type="position", subject_id=position.id)
     session.add(position_profile)
@@ -118,6 +119,16 @@ async def test_receipt_reviews_link_to_the_original_without_pinning_a_research_s
         "evidence_id": raw.id
     }
     assert await ReviewService(session)._label(kind, raw.id) == raw.title
+    if kind == "mailbox_identity":
+        item.priority_score = 95
+        item.trigger_reason = "Synthetic ambiguous receipt identity"
+        session.add(item)
+        await session.flush()
+        result = await ReviewService(session)._serialize(item)
+        assert "identity" in result.why_now_summary
+        assert "held for comparison" in result.why_now_summary
+        assert "Receipt identity review" in result.next_action
+        assert "research more" not in result.next_action
 
 
 async def test_queue_refresh_retains_connector_legacy_and_in_progress_reviews(
@@ -209,6 +220,42 @@ async def test_computed_deduplication_preserves_human_work_and_other_producers(
         .all()
     )
     assert set(rows) == expected
+
+
+async def test_queue_pagination_and_lookup_keep_lower_priorities_reachable(
+    workflow_session,
+):
+    session = workflow_session
+    service = ReviewService(session)
+    baseline = await service.queue_count()
+    created = datetime.now(UTC)
+    items = [
+        ReviewQueueItem(
+            item_type="entity",
+            item_id=uuid4(),
+            priority_score=10000,
+            trigger_reason="Synthetic paged concern",
+            created_at=created,
+            status="in_review" if index == 0 else "pending",
+        )
+        for index in range(6)
+    ]
+    resolved = ReviewQueueItem(
+        item_type="entity",
+        item_id=uuid4(),
+        priority_score=20000,
+        trigger_reason="Synthetic resolved concern",
+        status="resolved",
+    )
+    session.add_all([*items, resolved])
+    await session.flush()
+    expected = sorted((item.id for item in items), key=str)
+    pages = [await service.queue_page(limit=2, offset=offset) for offset in [0, 2, 4]]
+    assert all(page.total == baseline + 6 for page in pages)
+    assert [item.id for page in pages for item in page.items] == expected
+    assert (await service.queued_item(expected[-1])).id == expected[-1]
+    assert await service.queued_item(resolved.id) is None
+    assert await service.queued_item(uuid4()) is None
 
 
 async def test_legacy_ownership_migration_preserves_rows_and_classifies_only_known_formats(

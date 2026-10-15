@@ -1479,7 +1479,7 @@ function ChatWorkspace() {
                 </p>
                 {!activeSessionId && pinnedSubject && <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted">
                   <span>No research has been started by opening this link.</span>
-                  <button type="button" onClick={() => { setPinnedSubject(null); setResolvedPreview(null); }} className="text-action underline">Release subject context</button>
+                  <button type="button" disabled={isTyping} onClick={() => { setPinnedSubject(null); setResolvedPreview(null); setSelectedSubjectName("Portfolio"); if (entryKey) router.replace("/chat", { scroll: false }); }} className="text-action underline disabled:opacity-50">Release subject context</button>
                   <Link href="/verification" className="text-action underline">Return to review</Link>
                 </div>}
               </div>

@@ -1,12 +1,14 @@
 "use client";
 
 import { type ReactNode, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 
 import AddResearchObjectModal from "./AddResearchObjectModal";
 import AddTransactionModal from "./AddTransactionModal";
 import WorkspaceState from "./WorkspaceState";
 import { apiFetch, PortfolioBuildPoint, PortfolioOverview } from "@/lib/api";
 import { safeFormatCurrency, safeFormatSignedCurrency, formatUserLabel } from "@/lib/formatting";
+import { researchHref } from "@/lib/workflows";
 
 export default function PositionsTable() {
   const [overview, setOverview] = useState<PortfolioOverview | null>(null);
@@ -137,7 +139,7 @@ export default function PositionsTable() {
                     {holdings.map((pos) => (
                       <tr key={pos.id}>
                         <td className="py-4">
-                          <div className="font-semibold text-slate-900 dark:text-slate-100">{pos.ticker ?? pos.security_id}</div>
+                          <Link href={researchHref({ subject_id: pos.id, subject_type: "position", subject_name: pos.ticker ?? pos.entity_name ?? "Holding" })} aria-label={`Research ${pos.ticker ?? pos.entity_name ?? "holding"}`} className="font-semibold text-action underline decoration-dotted underline-offset-4">{pos.ticker ?? pos.security_id}</Link>
                           {pos.entity_name ? (
                             <div className="text-xs text-slate-500 dark:text-slate-400">{pos.entity_name}</div>
                           ) : null}
@@ -278,9 +280,9 @@ function SidebarList({
         {items.length === 0 ? (
           <p className="text-sm text-slate-500 dark:text-slate-400">{emptyState}</p>
         ) : (
-          items.slice(0, 8).map((item) => (
+          items.map((item) => (
             <div key={item.id} className="rounded-lg border border-slate-200 px-4 py-3 dark:border-slate-800">
-              <p className="font-medium text-slate-900 dark:text-slate-100">{item.ticker ?? item.security_id}</p>
+              <Link href={researchHref({ subject_id: item.id, subject_type: "position", subject_name: item.ticker ?? item.entity_name ?? "Tracked name" })} aria-label={`Research ${item.ticker ?? item.entity_name ?? "tracked name"}`} className="font-medium text-action underline decoration-dotted underline-offset-4">{item.ticker ?? item.security_id}</Link>
               {item.entity_name ? (
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{item.entity_name}</p>
               ) : null}

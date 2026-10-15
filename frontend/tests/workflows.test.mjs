@@ -42,7 +42,7 @@ test("an ordinary chat and a legacy question link do not invent a subject or ses
 
 test("review navigation uses resolved profile and receipt IDs rather than queue or subject IDs", () => {
   const item = { id: session, item_id: subject.subject_id, item_type: "position", item_label: subject.subject_name, ...subject, profile_id: profile };
-  assert.deepEqual(reviewRecordLink(item), { href: `/profile/${profile}`, label: "Open subject and evidence" });
+  assert.deepEqual(reviewRecordLink(item), { href: `/profile/${profile}`, label: "Open linked research profile" });
   assert.equal(reviewSubject(item).subject_id, subject.subject_id);
   assert.equal(reviewRecordLink({ ...item, profile_id: null }), null);
   assert.deepEqual(reviewRecordLink({ ...item, evidence_id: profile }), { href: `/sources/evidence/${profile}`, label: "Inspect original receipt" });

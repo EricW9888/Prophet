@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import case, delete, desc, select
+from sqlalchemy import case, delete, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.models.catalog import SourceClaimRecord
@@ -22,7 +22,7 @@ from investos.models.review import ReviewQueueItem
 from investos.models.shadow import ExperimentResult, ShadowExperiment
 from investos.models.source import Source
 from investos.models.theme import Theme
-from investos.schemas.review import ReviewQueueItemResponse
+from investos.schemas.review import ReviewQueueItemResponse, ReviewQueuePageResponse
 from investos.services.artifact_hygiene import (
     is_artifact_question_text,
     is_artifact_subject_name,
@@ -53,7 +53,9 @@ class ReviewService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def list_queue(self) -> list[ReviewQueueItemResponse]:
+    async def list_queue(
+        self, *, limit: int = 100, offset: int = 0
+    ) -> list[ReviewQueueItemResponse]:
         items = (
             (
                 await self.session.execute(
@@ -62,14 +64,42 @@ class ReviewService:
                     .order_by(
                         desc(ReviewQueueItem.priority_score),
                         desc(ReviewQueueItem.created_at),
+                        ReviewQueueItem.id,
                     )
-                    .limit(100)
+                    .limit(limit)
+                    .offset(offset)
                 )
             )
             .scalars()
             .all()
         )
         return [await self._serialize(item) for item in items]
+
+    async def queue_page(
+        self, *, limit: int = 100, offset: int = 0
+    ) -> ReviewQueuePageResponse:
+        return ReviewQueuePageResponse(
+            items=await self.list_queue(limit=limit, offset=offset),
+            total=await self.queue_count(),
+        )
+
+    async def queue_count(self) -> int:
+        return (
+            await self.session.scalar(
+                select(func.count())
+                .select_from(ReviewQueueItem)
+                .where(ReviewQueueItem.status.in_(["pending", "in_review"]))
+            )
+            or 0
+        )
+
+    async def queued_item(self, item_id: UUID) -> ReviewQueueItemResponse | None:
+        item = await self.session.get(ReviewQueueItem, item_id)
+        return (
+            await self._serialize(item)
+            if item and item.status in {"pending", "in_review"}
+            else None
+        )
 
     async def refresh_queue(self) -> list[ReviewQueueItemResponse]:
         await self.session.execute(
@@ -492,8 +522,8 @@ class ReviewService:
             ).scalar_one_or_none()
             if profile:
                 return {
-                    "subject_id": subject_id,
-                    "subject_type": subject_type,
+                    "subject_id": item.item_id,
+                    "subject_type": item.item_type,
                     "profile_id": profile.id,
                 }
         return {"subject_id": item.item_id, "subject_type": item.item_type}
@@ -855,6 +885,12 @@ class ReviewService:
     def _why_now_summary(self, item: ReviewQueueItem, ctx: dict | None = None) -> str:
         ctx = ctx or {}
         label = ctx.get("label") or "This item"
+        if item.item_type == "mailbox_identity":
+            return (
+                f'The identity of the receipt "{label}" is unresolved. '
+                "It is held for comparison with preserved receipts before it can affect the portfolio. "
+                f"{item.trigger_reason}"
+            )
         if item.item_type == "source_claim_record":
             source = ctx.get("source_name") or "This source"
             statement = self._shorten(ctx.get("claim_statement"), 160) or label
@@ -935,6 +971,11 @@ class ReviewService:
 
     def _next_action(self, item: ReviewQueueItem, ctx: dict | None = None) -> str:
         ctx = ctx or {}
+        if item.item_type == "mailbox_identity":
+            return (
+                "Open Settings > Data Connections > Receipt identity review, load the reviews, "
+                "and compare original messages and ledger history before confirming the same or a separate receipt."
+            )
         if item.item_type == "source_claim_record":
             return (
                 "Find direct follow-up evidence, assess the claim as correct, partially correct, "

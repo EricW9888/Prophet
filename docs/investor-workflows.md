@@ -49,6 +49,13 @@ Review records carry resolved subject, profile, original-receipt or paper-run
 identities through the API. Queue IDs, position IDs and profile IDs are distinct;
 missing records retain their concern without an invented destination. A position
 review uses its own profile when available, then its security's entity profile.
+Its research and verification actions keep the original position subject even
+when the linked reading profile belongs to the underlying company.
+The Review surface progressively loads concerns in priority order with an
+explicit total, including concerns beyond the first API page. A linked concern
+is resolved independently of that page. Mailbox identity concerns explain
+the posting hold and direct the owner to receipt comparison in Data Connections.
+Holdings and tracked names open fresh, unsent research drafts for their positions.
 Profile facts and claims link through their source item to the unchanged receipt;
 nodes without that provenance say so explicitly.
 
