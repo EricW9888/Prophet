@@ -1,4 +1,4 @@
-import type { ReviewQueueItem } from "./api";
+import type { ProfileListItem, ReviewQueueItem } from "./api";
 
 export type ResearchSubject = { subject_id: string; subject_type: string; subject_name?: string };
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -49,4 +49,41 @@ export function reviewRecordLink(item: ReviewQueueItem): { href: string; label: 
 
 export function reviewResearchQuestion(item: ReviewQueueItem) {
   return `Review ${item.item_label}. ${item.why_now_summary || item.trigger_reason}\nNext check: ${item.next_action}\nSeparate original evidence, contrary evidence, and remaining uncertainty.`;
+}
+
+export function reviewChallengeHref(item: ReviewQueueItem) {
+  const subject = reviewSubject(item);
+  const params = new URLSearchParams({ item_id: item.id });
+  if (subject) {
+    params.set("subject_id", subject.subject_id);
+    params.set("subject_type", subject.subject_type);
+    params.set("subject_name", subject.subject_name ?? item.item_label);
+    params.set("q", reviewResearchQuestion(item));
+  }
+  return `/verification?${params}#manual-challenge`;
+}
+
+export function selectReviewContext(profiles: ProfileListItem[], queue: ReviewQueueItem[], params: URLSearchParams) {
+  const itemId = params.get("item_id");
+  const item = queue.find(candidate => candidate.id === itemId);
+  const entry = readResearchEntry(params);
+  const initialSubject = item ? reviewSubject(item) : entry.subject;
+  let subject = initialSubject;
+  const profile = initialSubject ? profiles.find(candidate => candidate.subject_id === initialSubject.subject_id && candidate.subject_type === initialSubject.subject_type) ?? null
+    : !itemId && !entry.hasEntry ? profiles[0] ?? null : null;
+  let notice: string | null = null;
+  if ((!item && entry.invalid) || (itemId && !isRecordId(itemId))) {
+    return { subject: null, profile: null, question: null, notice: "This review link is invalid. Choose a subject explicitly." };
+  }
+  if (!item && entry.subject && !profile) subject = null;
+  if (itemId && !item) notice = subject && profile
+    ? "This concern is no longer queued. Its subject and draft question are retained below; inspect current evidence before running a challenge."
+    : "The linked concern is no longer queued and its subject is unavailable. Choose a subject explicitly.";
+  else if (entry.subject && !subject) notice = "The linked subject is unavailable. Choose a subject explicitly.";
+  return {
+    subject: subject ?? (profile ? { subject_id: profile.subject_id, subject_type: profile.subject_type, subject_name: profile.subject_name } : null),
+    profile,
+    question: item ? reviewResearchQuestion(item) : entry.question || null,
+    notice,
+  };
 }

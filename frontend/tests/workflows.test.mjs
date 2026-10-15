@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readResearchEntry, researchHref, researchTurnContext, reviewRecordLink, reviewSubject, reviewResearchQuestion } from "../src/lib/workflows.ts";
+import { readResearchEntry, researchHref, researchTurnContext, reviewRecordLink, reviewSubject, reviewResearchQuestion, reviewChallengeHref, selectReviewContext } from "../src/lib/workflows.ts";
 
 const subject = { subject_id: "11111111-1111-4111-8111-111111111111", subject_type: "entity", subject_name: "Synthetic A & B" };
 const profile = "22222222-2222-4222-8222-222222222222";
@@ -60,4 +60,31 @@ test("a prepared research question retains why now and the requested check", () 
   assert.match(question, /Inspect the original filing/);
   assert.match(question, /contrary evidence/);
   assert.doesNotMatch(question, /older summary/);
+});
+
+test("a queue refresh between click and navigation retains the exact subject and unsent question", () => {
+  const item = { id: session, item_id: subject.subject_id, item_type: "entity", ...subject, profile_id: profile, item_label: subject.subject_name, why_now_summary: "Synthetic dated conflict", next_action: "Check original source" };
+  const params = new URL(reviewChallengeHref(item), "http://localhost").searchParams;
+  const profiles = [{ id: profile, ...subject }, { id: session, subject_id: profile, subject_type: "theme", subject_name: "Other subject" }];
+  const context = selectReviewContext(profiles, [], params);
+  assert.equal(context.subject.subject_id, subject.subject_id);
+  assert.equal(context.profile.id, profile);
+  assert.match(context.question, /Synthetic dated conflict/);
+  assert.match(context.notice, /no longer queued/);
+});
+
+test("a missing review never silently selects another subject", () => {
+  const context = selectReviewContext([{ id: profile, ...subject }], [], new URLSearchParams({ item_id: session }));
+  assert.equal(context.subject, null);
+  assert.equal(context.profile, null);
+  assert.match(context.notice, /Choose a subject explicitly/);
+});
+
+test("a live queue item overrides stale subject and question parameters", () => {
+  const item = { id: session, ...subject, item_label: subject.subject_name, why_now_summary: "Current evidence", next_action: "Current next check" };
+  const context = selectReviewContext([{ id: profile, ...subject }], [item], new URLSearchParams({ item_id: session, subject_id: profile, subject_type: "theme", q: "Old question" }));
+  assert.equal(context.subject.subject_id, subject.subject_id);
+  assert.match(context.question, /Current evidence/);
+  assert.doesNotMatch(context.question, /Old question/);
+  assert.equal(context.notice, null);
 });

@@ -59,6 +59,10 @@ research or verification. Research conversation links open the specified session
 and an existing session takes precedence over an unrelated subject parameter.
 Users can release a draft's subject context or start a new unscoped chat. A late
 history or context-preview response cannot overwrite a newer selection.
+If computed reviews refresh between a click and navigation, a challenge link
+retains its original subject and unsent question only when that subject still
+has a current profile. The UI discloses that the concern is no longer queued;
+missing context never silently selects a different subject.
 
 The interaction choices draw on subject-scoped alert navigation in
 [Koyfin](https://www.koyfin.com/help/release-notes/v3-66-desktop-alerts/) and

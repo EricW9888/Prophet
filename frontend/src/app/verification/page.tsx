@@ -7,7 +7,7 @@ import AppNav from "@/components/AppNav";
 import PageHeader from "@/components/PageHeader";
 import WorkspaceState from "@/components/WorkspaceState";
 import ReviewItemActions from "@/components/ReviewItemActions";
-import { isRecordId, readResearchEntry, reviewResearchQuestion, reviewSubject } from "@/lib/workflows";
+import { reviewResearchQuestion, reviewSubject, selectReviewContext } from "@/lib/workflows";
 import { API_BASE, apiFetch, ProfileListItem, ReviewQueueItem, VerificationResult } from "@/lib/api";
 
 export default function VerificationPage() {
@@ -25,6 +25,7 @@ function VerificationWorkspace() {
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [selectedSubjectType, setSelectedSubjectType] = useState("entity");
   const [selectedSubjectName, setSelectedSubjectName] = useState("");
+  const [contextNotice, setContextNotice] = useState<string | null>(null);
   const [challengeText, setChallengeText] = useState("Are you sure? Re-check contradictions, missing evidence, and whether the current stance should change.");
   const [result, setResult] = useState<VerificationResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,21 +48,17 @@ function VerificationWorkspace() {
       setQueue(queueItems);
       if (selectionKeyRef.current !== targetKey) {
         selectionKeyRef.current = targetKey;
-        const params = new URLSearchParams(targetKey);
-        const itemId = params.get("item_id");
-        const linkedItem = queueItems.find(item => item.id === itemId);
-        const entry = readResearchEntry(params);
-        const subject = linkedItem ? reviewSubject(linkedItem) : entry.subject;
-        const selected = subject ? items.find(item => item.subject_id === subject.subject_id && item.subject_type === subject.subject_type) : (!itemId && !entry.hasEntry ? items[0] : undefined);
+        const context = selectReviewContext(items, queueItems, new URLSearchParams(targetKey));
+        const subject = context.subject;
+        const selected = context.profile;
         setSelectedId(selected?.id ?? "");
         setSelectedSubjectId(selected?.subject_id ?? subject?.subject_id ?? "");
         setSelectedSubjectType(selected?.subject_type ?? subject?.subject_type ?? "entity");
         setSelectedSubjectName(selected?.subject_name ?? subject?.subject_name ?? "");
         setResult(null);
-        if (linkedItem) setChallengeText(reviewResearchQuestion(linkedItem));
-        if ((itemId && (!isRecordId(itemId) || !linkedItem)) || entry.invalid) {
-          setError("The linked concern is no longer in the pending queue, or its context is unavailable. Choose a subject explicitly to prepare a challenge.");
-        }
+        if (context.question) setChallengeText(context.question);
+        setContextNotice(context.notice);
+        setError(null);
       }
       setLoaded(true);
       setLoadError(null);
@@ -90,6 +87,7 @@ function VerificationWorkspace() {
   function handleProfileChange(value: string) {
     setResult(null);
     setError(null);
+    setContextNotice(null);
     setSelectedId(value);
     const profile = profiles.find((item) => item.id === value);
     if (profile) {
@@ -110,6 +108,7 @@ function VerificationWorkspace() {
     setChallengeText(reviewResearchQuestion(item));
     setResult(null);
     setError(null);
+    setContextNotice(null);
     window.requestAnimationFrame(() => document.getElementById("challenge-text")?.focus());
   }
 
@@ -151,6 +150,7 @@ function VerificationWorkspace() {
             title="Review queue"
             description="Resolve thin coverage, contradictions, stale views, and simulation disagreements before they quietly shape portfolio decisions."
           />
+          {contextNotice && <WorkspaceState kind="degraded" compact title="Review context changed" description={contextNotice} />}
           {!loaded && loading ? (
             <WorkspaceState
               kind="loading"
