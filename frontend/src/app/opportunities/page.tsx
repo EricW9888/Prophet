@@ -24,6 +24,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import AppNav from "@/components/AppNav";
 import FloatingNotice from "@/components/FloatingNotice";
 import PageHeader from "@/components/PageHeader";
+import { DISCOVERY_RUN_TIMEOUT_MS } from "@/lib/request-timeouts";
 import {
   apiFetch,
   AutomationStatus,
@@ -56,7 +57,6 @@ const candidateFilters: Array<{ value: CandidateFilter; label: string }> = [
 
 const fieldClass =
   "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-slate-500 dark:focus:ring-slate-800";
-const DISCOVERY_RUN_TIMEOUT_MS = 120000;
 
 function formatDate(value?: string | null): string {
   if (!value) return "Not yet";

@@ -18,15 +18,17 @@ export default function PresentationLanguageProvider({ children }: { children: R
   const [state, setState] = useState<{ language: PresentationLanguage; error: boolean }>({ language: "en", error: false });
   useEffect(() => {
     let active = true;
+    let refreshVersion = 0;
     async function refresh() {
+      const version = ++refreshVersion;
       try {
         const settings = await apiFetch<IntegrationSettings>("/integrations/settings");
-        if (!active) return;
+        if (!active || version !== refreshVersion) return;
         const language = settings.presentation_language ?? "en";
         if (!languageOptions.some(option => option.code === language)) throw new Error("Unsupported language");
         await instance.changeLanguage(language);
-        if (active) setState({ language, error: false });
-      } catch { if (active) setState(current => ({ ...current, error: true })); }
+        if (active && version === refreshVersion) setState({ language, error: false });
+      } catch { if (active && version === refreshVersion) setState(current => ({ ...current, error: true })); }
     }
     void refresh();
     window.addEventListener("prophet:language-saved", refresh);

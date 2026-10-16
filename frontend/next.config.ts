@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { API_PROXY_TIMEOUT_MS } from "./src/lib/request-timeouts";
 
 // Locally the backend is reachable at http://127.0.0.1:8000. Override with
 // BACKEND_URL when starting development or building the production frontend.
@@ -8,6 +9,7 @@ const nextConfig: NextConfig = {
   // Private development guidance stays local; do not let Next.js generate
   // public AGENTS.md or CLAUDE.md files when the dev server starts.
   agentRules: false,
+  experimental: { proxyTimeout: API_PROXY_TIMEOUT_MS },
   // Keep hot-reload artifacts separate from production builds so validation can
   // run while the local app remains available.
   distDir: process.env.PROPHET_BUILD_VALIDATION === "1"

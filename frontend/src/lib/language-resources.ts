@@ -16,11 +16,13 @@ const en = {
   caution: "Machine translation is a presentation aid. Protected citations, identifiers and numeric spans are checked; meaning and omissions still require comparison with the original. This view does not update knowledge or conclusions.",
   loading: "Checking retained translation…", untranslated: "This source has no translation in the selected language.", stale: "The source version or translation checks changed. Its older translation is retained but is not shown as current.",
   provider_deferred: "Translation is deferred while the configured provider is unavailable. Recovery and configuration are in Settings.",
+  translation_in_progress: "A translation of this source is already being generated. Retry to check for a retained result.",
   provider_failed: "The configured provider could not translate this source. The original remains available.", fidelity_failed: "The translation did not preserve the protected source spans and was rejected.",
   source_too_large: "This source is too large for the bounded translation request. Read the unchanged original.", empty_source: "The stored source text is empty.",
   cached: "Retained translation of this source version", translated: "New translation of this source version", failed: "The source or translation could not be loaded. Retry or read the original.", retry: "Retry", version: "Source version",
 };
 const es = {
+  translation_in_progress: "Ya se está generando una traducción de esta fuente. Reintente para comprobar si el resultado está guardado.",
   Portfolio: "Cartera", Research: "Investigación", Monitor: "Seguimiento", Knowledge: "Conocimiento", Review: "Revisión", Simulate: "Simular",
   Positions: "Posiciones", History: "Historial", Risk: "Riesgo", Decisions: "Decisiones", Sources: "Fuentes", Ideas: "Ideas", Activity: "Actividad", Settings: "Configuración",
   More: "Más", "Portfolio records": "Registros de cartera", "Research library": "Biblioteca de investigación", System: "Sistema",
@@ -36,6 +38,7 @@ const es = {
   cached: "Traducción guardada de esta versión", translated: "Nueva traducción de esta versión", failed: "No se pudo cargar la fuente o traducción. Reintente o lea el original.", retry: "Reintentar", version: "Versión de la fuente",
 };
 const fr = {
+  translation_in_progress: "Une traduction de cette source est déjà en cours. Réessayez pour consulter le résultat conservé.",
   Portfolio: "Portefeuille", Research: "Recherche", Monitor: "Suivi", Knowledge: "Connaissances", Review: "Révision", Simulate: "Simuler",
   Positions: "Positions", History: "Historique", Risk: "Risque", Decisions: "Décisions", Sources: "Sources", Ideas: "Idées", Activity: "Activité", Settings: "Paramètres",
   More: "Plus", "Portfolio records": "Registres du portefeuille", "Research library": "Bibliothèque de recherche", System: "Système",
@@ -51,6 +54,7 @@ const fr = {
   cached: "Traduction conservée de cette version", translated: "Nouvelle traduction de cette version", failed: "Impossible de charger la source ou sa traduction. Réessayez ou lisez l’original.", retry: "Réessayer", version: "Version de la source",
 };
 const zh = {
+  translation_in_progress: "此来源的译文正在生成中。请重试以查看是否已有保存的结果。",
   Portfolio: "投资组合", Research: "研究", Monitor: "监测", Knowledge: "知识", Review: "审查", Simulate: "模拟",
   Positions: "持仓", History: "历史", Risk: "风险", Decisions: "决策", Sources: "来源", Ideas: "思路", Activity: "活动", Settings: "设置",
   More: "更多", "Portfolio records": "投资组合记录", "Research library": "研究资料库", System: "系统",

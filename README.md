@@ -73,7 +73,7 @@ Requirements:
 - Python 3.11-3.14
 - [Poetry](https://python-poetry.org/docs/#installation) 2.3.2, installed in
   its own environment (prefer `pipx install poetry==2.3.2`)
-- Node.js 24 LTS and npm
+- Node.js 24.15 or newer in the 24 LTS line, and npm
 - Docker with Compose, or an existing reachable PostgreSQL 16 server
 
 Start Prophet from the repository root:
