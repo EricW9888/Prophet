@@ -1,12 +1,15 @@
 """Synthetic language propagation and immutable versioned source derivatives."""
 
+import asyncio
+import hashlib
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import httpx
 import pytest
 from fastapi import FastAPI
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -244,6 +247,49 @@ async def test_versioned_translation_cache_preserves_original_and_knowledge(
                     == 3
                 )
             await transaction.rollback()
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_competing_translation_does_not_wait_or_call_provider(monkeypatch):
+    """Exercise the real PostgreSQL lock with independent transactions."""
+    from investos.services import translation
+
+    engine = create_async_engine(settings.SQLALCHEMY_DATABASE_URI, poolclass=NullPool)
+    evidence_id = uuid4()
+    key = int.from_bytes(
+        hashlib.sha256(f"{evidence_id}:fr".encode()).digest()[:8],
+        "big",
+        signed=True,
+    )
+    try:
+        async with engine.connect() as holder, engine.connect() as contender:
+            async with holder.begin(), contender.begin():
+                await holder.execute(
+                    text("SELECT pg_advisory_xact_lock(:key)"), {"key": key}
+                )
+                async with AsyncSession(bind=contender) as session:
+                    service = TranslationService(session)
+                    monkeypatch.setattr(
+                        service,
+                        "original",
+                        AsyncMock(
+                            return_value=(
+                                RawEvidence(id=evidence_id, url=None),
+                                ORIGINAL,
+                                "a" * 64,
+                            )
+                        ),
+                    )
+                    call = AsyncMock()
+                    monkeypatch.setattr(translation, "call_llm_json", call)
+                    result = await asyncio.wait_for(
+                        service.view(evidence_id, "fr", generate=True), timeout=2
+                    )
+                    assert result["status"] == "translation_in_progress"
+                    assert result["translated_text"] is None
+                    assert call.await_count == 0
     finally:
         await engine.dispose()
 

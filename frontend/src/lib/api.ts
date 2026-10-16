@@ -1,6 +1,7 @@
+import { API_TIMEOUT_MS } from "./request-timeouts";
+
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ?? "/api_proxy";
-const API_TIMEOUT_MS = 15000;
 
 function alternateLoopbackBase(base: string): string | null {
   if (base.includes("127.0.0.1")) {

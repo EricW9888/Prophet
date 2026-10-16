@@ -23,12 +23,23 @@ corroboration or belief promotion. A successful derivative is retained in
 text, target language and translation recipe version. It retains its provider and
 creation time. Source or translation-recipe changes leave old derivatives in place but mark the current
 view stale until a new derivative is requested. A late response for another
-language cannot be displayed as the selected language.
+language cannot be displayed as the selected language. Receipt, translation and
+original-text state is isolated by evidence identity, and translated-view state
+also follows the selected language. An older settings refresh cannot revert a
+newer saved preference. The browser allows 50 seconds for the backend's bounded
+45-second generation request, including proxy and response overhead; ordinary
+cached-view and original-text reads retain the normal API timeout.
+The shared frontend request budgets also configure the Next.js proxy: its finite
+deadline exceeds the longest supported client request, including bounded
+discovery, so the proxy does not cut these requests off at its shorter default.
 
 GET only reads a current cached derivative; POST explicitly requests generation.
 Cached views make no model request and remain useful during provider outages.
-Simultaneous generation requests converge under a PostgreSQL transaction lock and
-unique version/language constraint. Each request is bounded to 24,000 source
+Simultaneous generation requests use a nonblocking PostgreSQL transaction lock and
+unique version/language constraint. A competing request reads an existing cached
+derivative or reports that generation is in progress; Retry checks the cache
+without another model call. It does not wait behind the generating transaction.
+Each generation attempt is bounded to 24,000 source
 characters and 45 seconds; oversized or non-UTF-8 material is disclosed instead of
 silently truncated. Failures are safe status codes, not private provider diagnostics.
 

@@ -138,9 +138,10 @@ flows, corporate actions, price history, and selected measurement window.
 
 The backend has a substantial synthetic regression suite and a branch-coverage
 floor, but external connector behavior still requires credentialed integration
-checks. The frontend currently relies on linting, production builds, and manual
-browser verification rather than a comprehensive automated interaction and
-visual-regression suite.
+checks. The frontend has targeted DOM component regressions for receipt identity,
+presentation-language races and translation deadlines, plus utility tests,
+linting and production builds. It still requires real-browser verification and
+does not have a comprehensive interaction or visual-regression suite.
 
 Several central backend services and frontend pages remain large. Their tests
 protect behavior, but concentrated modules increase review cost and make

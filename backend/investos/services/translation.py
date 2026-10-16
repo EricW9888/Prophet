@@ -97,17 +97,20 @@ class TranslationService:
             EvidenceTranslation.target_language == language,
             EvidenceTranslation.recipe_version == RECIPE_VERSION,
         )
+        generation_in_progress = False
         if generate:
-            # A transaction lock converges simultaneous owner requests. It does
-            # not schedule unattended translation or consume extraction budgets.
+            # Do not queue another unbounded wait behind a generation request.
+            # The winner owns generation until commit; other callers can still
+            # read an existing derivative or explicitly recheck the cache later.
             lock_key = int.from_bytes(
                 hashlib.sha256(f"{evidence_id}:{language}".encode()).digest()[:8],
                 "big",
                 signed=True,
             )
-            await self.session.execute(
-                text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key}
+            acquired = await self.session.scalar(
+                text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": lock_key}
             )
+            generation_in_progress = not acquired
         cached = await self.session.scalar(query)
         if cached:
             return {
@@ -118,6 +121,8 @@ class TranslationService:
                 "provider": cached.provider,
                 "created_at": cached.created_at.isoformat(),
             }
+        if generation_in_progress:
+            return {**result, "status": "translation_in_progress"}
         prior = await self.session.scalar(
             select(EvidenceTranslation.id)
             .where(
