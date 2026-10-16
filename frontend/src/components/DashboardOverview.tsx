@@ -20,6 +20,7 @@ import ShadowLifecycleSummary from "@/components/ShadowLifecycleSummary";
 import ProviderWorkSummary from "@/components/ProviderWorkSummary";
 import QuestionBacklog from "@/components/QuestionBacklog";
 import ReviewItemActions from "@/components/ReviewItemActions";
+import PortfolioDataReviewNotice from "@/components/PortfolioDataReviewNotice";
 import {
   safeFormatCurrency,
   safeFormatSignedCurrency,
@@ -183,21 +184,23 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
             detail="Unresolved research questions"
           />
           <HeroMetric
-            label="Attention"
+            label="Investment attention"
             value={`${summary?.review_queue_total ?? summary?.review_queue?.length ?? 0}`}
-            detail={summary?.review_queue?.[0]?.item_label ?? "No reviews currently queued"}
-            href="/verification"
+            detail={summary?.review_queue?.[0]?.item_label ?? "No investment reviews currently queued"}
+            href="/verification?domain=investment"
           />
       </section>
+
+      <PortfolioDataReviewNotice count={summary.portfolio_data_review_total ?? 0} />
 
       <div className="space-y-6">
         <Panel className="xl:col-span-1">
           <SectionTitle
-            title="What Needs Attention"
-            subtitle="Review Queue"
+            title="Investment attention"
+            subtitle="Questions, evidence and accepted views"
             action={
               <Link
-                href="/verification"
+                href="/verification?domain=investment"
                 className="text-xs font-medium text-slate-600 hover:text-slate-950 dark:text-slate-300 dark:hover:text-white"
               >
                 View All
@@ -208,7 +211,7 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
           <div className="space-y-3">
             {reviewItems.length === 0 ? (
               <div className="py-8 text-center text-sm italic text-slate-400 dark:text-slate-500">
-                No review items are currently queued. Monitor remains available for recent evidence.
+                No investment reviews are currently queued. This does not establish complete coverage or an absence of risk. Monitor remains available for recent evidence.
               </div>
             ) : (
               visibleReviewItems.map((item) => (

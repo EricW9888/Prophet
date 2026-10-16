@@ -38,6 +38,26 @@ history and paper-run counts remain available in disclosure panels. An empty
 queue means no reviews are currently queued; it does not establish complete
 coverage or an absence of portfolio risk.
 
+Review producers record a purpose separately from the subject and queue owner:
+`investment` for evidence, questions, views and paper outcomes; `portfolio_data`
+for receipt identity, posting holds and broker reconciliation. A position may
+have both kinds of concern. Portfolio shows investment attention and a visible
+counted link to portfolio data reviews; those holds remain unresolved until their
+own review completes. This separation never lowers priority, links a receipt,
+posts a transaction or certifies balances.
+
+Review offers All, Investment and Portfolio data views. The API filters by
+`domain` before deterministic pagination and returns counts for both domains;
+omitting the filter still returns all active reviews. Exact concern lookup is
+independent of the filter, and changing views preserves a prepared challenge.
+Dashboard `review_queue` and `review_queue_total` describe investment work;
+`portfolio_data_review_total` counts the separately visible data reviews.
+Migration `d9f6b3c1a854` backfills recognized receipt types and the existing
+position-reconciliation producer format without changing identities, priorities,
+statuses or evidence. Unknown legacy concerns remain investment-visible rather
+than disappearing through an inferred classification. New producers own the
+stored domain; runtime presentation never classifies a review by its prose.
+
 Refreshing the queue replaces only pending computed reviews owned by that
 refresher. Connector, reconciliation and unclassified legacy concerns retain
 their IDs, and a review already in progress takes precedence over a newly

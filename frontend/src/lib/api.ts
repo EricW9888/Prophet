@@ -1016,6 +1016,7 @@ export type DashboardSummary = {
   }>;
   review_queue: ReviewQueueItem[];
   review_queue_total?: number;
+  portfolio_data_review_total?: number;
   recent_lessons: Array<{
     id: string;
     title: string;
@@ -1968,11 +1969,15 @@ export type DecisionJournal = {
   reviews: DecisionReview[];
 };
 
+export type ReviewDomain = "investment" | "portfolio_data";
+export type ReviewQueueCounts = Record<ReviewDomain, number>;
+
 export type ReviewQueueItem = {
   id: string;
   item_type: string;
   item_id: string;
   item_label: string;
+  review_domain: ReviewDomain;
   subject_id?: string | null;
   subject_type?: string | null;
   profile_id?: string | null;
@@ -1994,7 +1999,7 @@ export type ReviewQueueItem = {
   created_at: string;
 };
 
-export type ReviewQueuePage = { items: ReviewQueueItem[]; total: number };
+export type ReviewQueuePage = { items: ReviewQueueItem[]; total: number; counts: ReviewQueueCounts };
 
 export type Lesson = {
   id: string;

@@ -7,8 +7,9 @@ import AppNav from "@/components/AppNav";
 import PageHeader from "@/components/PageHeader";
 import WorkspaceState from "@/components/WorkspaceState";
 import ReviewItemActions from "@/components/ReviewItemActions";
+import ReviewDomainFilters, { reviewDomain, reviewDomainLabel, reviewPagePath, reviewSelectionKey } from "@/components/ReviewDomainFilters";
 import { isRecordId, reviewResearchQuestion, reviewSubject, selectReviewContext } from "@/lib/workflows";
-import { API_BASE, apiFetch, ProfileListItem, ReviewQueueItem, ReviewQueuePage, VerificationResult } from "@/lib/api";
+import { API_BASE, apiFetch, ProfileListItem, ReviewDomain, ReviewQueueCounts, ReviewQueueItem, ReviewQueuePage, VerificationResult } from "@/lib/api";
 
 export default function VerificationPage() {
   return <Suspense fallback={<p className="p-6 text-muted">Loading review workspace…</p>}><VerificationWorkspace /></Suspense>;
@@ -23,6 +24,8 @@ function VerificationWorkspace() {
   const [queue, setQueue] = useState<ReviewQueueItem[]>([]);
   const [visibleQueueCount, setVisibleQueueCount] = useState(8);
   const [queueTotal, setQueueTotal] = useState(0);
+  const [queueCounts, setQueueCounts] = useState<ReviewQueueCounts>({ investment: 0, portfolio_data: 0 });
+  const [loadedDomain, setLoadedDomain] = useState<ReviewDomain | null>(null);
   const [queueOffset, setQueueOffset] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [selectedId, setSelectedId] = useState("");
@@ -41,23 +44,30 @@ function VerificationWorkspace() {
 
   const loadWorkspace = useCallback(async () => {
     const request = ++workspaceRequestRef.current;
+    const params = new URLSearchParams(targetKey);
+    const domain = reviewDomain(params.get("domain"));
+    const selectionKey = reviewSelectionKey(targetKey);
     setLoading(true);
+    setLoadingMore(false);
     try {
       const [items, page] = await Promise.all([
         apiFetch<ProfileListItem[]>("/profiles"),
-        apiFetch<ReviewQueuePage>("/review/queue/page"),
+        apiFetch<ReviewQueuePage>(reviewPagePath(domain)),
       ]);
       const queueItems = page.items;
-      const requestedId = new URLSearchParams(targetKey).get("item_id");
+      const requestedId = params.get("item_id");
       const linkedItem = isRecordId(requestedId) && !queueItems.some(item => item.id === requestedId)
         ? await apiFetch<ReviewQueueItem | null>(`/review/queue/${requestedId}`) : null;
       if (request !== workspaceRequestRef.current) return;
       setProfiles(items);
       setQueue(queueItems);
       setQueueTotal(page.total);
+      setQueueCounts(page.counts);
+      setLoadedDomain(domain);
+      setVisibleQueueCount(8);
       setQueueOffset(queueItems.length);
-      if (selectionKeyRef.current !== targetKey) {
-        selectionKeyRef.current = targetKey;
+      if (selectionKeyRef.current !== selectionKey) {
+        selectionKeyRef.current = selectionKey;
         const context = selectReviewContext(items, linkedItem ? [...queueItems, linkedItem] : queueItems, new URLSearchParams(targetKey));
         const subject = context.subject;
         const selected = context.profile;
@@ -74,7 +84,7 @@ function VerificationWorkspace() {
       setLoadError(null);
     } catch (err) {
       if (request !== workspaceRequestRef.current) return;
-      setLoadError(err instanceof Error ? err.message : "Unable to load the review workspace.");
+      setLoadError(`${reviewDomainLabel(domain)} reviews could not be loaded. ${err instanceof Error ? err.message : "Unable to load the review workspace."}`);
     } finally {
       if (request === workspaceRequestRef.current) setLoading(false);
     }
@@ -112,17 +122,18 @@ function VerificationWorkspace() {
     const request = workspaceRequestRef.current;
     setLoadingMore(true);
     try {
-      const page = await apiFetch<ReviewQueuePage>(`/review/queue/page?offset=${queueOffset}`);
+      const page = await apiFetch<ReviewQueuePage>(reviewPagePath(loadedDomain, queueOffset));
       if (request !== workspaceRequestRef.current) return;
       setQueue(current => [...current, ...page.items.filter(item => !current.some(existing => existing.id === item.id))]);
       setQueueOffset(current => current + page.items.length);
       setQueueTotal(page.items.length ? page.total : queueOffset);
+      setQueueCounts(page.counts);
       setVisibleQueueCount(current => current + 8);
       setLoadError(null);
     } catch (err) {
       if (request === workspaceRequestRef.current) setLoadError(err instanceof Error ? err.message : "Unable to load more concerns.");
     } finally {
-      setLoadingMore(false);
+      if (request === workspaceRequestRef.current) setLoadingMore(false);
     }
   }
 
@@ -190,7 +201,7 @@ function VerificationWorkspace() {
           <PageHeader
             eyebrow="Decision quality"
             title="Review queue"
-            description="Resolve thin coverage, contradictions, stale views, and simulation disagreements before they quietly shape portfolio decisions."
+            description="Review investment uncertainty and portfolio data integrity. Receipt and reconciliation holds remain separate from research priorities."
           />
           {contextNotice && <WorkspaceState kind="degraded" compact title="Review context changed" description={contextNotice} />}
           {!loaded && loading ? (
@@ -213,7 +224,7 @@ function VerificationWorkspace() {
               kind="degraded"
               compact
               title="Review refresh is delayed"
-              description={`${loadError} The last loaded queue remains available.`}
+              description={`${loadError} The last loaded ${reviewDomainLabel(loadedDomain)} queue remains available.`}
               actionLabel="Retry refresh"
               onAction={() => void loadWorkspace()}
             />
@@ -224,20 +235,22 @@ function VerificationWorkspace() {
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                  The system should escalate weak coverage, unresolved questions, source conflicts, and shadow divergences here.
+                  Investment reviews cover evidence and views. Portfolio data reviews cover receipts, posting holds and reconciliation. Priority is ordered within the selected view.
                 </p>
               </div>
               <button disabled={loading || loadingMore} onClick={() => void refreshQueue()} className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm disabled:opacity-50">
                 Refresh queue
               </button>
             </div>
+            <ReviewDomainFilters domain={loadedDomain} counts={queueCounts} targetKey={targetKey} />
+            {loading && <p role="status" className="mt-3 text-sm text-muted">Loading the requested view; the last loaded queue remains visible.</p>}
             <div className="mt-4 space-y-3">
               {queue.length === 0 ? (
                 <WorkspaceState
                   kind="empty"
                   compact
-                  title="No pending review items"
-                  description="Prophet has not found a current contradiction, coverage gap, stale view, or simulation disagreement that needs escalation."
+                  title={`No pending ${loadedDomain === "portfolio_data" ? "portfolio data" : loadedDomain === "investment" ? "investment" : "review"} items`}
+                  description="No reviews are currently queued in this view. This does not establish complete coverage, reconciled balances or an absence of risk."
                 />
               ) : (
                 queue.slice(0, visibleQueueCount).map((item) => (

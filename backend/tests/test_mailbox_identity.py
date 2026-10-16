@@ -137,6 +137,12 @@ async def test_generic_reset_exact_content_deduplicates_changed_content_waits_fo
     pending = await service._process_message("10", changed, scope(validity="12"))
     assert pending["needs_reconciliation"]
     assert not pending["transaction_created"]
+    review = await service.session.scalar(
+        select(ReviewQueueItem).where(
+            ReviewQueueItem.item_id == UUID(pending["evidence_id"])
+        )
+    )
+    assert review.review_domain == "portfolio_data"
     evidence = await service.session.get(RawEvidence, UUID(pending["evidence_id"]))
     assert (
         await service.ingestion.storage.get_object(evidence.raw_content_ref)

@@ -15,7 +15,6 @@ from investos.models.lesson import Lesson
 from investos.models.portfolio import Position, Transaction
 from investos.models.profile import Profile
 from investos.models.reasoning import CritiqueRun, ReasoningRun
-from investos.models.review import ReviewQueueItem
 from investos.models.shadow import ExperimentResult, ShadowExperiment
 from investos.models.source import Source
 from investos.schemas.automation import AutomationJobStatus
@@ -146,7 +145,12 @@ class DashboardService:
             recent_profiles=await self._recent_profiles(),
             open_questions=await self._open_questions(),
             review_queue=await self._review_queue(),
-            review_queue_total=await ReviewService(self.session).queue_count(),
+            review_queue_total=await ReviewService(self.session).queue_count(
+                "investment"
+            ),
+            portfolio_data_review_total=await ReviewService(self.session).queue_count(
+                "portfolio_data"
+            ),
             recent_lessons=await self._recent_lessons(),
             trusted_sources=await self._trusted_sources(),
             research_activity=await self._research_activity(
@@ -404,23 +408,9 @@ class DashboardService:
         ]
 
     async def _review_queue(self) -> list[ReviewQueueItemResponse]:
-        items = (
-            (
-                await self.session.execute(
-                    select(ReviewQueueItem)
-                    .where(ReviewQueueItem.status.in_(["pending", "in_review"]))
-                    .order_by(
-                        desc(ReviewQueueItem.priority_score),
-                        desc(ReviewQueueItem.created_at),
-                    )
-                    .limit(6)
-                )
-            )
-            .scalars()
-            .all()
+        return await ReviewService(self.session).list_queue(
+            limit=6, domain="investment"
         )
-        service = ReviewService(self.session)
-        return [await service._serialize(item) for item in items]
 
     async def _recent_lessons(self) -> list[DashboardLessonResponse]:
         lessons = (

@@ -283,6 +283,7 @@ class MailboxIdentityService:
         if reason:
             self.session.add(
                 ReviewQueueItem(
+                    review_domain="portfolio_data",
                     item_type="mailbox_identity",
                     item_id=evidence.id,
                     priority_score=95,

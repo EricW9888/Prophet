@@ -2084,9 +2084,11 @@ class PortfolioService:
                 )
                 if existing is not None:
                     existing.trigger_reason = reason  # refresh, don't duplicate
+                    existing.review_domain = "portfolio_data"
                     continue
                 self.session.add(
                     ReviewQueueItem(
+                        review_domain="portfolio_data",
                         item_type=item_type,
                         item_id=item_id,
                         priority_score=(
@@ -2118,9 +2120,11 @@ class PortfolioService:
                 )
                 if existing is not None:
                     existing.trigger_reason = reason
+                    existing.review_domain = "portfolio_data"
                 else:
                     self.session.add(
                         ReviewQueueItem(
+                            review_domain="portfolio_data",
                             item_type="reconciliation",
                             item_id=item_id,
                             priority_score=55.0,

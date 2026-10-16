@@ -1,8 +1,10 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel
+
+ReviewDomain = Literal["investment", "portfolio_data"]
 
 
 class ReviewQueueItemResponse(BaseModel):
@@ -10,6 +12,7 @@ class ReviewQueueItemResponse(BaseModel):
     item_type: str
     item_id: UUID
     item_label: str
+    review_domain: ReviewDomain
     subject_id: UUID | None = None
     subject_type: str | None = None
     profile_id: UUID | None = None
@@ -34,3 +37,4 @@ class ReviewQueueItemResponse(BaseModel):
 class ReviewQueuePageResponse(BaseModel):
     items: list[ReviewQueueItemResponse]
     total: int
+    counts: dict[ReviewDomain, int]

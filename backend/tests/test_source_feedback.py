@@ -488,6 +488,7 @@ def test_source_claim_review_copy_is_specific_and_actionable():
     service = ReviewService(session=None)
     item = SimpleNamespace(
         item_type="source_claim_record",
+        review_domain="investment",
         trigger_reason="Pending source claim due for outcome assessment: HBM demand raises NAND mix.",
         created_at=datetime(2026, 2, 10, tzinfo=timezone.utc),
         coverage_weakness=0.0,

@@ -1302,10 +1302,12 @@ class GmailMailboxService:
         ).scalar_one_or_none()
         if existing is not None:
             existing.trigger_reason = reason
+            existing.review_domain = "portfolio_data"
             existing.priority_score = max(float(existing.priority_score or 0), 70.0)
             return
         self.session.add(
             ReviewQueueItem(
+                review_domain="portfolio_data",
                 item_type=(
                     "account_transfer"
                     if document_type == "account_transfer"

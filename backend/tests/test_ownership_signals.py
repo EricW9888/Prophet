@@ -139,6 +139,7 @@ def test_review_copy_for_ownership_signal_is_concrete_and_cautious():
     service = ReviewService(session=None)
     item = SimpleNamespace(
         item_type="raw_evidence",
+        review_domain="investment",
         trigger_reason="Ownership signal",
         created_at=datetime(2026, 6, 15, tzinfo=timezone.utc),
         coverage_weakness=0.0,
