@@ -167,6 +167,7 @@ async def test_model_confidence_cannot_post_unverified_cash(
         .limit(1)
     )
     assert review is not None
+    assert review.review_domain == "portfolio_data"
 
 
 async def test_mailbox_adopts_matching_legacy_fill_despite_float_tail(

@@ -22,6 +22,8 @@ from investos.models.portfolio import Position
 from investos.models.profile import Profile
 from investos.models.review import ReviewQueueItem
 from investos.models.source import Source
+from investos.services.dashboard import DashboardService
+from investos.services.portfolio import PortfolioService
 from investos.services.profile import ProfileService
 from investos.services.review import ReviewService
 
@@ -327,6 +329,178 @@ async def test_legacy_ownership_migration_preserves_rows_and_classifies_only_kno
         await session.execute(
             text(
                 "SELECT id, item_type, trigger_reason, status, queue_owner FROM review_queue_items"
+            )
+        )
+    ).all()
+    assert {row.id: tuple(row)[1:] for row in rows} == expected
+
+
+async def test_review_domains_filter_before_pagination_without_resolving_holds(
+    workflow_session,
+):
+    session = workflow_session
+    service = ReviewService(session)
+    before = await service.queue_counts()
+    holds = [
+        ReviewQueueItem(
+            item_type="mailbox_identity",
+            item_id=uuid4(),
+            review_domain="portfolio_data",
+            priority_score=20000,
+            trigger_reason="Synthetic posting hold",
+            status="in_review" if i == 0 else "pending",
+        )
+        for i in range(105)
+    ]
+    concerns = [
+        ReviewQueueItem(
+            item_type=kind,
+            item_id=uuid4(),
+            review_domain="investment",
+            priority_score=10000,
+            trigger_reason="Synthetic investment concern",
+        )
+        for kind in ["position", "raw_evidence", "entity"]
+    ]
+    session.add_all([*holds, *concerns])
+    await session.flush()
+    identities = {
+        item.id: (item.status, item.priority_score, item.item_id)
+        for item in [*holds, *concerns]
+    }
+    # The previous mixed-ranking query spends every dashboard slot on holds.
+    assert all(
+        row.review_domain == "portfolio_data"
+        for row in await service.list_queue(limit=6)
+    )
+    pages = [
+        await service.queue_page(limit=2, offset=offset, domain="investment")
+        for offset in [0, 2]
+    ]
+    expected = sorted((item.id for item in concerns), key=str)
+    actual = [row.id for page in pages for row in page.items][:3]
+    assert actual == expected
+    assert all(page.total == before["investment"] + 3 for page in pages)
+    assert pages[0].counts == {
+        "investment": before["investment"] + 3,
+        "portfolio_data": before["portfolio_data"] + 105,
+    }
+    data_page = await service.queue_page(limit=100, offset=100, domain="portfolio_data")
+    assert len({row.id for row in data_page.items} & set(identities)) == 5
+    dashboard = await DashboardService(session)._review_queue()
+    assert [row.id for row in dashboard][:3] == expected
+    assert all(row.review_domain == "investment" for row in dashboard)
+    assert (await service.queued_item(holds[-1].id)).review_domain == "portfolio_data"
+    await session.refresh(holds[0])
+    assert {
+        item.id: (item.status, item.priority_score, item.item_id)
+        for item in [*holds, *concerns]
+    } == identities
+
+
+async def test_position_reconciliation_producer_records_data_domain_and_keeps_identity(
+    workflow_session,
+):
+    session = workflow_session
+    entity = Entity(name="Synthetic reconciliation company", entity_type="company")
+    session.add(entity)
+    await session.flush()
+    security = Security(
+        entity_id=entity.id,
+        ticker="SYNREVIEW",
+        asset_class="equity",
+        instrument_type="common_stock",
+    )
+    session.add(security)
+    await session.flush()
+    position = Position(
+        security_id=security.id, direction="long", list_type="holding", quantity=7
+    )
+    session.add(position)
+    await session.flush()
+    service = PortfolioService(session)
+    await service.reconcile_positions(
+        [{"ticker": security.ticker, "quantity": 9}], broker_cash=500
+    )
+    review = await session.scalar(
+        select(ReviewQueueItem).where(
+            ReviewQueueItem.item_id == position.id,
+            ReviewQueueItem.review_domain == "portfolio_data",
+        )
+    )
+    assert review is not None and review.item_type == "position"
+    review_id = review.id
+    await service.reconcile_positions(
+        [{"ticker": security.ticker, "quantity": 10}], broker_cash=500
+    )
+    assert (
+        await session.scalar(
+            select(ReviewQueueItem).where(ReviewQueueItem.item_id == position.id)
+        )
+    ).id == review_id
+    await session.refresh(position)
+    assert position.quantity == 7
+    response = await ReviewService(session)._serialize(review)
+    assert "reconciliation" in response.next_action
+    assert "broker" in response.why_now_summary
+    assert "thesis" not in response.why_now_summary
+
+
+async def test_review_domain_migration_preserves_concerns_and_only_backfills_known_producers(
+    workflow_session,
+):
+    session = workflow_session
+    await session.execute(
+        text(
+            "CREATE TEMP TABLE review_queue_items (id UUID PRIMARY KEY, item_type TEXT NOT NULL, trigger_reason TEXT NOT NULL, status TEXT NOT NULL, priority_score FLOAT NOT NULL)"
+        )
+    )
+    examples = [
+        ("mailbox_identity", "Synthetic identity hold", "portfolio_data"),
+        ("mailbox_receipt", "Synthetic unverified receipt", "portfolio_data"),
+        ("corporate_action", "Synthetic corporate action", "portfolio_data"),
+        ("account_transfer", "Synthetic transfer", "portfolio_data"),
+        ("reconciliation", "Synthetic cash discrepancy", "portfolio_data"),
+        (
+            "position",
+            "Reconciliation discrepancy for SYN: book=7 vs broker=9 (quantity_mismatch)",
+            "portfolio_data",
+        ),
+        ("position", "Holding lacks a strong accepted state.", "investment"),
+        ("position", "Unclassified historical position concern", "investment"),
+        ("raw_evidence", "Synthetic investment disclosure", "investment"),
+        (
+            "entity",
+            "Reconciliation discrepancy for SYN: book=7 vs broker=9 (quantity_mismatch)",
+            "investment",
+        ),
+    ]
+    expected = {}
+    for kind, reason, domain in examples:
+        key = uuid4()
+        expected[key] = (kind, reason, "in_review", 95.0, domain)
+        await session.execute(
+            text(
+                "INSERT INTO review_queue_items VALUES (:id, :kind, :reason, 'in_review', 95.0)"
+            ),
+            {"id": key, "kind": kind, "reason": reason},
+        )
+    spec = importlib.util.spec_from_file_location(
+        "review_domain_upgrade",
+        Path(__file__).parents[1] / "alembic/versions/d9f6b3c1a854_review_domains.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    def upgrade(connection):
+        with Operations.context(MigrationContext.configure(connection)):
+            module.upgrade()
+
+    await (await session.connection()).run_sync(upgrade)
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, item_type, trigger_reason, status, priority_score, review_domain FROM review_queue_items"
             )
         )
     ).all()

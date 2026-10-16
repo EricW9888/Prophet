@@ -22,7 +22,11 @@ from investos.models.review import ReviewQueueItem
 from investos.models.shadow import ExperimentResult, ShadowExperiment
 from investos.models.source import Source
 from investos.models.theme import Theme
-from investos.schemas.review import ReviewQueueItemResponse, ReviewQueuePageResponse
+from investos.schemas.review import (
+    ReviewDomain,
+    ReviewQueueItemResponse,
+    ReviewQueuePageResponse,
+)
 from investos.services.artifact_hygiene import (
     is_artifact_question_text,
     is_artifact_subject_name,
@@ -54,13 +58,13 @@ class ReviewService:
         self.session = session
 
     async def list_queue(
-        self, *, limit: int = 100, offset: int = 0
+        self, *, limit: int = 100, offset: int = 0, domain: ReviewDomain | None = None
     ) -> list[ReviewQueueItemResponse]:
         items = (
             (
                 await self.session.execute(
                     select(ReviewQueueItem)
-                    .where(ReviewQueueItem.status.in_(["pending", "in_review"]))
+                    .where(*self._queue_conditions(domain))
                     .order_by(
                         desc(ReviewQueueItem.priority_score),
                         desc(ReviewQueueItem.created_at),
@@ -76,19 +80,36 @@ class ReviewService:
         return [await self._serialize(item) for item in items]
 
     async def queue_page(
-        self, *, limit: int = 100, offset: int = 0
+        self, *, limit: int = 100, offset: int = 0, domain: ReviewDomain | None = None
     ) -> ReviewQueuePageResponse:
+        counts = await self.queue_counts()
         return ReviewQueuePageResponse(
-            items=await self.list_queue(limit=limit, offset=offset),
-            total=await self.queue_count(),
+            items=await self.list_queue(limit=limit, offset=offset, domain=domain),
+            total=counts[domain] if domain else sum(counts.values()),
+            counts=counts,
         )
 
-    async def queue_count(self) -> int:
+    @staticmethod
+    def _queue_conditions(domain: ReviewDomain | None = None) -> list:
+        conditions = [ReviewQueueItem.status.in_(["pending", "in_review"])]
+        if domain is not None:
+            conditions.append(ReviewQueueItem.review_domain == domain)
+        return conditions
+
+    async def queue_counts(self) -> dict[ReviewDomain, int]:
+        rows = await self.session.execute(
+            select(ReviewQueueItem.review_domain, func.count())
+            .where(*self._queue_conditions())
+            .group_by(ReviewQueueItem.review_domain)
+        )
+        return {"investment": 0, "portfolio_data": 0, **dict(rows.all())}
+
+    async def queue_count(self, domain: ReviewDomain | None = None) -> int:
         return (
             await self.session.scalar(
                 select(func.count())
                 .select_from(ReviewQueueItem)
-                .where(ReviewQueueItem.status.in_(["pending", "in_review"]))
+                .where(*self._queue_conditions(domain))
             )
             or 0
         )
@@ -463,6 +484,7 @@ class ReviewService:
             item_type=item.item_type,
             item_id=item.item_id,
             item_label=label,
+            review_domain=item.review_domain,
             **await self._navigation_context(item),
             priority_score=float(item.priority_score),
             status=item.status,
@@ -891,6 +913,11 @@ class ReviewService:
                 "It is held for comparison with preserved receipts before it can affect the portfolio. "
                 f"{item.trigger_reason}"
             )
+        if item.review_domain == "portfolio_data":
+            return (
+                f"Portfolio records for {label} need comparison with original broker evidence. "
+                f"{item.trigger_reason}"
+            )
         if item.item_type == "source_claim_record":
             source = ctx.get("source_name") or "This source"
             statement = self._shorten(ctx.get("claim_statement"), 160) or label
@@ -975,6 +1002,16 @@ class ReviewService:
             return (
                 "Open Settings > Data Connections > Receipt identity review, load the reviews, "
                 "and compare original messages and ledger history before confirming the same or a separate receipt."
+            )
+        if item.review_domain == "portfolio_data":
+            if item.item_type in {"position", "reconciliation"}:
+                return (
+                    "Open Positions and compare ledger quantities and cash with a dated broker snapshot. "
+                    "Resolve the discrepancy through portfolio reconciliation before relying on affected balances."
+                )
+            return (
+                "Compare the preserved receipt with the broker document, execution and settlement history. "
+                "Verify identity, amounts, dates and terms before changing portfolio records."
             )
         if item.item_type == "source_claim_record":
             return (
