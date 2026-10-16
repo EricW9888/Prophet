@@ -341,6 +341,7 @@ async def test_review_domains_filter_before_pagination_without_resolving_holds(
     session = workflow_session
     service = ReviewService(session)
     before = await service.queue_counts()
+    created = datetime(2026, 1, 1, tzinfo=UTC)
     holds = [
         ReviewQueueItem(
             item_type="mailbox_identity",
@@ -358,6 +359,7 @@ async def test_review_domains_filter_before_pagination_without_resolving_holds(
             item_id=uuid4(),
             review_domain="investment",
             priority_score=10000,
+            created_at=created,
             trigger_reason="Synthetic investment concern",
         )
         for kind in ["position", "raw_evidence", "entity"]
