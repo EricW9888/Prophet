@@ -1,11 +1,42 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.db import get_session
+from investos.schemas.portfolio_risk import PortfolioRiskState, RiskWatchRequest
 from investos.schemas.risk import PerformanceAttributionResponse, RiskSummaryResponse
+from investos.services.portfolio_risk import PortfolioRiskService
 from investos.services.risk import RiskService
 
 router = APIRouter(prefix="/risk", tags=["risk"])
+
+
+@router.get("/portfolio", response_model=PortfolioRiskState)
+async def get_portfolio_risk(session: AsyncSession = Depends(get_session)):
+    return await PortfolioRiskService(session).state()
+
+
+@router.post("/portfolio/refresh", response_model=PortfolioRiskState)
+async def refresh_portfolio_risk(session: AsyncSession = Depends(get_session)):
+    return await PortfolioRiskService(session).refresh()
+
+
+@router.put("/portfolio/watch", response_model=PortfolioRiskState)
+async def configure_portfolio_risk(
+    payload: RiskWatchRequest, session: AsyncSession = Depends(get_session)
+):
+    return await PortfolioRiskService(session).configure(payload)
+
+
+@router.get("/portfolio/packets/{assessment_id}")
+async def get_portfolio_risk_packet(
+    assessment_id: UUID, session: AsyncSession = Depends(get_session)
+):
+    packet = await PortfolioRiskService(session).packet(assessment_id)
+    if packet is None:
+        raise HTTPException(status_code=404, detail="Risk assessment not found")
+    return packet
 
 
 @router.get("/summary", response_model=RiskSummaryResponse)

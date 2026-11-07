@@ -77,6 +77,13 @@ feedback, ownership disclosures, market-setup signals, fundamental metrics,
 and YouTube transcript workflows. Market prices and benchmark context are
 handled separately by the market-data and risk services.
 
+`services/portfolio_risk.py` captures availability-aware daily portfolio stress
+packets in the existing scenario store and evaluates explicit owner loss-budget
+watches. The existing push outbox handles opt-in advisory delivery. This
+deterministic path is separate from the benchmark regime and does not require
+the LLM. See [Portfolio daily-risk advisories](portfolio-risk.md) for its
+calculation, timing and validation boundaries.
+
 External web discovery runs through a provider registry. A configured SearXNG
 endpoint is the free-first path; configured Tavily is a metered fallback when
 the earlier provider fails or returns no usable candidates. A successful first

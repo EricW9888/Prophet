@@ -428,11 +428,9 @@ class RiskService:
         concentration_hhi = 0.0
 
         for position, security, entity in rows:
-            weight_pct = _to_float(position.weight_pct)
-            if weight_pct <= 0 and total_market_value > 0:
-                weight_pct = (
-                    _to_float(position.market_value) / total_market_value
-                ) * 100
+            weight_pct = self.position_weight(
+                _to_float(position.market_value), total_market_value
+            )
             ticker = security.ticker.upper()
             position_exposures.append(
                 ExposureItemResponse(
@@ -920,17 +918,7 @@ class RiskService:
             if month_reference
             else 0.0
         )
-        if month_return <= -0.07:
-            regime_type = "crisis"
-        elif month_return < -0.02:
-            regime_type = "risk_off"
-        elif month_return >= 0.08:
-            regime_type = "euphoria"
-        elif month_return > 0.02:
-            regime_type = "risk_on"
-        else:
-            regime_type = "transition"
-        confidence = min(0.95, max(0.35, abs(month_return) * 5))
+        regime_type, confidence = self.classify_benchmark_return(month_return)
 
         current = (
             await self.session.execute(
@@ -970,6 +958,30 @@ class RiskService:
             start_date=record.start_date,
             end_date=record.end_date,
         )
+
+    @staticmethod
+    def position_weight(market_value: float, total_market_value: float) -> float:
+        """Derive exposure from one valuation snapshot, not a cached weight."""
+        return (
+            market_value / total_market_value * 100 if total_market_value > 0 else 0.0
+        )
+
+    @staticmethod
+    def classify_benchmark_return(month_return: float) -> tuple[str, float]:
+        """The existing 30-day trend rule; not a portfolio risk prediction."""
+        if month_return <= -0.07:
+            regime_type = "crisis"
+        elif month_return < -0.02:
+            regime_type = "risk_off"
+        elif month_return >= 0.08:
+            regime_type = "euphoria"
+        elif month_return > 0.02:
+            regime_type = "risk_on"
+        else:
+            regime_type = "transition"
+        confidence = min(0.95, max(0.35, abs(month_return) * 5))
+
+        return regime_type, confidence
 
     async def _persist_scenarios(
         self,
@@ -1059,8 +1071,9 @@ class RiskService:
                 return price
         return series[0][1] if series else None
 
+    @staticmethod
     def _latest_price_before(
-        self, series: list[tuple[datetime, float]], target: datetime
+        series: list[tuple[datetime, float]], target: datetime
     ) -> float | None:
         candidates = [price for timestamp, price in series if timestamp <= target]
         if candidates:

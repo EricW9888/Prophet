@@ -598,8 +598,9 @@ async def test_shadow_discovery_propagates_provider_failure(monkeypatch):
     service = ShadowService(session=None)
 
     async def discovery_context(*, captured_at):
+        assert captured_at is None  # Live capture fixes its cutoff after acquisition.
         return {
-            "captured_at": captured_at.isoformat(),
+            "captured_at": datetime.now(UTC).isoformat(),
             "portfolio": {
                 "total_market_value": 10_000.0,
                 "remaining_buying_power": 1_000.0,

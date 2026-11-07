@@ -226,7 +226,11 @@ class PushNotificationService:
                     "A monitored condition changed. Open Prophet to review the "
                     "evidence and adjustment plan."
                 ),
-                navigate_path="/timeline",
+                navigate_path=(
+                    "/risk"
+                    if watcher.condition_type == "portfolio_loss_budget"
+                    else "/timeline"
+                ),
                 created_at=datetime.now(UTC),
             )
             .on_conflict_do_nothing(constraint="uq_push_notification_events_event_key")

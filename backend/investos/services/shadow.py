@@ -779,8 +779,7 @@ class ShadowService:
         launches one evidence-linked shadow experiment when warranted.
         Returns the number of experiments created.
         """
-        captured_at = datetime.now(UTC)
-        discovery_context = await self._build_discovery_context(captured_at=captured_at)
+        discovery_context = await self._build_discovery_context(captured_at=None)
         if not discovery_context["candidates"]:
             return 0
 
@@ -934,6 +933,8 @@ class ShadowService:
             "Return should_launch=true only when the opportunity is specific, investable, falsifiable, and relevant to current holdings or cash/risk posture. "
             "Look for a change in an underlying mechanism before lagging reported revenue, earnings, or margins make the change obvious, but never infer such a change from price momentum alone. "
             "Separate observed leading indicators from later confirmation that has not happened yet. Assess what the current price and investor setup may already discount. "
+            "Match volume to return_1d_pct for the same completed session; high volume alone does not show selling. "
+            "A multi-session drawdown can coexist with a rising latest session. Missing or historical_capture_required tape is a coverage gap, never a healthy market signal. "
             "Cite exact evidence_refs from the packet for every launch; use only facts available by captured_at and treat stale, weak, or contradictory evidence accordingly. "
             "Do not invent dollar notionals, quantities, leverage, or portfolio weights. Use only supplied values or express sizing as a bounded percentage of an existing position. "
             "A launchable idea must name why now, the portfolio transmission route, expected edge, evidence references, falsification tests, uncertainty, and risk controls. "
@@ -952,7 +953,7 @@ class ShadowService:
     async def build_discovery_context(
         self,
         *,
-        captured_at: datetime,
+        captured_at: datetime | None = None,
         additional_security_ids: list[UUID] | None = None,
     ) -> dict[str, Any]:
         rows = (
@@ -996,12 +997,26 @@ class ShadowService:
             security.ticker for _, security, _ in subject_rows if security.ticker
         ]
         runtime = RuntimeSettingsStore.load()
-        tape_by_ticker = (
-            await MarketDataService(self.session).fetch_signal_snapshots(tickers)
-            if runtime.market_data.enabled
-            and runtime.market_data.provider == "yahoo_finance"
-            else {}
+        from investos.services.portfolio_risk import PortfolioRiskService
+
+        frozen_tape = (
+            await PortfolioRiskService(self.session).snapshots_at(tickers, captured_at)
+            if captured_at
+            else None
         )
+        tape_by_ticker = (
+            frozen_tape
+            if frozen_tape is not None
+            else (
+                await MarketDataService(self.session).fetch_signal_snapshots(
+                    tickers, cutoff=captured_at
+                )
+                if runtime.market_data.enabled
+                and runtime.market_data.provider == "yahoo_finance"
+                else {}
+            )
+        )
+        captured_at = captured_at or datetime.now(UTC)
         metric_service = FundamentalMetricService(self.session)
         setup_service = MarketSetupSignalService(self.session)
         evidence_registry: list[dict[str, Any]] = []
@@ -1036,6 +1051,12 @@ class ShadowService:
                 captured_at=captured_at,
             )
             tape = tape_by_ticker.get(str(security.ticker or "").upper())
+            if tape:
+                tape = {
+                    key: value
+                    for key, value in tape.items()
+                    if key != "daily_observations"
+                }
             if tape and tape.get("signal_ref"):
                 evidence_registry.append(
                     {
@@ -1173,7 +1194,7 @@ class ShadowService:
         }
 
     async def _build_discovery_context(
-        self, *, captured_at: datetime
+        self, *, captured_at: datetime | None = None
     ) -> dict[str, Any]:
         return await self.build_discovery_context(captured_at=captured_at)
 

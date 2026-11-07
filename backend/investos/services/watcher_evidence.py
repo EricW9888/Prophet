@@ -26,7 +26,7 @@ class WatcherEvidenceService:
     """Evaluate open-ended watches against newly extracted, attributable evidence."""
 
     PRICE_CONDITIONS = {"price_above", "price_below"}
-    EVIDENCE_EXCLUDED_CONDITIONS = {"deadline", "reminder"}
+    EVIDENCE_EXCLUDED_CONDITIONS = {"deadline", "reminder", "portfolio_loss_budget"}
     MIN_TRIGGER_CONFIDENCE = 0.8
 
     def __init__(self, session: AsyncSession):

@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 
 import AppNav from "@/components/AppNav";
 import PageHeader from "@/components/PageHeader";
+import PortfolioRiskPanel from "@/components/PortfolioRiskPanel";
 import { API_BASE, apiFetch, BenchmarkRecord, PerformanceAttribution, RiskSummary } from "@/lib/api";
 
 export default function RiskPage() {
@@ -125,6 +126,8 @@ export default function RiskPage() {
           </div>
         ) : null}
 
+        <PortfolioRiskPanel />
+
         {loading || !summary ? (
           <div className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950 text-sm text-slate-500 animate-pulse">
             Loading benchmark context...
@@ -136,7 +139,7 @@ export default function RiskPage() {
               <MetricCard label="Open Cost-Basis Return" value={formatPct(summary.portfolio_return_pct)} detail="Unrealized return on current holdings" />
               <MetricCard label="Top Holding" value={summary.top_holding ?? "n/a"} detail={`${summary.top_holding_weight_pct.toFixed(1)}% weight`} />
               <MetricCard label="Top Sector" value={summary.top_sector ?? "n/a"} detail={`${summary.top_sector_weight_pct.toFixed(1)}% weight`} />
-              <MetricCard label="Regime" value={summary.current_regime?.regime_type ?? "pending"} detail={summary.current_regime ? `${(summary.current_regime.confidence * 100).toFixed(0)}% confidence` : "Refresh to compute"} />
+              <MetricCard label="Benchmark trend" value={summary.current_regime?.regime_type ?? "pending"} detail="30-day price rule · separate from portfolio risk" />
             </section>
 
             <PerformanceAttributionPanel
@@ -170,7 +173,7 @@ export default function RiskPage() {
                 </div>
               </Panel>
 
-              <Panel title="Regime + Scenarios" eyebrow="Portfolio impact framing">
+              <Panel title="Benchmark trend + scenarios" eyebrow="Price rule and hypothetical shocks">
                 <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
                   <p className="text-xs uppercase tracking-wider text-slate-400">Current regime</p>
                   <p className="mt-2 text-lg font-semibold tracking-tight">
@@ -178,7 +181,7 @@ export default function RiskPage() {
                   </p>
                   <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                     {summary.current_regime
-                      ? `${(summary.current_regime.confidence * 100).toFixed(0)}% confidence · ${summary.current_regime.signal_source}`
+                      ? `${summary.current_regime.signal_source} · This label does not measure crash probability.`
                       : "Refresh the risk snapshot to infer regime state from the benchmark."}
                   </p>
                 </div>

@@ -1854,6 +1854,51 @@ export type ReasoningTrace = {
   } | null;
 };
 
+export type PortfolioRiskState = {
+  portfolio_data_review_count?: number;
+  checked_at: string;
+  last_refresh_at: string | null;
+  refresh_interval_seconds: number;
+  automation_enabled: boolean;
+  market_data_enabled: boolean;
+  assessment: {
+    id: string;
+    detected_at: string;
+    packet_hash: string;
+    result: {
+      status: "ready" | "insufficient_data";
+      cutoff: string;
+      currency: string;
+      covered_positions: number;
+      total_positions: number;
+      covered_value: number;
+      matched_returns: number;
+      latest_session_date?: string | null;
+      historical_stress_loss: number | null;
+      covered_stress_loss?: number | null;
+      covered_worst_observed_loss?: number | null;
+      worst_observed_loss: number | null;
+      worst_session: string[] | null;
+      median_pair_correlation: number | null;
+      excluded: Array<{ ticker: string; reason: string }>;
+      issues: string[];
+      limitations: string[];
+      positions: Array<{ ticker: string; security_id: string; weight_pct: number; signal_ref: string | null; return_1d_pct: number | null; volume_ratio: number | null; worst_session_impact?: number }>;
+    };
+  } | null;
+  watch: {
+    id: string;
+    status: string;
+    enabled: boolean;
+    policy: { loss_budget: number; currency: string; max_age_hours: number };
+    last_checked_at: string | null;
+    triggered_at: string | null;
+    detail: string | null;
+    assessment: { assessment_id: string; decision: { state: string; uniform_reduction_to_budget_pct?: number } } | null;
+  } | null;
+  delivery: Array<{ status: string; queued_at: string; delivered_at: string | null }>;
+};
+
 export type RiskSummary = {
   as_of: string;
   active_benchmark?: BenchmarkRecord | null;

@@ -1517,13 +1517,13 @@ class AutomationCoordinator:
                     return
 
                 result = await MarketDataService(session).refresh_live_prices()
-                telemetry.last_status = "ok"
+                telemetry.last_status = "ok" if result["detail"] == "ok" else "partial"
                 telemetry.detail = (
                     f"updated={result['updated']} detail={result['detail']}"
                 )
                 self._log_job_action(
                     job_name="market_data_refresh",
-                    status="ok",
+                    status=telemetry.last_status,
                     summary=f"Market data refresh updated {result['updated']} prices.",
                     metadata=result,
                 )
@@ -1605,6 +1605,9 @@ class AutomationCoordinator:
         async with async_session_maker() as session:
             try:
                 runtime = RuntimeSettingsStore.load()
+                from investos.services.portfolio_risk import PortfolioRiskService
+
+                portfolio_risk = await PortfolioRiskService(session).refresh()
                 if not runtime.portfolio.default_benchmark_ticker:
                     telemetry.last_status = "waiting_for_config"
                     telemetry.detail = (
@@ -1620,16 +1623,34 @@ class AutomationCoordinator:
                 benchmark = (
                     result.active_benchmark.ticker if result.active_benchmark else "n/a"
                 )
-                telemetry.last_status = "ok"
+                portfolio_status = (
+                    portfolio_risk.assessment.result["status"]
+                    if portfolio_risk.assessment
+                    else "unavailable"
+                )
+                telemetry.last_status = (
+                    "ok" if portfolio_status == "ready" else "partial"
+                )
                 telemetry.detail = (
+                    f"portfolio_risk={portfolio_status} "
                     f"benchmark={benchmark} attribution_return_pct={attribution.return_pct} "
                     f"attribution_coverage_pct={attribution.coverage_pct}"
                 )
                 self._log_job_action(
                     job_name="risk_refresh",
-                    status="ok",
+                    status=telemetry.last_status,
                     summary=f"Risk summary refreshed against {benchmark}.",
                     metadata={
+                        "portfolio_risk_assessment_id": (
+                            str(portfolio_risk.assessment.id)
+                            if portfolio_risk.assessment
+                            else None
+                        ),
+                        "portfolio_risk_status": (
+                            portfolio_risk.assessment.result["status"]
+                            if portfolio_risk.assessment
+                            else "unavailable"
+                        ),
                         "benchmark": benchmark,
                         "active_return_pct": attribution.active_return_pct,
                         "attribution_return_pct": attribution.return_pct,
