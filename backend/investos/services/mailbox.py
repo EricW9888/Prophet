@@ -37,6 +37,7 @@ from investos.services.portfolio import (
     MailboxTransactionReconciliationRequired,
     PortfolioService,
 )
+from investos.services.receipt_attention import ReceiptAttentionService
 from investos.services.runtime_settings import RuntimeSettingsStore
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -1032,10 +1033,53 @@ class GmailMailboxService:
         if (evidence.metadata_json or {}).get("identity_review", {}).get(
             "status"
         ) == "pending":
+            # Classification may order human attention, but cannot lift this
+            # identity hold or enter any posting/reconciliation path.
+            classification = (evidence.metadata_json or {}).get(
+                "mailbox_classification"
+            )
+            unavailable = False
+            if classification is None:
+                sender_domains = {
+                    address.rsplit("@", 1)[-1].lower()
+                    for _, address in email.utils.getaddresses([sender])
+                    if "@" in address
+                }
+                if any(
+                    domain == "robinhood.com" or domain.endswith(".robinhood.com")
+                    for domain in sender_domains
+                ):
+                    classification = self._parse_robinhood_deterministic(
+                        body, subject=subject
+                    )
+                method = "deterministic" if classification is not None else "model"
+                if classification is None and allow_model:
+                    try:
+                        classification = await self._classify_message(
+                            subject=subject, sender=sender, body=body
+                        )
+                    except (LLMProviderCooldownError, httpx.HTTPError, TimeoutError):
+                        unavailable = True
+                if classification is not None:
+                    evidence.metadata_json = {
+                        **(evidence.metadata_json or {}),
+                        "mailbox_classification": classification,
+                        "attention_classification": {
+                            "method": method,
+                            "recorded_at": datetime.now(UTC).isoformat(),
+                            "raw_sha256": evidence.content_hash,
+                            "purpose": "review_priority_only",
+                            "input_truncated": method == "model"
+                            and self._classification_body(body)
+                            != " ".join(body.split()),
+                        },
+                    }
+            await ReceiptAttentionService(self.session).refresh(evidence_id=evidence.id)
             return {
                 "transaction_created": False,
                 "needs_reconciliation": True,
                 "evidence_id": str(evidence.id),
+                "classification_deferred": unavailable,
             }
         if await self._already_ingested(uid, identity):
             return {
@@ -1330,6 +1374,10 @@ class GmailMailboxService:
             )
         )
 
+    @staticmethod
+    def _classification_body(body: str) -> str:
+        return bounded_document_excerpt(body, head_chars=2200, tail_chars=700)
+
     async def _classify_message(
         self, *, subject: str, sender: str, body: str, model: str | None = None
     ) -> dict[str, Any]:
@@ -1361,9 +1409,7 @@ class GmailMailboxService:
                     {
                         "subject": subject,
                         "sender": sender,
-                        "body": bounded_document_excerpt(
-                            body, head_chars=2200, tail_chars=700
-                        ),
+                        "body": self._classification_body(body),
                     },
                     ensure_ascii=True,
                 ),

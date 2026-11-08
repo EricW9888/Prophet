@@ -75,6 +75,18 @@ hosted classification and review. No paid connector or local model is required.
 
 ## Reconciliation
 
+Receipt-identity holds are ordered by attributable context when the review queue
+is refreshed: existing current/candidate ledger links first, provisional financial
+document classifications next, unknown or contradictory relevance next, and
+consistently classified newsletters last. Missing candidate evidence stays
+uncertain. Original subjects do not decide priority. The existing classifier's
+confidence measures transaction confidence, not certainty that a document is a
+newsletter. Explanations remain visible in Review; ordering occurs before SQL
+pagination. Classification during ingestion can inform attention while identity
+is held, but never accepts an identity or posts a transaction. Old unclassified
+receipts remain uncertain until classified; refreshing the queue makes no model
+calls. Pending and in-progress holds, receipt IDs and ledger records are retained.
+
 Compare source receipts to transaction provenance, then independently replay
 settled transactions and compare quantities, lots, and cash. Check receipt gaps,
 duplicate candidates, missing opening balances, corrections, corporate actions,
