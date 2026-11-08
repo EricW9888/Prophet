@@ -147,6 +147,10 @@ class WatcherService:
         adjustment_plan: str,
         deadline: datetime | None = None,
     ) -> ActiveWatcher:
+        if condition_type == "portfolio_loss_budget":
+            raise ValueError(
+                "Portfolio loss budgets must be configured by the owner in Risk."
+            )
         params = dict(condition_params or {})
         status = "pending"
         is_active = True

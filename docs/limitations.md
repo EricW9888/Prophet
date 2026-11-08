@@ -134,6 +134,14 @@ executable or would have produced the same return.
 Portfolio attribution is only as reliable as the transaction ledger, cash
 flows, corporate actions, price history, and selected measurement window.
 
+Daily portfolio risk advisories replay a small sample of simultaneous historical
+returns under current holdings. They do not predict crashes, bound future loss,
+model intraday news or establish a calibrated alert policy. Missing/stale or
+unsupported exposure prevents a budget verdict. Current adjusted provider
+history is not a historical original vintage. Alerts require an explicit owner
+budget and a running host; push is opt-in and service acceptance does not prove
+the owner saw it. See [Portfolio daily-risk advisories](portfolio-risk.md).
+
 ## Verification Depth
 
 The backend has a substantial synthetic regression suite and a branch-coverage

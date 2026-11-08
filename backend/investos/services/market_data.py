@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 import math
 import statistics
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from sqlalchemy import select
@@ -73,7 +74,13 @@ class MarketDataService:
             if security is None or not security.ticker:
                 continue
             quote = quotes.get(security.ticker.upper())
-            if quote is None:
+            if (
+                quote is None
+                or quote.get("currency") != "USD"
+                or quote.get("reported_symbol") != security.ticker.upper()
+                or not self._finite_number(quote.get("price"))
+                or float(quote["price"]) <= 0
+            ):
                 continue
             price = _to_decimal(quote.get("price"))
             quantity = _to_decimal(position.quantity)
@@ -94,21 +101,54 @@ class MarketDataService:
             updates.append(position)
             updated += 1
 
+        # Failed quotes retain their last valuation. Normalize all retained
+        # values together; updated-only weights plus old weights can exceed 100%.
+        total_market_value = sum(
+            (_to_decimal(position.market_value) for position in rows), Decimal("0")
+        )
         if total_market_value > 0:
-            for position in updates:
+            for position in rows:
                 position.weight_pct = float(
                     (_to_decimal(position.market_value) / total_market_value)
                     * Decimal("100")
                 )
 
         await self.session.commit()
-        return {"updated": updated, "detail": "ok"}
+        unavailable = [
+            p.security.ticker for p in rows if p not in updates and p.security
+        ]
+        return {
+            "updated": updated,
+            "detail": "partial" if unavailable else "ok",
+            "unavailable_tickers": unavailable,
+            "retained_stale_valuations": len(unavailable),
+        }
 
     async def get_live_price(self, ticker: str) -> dict[str, Any]:
         quotes = await self.fetch_quotes([ticker])
         return quotes.get(ticker.upper()) or {}
 
     async def fetch_quotes(self, tickers: list[str]) -> dict[str, dict[str, Any]]:
+        semaphore = asyncio.Semaphore(4)
+
+        async def fetch_one(ticker: str) -> dict[str, dict[str, Any]]:
+            async with semaphore:
+                try:
+                    return await self._fetch_quotes([ticker])
+                except Exception:
+                    return {}
+
+        rows = await asyncio.gather(
+            *(
+                fetch_one(ticker)
+                for ticker in sorted(
+                    {str(t).strip().upper() for t in tickers if str(t).strip()}
+                )
+            )
+        )
+        return {ticker: quote for row in rows for ticker, quote in row.items()}
+
+    async def _fetch_quotes(self, tickers: list[str]) -> dict[str, dict[str, Any]]:
         quotes: dict[str, dict[str, Any]] = {}
         async with httpx.AsyncClient(timeout=15.0) as client:
             for ticker in tickers:
@@ -161,6 +201,8 @@ class MarketDataService:
                             else None
                         ),
                         "name": meta.get("longName") or meta.get("shortName"),
+                        "currency": meta.get("currency"),
+                        "reported_symbol": meta.get("symbol"),
                     }
         return quotes
 
@@ -225,16 +267,31 @@ class MarketDataService:
         ticker: str,
         *,
         range_value: str = "6mo",
+        cutoff: datetime | None = None,
     ) -> dict[str, object]:
-        """Return a point-in-time tape snapshot without interpreting the investment case."""
+        """Capture completed daily bars, with acquisition and completion clocks.
+
+        Yahoo's current historical revision cannot establish what was retrievable
+        at a past cutoff. Historical evaluations must use a previously frozen packet.
+        """
+        if cutoff is not None and cutoff < datetime.now(UTC):
+            return {
+                **self.build_signal_snapshot(ticker=ticker, observations=[]),
+                "status": "historical_capture_required",
+            }
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.get(
                 self.CHART_URL_TEMPLATE.format(ticker=ticker),
-                params={"interval": "1d", "range": range_value},
+                params={
+                    "interval": "1d",
+                    "range": range_value,
+                    "includeAdjustedClose": "true",
+                },
                 headers={"User-Agent": "Mozilla/5.0"},
             )
             response.raise_for_status()
             payload = response.json()
+        retrieved_at = datetime.now(UTC)
 
         result = (payload.get("chart") or {}).get("result") or []
         if not result:
@@ -244,20 +301,71 @@ class MarketDataService:
         quote = ((chart.get("indicators") or {}).get("quote") or [{}])[0]
         closes = quote.get("close") or []
         volumes = quote.get("volume") or []
+        adjusted = ((chart.get("indicators") or {}).get("adjclose") or [{}])[0].get(
+            "adjclose"
+        ) or []
+        meta = chart.get("meta") or {}
+        try:
+            timezone = ZoneInfo(meta.get("exchangeTimezoneName") or "UTC")
+        except ZoneInfoNotFoundError:
+            timezone = ZoneInfo("UTC")
+        regular = (meta.get("currentTradingPeriod") or {}).get("regular") or {}
+        session_start = regular.get("start")
+        session_end = regular.get("end")
+
+        def completed_at(timestamp: int) -> datetime:
+            day = datetime.fromtimestamp(timestamp, timezone).date()
+            if (
+                session_start
+                and session_end
+                and datetime.fromtimestamp(session_start, timezone).date() == day
+            ):
+                return datetime.fromtimestamp(session_end, UTC)
+            # Older bars have no verified historical exchange schedule. Wait
+            # until the next local date rather than inventing a session close.
+            return datetime.combine(
+                day + timedelta(days=1), time.min, timezone
+            ).astimezone(UTC)
+
         observations = [
             {
                 "timestamp": datetime.fromtimestamp(timestamp, tz=UTC),
                 "close": float(close),
+                "adjusted_close": (
+                    self._finite_number(adjusted[index])
+                    if index < len(adjusted)
+                    else None
+                ),
+                "completed_at": completed_at(timestamp),
+                "available_at": retrieved_at,
                 "volume": (
                     None
                     if index >= len(volumes) or volumes[index] is None
-                    else float(volumes[index])
+                    else self._finite_number(volumes[index])
                 ),
             }
             for index, (timestamp, close) in enumerate(zip(timestamps, closes))
             if close is not None
         ]
-        return self.build_signal_snapshot(ticker=ticker, observations=observations)
+        snapshot = self.build_signal_snapshot(
+            ticker=ticker,
+            observations=observations,
+            cutoff=min(cutoff, retrieved_at) if cutoff else retrieved_at,
+        )
+        snapshot.update(
+            {
+                "retrieved_at": retrieved_at.isoformat(),
+                "provider": "yahoo_finance",
+                "reported_symbol": meta.get("symbol"),
+                "reported_exchange": meta.get("exchangeName"),
+                "exchange_timezone": str(timezone),
+                "as_of_kind": "daily_bar_label",
+                "currency": meta.get("currency"),
+                "price_basis": "provider_adjusted_current_revision",
+                "historical_availability_verified": False,
+            }
+        )
+        return snapshot
 
     async def fetch_signal_snapshots(
         self,
@@ -265,6 +373,7 @@ class MarketDataService:
         *,
         range_value: str = "6mo",
         concurrency: int = 4,
+        cutoff: datetime | None = None,
     ) -> dict[str, dict[str, object]]:
         semaphore = asyncio.Semaphore(max(1, min(int(concurrency or 4), 8)))
 
@@ -272,10 +381,14 @@ class MarketDataService:
             async with semaphore:
                 try:
                     return ticker, await self.fetch_signal_snapshot(
-                        ticker, range_value=range_value
+                        ticker, range_value=range_value, cutoff=cutoff
                     )
                 except Exception:
-                    return ticker, None
+                    return ticker, {
+                        "ticker": ticker,
+                        "as_of": None,
+                        "status": "unavailable",
+                    }
 
         normalized = sorted(
             {
@@ -285,17 +398,14 @@ class MarketDataService:
             }
         )
         rows = await asyncio.gather(*(fetch_one(ticker) for ticker in normalized))
-        return {
-            ticker: snapshot
-            for ticker, snapshot in rows
-            if snapshot and snapshot.get("as_of")
-        }
+        return {ticker: snapshot for ticker, snapshot in rows if snapshot}
 
     @staticmethod
     def build_signal_snapshot(
         *,
         ticker: str,
         observations: list[dict[str, object]],
+        cutoff: datetime | None = None,
     ) -> dict[str, object]:
         """Compute generic observable tape features; leave interpretation to the analyst."""
         clean = [
@@ -303,6 +413,16 @@ class MarketDataService:
             for item in observations
             if isinstance(item.get("timestamp"), datetime)
             and MarketDataService._finite_number(item.get("close")) is not None
+            and float(item["close"]) > 0
+            and (
+                cutoff is None
+                or all(
+                    isinstance(item.get(clock), datetime)
+                    and item[clock].tzinfo is not None
+                    and item[clock] <= cutoff
+                    for clock in ("timestamp", "completed_at", "available_at")
+                )
+            )
         ]
         clean.sort(key=lambda item: item["timestamp"])
         if not clean:
@@ -313,7 +433,17 @@ class MarketDataService:
                 "observations": 0,
             }
 
-        closes = [float(item["close"]) for item in clean]
+        raw_closes = [float(item["close"]) for item in clean]
+        adjusted_complete = all(
+            MarketDataService._finite_number(item.get("adjusted_close")) is not None
+            and float(item["adjusted_close"]) > 0
+            for item in clean
+        )
+        closes = (
+            [float(item["adjusted_close"]) for item in clean]
+            if adjusted_complete
+            else raw_closes
+        )
         current = closes[-1]
         as_of = clean[-1]["timestamp"]
         daily_returns = [
@@ -357,7 +487,13 @@ class MarketDataService:
             "as_of": as_of.isoformat(),
             "signal_ref": f"market:{ticker.upper()}:{as_of.date().isoformat()}",
             "observations": len(clean),
-            "current_price": round(current, 4),
+            "current_price": round(raw_closes[-1], 4),
+            "return_price_basis": (
+                "provider_adjusted" if adjusted_complete else "unadjusted"
+            ),
+            "completed_at": clean[-1].get("completed_at", as_of).isoformat(),
+            "available_at": clean[-1].get("available_at", as_of).isoformat(),
+            "return_1d_pct": period_return(1),
             "return_5d_pct": period_return(5),
             "return_20d_pct": period_return(20),
             "return_60d_pct": period_return(60),
@@ -369,6 +505,15 @@ class MarketDataService:
             ),
             "annualized_volatility_20d_pct": volatility,
             "latest_volume_vs_prior_20d": volume_ratio,
+            "volume_comparison_observations": len(recent_volumes),
+            "volume_window": "latest_completed_session_vs_prior_up_to_20_sessions",
+            "daily_observations": [
+                {
+                    key: value.isoformat() if isinstance(value, datetime) else value
+                    for key, value in item.items()
+                }
+                for item in clean
+            ],
         }
 
     @staticmethod

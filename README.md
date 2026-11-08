@@ -205,11 +205,9 @@ connector or model quality.
 
 Frontend audits reject low-severity and higher findings in production without
 exceptions, then audit the full dependency tree with pinned `audit-ci`.
-`frontend/audit-ci.json` contains one owner-approved development lint exception
-for GHSA-vfj7-8cjw-p6xm on its exact dependency path, expiring at the end of
-October 24, 2026 (America/Chicago). [Issue #114](https://github.com/EricW9888/Prophet/issues/114)
-tracks its removal when upstream publishes a fix; all other paths and advisories
-remain blocking.
+`frontend/audit-ci.json` has an empty allowlist. The lint toolchain uses a scoped
+patched minimatch dependency, verified through the actual TypeScript project
+service; this does not exempt an advisory or disable lint coverage.
 
 ## Data and Secrets
 

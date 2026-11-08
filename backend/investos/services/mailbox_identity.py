@@ -284,6 +284,7 @@ class MailboxIdentityService:
             self.session.add(
                 ReviewQueueItem(
                     review_domain="portfolio_data",
+                    evidence_id=evidence.id,
                     item_type="mailbox_identity",
                     item_id=evidence.id,
                     priority_score=95,

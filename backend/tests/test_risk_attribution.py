@@ -6,6 +6,14 @@ import pytest
 from investos.services.risk import RiskService
 
 
+def test_exposure_weights_use_one_current_valuation_not_stored_weights():
+    values = [600, 250, 150]
+    weights = [RiskService.position_weight(value, sum(values)) for value in values]
+    assert weights == [60, 25, 15]
+    assert sum(weights) == 100
+    assert RiskService.position_weight(10, 0) == 0
+
+
 def _transaction(
     *, action: str, quantity: float, price: float | None, executed_at: datetime
 ):

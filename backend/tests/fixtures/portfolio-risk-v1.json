@@ -1,0 +1,127 @@
+{
+  "version": "portfolio-risk-regression-v1",
+  "packet_hashes": {
+    "shared_exposure": "08d2e600b23384894d436173ca715cadb6d7769fe8a573778fea008f6856af96",
+    "rising": "a68b717e4eee9b6374c402e944dce14dca57133c335435939308f991c0dcb5b0",
+    "quiet": "5006a48358c6046f0d4f9598b557bad7f28fbba35dd7a2527b6f34735e3117b6"
+  },
+  "response_policy": {
+    "loss_budget": 50,
+    "reduction_fraction": 0.25,
+    "delivery_seconds": 30,
+    "response_seconds": 600,
+    "cost_bps_each_way": 10
+  },
+  "cases": {
+    "decline": {
+      "packet_hash": "08d2e600b23384894d436173ca715cadb6d7769fe8a573778fea008f6856af96",
+      "policy_hash": "b6c31ad6912e3e75e0b7bcdbe629a5c4a72b290d96444f70f0921c704f1a54eb",
+      "detected_at": "2025-05-21T22:00:00+00:00",
+      "delivered_at": "2025-05-21T22:00:30+00:00",
+      "candidate_alert": true,
+      "unchanged_benchmark_regime": "transition",
+      "hold_ending_value": 2294.4135,
+      "hold_loss": 404.9,
+      "candidate": {
+        "ending_value": 2367.35,
+        "fill_at": "2025-05-22T14:00:00+00:00",
+        "reentry_at": "2025-05-23T14:00:00+00:00",
+        "turnover": 1294.37,
+        "cost": 1.29
+      },
+      "unchanged_rule": {
+        "ending_value": 2294.41,
+        "fill_at": null,
+        "turnover": 0.0,
+        "cost": 0.0
+      },
+      "candidate_loss_avoided": 72.94,
+      "lost_upside": 0,
+      "missed_warning": false,
+      "unnecessary_alert": false,
+      "limitations": "Synthetic aggregate quotes; no taxes, spreads, market impact, liquidity or calibrated predictive rate. Policy is not optimized."
+    },
+    "rebound": {
+      "packet_hash": "08d2e600b23384894d436173ca715cadb6d7769fe8a573778fea008f6856af96",
+      "policy_hash": "b6c31ad6912e3e75e0b7bcdbe629a5c4a72b290d96444f70f0921c704f1a54eb",
+      "detected_at": "2025-05-21T22:00:00+00:00",
+      "delivered_at": "2025-05-21T22:00:30+00:00",
+      "candidate_alert": true,
+      "unchanged_benchmark_regime": "transition",
+      "hold_ending_value": 2969.241,
+      "hold_loss": -269.93,
+      "candidate": {
+        "ending_value": 2873.47,
+        "fill_at": "2025-05-22T14:00:00+00:00",
+        "reentry_at": "2025-05-23T14:00:00+00:00",
+        "turnover": 1294.37,
+        "cost": 1.29
+      },
+      "unchanged_rule": {
+        "ending_value": 2969.24,
+        "fill_at": null,
+        "turnover": 0.0,
+        "cost": 0.0
+      },
+      "candidate_loss_avoided": -95.77,
+      "lost_upside": 95.77,
+      "missed_warning": false,
+      "unnecessary_alert": true,
+      "limitations": "Synthetic aggregate quotes; no taxes, spreads, market impact, liquidity or calibrated predictive rate. Policy is not optimized."
+    },
+    "host_offline": {
+      "packet_hash": "08d2e600b23384894d436173ca715cadb6d7769fe8a573778fea008f6856af96",
+      "policy_hash": "b6c31ad6912e3e75e0b7bcdbe629a5c4a72b290d96444f70f0921c704f1a54eb",
+      "detected_at": null,
+      "delivered_at": null,
+      "candidate_alert": false,
+      "unchanged_benchmark_regime": "transition",
+      "hold_ending_value": 2294.4135,
+      "hold_loss": 404.9,
+      "candidate": {
+        "ending_value": 2294.41,
+        "fill_at": null,
+        "turnover": 0.0,
+        "cost": 0.0
+      },
+      "unchanged_rule": {
+        "ending_value": 2294.41,
+        "fill_at": null,
+        "turnover": 0.0,
+        "cost": 0.0
+      },
+      "candidate_loss_avoided": -0.0,
+      "lost_upside": 0.0,
+      "missed_warning": true,
+      "unnecessary_alert": false,
+      "limitations": "Synthetic aggregate quotes; no taxes, spreads, market impact, liquidity or calibrated predictive rate. Policy is not optimized."
+    },
+    "late_response": {
+      "packet_hash": "08d2e600b23384894d436173ca715cadb6d7769fe8a573778fea008f6856af96",
+      "policy_hash": "12b6acfe27b21407f959e65e1d90cbbfbb44e7b757bded7a94d82fcc3903b667",
+      "detected_at": "2025-05-21T22:00:00+00:00",
+      "delivered_at": "2025-05-21T22:00:30+00:00",
+      "candidate_alert": true,
+      "unchanged_benchmark_regime": "transition",
+      "hold_ending_value": 2294.4135,
+      "hold_loss": 404.9,
+      "candidate": {
+        "ending_value": 2294.41,
+        "fill_at": null,
+        "turnover": 0.0,
+        "cost": 0.0
+      },
+      "unchanged_rule": {
+        "ending_value": 2294.41,
+        "fill_at": null,
+        "turnover": 0.0,
+        "cost": 0.0
+      },
+      "candidate_loss_avoided": -0.0,
+      "lost_upside": 0.0,
+      "missed_warning": false,
+      "unnecessary_alert": false,
+      "limitations": "Synthetic aggregate quotes; no taxes, spreads, market impact, liquidity or calibrated predictive rate. Policy is not optimized."
+    }
+  }
+}
