@@ -40,6 +40,24 @@ has been reconciled.
 
 ## Choose a watch deliberately
 
+For a verified symbol change of the same instrument, **Correct a listed symbol**
+retains the old/new names, effective date, owner reason, reference URL and actual
+recording time in the existing append-only knowledge audit. The catalog update
+uses an expected-current-symbol guard, serializes competing updates and rejects
+conflicting current or historical identities. Existing position/security IDs,
+quantities, lots, transactions, cash and original receipts remain intact.
+Backfilled broker imports resolve historical names through this audit rather
+than creating a second security. Reused or ambiguous symbols require identity
+review. These are owner-confirmed metadata corrections, not independently
+verified corporate actions or reconstructed historical provider vintages.
+
+`POST /api/portfolio/securities/{id}/symbol` requires an explicit same-instrument
+confirmation; `GET /api/portfolio/securities/{id}/symbol-history` exposes its
+receipt. Future effective dates cannot change today's catalog. A split, merger,
+ADR conversion or other quantity change needs the portfolio reconciliation path.
+
+### Loss budget
+
 Set a positive USD loss budget and maximum completed-close age. The default age
 is 96 elapsed hours including weekends, not an exchange-calendar guarantee.
 There is no default monetary budget. The generic model watch tool cannot create
@@ -102,6 +120,10 @@ deterministic benchmark compares hold, the unchanged monthly benchmark rule and
 one declared fractional response. It includes delivery/response latency, opening
 gaps, sale/re-entry costs, lost upside, unnecessary alerts and host downtime.
 Separate outcome quotes cannot alter decision inputs or backdate fills.
+
+The control maps the unchanged monthly benchmark label to the same declared
+hypothetical response. It does not establish that the previous production path
+delivered an alert or executed that response.
 
 These are regression and causal-accounting controls, not unseen live outcomes,
 a measured false-positive rate or an optimal policy. Synthetic aggregate-book

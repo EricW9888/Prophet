@@ -15,6 +15,8 @@ export default function PortfolioRiskPanel() {
   const [age, setAge] = useState("96");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [identity, setIdentity] = useState({ securityId: "", newTicker: "", effectiveDate: "", reference: "", reason: "" });
+  const [symbolReceipt, setSymbolReceipt] = useState<{ security_id: string; ticker: string } | null>(null);
   const requestSequence = useRef(0);
   const mutationPending = useRef(false);
 
@@ -35,7 +37,7 @@ export default function PortfolioRiskPanel() {
     return () => window.clearInterval(timer);
   }, []);
 
-  async function mutate(path: string, method: string, body?: object) {
+  async function mutate(path: string, method: string, body?: object, refreshAfter = false) {
     mutationPending.current = true;
     ++requestSequence.current;
     setBusy(true);
@@ -46,7 +48,12 @@ export default function PortfolioRiskPanel() {
         ...(body ? { body: JSON.stringify(body) } : {}),
       });
       if (!response.ok) throw new Error(await response.text());
-      setState(await response.json());
+      if (refreshAfter) {
+        setSymbolReceipt(await response.json());
+        const refresh = await fetch(`${API_BASE}/risk/portfolio/refresh`, { method: "POST" });
+        if (!refresh.ok) throw new Error(`Symbol saved; risk refresh failed: ${await refresh.text()}`);
+        setState(await refresh.json());
+      } else setState(await response.json());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to update portfolio risk.");
     } finally {
@@ -72,6 +79,7 @@ export default function PortfolioRiskPanel() {
       </div>
 
       {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
+      {symbolReceipt && <p role="status" className="text-sm">Recorded symbol correction to {symbolReceipt.ticker}. <a className="underline" href={`${API_BASE}/portfolio/securities/${symbolReceipt.security_id}/symbol-history`} target="_blank" rel="noreferrer">Inspect symbol history and source</a></p>}
       {!state && !error && <p role="status" className="text-sm text-muted">Loading portfolio risk…</p>}
       {state && (
         <>
@@ -92,6 +100,21 @@ export default function PortfolioRiskPanel() {
               {result.issues.map(issue => <p key={issue} className="text-sm text-muted">{issue}</p>)}
               {result.excluded.length > 0 && <ul className="text-sm text-muted space-y-1">{result.excluded.map((item, index) => <li key={`${item.ticker}-${index}`}>{item.ticker}: {item.reason}</li>)}</ul>}
               {result.excluded.length > 0 && <Link href="/positions" className="inline-block text-sm underline">Review instrument identity and price coverage in Portfolio</Link>}
+              {result.excluded.some(item => item.security_id) && <details className="rounded border border-line p-3 text-sm">
+                <summary className="cursor-pointer font-medium">Correct a listed symbol</summary>
+                <p className="mt-2 text-muted">Use this for a verified symbol change of the same instrument. The original receipt, position, quantity and cost basis remain attached to the same security. The source link and effective date are retained in history. Mergers, splits and share conversions need portfolio reconciliation.</p>
+                <form className="mt-3 grid gap-3 sm:grid-cols-2" onSubmit={event => { event.preventDefault();
+                  const selected = result.excluded.find(item => item.security_id === identity.securityId);
+                  if (selected) void mutate(`/portfolio/securities/${identity.securityId}/symbol`, "POST", { expected_ticker: selected.ticker, new_ticker: identity.newTicker, effective_date: identity.effectiveDate, reference_url: identity.reference, reason: identity.reason, confirmed_same_instrument: true }, true);
+                }}>
+                  <label>Holding<select aria-label="Holding to correct" required value={identity.securityId} onChange={event => setIdentity(current => ({...current, securityId:event.target.value}))} className="mt-1 block w-full rounded border border-line bg-background p-2"><option value="">Choose holding</option>{result.excluded.filter(item => item.security_id).map(item => <option key={item.security_id} value={item.security_id}>{item.ticker}</option>)}</select></label>
+                  <label>Current broker symbol<input aria-label="Current broker symbol" required maxLength={32} value={identity.newTicker} onChange={event => setIdentity(current => ({...current, newTicker:event.target.value.toUpperCase()}))} className="mt-1 block w-full rounded border border-line bg-background p-2" /></label>
+                  <label>Effective date<input aria-label="Symbol effective date" required type="date" value={identity.effectiveDate} onChange={event => setIdentity(current => ({...current, effectiveDate:event.target.value}))} className="mt-1 block w-full rounded border border-line bg-background p-2" /></label>
+                  <label>Exchange or issuer notice<input aria-label="Symbol change source" required type="url" value={identity.reference} onChange={event => setIdentity(current => ({...current, reference:event.target.value}))} className="mt-1 block w-full rounded border border-line bg-background p-2" /></label>
+                  <label className="sm:col-span-2">Why this is the same instrument<input aria-label="Symbol change reason" required minLength={10} maxLength={1000} value={identity.reason} onChange={event => setIdentity(current => ({...current, reason:event.target.value}))} className="mt-1 block w-full rounded border border-line bg-background p-2" /></label>
+                  <button disabled={busy} className="justify-self-start rounded border border-line-strong px-3 py-2 disabled:opacity-50">Save verified symbol correction</button>
+                </form>
+              </details>}
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <caption className="text-left text-muted pb-2">Covered holdings under the same worst sampled session. Median pair correlation: {result.median_pair_correlation ?? "Unavailable"}.</caption>

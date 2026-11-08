@@ -1,8 +1,26 @@
-from datetime import datetime
-from typing import Optional
+from datetime import date, datetime
+from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, field_validator
+
+
+class SecuritySymbolChangeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_ticker: str = Field(min_length=1, max_length=32)
+    new_ticker: str = Field(min_length=1, max_length=32)
+    effective_date: date
+    reference_url: AnyHttpUrl
+    reason: str = Field(min_length=10, max_length=1000)
+    confirmed_same_instrument: Literal[True]
+
+    @field_validator("reference_url")
+    @classmethod
+    def reference_has_no_credentials(cls, value):
+        if value.username or value.password:
+            raise ValueError("Use a reference without embedded credentials")
+        return value
 
 
 class TransactionBase(BaseModel):

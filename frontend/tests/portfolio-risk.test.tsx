@@ -71,6 +71,18 @@ test("a triggered watch displays delivery separately and requires explicit rearm
   assert.ok([...container.querySelectorAll("a")].some(item => item.href.endsWith("/older-packet")));
 });
 
+test("an unresolved security offers an audited symbol correction rather than a new trade", async () => {
+  const data = state();
+  data.assessment!.result.excluded = [{ ticker: "SYN-OLD", security_id: "synthetic-security", reason: "missing quote coverage" }];
+  data.assessment!.result.status = "insufficient_data";
+  handle = () => data;
+  await render();
+  assert.ok(container.querySelector('[aria-label="Holding to correct"]'));
+  assert.ok(container.querySelector('[aria-label="Symbol change source"]'));
+  assert.match(container.textContent!, /original receipt, position, quantity and cost basis remain/);
+  assert.match(container.textContent!, /Save verified symbol correction/);
+});
+
 test("a refresh error preserves the previous assessment and shows the failure", async () => {
   await render();
   globalThis.fetch = async () => new Response("Synthetic provider failure", { status: 503 });

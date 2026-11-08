@@ -2,11 +2,13 @@ import time
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.config import settings
 from investos.core.uploads import read_upload_limited
 from investos.db import get_session
+from investos.models.knowledge_mutation import KnowledgeMutation
 from investos.schemas.portfolio import (
     MailboxTransactionReconcileRequest,
     MailboxTransactionReconcileResponse,
@@ -19,6 +21,7 @@ from investos.schemas.portfolio import (
     ReconcileTextRequest,
     ResearchObjectCreate,
     ResearchObjectResponse,
+    SecuritySymbolChangeRequest,
     TransactionCorrectionRequest,
     TransactionCorrectionResponse,
     TransactionCreate,
@@ -27,8 +30,49 @@ from investos.schemas.portfolio import (
 )
 from investos.services.market_data import MarketDataService
 from investos.services.portfolio import PortfolioService
+from investos.services.security_catalog import SecurityCatalogService
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
+
+
+@router.post("/securities/{security_id}/symbol")
+async def correct_security_symbol(
+    security_id: UUID,
+    payload: SecuritySymbolChangeRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        return await SecurityCatalogService(session).change_symbol(security_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/securities/{security_id}/symbol-history")
+async def security_symbol_history(
+    security_id: UUID, session: AsyncSession = Depends(get_session)
+):
+    rows = (
+        await session.scalars(
+            select(KnowledgeMutation)
+            .where(
+                KnowledgeMutation.node_type == "security",
+                KnowledgeMutation.node_id == security_id,
+                KnowledgeMutation.change_type == "symbol_change",
+            )
+            .order_by(KnowledgeMutation.created_at)
+        )
+    ).all()
+    return [
+        {
+            "id": row.id,
+            "recorded_at": row.created_at,
+            "reason": row.reason,
+            "actor": row.actor,
+            **row.metadata_json,
+        }
+        for row in rows
+    ]
+
 
 MAILBOX_RECONCILIATION_CONFIRMATION = "RECONCILE MAILBOX TRANSACTIONS"
 

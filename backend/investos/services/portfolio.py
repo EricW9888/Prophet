@@ -649,7 +649,14 @@ class PortfolioService:
         if normalized_ticker == "CASH":
             stmt = stmt.where(Transaction.position_id.is_(None))
         else:
-            stmt = stmt.where(Security.ticker == normalized_ticker)
+            security = await SecurityCatalogService(self.session).resolve_existing(
+                normalized_ticker
+            )
+            stmt = (
+                stmt.where(Security.id == security.id)
+                if security
+                else stmt.where(Security.ticker == normalized_ticker)
+            )
         if lock_unprovenanced:
             stmt = stmt.with_for_update(of=Transaction)
         candidates = (await self.session.execute(stmt)).scalars().all()

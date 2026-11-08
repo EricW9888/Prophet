@@ -1880,7 +1880,7 @@ export type PortfolioRiskState = {
       worst_observed_loss: number | null;
       worst_session: string[] | null;
       median_pair_correlation: number | null;
-      excluded: Array<{ ticker: string; reason: string }>;
+      excluded: Array<{ ticker: string; security_id?: string; reason: string }>;
       issues: string[];
       limitations: string[];
       positions: Array<{ ticker: string; security_id: string; weight_pct: number; signal_ref: string | null; return_1d_pct: number | null; volume_ratio: number | null; worst_session_impact?: number }>;

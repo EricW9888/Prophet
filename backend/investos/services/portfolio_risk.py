@@ -176,7 +176,13 @@ def evaluate_packet(packet: dict, *, max_age_hours: int = 96) -> dict:
             ):
                 reason = "stale completed close"
         if reason:
-            excluded.append({"ticker": ticker, "reason": reason})
+            excluded.append(
+                {
+                    "ticker": ticker,
+                    "security_id": position["security_id"],
+                    "reason": reason,
+                }
+            )
             continue
         returns = {}
         tape = MarketDataService.build_signal_snapshot(
