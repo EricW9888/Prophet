@@ -71,6 +71,12 @@ missing records retain their concern without an invented destination. A position
 review uses its own profile when available, then its security's entity profile.
 Its research and verification actions keep the original position subject even
 when the linked reading profile belongs to the underlying company.
+Mailbox reconciliation reviews store an explicit original-evidence reference
+separately from their deduplication key. Their title and receipt action use that
+reference; the review ID, posting hold and ledger remain unchanged. Migration
+`e0a7c4d2b965` backfills direct receipt IDs and exact unique legacy producer keys.
+Conflicting or missing legacy receipt mappings remain unresolved, with no guessed
+account or original.
 The Review surface progressively loads concerns in priority order with an
 explicit total, including concerns beyond the first API page. A linked concern
 is resolved independently of that page. Mailbox identity concerns explain
