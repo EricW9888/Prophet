@@ -37,6 +37,7 @@ from investos.services.question_lifecycle import (
     ACTIVE_QUESTION_STATUSES,
     QuestionLifecycleService,
 )
+from investos.services.receipt_attention import ReceiptAttentionService
 from investos.services.source_claim_policy import (
     days_between,
     source_claim_due_at,
@@ -123,6 +124,7 @@ class ReviewService:
         )
 
     async def refresh_queue(self) -> list[ReviewQueueItemResponse]:
+        await ReceiptAttentionService(self.session).refresh()
         await self.session.execute(
             delete(ReviewQueueItem).where(
                 ReviewQueueItem.status == "pending",

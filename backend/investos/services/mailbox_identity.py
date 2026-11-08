@@ -287,11 +287,15 @@ class MailboxIdentityService:
                     evidence_id=evidence.id,
                     item_type="mailbox_identity",
                     item_id=evidence.id,
-                    priority_score=95,
-                    trigger_reason="Mailbox identity is ambiguous; compare preserved receipts before posting.",
+                    priority_score=80,
+                    trigger_reason="Document relevance is uncertain. Identity is ambiguous; compare preserved receipts before posting.",
                 )
             )
         await self.session.flush()
+        if reason:
+            from investos.services.receipt_attention import ReceiptAttentionService
+
+            await ReceiptAttentionService(self.session).refresh(evidence_id=evidence.id)
         return evidence
 
     def _bind(self, key, kind, evidence_id, scope, provenance):

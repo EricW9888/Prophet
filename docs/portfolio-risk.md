@@ -5,6 +5,14 @@ risk in the invested holdings. A flat broad index can coexist with large,
 correlated position moves. Historical stress describes that exposure; it does
 not predict the direction or timing of the next session.
 
+An elevated stress statistic can persist across many sessions, including rising
+ones. A budget breach therefore calls for exposure review; it does not establish
+that a drop is imminent or that conditions just worsened. The watch is one-shot.
+Rearming under unchanged above-budget conditions can trigger at the next check.
+Paper-policy validation must measure warning frequency, missed losses, lost
+upside, response latency and re-entry across independent market episodes rather
+than selecting a threshold from one attractive retrospective event.
+
 ## Read the assessment
 
 **Check portfolio risk** captures completed daily observations. Background risk
