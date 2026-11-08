@@ -477,7 +477,12 @@ class ReviewService:
         await OwnershipSignalService(self.session).queue_review_items()
 
     async def _serialize(self, item: ReviewQueueItem) -> ReviewQueueItemResponse:
-        label = await self._label(item.item_type, item.item_id)
+        label_id = (
+            (item.evidence_id or item.item_id)
+            if item.item_type in RECEIPT_REVIEW_TYPES
+            else item.item_id
+        )
+        label = await self._label(item.item_type, label_id)
         ctx = await self._review_context(item, label)
         return ReviewQueueItemResponse(
             id=item.id,
@@ -517,7 +522,7 @@ class ReviewService:
             )
             return {"evidence_id": source_item.raw_evidence_id} if source_item else {}
         if item.item_type in RECEIPT_REVIEW_TYPES:
-            raw = await self.session.get(RawEvidence, item.item_id)
+            raw = await self.session.get(RawEvidence, item.evidence_id or item.item_id)
             return {"evidence_id": raw.id} if raw else {}
         model = {"position": Position, "entity": Entity, "theme": Theme}.get(
             item.item_type

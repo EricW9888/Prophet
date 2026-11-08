@@ -11,7 +11,7 @@ from email.header import decode_header, make_header
 from email.message import Message
 from pathlib import Path
 from typing import Any
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 import httpx
 from sqlalchemy import select, text
@@ -1137,6 +1137,7 @@ class GmailMailboxService:
         # it or fabricating a transaction.
         if requires_reconciliation:
             await self._queue_reconciliation_review(
+                evidence_id=evidence.id,
                 external_id=external_id,
                 subject=subject,
                 classification=classification,
@@ -1201,6 +1202,7 @@ class GmailMailboxService:
                 )
             except MailboxTransactionReconciliationRequired:
                 await self._queue_reconciliation_review(
+                    evidence_id=evidence.id,
                     external_id=external_id,
                     subject=subject,
                     classification=classification,
@@ -1274,6 +1276,7 @@ class GmailMailboxService:
     async def _queue_reconciliation_review(
         self,
         *,
+        evidence_id: UUID,
         external_id: str,
         subject: str,
         classification: dict[str, Any],
@@ -1301,6 +1304,9 @@ class GmailMailboxService:
             )
         ).scalar_one_or_none()
         if existing is not None:
+            if existing.evidence_id is not None and existing.evidence_id != evidence_id:
+                raise ValueError("review_receipt_provenance_conflict")
+            existing.evidence_id = evidence_id
             existing.trigger_reason = reason
             existing.review_domain = "portfolio_data"
             existing.priority_score = max(float(existing.priority_score or 0), 70.0)
@@ -1308,6 +1314,7 @@ class GmailMailboxService:
         self.session.add(
             ReviewQueueItem(
                 review_domain="portfolio_data",
+                evidence_id=evidence_id,
                 item_type=(
                     "account_transfer"
                     if document_type == "account_transfer"

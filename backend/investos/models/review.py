@@ -29,6 +29,15 @@ class ReviewQueueItem(Base):
         String, index=True
     )  # position|watchlist|thesis|source|conclusion
     item_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
+    evidence_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey(
+            "raw_evidence.id",
+            name="fk_review_queue_items_evidence_id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        index=True,
+    )
     queue_owner: Mapped[str] = mapped_column(
         String, default="retained", server_default="retained"
     )
