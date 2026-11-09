@@ -119,6 +119,42 @@ symbol was captured; absent symbols remain a coverage gap. Live shadow discovery
 fixes its cutoff after tape acquisition, includes the matching one-session return
 with volume, and omits raw bar arrays from model context.
 
+## Early warning paper trial
+
+Start a trial on Risk to freeze the current benchmark ticker and a 30-day
+research protocol. Each observation uses the first capture of a completed
+benchmark session that opened after declaration. The ordinary risk refresh
+collects these receipts and has seven additional days to score pending
+outcomes. Stop ends collection and retains existing receipts.
+
+The candidate tests whether one source published within 72 hours contains
+attributable high-importance adverse claims linked to at least two distinct
+issuers whose holdings fell at least 1% in the same session. The weak holdings
+must represent at least 25% of the invested book. These are fixed research
+choices. The candidate uses stored claim direction and graph links, so sparse
+or inaccurate extraction can limit its coverage. Claim language, source
+content hash, publication and ingestion times, captured version, and original
+evidence links are retained with decision-time shares, instrument identity,
+price basis, and aligned tape. Repeated source content can trigger once per
+trial. Missing data and a source scan that exceeds its bound are visible.
+
+Holding, the existing 30-day benchmark rule, and the candidate share the same
+next-session comparison. A warning can model a 25% reduction only if the
+next regular open followed detection by at least 15 minutes. Re-entry uses
+that session's close and costs are 10 basis points each way. Decision and
+outcome receipts have separate hashes. Prices and identity must align across
+the two captures. A revised reference close, changed corporate-action basis,
+or missing synchronized opening marks makes that case unavailable. Open-to-
+close fills are paper reference marks with no bid/ask, liquidity, or tax
+model. Paper alerts record detection and a simulated response window.
+
+Report coverage gaps, alerts, responses, misses, unnecessary alerts, lost
+upside, turnover, and mean advantage over holding. The adverse case label
+uses a 2% close-to-close decline. Cases use their own frozen shares and
+values, so the mean advantage compares independent paper responses. It is
+not compounded strategy performance. Later benchmark history may identify a
+missed session, but cannot create a prior decision receipt.
+
 ## Validation boundary
 
 Synthetic regressions exercise shared exposure with a resilient benchmark,

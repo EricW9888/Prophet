@@ -518,6 +518,10 @@ class PortfolioRiskService:
         return await self.state()
 
     async def refresh(self) -> PortfolioRiskState:
+        from investos.services.advisory_trial import AdvisoryTrialService
+
+        advisory = AdvisoryTrialService(self.session)
+        trial = await advisory.active()
         rows = (
             await self.session.execute(
                 select(Position, Security)
@@ -528,6 +532,13 @@ class PortfolioRiskService:
         ).all()
         runtime = RuntimeSettingsStore.load()
         portfolio_captured_at = datetime.now(UTC).isoformat()
+        tickers = {security.ticker.upper() for _, security in rows}
+        benchmark_ticker = (
+            trial.shock_parameters_json["declaration"]["policy"]["benchmark_ticker"]
+            if trial is not None
+            else None
+        )
+        capture_tickers = tickers | ({benchmark_ticker} if benchmark_ticker else set())
         snapshots = {}
         if (
             runtime.market_data.enabled
@@ -537,7 +548,7 @@ class PortfolioRiskService:
                 async with asyncio.timeout(60):
                     snapshots = await MarketDataService(
                         self.session
-                    ).fetch_signal_snapshots([security.ticker for _, security in rows])
+                    ).fetch_signal_snapshots(sorted(capture_tickers))
             except TimeoutError:
                 snapshots = {}
         for snapshot in snapshots.values():
@@ -553,6 +564,7 @@ class PortfolioRiskService:
             "positions": [
                 {
                     "security_id": str(s.id),
+                    "entity_id": str(s.entity_id),
                     "ticker": s.ticker.upper(),
                     "exchange": s.exchange,
                     "isin": s.isin,
@@ -566,9 +578,16 @@ class PortfolioRiskService:
                 }
                 for p, s in rows
             ],
-            "snapshots": snapshots,
+            "snapshots": {
+                ticker: snap for ticker, snap in snapshots.items() if ticker in tickers
+            },
         }
-        return await self.capture(packet)
+        state = await self.capture(packet)
+        if trial is not None:
+            await advisory.observe(
+                trial.id, packet, snapshots.get(benchmark_ticker, {})
+            )
+        return state
 
     async def capture(self, packet: dict) -> PortfolioRiskState:
         packet = freeze_packet(packet)
@@ -616,7 +635,11 @@ class PortfolioRiskService:
             "result": {key: value for key, value in result.items() if key != "cutoff"},
             "bars": {
                 ticker: [
-                    {key: value for key, value in bar.items() if key != "available_at"}
+                    {
+                        key: value
+                        for key, value in bar.items()
+                        if key not in {"available_at", "open", "session_open_at"}
+                    }
                     for bar in snap.get("daily_observations", [])
                 ]
                 for ticker, snap in packet["snapshots"].items()

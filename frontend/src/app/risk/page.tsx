@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import AppNav from "@/components/AppNav";
+import AdvisoryTrialPanel from "@/components/AdvisoryTrialPanel";
 import PageHeader from "@/components/PageHeader";
 import PortfolioRiskPanel from "@/components/PortfolioRiskPanel";
 import { API_BASE, apiFetch, BenchmarkRecord, PerformanceAttribution, RiskSummary } from "@/lib/api";
@@ -127,6 +128,7 @@ export default function RiskPage() {
         ) : null}
 
         <PortfolioRiskPanel />
+        <AdvisoryTrialPanel />
 
         {loading || !summary ? (
           <div className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950 text-sm text-slate-500 animate-pulse">
@@ -138,7 +140,7 @@ export default function RiskPage() {
               <MetricCard label="Benchmark" value={summary.active_benchmark?.ticker ?? "n/a"} detail={summary.active_benchmark?.name ?? "No benchmark set"} />
               <MetricCard label="Open Cost-Basis Return" value={formatPct(summary.portfolio_return_pct)} detail="Unrealized return on current holdings" />
               <MetricCard label="Top Holding" value={summary.top_holding ?? "n/a"} detail={`${summary.top_holding_weight_pct.toFixed(1)}% weight`} />
-              <MetricCard label="Top Sector" value={summary.top_sector ?? "n/a"} detail={`${summary.top_sector_weight_pct.toFixed(1)}% weight`} />
+              <MetricCard label="Top known sector" value={summary.top_sector ?? "Unavailable"} detail={summary.top_sector ? summary.top_sector_weight_pct.toFixed(1) + "% of invested value" : "Sector classification is missing"} />
               <MetricCard label="Benchmark trend" value={summary.current_regime?.regime_type ?? "pending"} detail="30-day price rule · separate from portfolio risk" />
             </section>
 
@@ -165,7 +167,7 @@ export default function RiskPage() {
                 <div className="mt-4 rounded-lg border border-slate-200 dark:border-slate-800 p-4">
                   <p className="text-xs uppercase tracking-wider text-slate-400">Concentration stats</p>
                   <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">
-                    Top sector {summary.top_sector ?? "n/a"}{summary.top_sector ? ` · ${summary.top_sector_weight_pct.toFixed(1)}%` : ""}
+                    {summary.top_sector ? "Top known sector " + summary.top_sector + " · " + summary.top_sector_weight_pct.toFixed(1) + "%" : "No classified sector exposure"}
                   </p>
                   <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">
                     HHI {summary.concentration_hhi.toFixed(0)}
