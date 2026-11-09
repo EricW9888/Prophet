@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Optional
 from uuid import UUID
@@ -283,13 +284,23 @@ def _mutation_tombstone_payload(mutation: KnowledgeMutation) -> KnowledgeChangeR
     )
 
 
+@dataclass
+class _TimelineContextReads:
+    sources: dict[
+        tuple[UUID, ...], list[tuple[EvidenceSourceReferenceResponse, dict]]
+    ] = field(default_factory=dict)
+    subjects: dict[tuple[UUID, str], str | None] = field(default_factory=dict)
+
+
 async def _source_context(
     session: AsyncSession,
     *,
     node_type: str,
     node_id: UUID,
     source_item_id: UUID | None,
+    reads: _TimelineContextReads | None = None,
 ) -> tuple[str | None, list[EvidenceSourceReferenceResponse]]:
+    reads = reads if reads is not None else _TimelineContextReads()
     if source_item_id is None:
         source_item_ids = list(
             (
@@ -308,25 +319,32 @@ async def _source_context(
     if not source_item_ids:
         return None, []
 
-    rows = (
-        await session.execute(
-            select(SourceItem, RawEvidence, Source)
-            .join(RawEvidence, SourceItem.raw_evidence_id == RawEvidence.id)
-            .join(Source, RawEvidence.source_id == Source.id)
-            .where(SourceItem.id.in_(source_item_ids))
-        )
-    ).all()
-    if not rows:
+    key = tuple(source_item_ids)
+    if key not in reads.sources:
+        rows = (
+            await session.execute(
+                select(SourceItem, RawEvidence, Source)
+                .join(RawEvidence, SourceItem.raw_evidence_id == RawEvidence.id)
+                .join(Source, RawEvidence.source_id == Source.id)
+                .where(SourceItem.id.in_(source_item_ids))
+            )
+        ).all()
+        reads.sources[key] = [
+            (
+                build_evidence_source_reference(
+                    source_item_id=resolved_source_item.id,
+                    raw_evidence=raw_evidence,
+                    source=source,
+                ),
+                raw_evidence.metadata_json or {},
+            )
+            for resolved_source_item, raw_evidence, source in rows
+        ]
+    contexts = reads.sources[key]
+    if not contexts:
         return None, []
 
-    sources = [
-        build_evidence_source_reference(
-            source_item_id=resolved_source_item.id,
-            raw_evidence=raw_evidence,
-            source=source,
-        )
-        for resolved_source_item, raw_evidence, source in rows
-    ]
+    sources = [source for source, _ in contexts]
     subject_name = None
     subject_edge = (
         await session.execute(
@@ -344,18 +362,19 @@ async def _source_context(
     raw_subject_type = subject_edge[0] if subject_edge is not None else None
     raw_subject_id = subject_edge[1] if subject_edge is not None else None
     if raw_subject_id is None or raw_subject_type is None:
-        for _source_item, raw_evidence, _source in rows:
-            metadata = raw_evidence.metadata_json or {}
+        for _, metadata in contexts:
             raw_subject_id = metadata.get("subject_id")
             raw_subject_type = metadata.get("subject_type")
             if raw_subject_id and raw_subject_type:
                 break
     if raw_subject_id and raw_subject_type:
         try:
-            subject_name = await OperatingStateService(session).subject_name(
-                UUID(str(raw_subject_id)),
-                str(raw_subject_type),
-            )
+            subject_key = (UUID(str(raw_subject_id)), str(raw_subject_type))
+            if subject_key not in reads.subjects:
+                reads.subjects[subject_key] = await OperatingStateService(
+                    session
+                ).subject_name(*subject_key)
+            subject_name = reads.subjects[subject_key]
         except Exception as exc:
             import logging
 
@@ -477,218 +496,106 @@ async def get_timeline(
     session: AsyncSession = Depends(get_session),
 ):
     """Returns a unified timeline of recent knowledge extracted from evidence."""
-    items = []
-
-    if item_type in (None, "event"):
-        events = (
-            (
-                await session.execute(
-                    select(Event)
-                    .where(Event.is_deprecated.is_(False))
-                    .order_by(desc(Event.created_at))
-                    .limit(limit)
-                )
-            )
-            .scalars()
-            .all()
+    if limit <= 0:
+        return []
+    candidates = []
+    for kind, model in (("event", Event), ("fact", Fact), ("claim", Claim)):
+        if item_type not in (None, kind):
+            continue
+        rows = await session.scalars(
+            select(model)
+            .where(model.is_deprecated.is_(False))
+            .order_by(desc(model.created_at))
+            .limit(limit)
         )
-        for e in events:
-            subject_name, sources = await _source_context(
-                session,
-                node_type="event",
-                node_id=e.id,
-                source_item_id=None,
+        for node in rows:
+            temporal = _temporal_context(node, item_type=kind)
+            display_time, label = _display_time(node)
+            score = (
+                _event_signal_score(node)
+                if isinstance(node, Event)
+                else _fact_signal_score(node, temporal)
             )
-            primary_source = sources[0] if sources else None
-            display_time, display_time_label = _display_time(e)
-            temporal = _temporal_context(e, item_type="event")
-            items.append(
-                TimelineItemResponse(
-                    id=e.id,
-                    item_type="event",
-                    text=e.description or e.title,
-                    tier="event",
-                    importance="high" if e.is_evolving else "medium",
-                    directness="primary",
-                    novelty=temporal.novelty,
-                    contradiction_role="neutral",
-                    signal_score=_event_signal_score(e),
-                    subject_name=subject_name,
-                    source_name=(
-                        primary_source.source_name if primary_source else None
-                    ),
-                    source_type=(
-                        primary_source.source_type if primary_source else None
-                    ),
-                    sources=sources,
-                    event_time=e.event_time,
-                    public_time=e.public_time,
-                    ingest_time=e.ingest_time,
-                    display_time=display_time,
-                    display_time_label=display_time_label,
-                    temporal_status=temporal.status,
-                    temporal_explanation=temporal.explanation,
-                    referenced_years=list(temporal.referenced_years),
-                    valid_until=e.valid_until,
-                    created_at=e.created_at,
-                )
-            )
+            candidates.append((score, display_time, kind, node, label, temporal))
 
-    if item_type in (None, "fact"):
-        facts = (
-            (
-                await session.execute(
-                    select(Fact)
-                    .where(Fact.is_deprecated.is_(False))
-                    .order_by(desc(Fact.created_at))
-                    .limit(limit)
-                )
-            )
-            .scalars()
-            .all()
-        )
-        for fact in facts:
-            subject_name, sources = await _source_context(
-                session,
-                node_type="fact",
-                node_id=fact.id,
-                source_item_id=fact.source_item_id,
-            )
-            primary_source = sources[0] if sources else None
-            display_time, display_time_label = _display_time(fact)
-            temporal = _temporal_context(fact, item_type="fact")
-            items.append(
-                TimelineItemResponse(
-                    id=fact.id,
-                    item_type="fact",
-                    text=fact.statement,
-                    tier=fact.tier,
-                    importance=fact.importance,
-                    directness=fact.directness,
-                    novelty=temporal.novelty,
-                    contradiction_role=fact.contradiction_role,
-                    signal_score=_fact_signal_score(fact, temporal),
-                    subject_name=subject_name,
-                    source_name=(
-                        primary_source.source_name if primary_source else None
-                    ),
-                    source_type=(
-                        primary_source.source_type if primary_source else None
-                    ),
-                    sources=sources,
-                    event_time=_effective_event_time(fact),
-                    public_time=fact.public_time,
-                    ingest_time=fact.ingest_time,
-                    display_time=display_time,
-                    display_time_label=display_time_label,
-                    temporal_status=temporal.status,
-                    temporal_explanation=temporal.explanation,
-                    referenced_years=list(temporal.referenced_years),
-                    valid_until=fact.valid_until,
-                    created_at=fact.created_at,
-                )
-            )
-
-    if item_type in (None, "claim"):
-        claims = (
-            (
-                await session.execute(
-                    select(Claim)
-                    .where(Claim.is_deprecated.is_(False))
-                    .order_by(desc(Claim.created_at))
-                    .limit(limit)
-                )
-            )
-            .scalars()
-            .all()
-        )
+    # Rank before reading receipt and subject detail. Enrichment is still
+    # required for the deduplication key, so stop only after enough unique rows.
+    candidates.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    claim_ids = [node.id for _, _, kind, node, _, _ in candidates if kind == "claim"]
+    claim_records = {}
+    if claim_ids:
         claim_records = {
             record.claim_id: record
-            for record in (
-                (
-                    await session.execute(
-                        select(SourceClaimRecord).where(
-                            SourceClaimRecord.claim_id.in_(
-                                [claim.id for claim in claims]
-                            )
-                        )
-                    )
+            for record in await session.scalars(
+                select(SourceClaimRecord).where(
+                    SourceClaimRecord.claim_id.in_(claim_ids)
                 )
-                .scalars()
-                .all()
             )
         }
-        for claim in claims:
-            subject_name, sources = await _source_context(
-                session,
-                node_type="claim",
-                node_id=claim.id,
-                source_item_id=claim.source_item_id,
-            )
-            primary_source = sources[0] if sources else None
-            display_time, display_time_label = _display_time(claim)
-            temporal = _temporal_context(claim, item_type="claim")
-            outcome = claim_records.get(claim.id)
-            outcome_due_at = source_claim_due_at(outcome, claim) if outcome else None
-            outcome_status = outcome.assessment if outcome else None
-            if (
-                outcome_status == "pending"
-                and outcome_due_at is not None
-                and outcome_due_at > datetime.now(UTC)
-            ):
-                outcome_status = "scheduled"
-            items.append(
-                TimelineItemResponse(
-                    id=claim.id,
-                    item_type="claim",
-                    text=claim.statement,
-                    tier=claim.tier,
-                    importance=claim.importance,
-                    directness=claim.directness,
-                    novelty=temporal.novelty,
-                    contradiction_role=claim.contradiction_role,
-                    signal_score=_fact_signal_score(claim, temporal),
-                    subject_name=subject_name,
-                    source_name=(
-                        primary_source.source_name if primary_source else None
-                    ),
-                    source_type=(
-                        primary_source.source_type if primary_source else None
-                    ),
-                    sources=sources,
-                    event_time=_effective_event_time(claim),
-                    public_time=claim.public_time,
-                    ingest_time=claim.ingest_time,
-                    display_time=display_time,
-                    display_time_label=display_time_label,
-                    temporal_status=temporal.status,
-                    temporal_explanation=temporal.explanation,
-                    referenced_years=list(temporal.referenced_years),
-                    valid_until=claim.valid_until,
-                    outcome_status=outcome_status,
-                    outcome_due_at=outcome_due_at,
-                    outcome_assessed_at=(outcome.assessment_time if outcome else None),
-                    outcome_notes=(outcome.notes if outcome else None),
-                    created_at=claim.created_at,
-                )
-            )
 
-    items.sort(key=lambda x: (x.signal_score, x.display_time), reverse=True)
-
-    deduped: list[TimelineItemResponse] = []
+    items = []
+    reads = _TimelineContextReads()
     seen: set[tuple[str, str, str | None, str | None]] = set()
-    for item in items:
-        fingerprint = (
-            item.item_type,
-            item.text.strip().lower(),
-            item.subject_name,
-            item.source_name,
+    for score, display_time, kind, node, display_label, temporal in candidates:
+        event = isinstance(node, Event)
+        text = (node.description or node.title) if event else node.statement
+        subject, sources = await _source_context(
+            session,
+            node_type=kind,
+            node_id=node.id,
+            source_item_id=None if event else node.source_item_id,
+            reads=reads,
         )
+        source = sources[0] if sources else None
+        source_name = source.source_name if source else None
+        fingerprint = (kind, text.strip().lower(), subject, source_name)
         if fingerprint in seen:
             continue
         seen.add(fingerprint)
-        deduped.append(item)
-        if len(deduped) >= limit:
+        outcome = claim_records.get(node.id) if kind == "claim" else None
+        due_at = source_claim_due_at(outcome, node) if outcome else None
+        outcome_status = outcome.assessment if outcome else None
+        if (
+            outcome_status == "pending"
+            and due_at is not None
+            and due_at > datetime.now(UTC)
+        ):
+            outcome_status = "scheduled"
+        items.append(
+            TimelineItemResponse(
+                id=node.id,
+                item_type=kind,
+                text=text,
+                tier="event" if event else node.tier,
+                importance=(
+                    ("high" if node.is_evolving else "medium")
+                    if event
+                    else node.importance
+                ),
+                directness="primary" if event else node.directness,
+                novelty=temporal.novelty,
+                contradiction_role="neutral" if event else node.contradiction_role,
+                signal_score=score,
+                subject_name=subject,
+                source_name=source_name,
+                source_type=source.source_type if source else None,
+                sources=sources,
+                event_time=_effective_event_time(node),
+                public_time=node.public_time,
+                ingest_time=node.ingest_time,
+                display_time=display_time,
+                display_time_label=display_label,
+                temporal_status=temporal.status,
+                temporal_explanation=temporal.explanation,
+                referenced_years=list(temporal.referenced_years),
+                valid_until=node.valid_until,
+                outcome_status=outcome_status,
+                outcome_due_at=due_at,
+                outcome_assessed_at=outcome.assessment_time if outcome else None,
+                outcome_notes=outcome.notes if outcome else None,
+                created_at=node.created_at,
+            )
+        )
+        if len(items) >= limit:
             break
-
-    return deduped
+    return items

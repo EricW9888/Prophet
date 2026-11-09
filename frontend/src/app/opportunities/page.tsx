@@ -21,6 +21,8 @@ import {
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
+import { useWorkspaceReads } from "@/lib/workspace-reads";
+import WorkspaceState from "@/components/WorkspaceState";
 import AppNav from "@/components/AppNav";
 import FloatingNotice from "@/components/FloatingNotice";
 import PageHeader from "@/components/PageHeader";
@@ -116,13 +118,11 @@ export default function OpportunitiesPage() {
   const [candidates, setCandidates] = useState<OpportunityCandidate[]>([]);
   const [universe, setUniverse] = useState<OpportunityUniverseMember[]>([]);
   const [importPreview, setImportPreview] = useState<OpportunityUniverseImportPreview | null>(null);
-  const [importPreviewError, setImportPreviewError] = useState<string | null>(null);
   const [runs, setRuns] = useState<OpportunityDiscoveryRun[]>([]);
   const [settings, setSettings] = useState<IntegrationSettings | null>(null);
   const [automation, setAutomation] = useState<AutomationStatus | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expandedRun, setExpandedRun] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -133,47 +133,34 @@ export default function OpportunitiesPage() {
   const [shadowBasis, setShadowBasis] = useState<"cash_only" | "clone_portfolio">("cash_only");
   const [startingCash, setStartingCash] = useState("10000");
 
+  const { read, status } = useWorkspaceReads<WorkspaceTab | "settings" | "automation" | "import">();
+  const importPreviewError = status.import?.error;
+  const loading = !status[tab]?.ready && !status[tab]?.error;
+
   const loadState = useCallback(async () => {
-    try {
-      const importRequest = apiFetch<OpportunityUniverseImportPreview>(
-        "/opportunities/universe/import-preview",
-      )
-        .then((data) => ({ data, error: null }))
-        .catch((err: unknown) => ({
-          data: null,
-          error: err instanceof Error ? err.message : "Import preview is unavailable.",
-        }));
-      const [candidateData, universeData, importResult, runData, settingsData, automationData] = await Promise.all([
-        apiFetch<OpportunityCandidate[]>("/opportunities/candidates?limit=500"),
-        apiFetch<OpportunityUniverseMember[]>("/opportunities/universe"),
-        importRequest,
-        apiFetch<OpportunityDiscoveryRun[]>("/opportunities/runs?limit=50"),
-        apiFetch<IntegrationSettings>("/integrations/settings"),
-        apiFetch<AutomationStatus>("/automation/status"),
-      ]);
-      setCandidates(candidateData);
-      setUniverse(universeData);
-      setImportPreview(importResult.data);
-      setImportPreviewError(importResult.error);
-      setRuns(runData);
-      setSettings(settingsData);
-      setAutomation(automationData);
-      setSelectedId((current) =>
-        current && candidateData.some((candidate) => candidate.id === current)
-          ? current
-          : candidateData[0]?.id ?? null,
+    const requests = [
+      read<OpportunityUniverseMember[]>("universe", "/opportunities/universe", setUniverse),
+      read<OpportunityDiscoveryRun[]>("runs", "/opportunities/runs?limit=50", setRuns),
+      read<AutomationStatus>("automation", "/automation/status", setAutomation),
+    ];
+    if (tab === "queue") {
+      requests.push(read<OpportunityCandidate[]>("queue", "/opportunities/candidates?limit=500", data => {
+        setCandidates(data);
+        setSelectedId(current => current && data.some(candidate => candidate.id === current)
+          ? current : data[0]?.id ?? null);
+      }));
+    } else if (tab === "universe") {
+      requests.push(
+        read<OpportunityUniverseImportPreview>("import", "/opportunities/universe/import-preview", setImportPreview),
+        read<IntegrationSettings>("settings", "/integrations/settings", setSettings),
       );
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load opportunity discovery.");
-    } finally {
-      setLoading(false);
     }
-  }, []);
+    await Promise.all(requests);
+  }, [read, tab]);
 
   useEffect(() => {
     void loadState();
-    const timer = window.setInterval(loadState, 30000);
+    const timer = window.setInterval(() => { if (!document.hidden) void loadState(); }, 30000);
     return () => window.clearInterval(timer);
   }, [loadState]);
 
@@ -374,7 +361,7 @@ export default function OpportunitiesPage() {
       {error ? <FloatingNotice tone="error" message={error} onDismiss={() => setError(null)} /> : null}
       {!error && notice ? <FloatingNotice tone="success" message={notice} onDismiss={() => setNotice(null)} /> : null}
 
-      <main className="mx-auto min-w-0 w-full max-w-[1440px] px-4 py-7 sm:px-6 lg:px-8">
+      <main className="workspace-frame py-7">
         <PageHeader
           eyebrow="Discovery"
           title="Opportunity queue"
@@ -401,7 +388,7 @@ export default function OpportunitiesPage() {
           )}
         />
 
-        {!loading && !universe.some((item) => item.enabled) && (
+        {status.universe?.ready && !universe.some((item) => item.enabled) && (
           <p className="mb-4 rounded border border-line p-3 text-sm text-muted">
             Discovery needs an enabled universe. Open Universe to preview eligible holdings and watchlist names or add a security.
           </p>
@@ -409,9 +396,9 @@ export default function OpportunitiesPage() {
 
         <section className="grid grid-cols-2 gap-px border-b border-slate-200 bg-slate-200 sm:grid-cols-4 dark:border-slate-800 dark:bg-slate-800">
           {[
-            ["Universe", `${universe.filter((item) => item.enabled).length} enabled / ${universe.length} total`],
-            ["Due now", String(dueCount)],
-            ["Last run", latestRun ? `${latestRun.inspected_count}/${latestRun.universe_size} inspected` : "No runs"],
+            ["Universe", status.universe?.ready ? `${universe.filter((item) => item.enabled).length} enabled / ${universe.length} total` : "Unavailable"],
+            ["Due now", status.universe?.ready ? String(dueCount) : "—"],
+            ["Last run", latestRun ? `${latestRun.inspected_count}/${latestRun.universe_size} inspected` : status.runs?.ready ? "No runs" : "—"],
             ["Provider cost", latestRun ? `${latestRun.estimated_credits} estimated credits` : "Not recorded"],
           ].map(([label, value]) => (
             <div key={label} className="bg-panel-muted px-4 py-4">
@@ -440,13 +427,19 @@ export default function OpportunitiesPage() {
           ))}
         </div>
 
+        {status[tab]?.error ? (
+          <WorkspaceState compact kind={status[tab]?.ready ? "degraded" : "error"} title="Could not load this discovery view" description={status[tab]?.error ?? ""} actionLabel="Retry" onAction={() => void loadState()} />
+        ) : null}
+        {tab === "universe" && status.settings?.error ? (
+          <WorkspaceState compact kind="degraded" title="Discovery controls unavailable" description={status.settings.error} actionLabel="Retry" onAction={() => void loadState()} />
+        ) : null}
         {loading ? (
           <div className="flex min-h-64 items-center justify-center text-sm text-slate-500">
             <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> Loading opportunity state
           </div>
         ) : null}
 
-        {!loading && tab === "queue" ? (
+        {status.queue?.ready && tab === "queue" ? (
           <div className="grid min-h-[620px] min-w-0 grid-cols-1 gap-6 py-6 xl:grid-cols-[380px_minmax(0,1fr)]">
             <aside className="min-w-0 border-r-0 border-slate-200 xl:border-r xl:pr-6 dark:border-slate-800">
               <div className="flex max-w-full gap-1 overflow-x-auto pb-3" aria-label="Candidate status filters">
@@ -464,7 +457,7 @@ export default function OpportunitiesPage() {
                         setSelectedId(nextCandidates[0]?.id ?? null);
                         setReviewReason(nextCandidates[0]?.review_reason ?? "");
                       }}
-                      className={`shrink-0 rounded-md border px-2.5 py-1.5 text-xs font-medium ${filter === item.value ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-950" : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"}`}
+                      className={`shrink-0 rounded-md border px-2.5 py-1.5 text-xs font-medium ${filter === item.value ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-950" : "border-line bg-panel text-slate-600  dark:text-slate-300"}`}
                     >
                       {item.label} {count}
                     </button>
@@ -618,10 +611,10 @@ export default function OpportunitiesPage() {
           </div>
         ) : null}
 
-        {!loading && tab === "universe" ? (
+        {status.universe?.ready && tab === "universe" ? (
           <div className="grid gap-8 py-6 lg:grid-cols-[minmax(320px,0.45fr)_minmax(0,1fr)]">
             <div className="space-y-6">
-              <section className="border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-950">
+              <section className="border border-line bg-panel p-5">
                 <div className="flex items-center gap-2"><Database className="h-4 w-4" /><h2 className="text-sm font-semibold">Build from Prophet</h2></div>
                 <p className="mt-2 text-xs leading-5 text-slate-500">
                   Preview eligible active equities and ETFs from durable Prophet state, then import one source at a time. Imports are additive and never remove, re-enable, or reprioritize existing members.
@@ -679,7 +672,7 @@ export default function OpportunitiesPage() {
                 </p>
               </section>
 
-              <form onSubmit={addUniverseMember} className="border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-950">
+              <form onSubmit={addUniverseMember} className="border border-line bg-panel p-5">
                 <div className="flex items-center gap-2"><Plus className="h-4 w-4" /><h2 className="text-sm font-semibold">Add security</h2></div>
                 <div className="mt-4 grid gap-3">
                   <input required value={ticker} onChange={(event) => setTicker(event.target.value)} className={fieldClass} placeholder="Ticker" aria-label="Ticker" />
@@ -690,7 +683,7 @@ export default function OpportunitiesPage() {
               </form>
 
               {settings ? (
-                <section className="border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-950">
+                <section className="border border-line bg-panel p-5">
                   <div className="flex items-center gap-2"><Settings2 className="h-4 w-4" /><h2 className="text-sm font-semibold">Discovery controls</h2></div>
                   <p className="mt-2 text-xs leading-5 text-slate-500">These limits apply to scheduled scans and are recorded on each run. Manual scans use the same per-run limits.</p>
                   <label className="mt-4 flex items-center justify-between gap-4 text-sm"><span>Scheduled discovery</span><input type="checkbox" checked={settings.opportunity_discovery.enabled} onChange={(event) => updateDiscoverySettings("enabled", event.target.checked)} className="h-4 w-4 accent-slate-900" /></label>
@@ -736,7 +729,7 @@ export default function OpportunitiesPage() {
           </div>
         ) : null}
 
-        {!loading && tab === "runs" ? (
+        {status.runs?.ready && tab === "runs" ? (
           <section className="py-6">
             <div className="border-b border-slate-200 pb-3 dark:border-slate-800">
               <h2 className="text-lg font-semibold">Run history</h2>

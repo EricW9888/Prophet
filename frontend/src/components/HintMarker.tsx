@@ -22,7 +22,7 @@ export default function HintMarker({
       </summary>
       <div
         id={id}
-        className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-600 shadow-lg dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
+        className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-line bg-panel p-3 text-sm text-slate-600 shadow-lg  dark:text-slate-300"
       >
         {children}
       </div>

@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useWorkspaceReads } from "@/lib/workspace-reads";
+import WorkspaceState from "@/components/WorkspaceState";
 import AppNav from "@/components/AppNav";
 import PageHeader from "@/components/PageHeader";
 import ReconcilePanel from "@/components/ReconcilePanel";
-import { apiFetch, AutomationStatus, correctTransaction, PortfolioOverview, Position, Transaction, TransactionCorrectionRecord } from "@/lib/api";
+import { AutomationStatus, correctTransaction, PortfolioOverview, Position, Transaction, TransactionCorrectionRecord } from "@/lib/api";
 import { automationJobHealth } from "@/lib/automation";
 import { ArrowUpRight, ArrowDownRight, ArrowRight, History, Calendar, DollarSign, TrendingUp, ClipboardCheck, PencilLine, X } from "lucide-react";
 
@@ -28,35 +30,23 @@ export default function HistoryPage() {
   const [correctionBusy, setCorrectionBusy] = useState(false);
   const [correctionError, setCorrectionError] = useState<string | null>(null);
   const [correctionNotice, setCorrectionNotice] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  const { read, status } = useWorkspaceReads<"closed" | "ledger" | "automation" | "corrections">();
+  const loading = !status.closed?.ready && !status.closed?.error;
+  const error = status.closed?.ready ? null : status.closed?.error;
 
   const loadHistory = useCallback(async () => {
-    try {
-      setLoading(true);
-      const [closedData, overviewData, automationData, correctionsData] = await Promise.all([
-        apiFetch<Position[]>("/portfolio/positions?list_type=closed"),
-        apiFetch<PortfolioOverview>("/portfolio/overview"),
-        apiFetch<AutomationStatus>("/automation/status"),
-        apiFetch<TransactionCorrectionRecord[]>("/portfolio/transactions/corrections?limit=40"),
-      ]);
-      setClosedPositions(
-        closedData.sort(
-          (a, b) =>
-            new Date((b.updated_at || b.added_at) as string).getTime() -
-            new Date((a.updated_at || a.added_at) as string).getTime(),
-        ),
-      );
-      setOverview(overviewData);
-      setAutomationStatus(automationData);
-      setCorrectionHistory(correctionsData);
-    } catch (err) {
-      console.error("Failed to load history:", err);
-      setError(err instanceof Error ? err.message : "Failed to load historical data");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    await Promise.all([
+      read<Position[]>("closed", "/portfolio/positions?list_type=closed", data =>
+        setClosedPositions(data.sort((a, b) =>
+          new Date((b.updated_at || b.added_at) as string).getTime() -
+          new Date((a.updated_at || a.added_at) as string).getTime()
+        ))),
+      read<PortfolioOverview>("ledger", "/portfolio/overview?refresh=false", setOverview),
+      read<AutomationStatus>("automation", "/automation/status", setAutomationStatus),
+      read<TransactionCorrectionRecord[]>("corrections", "/portfolio/transactions/corrections?limit=40", setCorrectionHistory),
+    ]);
+  }, [read]);
 
   useEffect(() => {
     void loadHistory();
@@ -145,7 +135,13 @@ export default function HistoryPage() {
     <main className="min-h-screen bg-background text-foreground font-sans">
       <AppNav active="history" />
 
-      <div className="mx-auto w-full max-w-[1440px] px-4 py-8 sm:px-6 lg:px-8">
+      <div className="workspace-frame py-8">
+        {(["ledger", "automation", "corrections", "closed"] as const).some(key => status[key]?.error) ? (
+          <WorkspaceState compact kind="degraded" title="Some history data could not be loaded"
+            description={"Unavailable: " + (["ledger", "automation", "corrections", "closed"] as const).filter(key => status[key]?.error).join(", ")}
+            actionLabel="Retry" onAction={() => void loadHistory()} />
+        ) : null}
+
         <PageHeader
           className="mb-8"
           eyebrow="Portfolio records"
@@ -160,12 +156,12 @@ export default function HistoryPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <a
                   href="#statement-reconcile"
-                  className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-sky-700 hover:border-sky-300 hover:bg-sky-100 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300 dark:hover:bg-sky-950/50"
+                  className="inline-flex items-center gap-1.5 rounded-none border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-sky-700 hover:border-sky-300 hover:bg-sky-100 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300 dark:hover:bg-sky-950/50"
                 >
                   <ClipboardCheck className="h-3 w-3" />
                   Reconcile
                 </a>
-                <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${
+                <span className={`rounded-none border px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${
                   gmailHealth.tone === "ok"
                     ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
                     : gmailHealth.tone === "warn"
@@ -224,7 +220,7 @@ export default function HistoryPage() {
                     <button
                       type="button"
                       onClick={() => openCorrection(txn)}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:border-sky-200 hover:text-sky-600 dark:border-slate-800 dark:text-slate-400 dark:hover:border-sky-900 dark:hover:text-sky-300"
+                      className="inline-flex items-center gap-1.5 rounded-none border border-slate-200 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:border-sky-200 hover:text-sky-600 dark:border-slate-800 dark:text-slate-400 dark:hover:border-sky-900 dark:hover:text-sky-300"
                     >
                       <PencilLine className="h-3 w-3" />
                       Correct fill
@@ -248,7 +244,7 @@ export default function HistoryPage() {
                             setCorrectionForm(null);
                             setCorrectionError(null);
                           }}
-                          className="rounded-full p-1 text-slate-400 hover:bg-white hover:text-slate-700 dark:hover:bg-slate-900 dark:hover:text-slate-200"
+                          className="rounded-none p-1 text-slate-400 hover:bg-white hover:text-slate-700 dark:hover:bg-slate-900 dark:hover:text-slate-200"
                           aria-label="Close correction form"
                         >
                           <X className="h-3 w-3" />
@@ -262,7 +258,7 @@ export default function HistoryPage() {
                             onChange={(e) => setCorrectionForm((current) => current ? { ...current, quantity: e.target.value } : current)}
                             type="number"
                             step="0.0001"
-                            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-sky-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
+                            className="mt-1 w-full rounded-lg border border-line bg-panel px-2 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-sky-400  dark:text-slate-100"
                           />
                         </label>
                         <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
@@ -272,7 +268,7 @@ export default function HistoryPage() {
                             onChange={(e) => setCorrectionForm((current) => current ? { ...current, price: e.target.value } : current)}
                             type="number"
                             step="0.01"
-                            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-sky-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
+                            className="mt-1 w-full rounded-lg border border-line bg-panel px-2 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-sky-400  dark:text-slate-100"
                           />
                         </label>
                         <label className="col-span-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
@@ -281,7 +277,7 @@ export default function HistoryPage() {
                             value={correctionForm.executed_at}
                             onChange={(e) => setCorrectionForm((current) => current ? { ...current, executed_at: e.target.value } : current)}
                             type="datetime-local"
-                            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-sky-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
+                            className="mt-1 w-full rounded-lg border border-line bg-panel px-2 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-sky-400  dark:text-slate-100"
                           />
                         </label>
                         <label className="col-span-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
@@ -289,7 +285,7 @@ export default function HistoryPage() {
                           <input
                             value={correctionForm.reason}
                             onChange={(e) => setCorrectionForm((current) => current ? { ...current, reason: e.target.value } : current)}
-                            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-sky-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
+                            className="mt-1 w-full rounded-lg border border-line bg-panel px-2 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-sky-400  dark:text-slate-100"
                           />
                         </label>
                       </div>
@@ -298,7 +294,7 @@ export default function HistoryPage() {
                         type="button"
                         onClick={() => submitCorrection(txn)}
                         disabled={correctionBusy}
-                        className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-sky-600 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-white hover:bg-sky-700 disabled:opacity-50"
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-none bg-sky-600 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-white hover:bg-sky-700 disabled:opacity-50"
                       >
                         <PencilLine className="h-3 w-3" />
                         {correctionBusy ? "Saving" : "Save correction"}
@@ -307,7 +303,7 @@ export default function HistoryPage() {
                   ) : null}
                 </div>
               ))}
-              {!loading && (overview?.recent_transactions ?? []).length === 0 ? (
+              {status.ledger?.ready && (overview?.recent_transactions ?? []).length === 0 ? (
                 <div className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-sm italic text-slate-400 dark:border-slate-800 dark:text-slate-500">
                   No recent transactions are in the ledger yet.
                 </div>
@@ -333,7 +329,7 @@ export default function HistoryPage() {
                 Superseded fills stay visible here with their replacement row and reason.
               </p>
             </div>
-            <span className="rounded-full border border-slate-200 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:border-slate-800 dark:text-slate-400">
+            <span className="rounded-none border border-slate-200 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:border-slate-800 dark:text-slate-400">
               {correctionHistory.length} corrections
             </span>
           </div>
@@ -349,7 +345,7 @@ export default function HistoryPage() {
                       {(item.original.entity_name || item.replacement?.entity_name || "Portfolio transaction")} · {formatLedgerDate(item.corrected_at || item.replacement?.executed_at || item.original.executed_at)}
                     </div>
                   </div>
-                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                  <span className="rounded-none border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
                     superseded
                   </span>
                 </div>
@@ -369,7 +365,7 @@ export default function HistoryPage() {
                 ) : null}
               </div>
             ))}
-            {!loading && correctionHistory.length === 0 ? (
+            {status.corrections?.ready && correctionHistory.length === 0 ? (
               <div className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-sm italic text-slate-400 dark:border-slate-800 dark:text-slate-500">
                 No transaction corrections have been recorded yet.
               </div>
@@ -401,7 +397,7 @@ export default function HistoryPage() {
               <div className="text-3xl font-bold tracking-tighter">
                 {winRate.toFixed(1)}%
               </div>
-              <div className="mt-2 h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+              <div className="mt-2 h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-none overflow-hidden">
                 <div className="h-full bg-sky-500 transition-all duration-1000" style={{ width: `${winRate}%` }} />
               </div>
             </div>
@@ -454,7 +450,7 @@ export default function HistoryPage() {
                     key={filter.key}
                     type="button"
                     onClick={() => setLedgerFilter(filter.key as "all" | "active" | "archived")}
-                    className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors ${
+                    className={`rounded-none border px-3 py-1 text-[11px] font-semibold transition-colors ${
                       ledgerFilter === filter.key
                         ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-300"
                         : "border-slate-300 text-slate-600 hover:border-slate-400 dark:border-slate-700 dark:text-slate-300"
@@ -492,7 +488,7 @@ export default function HistoryPage() {
                         </div>
                       </td>
                       <td className="px-5 py-3">
-                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest ${kind === "live" ? "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300" : "bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>
+                        <span className={`inline-flex items-center rounded-none px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest ${kind === "live" ? "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300" : "bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>
                           {statusLabel}
                         </span>
                       </td>
@@ -507,7 +503,7 @@ export default function HistoryPage() {
                           <div className="text-sm font-bold font-mono text-slate-900 dark:text-slate-100">
                             ${valueLabel.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </div>
-                          <div className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold font-mono transition-transform group-hover:scale-105 ${
+                          <div className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-none text-[11px] font-bold font-mono transition-transform group-hover:scale-105 ${
                           isPositive
                             ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400"
                             : "bg-rose-50 text-rose-600 dark:bg-rose-950/20 dark:text-rose-400"

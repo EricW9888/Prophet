@@ -63,7 +63,7 @@ export default function AddTransactionModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl animate-in zoom-in-95 duration-200 dark:border-slate-800 dark:bg-slate-900">
+      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-lg border border-line bg-panel shadow-xl animate-in zoom-in-95 duration-200">
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
           <div>
             <h3 className="font-semibold text-lg text-slate-900 dark:text-slate-100">Add Holding Transaction</h3>

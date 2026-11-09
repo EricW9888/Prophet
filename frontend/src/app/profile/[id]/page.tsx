@@ -63,7 +63,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
     return (
       <div className="min-h-screen bg-background">
         <AppNav active="research" />
-        <main className="mx-auto max-w-5xl p-6"><WorkspaceState kind="loading" title="Loading subject and evidence" description="Reading the retained view, contrary evidence and unresolved questions." /></main>
+        <main className="workspace-frame py-6"><WorkspaceState kind="loading" title="Loading subject and evidence" description="Reading the retained view, contrary evidence and unresolved questions." /></main>
       </div>
     );
   }
@@ -72,7 +72,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
     return (
       <div className="min-h-screen bg-background">
         <AppNav active="research" />
-        <main className="mx-auto max-w-5xl p-6"><WorkspaceState kind="error" title="Subject is unavailable" description={error ?? "This profile could not be found."} actionLabel="Retry" onAction={() => { setLoading(true); setRetryVersion(value => value + 1); }} /></main>
+        <main className="workspace-frame py-6"><WorkspaceState kind="error" title="Subject is unavailable" description={error ?? "This profile could not be found."} actionLabel="Retry" onAction={() => { setLoading(true); setRetryVersion(value => value + 1); }} /></main>
       </div>
     );
   }
@@ -81,7 +81,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
     <div className="min-h-screen bg-background text-foreground font-sans pb-20">
       <AppNav active="research" />
 
-      <header className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 pb-8 border-b border-slate-200 dark:border-slate-800">
+      <header className="workspace-frame pt-8 pb-5 border-b border-slate-200 dark:border-slate-800">
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
           <div className="space-y-2">
             <div className="flex items-center gap-3">
@@ -113,7 +113,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <main className="workspace-frame py-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-8">
           <section className="bg-white dark:bg-[#111] border border-slate-200 dark:border-slate-800 rounded-lg p-6">
             <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-4">Core Conclusion State</h2>
@@ -261,7 +261,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-base font-bold text-slate-900 dark:text-white">{lens.name}</h3>
                       {lens.period ? (
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                        <span className="rounded-none bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:bg-slate-900 dark:text-slate-400">
                           {lens.period}
                         </span>
                       ) : null}

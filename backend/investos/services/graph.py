@@ -4,7 +4,7 @@ import re
 import uuid
 from collections import OrderedDict
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from sqlalchemy import desc, or_, select, tuple_
@@ -51,6 +51,10 @@ from investos.services.source import SourceService
 
 CONVERSATION_SOURCE_NAME = "Prophet Agent Conversation"
 SYNTHETIC_PORTFOLIO_ID = UUID("00000000-0000-0000-0000-000000000000")
+PORTFOLIO_WEB_SEED_LIMIT = 40
+EXPANDED_WEB_SEED_LIMIT = 100
+WEB_NEIGHBORHOOD_DEPTH = 2
+WEB_NEIGHBORHOOD_LIMIT = 20
 
 # Internal job/run labels that leaked into the entity table as if they were
 # real subjects. They are pipeline bookkeeping, not knowledge, and should never
@@ -66,6 +70,82 @@ _RECLASSIFIED_THEME_DESCRIPTION = (
 
 def _is_artifact_label(label: str | None) -> bool:
     return bool(label) and bool(_ARTIFACT_LABEL_RE.match(label or ""))
+
+
+class _NeighborhoodReads:
+    """Reuse overlapping seed reads within one graph request."""
+
+    def __init__(self, service: GraphService):
+        self.service = service
+        self.nodes: dict[str, Any] = {}
+        self.layers: dict[str, str] = {}
+        self.autonomy: dict[str, bool] = {}
+        self.adjacency: dict[str, list[GraphWebEdgeResponse]] = {}
+        self.siblings: dict[UUID, list[tuple[str, UUID, str, float, str]]] = {}
+
+    async def node(self, node_type: str, node_id: UUID | str):
+        key = self.service._node_key(node_type, node_id)
+        if key not in self.nodes:
+            self.nodes[key] = await self.service._load_node(node_type, node_id)
+        return self.nodes[key]
+
+    async def prefetch_nodes(self, keys: list[str]) -> None:
+        pending: dict[str, set[UUID]] = {}
+        for key in keys:
+            if key in self.nodes:
+                continue
+            node_type, _, value = key.partition(":")
+            if node_type == "portfolio":
+                continue
+            try:
+                node_id = UUID(value)
+            except ValueError:
+                continue
+            pending.setdefault(node_type, set()).add(node_id)
+
+        models = durable_graph_model_map()
+        for node_type, ids in pending.items():
+            model = Position if node_type == "position" else models.get(node_type)
+            if model is None:
+                continue
+            statement = select(model).where(model.id.in_(ids))
+            if node_type == "position":
+                statement = statement.options(
+                    selectinload(Position.security).selectinload(Security.entity)
+                )
+            rows = {
+                node.id: node
+                for node in await self.service.session.scalars(statement)
+                if not getattr(node, "is_deprecated", False)
+            }
+            for node_id in ids:
+                self.nodes[self.service._node_key(node_type, node_id)] = rows.get(
+                    node_id
+                )
+
+    async def layer(self, node_type: str, node) -> str:
+        key = self.service._node_key(node_type, node.id)
+        if key not in self.layers:
+            self.layers[key] = await self.service._node_layer(
+                node_type, node, reads=self
+            )
+        return self.layers[key]
+
+    async def is_autonomous(self, node_type: str, node) -> bool:
+        key = self.service._node_key(node_type, node.id)
+        if key not in self.autonomy:
+            self.autonomy[key] = await self.service._node_is_autonomous(node_type, node)
+        return self.autonomy[key]
+
+    async def edges(
+        self, node_type: str, node_id: UUID | str, node
+    ) -> list[GraphWebEdgeResponse]:
+        key = self.service._node_key(node_type, node_id)
+        if key not in self.adjacency:
+            self.adjacency[key] = await self.service._web_edges_touching_node(
+                node_type=node_type, node_id=node_id, node=node, reads=self
+            )
+        return self.adjacency[key]
 
 
 class GraphService:
@@ -257,8 +337,11 @@ class GraphService:
         depth: int = 3,
         limit: int = 60,
         include_system_nodes: bool = False,
+        _reads: _NeighborhoodReads | None = None,
+        _include_layouts: bool = True,
     ) -> GraphNeighborhoodResponse | None:
-        root = await self._load_node(node_type, node_id)
+        reads = _reads if _reads is not None else _NeighborhoodReads(self)
+        root = await reads.node(node_type, node_id)
         if root is None:
             return None
         root_key = self._node_key(node_type, node_id)
@@ -268,12 +351,12 @@ class GraphService:
             id=node_id,
             node_type=node_type,
             label=self._node_label(node_type, root),
-            layer=await self._node_layer(node_type, root),
+            layer=await reads.layer(node_type, root),
             subtitle=self._node_subtitle(node_type, root),
             tier=getattr(root, "tier", None),
             created_at=getattr(root, "created_at", None),
             is_root=True,
-            is_autonomous=await self._node_is_autonomous(node_type, root),
+            is_autonomous=await reads.is_autonomous(node_type, root),
         )
         edge_map: OrderedDict[UUID, GraphWebEdgeResponse] = OrderedDict()
         frontier: list[tuple[str, UUID]] = [(node_type, node_id)]
@@ -281,14 +364,22 @@ class GraphService:
         for _level in range(effective_depth):
             next_frontier: list[tuple[str, UUID]] = []
             for current_type, current_id in frontier:
-                current_node = await self._load_node(current_type, current_id)
+                current_node = await reads.node(current_type, current_id)
                 if current_node is None:
                     continue
-                edges = await self._web_edges_touching_node(
-                    node_type=current_type,
-                    node_id=current_id,
-                    node=current_node,
-                )
+                edges = await reads.edges(current_type, current_id, current_node)
+                current_key = self._node_key(current_type, current_id)
+                if len(node_map) < limit:
+                    await reads.prefetch_nodes(
+                        [
+                            (
+                                edge.target_key
+                                if edge.source_key == current_key
+                                else edge.source_key
+                            )
+                            for edge in edges
+                        ]
+                    )
                 for edge in edges:
                     if edge.id not in edge_map:
                         edge_map[edge.id] = edge
@@ -311,11 +402,11 @@ class GraphService:
                         continue
                     if len(node_map) >= limit:
                         continue
-                    other_node = await self._load_node(other_type, other_id)
+                    other_node = await reads.node(other_type, other_id)
                     if other_node is None:
                         continue
 
-                    layer = await self._node_layer(other_type, other_node)
+                    layer = await reads.layer(other_type, other_node)
                     if not include_system_nodes and layer == "system":
                         continue
 
@@ -333,9 +424,7 @@ class GraphService:
                         tier=getattr(other_node, "tier", None),
                         created_at=getattr(other_node, "created_at", None),
                         is_root=False,
-                        is_autonomous=await self._node_is_autonomous(
-                            other_type, other_node
-                        ),
+                        is_autonomous=await reads.is_autonomous(other_type, other_node),
                     )
                     next_frontier.append((other_type, other_id))
             frontier = next_frontier
@@ -347,13 +436,101 @@ class GraphService:
             if edge.source_key not in node_keys or edge.target_key not in node_keys:
                 edge_map.pop(edge_id, None)
 
-        await self._attach_layouts(node_map)
+        if _include_layouts:
+            await self._attach_layouts(node_map)
 
         return GraphNeighborhoodResponse(
             root_key=root_key,
             depth=effective_depth,
             nodes=list(node_map.values()),
             edges=list(edge_map.values()),
+        )
+
+    async def get_workspace_web(
+        self,
+        *,
+        scope: Literal["portfolio", "expanded"],
+        include_system_nodes: bool = False,
+    ) -> GraphNeighborhoodResponse | None:
+        from investos.services.profile import ProfileService
+
+        expanded = scope == "expanded"
+        profiles = await ProfileService(self.session).list_seed_profiles(
+            show_all=expanded
+        )
+        portfolio_profile = next(
+            (profile for profile in profiles if profile.subject_type == "portfolio"),
+            None,
+        )
+        preferred_root = (
+            self._node_key("portfolio", portfolio_profile.subject_id)
+            if portfolio_profile
+            else None
+        )
+        seeds: list[tuple[str, UUID]] = []
+        if not expanded:
+            if portfolio_profile:
+                seeds.append(("portfolio", portfolio_profile.subject_id))
+            holding_ids = await self.session.scalars(
+                select(Position.id)
+                .where(Position.list_type == "holding")
+                .order_by(Position.id)
+                .limit(PORTFOLIO_WEB_SEED_LIMIT)
+            )
+            seeds.extend(("position", holding_id) for holding_id in holding_ids)
+        seed_limit = EXPANDED_WEB_SEED_LIMIT if expanded else PORTFOLIO_WEB_SEED_LIMIT
+        seeds.extend(
+            (profile.subject_type, profile.subject_id)
+            for profile in profiles[:seed_limit]
+        )
+
+        reads = _NeighborhoodReads(self)
+        neighborhoods = []
+        for node_type, node_id in dict.fromkeys(seeds):
+            neighborhood = await self.get_neighborhood(
+                node_type=node_type,
+                node_id=node_id,
+                depth=WEB_NEIGHBORHOOD_DEPTH,
+                limit=WEB_NEIGHBORHOOD_LIMIT,
+                include_system_nodes=include_system_nodes,
+                _reads=reads,
+                _include_layouts=False,
+            )
+            if neighborhood is not None:
+                neighborhoods.append(neighborhood)
+        if not neighborhoods:
+            return None
+
+        # Keep diagnostic roots out of the investment overview when there is a
+        # real knowledge or portfolio root, as in the individual seed views.
+        usable = [item for item in neighborhoods if item.nodes[0].layer != "system"]
+        usable = usable or neighborhoods
+        nodes: OrderedDict[str, GraphWebNodeResponse] = OrderedDict()
+        edges: dict[tuple[UUID, str, str, str], GraphWebEdgeResponse] = {}
+        for item in usable:
+            for node in item.nodes:
+                nodes.setdefault(node.key, node)
+            for edge in item.edges:
+                edges.setdefault(
+                    (edge.id, edge.source_key, edge.target_key, edge.relationship_type),
+                    edge,
+                )
+        root_key = (
+            preferred_root
+            if preferred_root in nodes
+            else next(
+                (node.key for node in nodes.values() if node.node_type == "portfolio"),
+                usable[0].root_key,
+            )
+        )
+        for node in nodes.values():
+            node.is_root = node.key == root_key
+        await self._attach_layouts(nodes)
+        return GraphNeighborhoodResponse(
+            root_key=root_key,
+            depth=WEB_NEIGHBORHOOD_DEPTH,
+            nodes=list(nodes.values()),
+            edges=list(edges.values()),
         )
 
     async def compare_nodes(
@@ -984,7 +1161,9 @@ class GraphService:
             return True, "internal_only"
         return False, None
 
-    async def _node_layer(self, node_type: str, node) -> str:
+    async def _node_layer(
+        self, node_type: str, node, *, reads: _NeighborhoodReads | None = None
+    ) -> str:
         if node_type in {
             "fact",
             "claim",
@@ -1001,10 +1180,10 @@ class GraphService:
         if node_type in {"coverage_map", "unresolved_question", "raw_evidence"}:
             if node_type == "raw_evidence":
                 source = (
-                    await self.session.execute(
-                        select(Source).where(Source.id == node.source_id)
-                    )
-                ).scalar_one_or_none()
+                    await reads.node("source", node.source_id)
+                    if reads
+                    else await self.session.get(Source, node.source_id)
+                )
                 if source is not None and self._raw_is_system(node, source)[0]:
                     return "system"
                 return "source"
@@ -1021,17 +1200,17 @@ class GraphService:
             return "system" if self._source_is_system(node)[0] else "source"
         if node_type == "source_item":
             raw = (
-                await self.session.execute(
-                    select(RawEvidence).where(RawEvidence.id == node.raw_evidence_id)
-                )
-            ).scalar_one_or_none()
+                await reads.node("raw_evidence", node.raw_evidence_id)
+                if reads
+                else await self.session.get(RawEvidence, node.raw_evidence_id)
+            )
             if raw is None:
                 return "source"
             source = (
-                await self.session.execute(
-                    select(Source).where(Source.id == raw.source_id)
-                )
-            ).scalar_one_or_none()
+                await reads.node("source", raw.source_id)
+                if reads
+                else await self.session.get(Source, raw.source_id)
+            )
             if source is not None and self._raw_is_system(raw, source)[0]:
                 return "system"
             return "source"
@@ -2447,6 +2626,7 @@ class GraphService:
         node_type: str,
         node_id: UUID,
         node,
+        reads: _NeighborhoodReads,
     ) -> list[GraphWebEdgeResponse]:
         output: OrderedDict[UUID, GraphWebEdgeResponse] = OrderedDict()
         for edge in await self._edges_touching_node(
@@ -2459,38 +2639,43 @@ class GraphService:
                 relationship_type=edge.relationship_type,
                 confidence=float(edge.confidence or 0.0),
             )
-        for synthetic in await self._synthetic_connections(
-            node_type=node_type, node_id=node_id, node=node
-        ):
-            edge_id = synthetic.edge_id
-            if edge_id in output:
-                continue
-            source_key = (
-                self._node_key(node_type, node_id)
-                if synthetic.direction == "outgoing"
-                else self._node_key(synthetic.node_type, synthetic.node_id)
+        specs = await self._synthetic_connection_specs(
+            node_type=node_type, node_id=node_id, node=node, reads=reads
+        )
+        # A web edge needs endpoint IDs, not the full detail of every possible
+        # neighbor. The traversal loads admitted nodes and discards edges whose
+        # endpoints were absent, retired or outside the bounded neighborhood.
+        for other_type, other_id, relationship_type, confidence, direction in specs:
+            source_type, source_id, target_type, target_id = (
+                (node_type, node_id, other_type, other_id)
+                if direction == "outgoing"
+                else (other_type, other_id, node_type, node_id)
             )
-            target_key = (
-                self._node_key(synthetic.node_type, synthetic.node_id)
-                if synthetic.direction == "outgoing"
-                else self._node_key(node_type, node_id)
+            edge_id = self._synthetic_edge_id(
+                source_type=source_type,
+                source_id=source_id,
+                target_type=target_type,
+                target_id=target_id,
+                relationship_type=relationship_type,
             )
-            output[edge_id] = GraphWebEdgeResponse(
-                id=edge_id,
-                source_key=source_key,
-                target_key=target_key,
-                relationship_type=synthetic.relationship_type,
-                confidence=synthetic.confidence,
-            )
+            if edge_id not in output:
+                output[edge_id] = GraphWebEdgeResponse(
+                    id=edge_id,
+                    source_key=self._node_key(source_type, source_id),
+                    target_key=self._node_key(target_type, target_id),
+                    relationship_type=relationship_type,
+                    confidence=confidence,
+                )
         return list(output.values())
 
-    async def _synthetic_connections(
+    async def _synthetic_connection_specs(
         self,
         *,
         node_type: str,
         node_id: UUID,
         node,
-    ) -> list[GraphConnectionResponse]:
+        reads: _NeighborhoodReads | None = None,
+    ) -> list[tuple[str, UUID, str, float, str]]:
         specs: list[tuple[str, UUID, str, float, str]] = []
 
         if node_type == "portfolio":
@@ -2611,7 +2796,9 @@ class GraphService:
             "market_setup_signal",
         }:
             specs.extend(
-                await self._knowledge_context_specs(node_type=node_type, node=node)
+                await self._knowledge_context_specs(
+                    node_type=node_type, node=node, reads=reads
+                )
             )
         elif node_type == "conclusion":
             specs.extend(await self._conclusion_specs(node))
@@ -2656,6 +2843,18 @@ class GraphService:
                 )
             )
 
+        return specs
+
+    async def _synthetic_connections(
+        self,
+        *,
+        node_type: str,
+        node_id: UUID,
+        node,
+    ) -> list[GraphConnectionResponse]:
+        specs = await self._synthetic_connection_specs(
+            node_type=node_type, node_id=node_id, node=node
+        )
         connections: list[GraphConnectionResponse] = []
         seen: set[tuple[str, UUID, str]] = set()
         for other_type, other_id, relationship_type, confidence, direction in specs:
@@ -2836,11 +3035,7 @@ class GraphService:
         self, position: Position
     ) -> list[tuple[str, UUID, str, float, str]]:
         specs: list[tuple[str, UUID, str, float, str]] = []
-        security = (
-            await self.session.execute(
-                select(Security).where(Security.id == position.security_id)
-            )
-        ).scalar_one_or_none()
+        security = await self.session.get(Security, position.security_id)
         if security is not None:
             specs.append(
                 (
@@ -2863,10 +3058,14 @@ class GraphService:
         return specs
 
     async def _knowledge_context_specs(
-        self, *, node_type: str, node
+        self, *, node_type: str, node, reads: _NeighborhoodReads | None = None
     ) -> list[tuple[str, UUID, str, float, str]]:
         specs: list[tuple[str, UUID, str, float, str]] = []
-        source_items = await self._source_items_for_extracted_node(node_type, node)
+        if reads is not None and getattr(node, "source_item_id", None):
+            source_item = await reads.node("source_item", node.source_item_id)
+            source_items = [source_item] if source_item is not None else []
+        else:
+            source_items = await self._source_items_for_extracted_node(node_type, node)
         seen: set[tuple[str, UUID, str]] = set()
 
         for source_item in source_items[:2]:
@@ -2884,7 +3083,7 @@ class GraphService:
                 )
 
             sibling_specs = await self._sibling_evidence_specs(
-                source_item.id, getattr(node, "id", None)
+                source_item.id, getattr(node, "id", None), reads=reads
             )
             for sibling in sibling_specs:
                 sibling_key = (sibling[0], sibling[1], sibling[2])
@@ -3251,6 +3450,19 @@ class GraphService:
         self,
         source_item_id: UUID,
         current_node_id: UUID | None,
+        *,
+        reads: _NeighborhoodReads | None = None,
+    ) -> list[tuple[str, UUID, str, float, str]]:
+        if reads is not None and source_item_id in reads.siblings:
+            specs = reads.siblings[source_item_id]
+        else:
+            specs = await self._sibling_evidence_candidates(source_item_id)
+            if reads is not None:
+                reads.siblings[source_item_id] = specs
+        return [item for item in specs if item[1] != current_node_id][:8]
+
+    async def _sibling_evidence_candidates(
+        self, source_item_id: UUID
     ) -> list[tuple[str, UUID, str, float, str]]:
         specs: list[tuple[str, UUID, str, float, str]] = []
         for node_type, model in (("claim", Claim), ("fact", Fact)):
@@ -3267,8 +3479,6 @@ class GraphService:
                 .all()
             )
             for row in rows:
-                if current_node_id is not None and row.id == current_node_id:
-                    continue
                 specs.append(
                     (node_type, row.id, "shares_source_context", 0.76, "outgoing")
                 )
@@ -3290,12 +3500,10 @@ class GraphService:
             .all()
         )
         for edge in event_edges:
-            if current_node_id is not None and edge.source_id == current_node_id:
-                continue
             specs.append(
                 ("event", edge.source_id, "shares_source_context", 0.76, "outgoing")
             )
-        return specs[:8]
+        return specs
 
     def _review_graph_type(self, item_type: str) -> str | None:
         mapping = {

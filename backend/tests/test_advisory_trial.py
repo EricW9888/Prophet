@@ -114,6 +114,9 @@ async def test_paper_trial_uses_live_entry_point_and_frozen_source_clock(monkeyp
     trial_id = None
 
     async with async_session_maker() as session:
+        assert (
+            await AdvisoryTrialService(session).latest() is None
+        ), "The test requires a disposable database without a prior advisory trial."
 
         async def save(row):
             session.add(row)
@@ -223,6 +226,7 @@ async def test_paper_trial_uses_live_entry_point_and_frozen_source_clock(monkeyp
                 response = await client.post(PATH)
                 response.raise_for_status()
                 trial = response.json()["trial"]
+                assert trial["declaration"]["policy"]["benchmark_ticker"] == BENCHMARK
                 trial_id = trial["id"]
                 assert digest(trial["declaration"]) == trial["declaration_hash"]
                 assert (await client.post(PATH)).json()["trial"]["id"] == trial_id

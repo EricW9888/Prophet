@@ -69,9 +69,18 @@ values.
 
 ## Tests and Checks
 
-From `backend/`:
+Create an empty, disposable PostgreSQL database whose name starts with
+`prophet_test_` (CI uses `prophet_ci`). Set `POSTGRES_DB` in the test process
+environment to that database. Keep the usual connection settings for your
+PostgreSQL server. The suite refuses to run against the default application
+database and uses temporary runtime settings and storage.
+
+From `backend/` (PowerShell uses `$env:POSTGRES_DB = 'prophet_test_local'`
+instead of `export`):
 
 ```bash
+export POSTGRES_DB=prophet_test_local
+poetry run alembic upgrade head
 poetry run coverage run --branch --source=investos -m pytest -q
 poetry run coverage report --precision=1 --fail-under=40
 poetry run alembic check

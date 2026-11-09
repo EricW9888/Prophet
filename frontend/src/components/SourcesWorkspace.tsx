@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { BookmarkPlus, CheckCircle2, ExternalLink, FileText, RotateCcw, ThumbsDown, ThumbsUp, Trash2, Video } from "lucide-react";
 
 import {
@@ -22,7 +22,8 @@ import {
 import { normalizeSourceOrigin } from "@/lib/sourceOrigin";
 import HintMarker from "@/components/HintMarker";
 import PageHeader from "@/components/PageHeader";
-import WorkspaceState from "@/components/WorkspaceState";
+import { useWorkspaceReads } from "@/lib/workspace-reads";
+import { WorkspaceRead } from "@/components/WorkspaceState";
 import { evidenceProcessingTone as processingTone } from "@/lib/evidence-state";
 
 type NoteForm = {
@@ -95,9 +96,6 @@ export default function SourcesWorkspace() {
   const [channelSourceId, setChannelSourceId] = useState("");
   const [channelPreview, setChannelPreview] = useState<YouTubeChannelPreview | null>(null);
   const [channelLoading, setChannelLoading] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [loadedOnce, setLoadedOnce] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -117,7 +115,6 @@ export default function SourcesWorkspace() {
   const [disclosureForm, setDisclosureForm] = useState<DisclosureForm>(emptyDisclosureForm);
   const [feedbackNotes, setFeedbackNotes] = useState<Record<string, string>>({});
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceTab>("review");
-  const loadedOnceRef = useRef(false);
 
   const trustedSources = useMemo(() => sources.filter((source) => source.is_trusted), [sources]);
   const operatorTrustedSources = useMemo(
@@ -136,53 +133,47 @@ export default function SourcesWorkspace() {
   const usefulFlags = feedback.filter((item) => item.rating === "useful");
   const noisyFlags = feedback.filter((item) => item.rating === "not_useful");
 
-  async function loadWorkspace(showSpinner = true) {
-    if (showSpinner && !loadedOnceRef.current) setLoading(true);
-    try {
-      const [sourceData, evidenceData, discoveryData, feedbackData, noteData, aliasData, mediaCapabilityData] = await Promise.all([
-        apiFetch<SourceRecord[]>("/sources"),
-        apiFetch<SourceEvidenceSummary[]>("/sources/recent-evidence?limit=80"),
-        apiFetch<ResearchDiscoveryObservation[]>("/sources/discoveries?limit=40"),
-        apiFetch<SourceFeedbackRecord[]>("/sources/feedback?limit=80"),
-        apiFetch<SourceEvidenceSummary[]>("/sources/notes?limit=30"),
-        apiFetch<SubjectAliasRecord[]>("/graph/aliases?limit=80"),
-        apiFetch<MediaIngestionCapabilityResponse>("/sources/youtube/capabilities"),
-      ]);
-      setSources(sourceData);
-      setRecentEvidence(evidenceData);
-      setDiscoveries(discoveryData);
-      setFeedback(feedbackData);
-      setNotes(noteData);
-      setAliases(aliasData);
-      setMediaCapabilities(mediaCapabilityData);
-      setChannelSourceId((current) => {
-        if (sourceData.some((source) => source.id === current && source.source_type === "youtube" && source.url)) return current;
-        const preferred = sourceData.find((source) => source.source_type === "youtube" && source.is_trusted && source.url)
-          ?? sourceData.find((source) => source.source_type === "youtube" && source.url);
-        return preferred?.id ?? "";
-      });
-      setNoteForm((current) => {
-        if (current.sourceId || sourceData.length === 0) return current;
-        const preferred = sourceData.find((source) => source.is_trusted) ?? sourceData[0];
-        return { ...current, sourceId: preferred.id };
-      });
-      loadedOnceRef.current = true;
-      setLoadedOnce(true);
-      setLoadError(null);
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Unable to load source workspace.");
-    } finally {
-      setLoading(false);
+  const { read, status } = useWorkspaceReads<"sources" | "evidence" | "discovery" | "feedback" | "notes" | "aliases" | "media">();
+  const loadWorkspace = useCallback(async () => {
+    const requests = [];
+    if (activeWorkspace === "review" || activeWorkspace === "capture") {
+      requests.push(read<SourceRecord[]>("sources", "/sources", (data) => {
+        setSources(data);
+        setChannelSourceId((current) => {
+          if (data.some((source) => source.id === current && source.source_type === "youtube" && source.url)) return current;
+          return (data.find((source) => source.source_type === "youtube" && source.is_trusted && source.url)
+            ?? data.find((source) => source.source_type === "youtube" && source.url))?.id ?? "";
+        });
+        setNoteForm((current) => {
+          if (current.sourceId || data.length === 0) return current;
+          return { ...current, sourceId: (data.find((source) => source.is_trusted) ?? data[0]).id };
+        });
+      }));
     }
-  }
+    if (activeWorkspace === "review") {
+      requests.push(read<ResearchDiscoveryObservation[]>("discovery", "/sources/discoveries?limit=40", setDiscoveries));
+    } else if (activeWorkspace === "capture") {
+      requests.push(read<MediaIngestionCapabilityResponse>("media", "/sources/youtube/capabilities", setMediaCapabilities));
+    } else if (activeWorkspace === "feedback") {
+      requests.push(
+        read<SourceEvidenceSummary[]>("evidence", "/sources/recent-evidence?limit=80", setRecentEvidence),
+        read<SourceFeedbackRecord[]>("feedback", "/sources/feedback?limit=80", setFeedback),
+        read<SourceEvidenceSummary[]>("notes", "/sources/notes?limit=30", setNotes),
+      );
+    } else {
+      requests.push(read<SubjectAliasRecord[]>("aliases", "/graph/aliases?limit=80", setAliases));
+    }
+    await Promise.all(requests);
+  }, [activeWorkspace, read]);
 
   useEffect(() => {
     void loadWorkspace();
     const interval = window.setInterval(() => {
-      void loadWorkspace(false);
+      if (!document.hidden) void loadWorkspace();
     }, 20000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [loadWorkspace]);
+  const retry = () => void loadWorkspace();
 
   useEffect(() => {
     if (!mediaJob || !["queued", "running"].includes(mediaJob.status)) return;
@@ -203,7 +194,7 @@ export default function SourcesWorkspace() {
                 } : current);
               }
               setError(null);
-              void loadWorkspace(false);
+              void loadWorkspace();
             } else {
               setError(job.result?.error || "YouTube ingestion did not produce evidence.");
             }
@@ -216,7 +207,7 @@ export default function SourcesWorkspace() {
         });
     }, 1200);
     return () => window.clearInterval(interval);
-  }, [mediaJob]);
+  }, [mediaJob, loadWorkspace]);
 
   async function createSource(e: React.FormEvent) {
     e.preventDefault();
@@ -240,7 +231,7 @@ export default function SourcesWorkspace() {
         description: "",
         is_trusted: true,
       });
-      await loadWorkspace(false);
+      await loadWorkspace();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to create source.");
     } finally {
@@ -328,7 +319,7 @@ export default function SourcesWorkspace() {
         body: JSON.stringify({ is_trusted: !source.is_trusted }),
       });
       if (!response.ok) throw new Error(await response.text());
-      await loadWorkspace(false);
+      await loadWorkspace();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to update source.");
     }
@@ -348,7 +339,7 @@ export default function SourcesWorkspace() {
       });
       if (!response.ok) throw new Error(await response.text());
       setFeedbackNotes((current) => ({ ...current, [evidenceId]: "" }));
-      await loadWorkspace(false);
+      await loadWorkspace();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to flag evidence.");
     }
@@ -358,7 +349,7 @@ export default function SourcesWorkspace() {
     try {
       const response = await fetch(`${API_BASE}/sources/feedback/${evidenceId}`, { method: "DELETE" });
       if (!response.ok) throw new Error(await response.text());
-      await loadWorkspace(false);
+      await loadWorkspace();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to clear feedback.");
     }
@@ -368,7 +359,7 @@ export default function SourcesWorkspace() {
     try {
       const response = await fetch(`${API_BASE}/graph/aliases/${aliasId}/approve`, { method: "POST" });
       if (!response.ok) throw new Error(await response.text());
-      await loadWorkspace(false);
+      await loadWorkspace();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to approve alias.");
     }
@@ -379,7 +370,7 @@ export default function SourcesWorkspace() {
     try {
       const response = await fetch(`${API_BASE}/graph/aliases/${aliasId}`, { method: "DELETE" });
       if (!response.ok) throw new Error(await response.text());
-      await loadWorkspace(false);
+      await loadWorkspace();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to remove alias.");
     }
@@ -421,7 +412,7 @@ export default function SourcesWorkspace() {
       });
       if (!response.ok) throw new Error(await response.text());
       setNoteForm((current) => ({ ...current, title: "", content: "", noteType: "user_note", url: "" }));
-      await loadWorkspace(false);
+      await loadWorkspace();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save note.");
     } finally {
@@ -466,7 +457,7 @@ export default function SourcesWorkspace() {
         body: JSON.stringify(payload),
       });
       setDisclosureForm(emptyDisclosureForm);
-      await loadWorkspace(false);
+      await loadWorkspace();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save disclosure.");
     } finally {
@@ -498,7 +489,7 @@ export default function SourcesWorkspace() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-[1440px] px-4 py-8 sm:px-6 lg:px-8">
+    <main className="workspace-frame py-8">
       <div className="mb-6 space-y-4">
         <PageHeader
           eyebrow="Research library"
@@ -506,11 +497,11 @@ export default function SourcesWorkspace() {
           description="Manage operator-trusted sources, agent recommendations, provisional discoveries, research notes, and evidence feedback without confusing trust with proof."
         />
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-5 lg:max-w-3xl">
-          <SummaryCard label="Trusted" value={trustedSources.length} />
-          <SummaryCard label="Discovered" value={discoveredSources.length} />
-          <SummaryCard label="Useful" value={usefulFlags.length} />
-          <SummaryCard label="Noisy" value={noisyFlags.length} />
-          <SummaryCard label="Aliases" value={aliases.length} />
+          <SummaryCard label="Trusted" value={status.sources?.ready ? trustedSources.length : null} />
+          <SummaryCard label="Discovered" value={status.sources?.ready ? discoveredSources.length : null} />
+          <SummaryCard label="Useful" value={status.feedback?.ready ? usefulFlags.length : null} />
+          <SummaryCard label="Noisy" value={status.feedback?.ready ? noisyFlags.length : null} />
+          <SummaryCard label="Aliases" value={status.aliases?.ready ? aliases.length : null} />
         </div>
       </div>
 
@@ -520,23 +511,11 @@ export default function SourcesWorkspace() {
         </div>
       ) : null}
 
-      {loadedOnce && loadError ? (
-        <WorkspaceState
-          kind="degraded"
-          compact
-          className="mb-4"
-          title="Source refresh is delayed"
-          description={`${loadError} The last loaded source library remains available.`}
-          actionLabel="Retry refresh"
-          onAction={() => void loadWorkspace(false)}
-        />
-      ) : null}
-
-      <div className="mb-6 flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950">
+      <div className="mb-6 flex flex-wrap gap-2 rounded-lg border border-line bg-panel p-1">
         <WorkspaceTabButton
           active={activeWorkspace === "review"}
           label="Source Review"
-          count={sources.length}
+          count={status.sources?.ready ? sources.length : null}
           onClick={() => setActiveWorkspace("review")}
         />
         <WorkspaceTabButton
@@ -548,33 +527,20 @@ export default function SourcesWorkspace() {
         <WorkspaceTabButton
           active={activeWorkspace === "feedback"}
           label="Feedback"
-          count={feedback.length + notes.length}
+          count={status.feedback?.ready && status.notes?.ready ? feedback.length + notes.length : null}
           onClick={() => setActiveWorkspace("feedback")}
         />
         <WorkspaceTabButton
           active={activeWorkspace === "diagnostics"}
           label="Diagnostics"
-          count={aliases.length}
+          count={status.aliases?.ready ? aliases.length : null}
           onClick={() => setActiveWorkspace("diagnostics")}
         />
       </div>
 
-      {!loadedOnce && loading ? (
-        <WorkspaceState
-          kind="loading"
-          title="Loading source workspace"
-          description="Retrieving source trust, evidence, feedback, and media-ingestion status."
-        />
-      ) : !loadedOnce && loadError ? (
-        <WorkspaceState
-          kind="error"
-          title="Source workspace is unavailable"
-          description={loadError}
-          actionLabel="Retry"
-          onAction={() => void loadWorkspace()}
-        />
-      ) : activeWorkspace === "review" ? (
+      {activeWorkspace === "review" ? (
         <section className="space-y-6">
+          <WorkspaceRead name="source library" state={status.sources} retry={retry}>
           <SourceSection
             title="Your Trusted Sources"
             subtitle="Your explicit trust choice is preserved. Prophet still measures reliability and recommends a review when later evidence disagrees."
@@ -598,7 +564,10 @@ export default function SourcesWorkspace() {
             empty="No discovered sources yet."
             onToggleTrusted={toggleTrusted}
           />
-          <DiscoveryObservationPanel discoveries={discoveries} />
+          </WorkspaceRead>
+          <WorkspaceRead name="discovery observations" state={status.discovery} retry={retry}>
+            <DiscoveryObservationPanel discoveries={discoveries} />
+          </WorkspaceRead>
         </section>
       ) : activeWorkspace === "capture" ? (
         <div className="grid gap-6 xl:grid-cols-2">
@@ -609,29 +578,31 @@ export default function SourcesWorkspace() {
               saving={saving}
               onSubmit={createSource}
             />
-            <MediaCapabilityPanel
-              capabilities={mediaCapabilities}
-              mediaUrl={mediaUrl}
-              mediaTitle={mediaTitle}
-              mediaSourceId={mediaSourceId}
-              mediaJob={mediaJob}
-              channelSources={youtubeChannelSources}
-              channelSourceId={channelSourceId}
-              channelPreview={channelPreview}
-              channelLoading={channelLoading}
-              onMediaUrlChange={setMediaUrl}
-              onMediaTitleChange={setMediaTitle}
-              onMediaSourceChange={setMediaSourceId}
-              onChannelSourceChange={(value) => {
-                setChannelSourceId(value);
-                setChannelPreview(null);
-              }}
-              onLoadChannel={() => void loadChannelPreview()}
-              onIngestChannelVideo={(video) => void ingestChannelVideo(video)}
-              onSubmit={startMediaIngestion}
-              onCancel={() => void cancelMediaIngestion()}
-              onManualTranscript={prefillManualTranscript}
-            />
+            <WorkspaceRead name="media capture capabilities" state={status.media} retry={retry}>
+              <MediaCapabilityPanel
+                capabilities={mediaCapabilities}
+                mediaUrl={mediaUrl}
+                mediaTitle={mediaTitle}
+                mediaSourceId={mediaSourceId}
+                mediaJob={mediaJob}
+                channelSources={youtubeChannelSources}
+                channelSourceId={channelSourceId}
+                channelPreview={channelPreview}
+                channelLoading={channelLoading}
+                onMediaUrlChange={setMediaUrl}
+                onMediaTitleChange={setMediaTitle}
+                onMediaSourceChange={setMediaSourceId}
+                onChannelSourceChange={(value) => {
+                  setChannelSourceId(value);
+                  setChannelPreview(null);
+                }}
+                onLoadChannel={() => void loadChannelPreview()}
+                onIngestChannelVideo={(video) => void ingestChannelVideo(video)}
+                onSubmit={startMediaIngestion}
+                onCancel={() => void cancelMediaIngestion()}
+                onManualTranscript={prefillManualTranscript}
+              />
+            </WorkspaceRead>
           </div>
           <div className="space-y-4">
             <AddDisclosurePanel
@@ -640,32 +611,42 @@ export default function SourcesWorkspace() {
               saving={saving}
               onSubmit={createDisclosure}
             />
-            <AddNotePanel
-              sources={sources}
-              form={noteForm}
-              setForm={setNoteForm}
-              saving={saving}
-              onSubmit={createNote}
-              onCagrTest={prefillCagrNote}
-            />
+            <WorkspaceRead name="note sources" state={status.sources} retry={retry}>
+              <AddNotePanel
+                sources={sources}
+                form={noteForm}
+                setForm={setNoteForm}
+                saving={saving}
+                onSubmit={createNote}
+                onCagrTest={prefillCagrNote}
+              />
+            </WorkspaceRead>
           </div>
         </div>
       ) : activeWorkspace === "feedback" ? (
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-          <RecentEvidence
-            evidence={recentEvidence}
-            feedbackNotes={feedbackNotes}
-            setFeedbackNotes={setFeedbackNotes}
-            onFlag={flagEvidence}
-          />
+          <WorkspaceRead name="recent evidence" state={status.evidence} retry={retry}>
+            <RecentEvidence
+              evidence={recentEvidence}
+              feedbackNotes={feedbackNotes}
+              setFeedbackNotes={setFeedbackNotes}
+              onFlag={flagEvidence}
+            />
+          </WorkspaceRead>
           <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
-            <FlaggedPanel feedback={feedback} onClear={clearFeedback} />
-            <NotesPanel notes={notes} />
+            <WorkspaceRead name="flagged evidence" state={status.feedback} retry={retry}>
+              <FlaggedPanel feedback={feedback} onClear={clearFeedback} />
+            </WorkspaceRead>
+            <WorkspaceRead name="notes" state={status.notes} retry={retry}>
+              <NotesPanel notes={notes} />
+            </WorkspaceRead>
           </aside>
         </div>
       ) : (
         <section className="space-y-6">
-          <SubjectAliasPanel aliases={aliases} onApprove={approveAlias} onRemove={removeAlias} />
+          <WorkspaceRead name="subject aliases" state={status.aliases} retry={retry}>
+            <SubjectAliasPanel aliases={aliases} onApprove={approveAlias} onRemove={removeAlias} />
+          </WorkspaceRead>
         </section>
       )}
     </main>
@@ -698,7 +679,7 @@ function WorkspaceTabButton({
       {count !== null ? (
         <span
           className={[
-            "rounded-full px-2 py-0.5 text-[11px]",
+            "rounded-none px-2 py-0.5 text-[11px]",
             active
               ? "bg-white/15 text-white dark:bg-slate-950/10 dark:text-slate-950"
               : "bg-slate-100 text-slate-500 dark:bg-slate-900 dark:text-slate-400",
@@ -785,11 +766,11 @@ function AddDisclosurePanel({
   );
 }
 
-function SummaryCard({ label, value }: { label: string; value: number }) {
+function SummaryCard({ label, value }: { label: string; value: number | null }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
+    <div className="rounded-lg border border-line bg-panel px-4 py-3">
       <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</div>
-      <div className="mt-1 text-2xl font-bold tracking-tight">{value}</div>
+      <div className="mt-1 text-2xl font-bold tracking-tight">{value ?? "—"}</div>
     </div>
   );
 }
@@ -822,7 +803,7 @@ function SourceSection({
         ) : null}
       </div>
       {sources.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-slate-200 bg-white p-5 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950">
+        <div className="rounded-lg border border-dashed border-line bg-panel p-5 text-sm text-slate-500">
           {empty}
         </div>
       ) : (
@@ -830,7 +811,7 @@ function SourceSection({
           {visibleSources.map((source) => {
             const origin = normalizeSourceOrigin(source.origin);
             return (
-            <article key={source.id} className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+            <article key={source.id} className="min-w-0 rounded-lg border border-line bg-panel p-4">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -947,11 +928,11 @@ function DiscoveryObservationPanel({ discoveries }: { discoveries: ResearchDisco
         </p>
       </div>
       {discoveries.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-slate-200 bg-white p-5 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950">
+        <div className="rounded-lg border border-dashed border-line bg-panel p-5 text-sm text-slate-500">
           No discovery observations recorded yet.
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+        <div className="overflow-hidden rounded-lg border border-line bg-panel">
           {discoveries.slice(0, 12).map((item) => (
             <article
               key={item.id}
@@ -1069,13 +1050,13 @@ function SubjectAliasPanel({
         ) : null}
       </div>
       {visibleAliases.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-slate-200 bg-white p-5 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950">
+        <div className="rounded-lg border border-dashed border-line bg-panel p-5 text-sm text-slate-500">
           No subject aliases recorded yet.
         </div>
       ) : (
         <div className="grid gap-3 2xl:grid-cols-2">
           {visibleAliases.map((alias) => (
-            <article key={alias.id} className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+            <article key={alias.id} className="rounded-lg border border-line bg-panel p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -1158,7 +1139,7 @@ function RecentEvidence({
         {evidence.slice(0, 12).map((item) => {
           const origin = normalizeSourceOrigin(item);
           return (
-          <div key={item.id} className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+          <div key={item.id} className="rounded-lg border border-line bg-panel p-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
@@ -1248,7 +1229,7 @@ function AddSourcePanel({
   onSubmit: (e: React.FormEvent) => Promise<void>;
 }) {
   return (
-    <form onSubmit={onSubmit} className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+    <form onSubmit={onSubmit} className="rounded-lg border border-line bg-panel p-4">
       <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Add Trusted Source</h2>
       <div className="mt-4 space-y-3">
         <select value={form.source_type} onChange={(e) => setForm((current) => ({ ...current, source_type: e.target.value }))} className={inputClass}>
@@ -1379,7 +1360,7 @@ function MediaCapabilityPanel({
                 No recent public videos were returned for this channel.
               </p>
             ) : channelPreview.videos.map((video) => (
-              <div key={video.video_id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800 dark:bg-slate-950">
+              <div key={video.video_id} className="flex flex-col gap-2 rounded-lg border border-line bg-panel px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                   <p className="line-clamp-2 text-sm font-medium text-slate-800 dark:text-slate-100">{video.title}</p>
                   <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -1586,7 +1567,7 @@ function AddNotePanel({
 
 function FlaggedPanel({ feedback, onClear }: { feedback: SourceFeedbackRecord[]; onClear: (evidenceId: string) => Promise<void> }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+    <section className="rounded-lg border border-line bg-panel p-4">
       <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Flagged Later</h2>
       <div className="mt-3 space-y-2">
         {feedback.length === 0 ? (
@@ -1626,7 +1607,7 @@ function FlaggedPanel({ feedback, onClear }: { feedback: SourceFeedbackRecord[];
 
 function NotesPanel({ notes }: { notes: SourceEvidenceSummary[] }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+    <section className="rounded-lg border border-line bg-panel p-4">
       <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Recent Notes</h2>
       <div className="mt-3 space-y-2">
         {notes.length === 0 ? (
@@ -1667,7 +1648,7 @@ function StatusPill({
       ? "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300"
       : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300";
   return (
-    <span title={title} className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${className}`}>
+    <span title={title} className={`rounded-none border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${className}`}>
       {children}
     </span>
   );
@@ -1691,7 +1672,7 @@ function OriginPill({ children, kind }: { children: React.ReactNode; kind?: stri
       ? "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/30 dark:text-orange-300"
       : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300";
   return (
-    <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${className}`}>
+    <span className={`rounded-none border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${className}`}>
       {children}
     </span>
   );

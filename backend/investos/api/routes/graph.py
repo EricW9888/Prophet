@@ -1,3 +1,4 @@
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -166,6 +167,18 @@ async def get_graph_node_detail(
     if detail is None:
         raise HTTPException(status_code=404, detail="graph_node_not_found")
     return detail
+
+
+@router.get("/workspace", response_model=GraphNeighborhoodResponse | None)
+async def get_graph_workspace(
+    scope: Literal["portfolio", "expanded"] = "portfolio",
+    include_system: bool = False,
+    session: AsyncSession = Depends(get_session),
+):
+    return await GraphService(session).get_workspace_web(
+        scope=scope,
+        include_system_nodes=include_system,
+    )
 
 
 @router.get(

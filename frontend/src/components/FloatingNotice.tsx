@@ -28,7 +28,7 @@ export default function FloatingNotice({
           <button
             type="button"
             onClick={onDismiss}
-            className="shrink-0 rounded-full border border-current/20 px-2 py-1 text-xs font-semibold uppercase tracking-wider"
+            className="shrink-0 rounded-none border border-current/20 px-2 py-1 text-xs font-semibold uppercase tracking-wider"
           >
             Dismiss
           </button>

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePlaidLink } from "react-plaid-link";
+import { useWorkspaceReads } from "@/lib/workspace-reads";
 import AppNav from "@/components/AppNav";
 import LanguageSettings from "@/components/LanguageSettings";
 import FloatingNotice from "@/components/FloatingNotice";
@@ -49,8 +50,6 @@ export default function SettingsPage() {
   const [automation, setAutomation] = useState<AutomationStatus | null>(null);
   const [portfolioOverview, setPortfolioOverview] = useState<PortfolioOverview | null>(null);
   const [riskSummary, setRiskSummary] = useState<RiskSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [isDirty, setIsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -75,39 +74,27 @@ export default function SettingsPage() {
 
   const dirtyRef = useRef(false);
 
-  async function loadState() {
-    try {
-      const [sRes, setRes, autoRes, portRes, riskRes] = await Promise.allSettled([
-        apiFetch<SetupStatus>("/setup/status"),
-        apiFetch<IntegrationSettings>("/integrations/settings"),
-        apiFetch<AutomationStatus>("/automation/status"),
-        apiFetch<PortfolioOverview>("/portfolio/overview"),
-        apiFetch<RiskSummary>("/risk/summary?refresh=false"),
-      ]);
+  const { read, status } = useWorkspaceReads<"settings" | "setup" | "automation" | "portfolio" | "risk">();
+  const loadError = status.settings?.error;
+  const loading = !status.settings?.ready && !loadError;
 
-      if (setRes.status === "fulfilled") {
-        setSettings(prev => (prev && dirtyRef.current ? prev : setRes.value));
-        setLoadError(null);
-      } else {
-        setLoadError(setRes.reason instanceof Error ? setRes.reason.message : "Unable to load integration settings.");
-      }
-      if (sRes.status === "fulfilled") setSetup(sRes.value);
-      if (autoRes.status === "fulfilled") setAutomation(autoRes.value);
-      if (portRes.status === "fulfilled") setPortfolioOverview(portRes.value);
-      if (riskRes.status === "fulfilled") setRiskSummary(riskRes.value);
-
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Unable to load settings.");
-    } finally {
-      setLoading(false);
-    }
-  }
+  const loadState = useCallback(async () => {
+    await Promise.all([
+      read<IntegrationSettings>("settings", "/integrations/settings", data => setSettings(prev => prev && dirtyRef.current ? prev : data)),
+      read<SetupStatus>("setup", "/setup/status", setSetup),
+      read<AutomationStatus>("automation", "/automation/status", setAutomation),
+      read<PortfolioOverview>("portfolio", "/portfolio/overview?refresh=false", setPortfolioOverview),
+      read<RiskSummary>("risk", "/risk/summary?refresh=false", setRiskSummary),
+    ]);
+  }, [read]);
 
   useEffect(() => {
     void loadState();
-    const interval = window.setInterval(loadState, 20000);
+    const interval = window.setInterval(() => {
+      if (!document.hidden && !dirtyRef.current) void loadState();
+    }, 20000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [loadState]);
 
   function markDirty() {
     dirtyRef.current = true;
@@ -250,7 +237,7 @@ export default function SettingsPage() {
     return (
       <div className="min-h-screen bg-background text-foreground">
         <AppNav active="settings" />
-        <main className="mx-auto w-full max-w-[1440px] px-4 py-8 sm:px-6 lg:px-8">
+        <main className="workspace-frame py-8">
           <PageHeader
             className="mb-8"
             eyebrow="Configuration"
@@ -270,7 +257,6 @@ export default function SettingsPage() {
               description={loadError ?? "Prophet could not load the required integration settings."}
               actionLabel="Retry"
               onAction={() => {
-                setLoading(true);
                 void loadState();
               }}
             />
@@ -287,10 +273,15 @@ export default function SettingsPage() {
     <div className="min-h-screen bg-background text-foreground">
       <AppNav active="settings" />
 
-      <main className="mx-auto w-full max-w-[1440px] px-4 py-8 sm:px-6 lg:px-8">
+      <main className="workspace-frame py-8">
         {error && <FloatingNotice tone="error" message={error} onDismiss={() => setError(null)} />}
         {notice && <FloatingNotice tone="success" message={notice} onDismiss={() => setNotice(null)} />}
 
+        {(["setup", "automation", "portfolio", "risk"] as const).some(key => status[key]?.error) ? (
+          <WorkspaceState compact kind="degraded" title="Some status panels are unavailable"
+            description={"Unavailable: " + (["setup", "automation", "portfolio", "risk"] as const).filter(key => status[key]?.error).join(", ")}
+            actionLabel="Retry" onAction={() => void loadState()} />
+        ) : null}
         {loadError ? (
           <WorkspaceState
             kind="degraded"
@@ -340,7 +331,7 @@ export default function SettingsPage() {
                       <span className="text-sm font-medium">Configuration Progress</span>
                       <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">{Math.round((setup?.completion_ratio ?? 0) * 100)}%</span>
                     </div>
-                    <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                    <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-none overflow-hidden">
                       <div className="h-full bg-slate-900 transition-all duration-1000 dark:bg-slate-100" style={{ width: `${(setup?.completion_ratio ?? 0) * 100}%` }} />
                     </div>
                     <p className="text-xs text-slate-500">
@@ -352,7 +343,7 @@ export default function SettingsPage() {
                   </div>
                 </Card>
 
-                <div className="divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-950">
+                <div className="divide-y divide-slate-200 overflow-hidden rounded-lg border border-line bg-panel dark:divide-slate-800">
                   {setup?.steps.map(step => {
                     const tone = setupStepTone(step.status);
                     const targetTab = setupStepTargetTab(step.id);
@@ -458,7 +449,7 @@ export default function SettingsPage() {
 
           {activeTab === "data" && (
             <div className="max-w-4xl space-y-6">
-              <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+              <section className="rounded-lg border border-line bg-panel p-6">
                 <div className="flex items-center gap-3 mb-8">
                   <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
                     <Database className="h-6 w-6 text-slate-600 dark:text-slate-300" />
@@ -578,7 +569,7 @@ export default function SettingsPage() {
                 <MailboxIdentityReviews />
               </section>
 
-              <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+              <section className="rounded-lg border border-line bg-panel p-6">
                 <div className="mb-6 flex items-start justify-between gap-4">
                   <div className="flex items-center gap-3">
                     <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
@@ -685,7 +676,7 @@ export default function SettingsPage() {
                 </div>
               </section>
 
-              <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+              <section className="rounded-lg border border-line bg-panel p-6">
                 <div className="mb-6 flex items-start justify-between gap-4">
                   <div className="flex items-center gap-3">
                     <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
@@ -764,7 +755,7 @@ export default function SettingsPage() {
                 </div>
               </section>
 
-              <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+              <section className="rounded-lg border border-line bg-panel p-6">
                 <div className="flex items-center gap-3 mb-8">
                   <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
                     <Shield className="h-6 w-6 text-slate-600 dark:text-slate-300" />
@@ -794,7 +785,7 @@ export default function SettingsPage() {
                 </div>
               </section>
 
-              <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+              <section className="rounded-lg border border-line bg-panel p-6">
                 <div className="flex items-center gap-3 mb-8">
                   <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
                     <Zap className="h-6 w-6 text-slate-600 dark:text-slate-300" />
@@ -831,7 +822,7 @@ export default function SettingsPage() {
 
           {activeTab === "research" && (
             <div className="max-w-4xl space-y-6">
-              <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+              <section className="rounded-lg border border-line bg-panel p-6">
                 <div className="flex items-center gap-3 mb-8">
                   <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
                     <Search className="h-6 w-6 text-slate-600 dark:text-slate-300" />
@@ -912,7 +903,7 @@ export default function SettingsPage() {
                 </p>
               </section>
 
-              <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+              <section className="rounded-lg border border-line bg-panel p-6">
                 <div className="flex items-center gap-3 mb-8">
                   <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
                     <Zap className="h-6 w-6 text-slate-600 dark:text-slate-300" />
@@ -1424,7 +1415,7 @@ function TabButton({ active, onClick, label, icon }: { active: boolean; onClick:
 
 function Card({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-950">
+    <section className="rounded-lg border border-line bg-panel p-5">
       <div className="mb-5 flex items-center gap-2 border-b border-slate-100 pb-3 dark:border-slate-800">
         {icon}
         <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</h2>

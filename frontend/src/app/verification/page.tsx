@@ -196,7 +196,7 @@ function VerificationWorkspace() {
   return (
     <div className="min-h-screen bg-background text-foreground font-sans">
       <AppNav active="review" />
-      <main className="mx-auto grid w-full max-w-[1440px] grid-cols-1 gap-8 px-4 py-8 sm:px-6 lg:px-8 xl:grid-cols-[0.95fr_1.05fr]">
+      <main className="workspace-frame grid grid-cols-1 gap-8 py-8 xl:grid-cols-[0.95fr_1.05fr]">
         <section className="space-y-6">
           <PageHeader
             eyebrow="Decision quality"
@@ -231,7 +231,7 @@ function VerificationWorkspace() {
           ) : null}
           {loaded ? (
             <>
-          <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+          <section className="rounded-lg border border-line bg-panel p-6">
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
@@ -271,7 +271,7 @@ function VerificationWorkspace() {
                       {item.signal_tags.map((tag) => (
                         <span
                           key={tag}
-                          className="rounded-full border border-slate-200 px-2.5 py-1 text-[11px] uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:text-slate-400"
+                          className="rounded-none border border-slate-200 px-2.5 py-1 text-[11px] uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:text-slate-400"
                         >
                           {tag}
                         </span>
@@ -320,7 +320,7 @@ function VerificationWorkspace() {
               description="Create or ingest research for a company, position, or theme before running a manual challenge."
             />
           ) : (
-            <form id="manual-challenge" onSubmit={runVerification} className="scroll-mt-24 rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950 space-y-4">
+            <form id="manual-challenge" onSubmit={runVerification} className="scroll-mt-24 rounded-lg border border-line bg-panel p-6  space-y-4">
               <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Manual challenge</h2>
               <p className="text-sm text-muted">{selectedSubjectId ? `Subject: ${selectedSubjectName || selectedSubjectType}. Review the question before running verification.` : "Choose the subject you want to verify."}</p>
               <label htmlFor="challenge-subject" className="block text-xs text-muted">Subject</label>
@@ -360,7 +360,7 @@ function VerificationWorkspace() {
               description="Choose a subject and run a manual challenge. The result will show whether the accepted stance held, narrowed, or changed."
             />
           ) : (
-            <article className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950 space-y-5">
+            <article className="rounded-lg border border-line bg-panel p-6  space-y-5">
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <h2 className="text-xl font-semibold tracking-tight">{result.subject_type}</h2>

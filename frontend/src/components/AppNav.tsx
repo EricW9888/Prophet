@@ -128,8 +128,8 @@ function NavLink({
       aria-current={selected ? "page" : undefined}
       className={`flex min-w-0 items-center gap-2 rounded px-3 py-2 text-sm font-medium transition-colors ${
         selected
-          ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950"
-          : "text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-white"
+          ? "bg-panel-muted text-action-strong"
+          : "text-muted hover:bg-panel-muted hover:text-foreground"
       } ${compact ? "justify-center px-2" : ""}`}
       title={compact ? label : undefined}
     >
@@ -173,8 +173,8 @@ export default function AppNav({ active }: { active: NavKey }) {
   }, []);
 
   return (
-    <header className="sticky inset-x-0 top-0 z-50 w-full max-w-[100vw] overflow-x-clip border-b border-line bg-panel/95 backdrop-blur-md">
-      <nav lang={i18n.language} aria-label="Primary" className="mx-auto w-full min-w-0 max-w-[1440px] px-4 sm:px-6 lg:px-8">
+    <header className="sticky inset-x-0 top-0 z-50 w-full border-b border-line bg-panel">
+      <nav lang={i18n.language} aria-label="Primary" className="workspace-frame">
         <div className="flex min-w-0 items-center gap-3 py-2">
           <Link
             href="/"
@@ -200,8 +200,8 @@ export default function AppNav({ active }: { active: NavKey }) {
                 onClick={() => setMoreOpen((current) => !current)}
                 className={`flex items-center gap-2 rounded px-3 py-2 text-sm font-medium transition-colors ${
                   secondaryActive
-                    ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950"
-                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-white"
+                    ? "bg-panel-muted text-action-strong"
+                    : "text-muted hover:bg-panel-muted hover:text-foreground"
                 }`}
                 aria-expanded={moreOpen}
                 aria-controls="prophet-more-navigation"

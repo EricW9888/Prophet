@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import WorkspaceDivider, { useWorkspacePane } from "@/components/WorkspaceDivider";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Check, ChevronDown, PanelLeftOpen, Pencil, X } from "lucide-react";
@@ -28,6 +29,7 @@ import { readResearchEntry, researchTurnContext, type ResearchSubject } from "@/
 
 const ACTIVE_JOB_STORAGE_KEY = "prophet:active-chat-job";
 const ALLOW_ACTIONS_STORAGE_KEY = "prophet:allow-agent-actions";
+const RESEARCH_SIDEBAR_WIDTH = 320;
 const WATCHERS_COLLAPSED_STORAGE_KEY = "prophet:research-watches-collapsed";
 const ACTIVE_JOBS_POLL_ACTIVE_MS = 5000;
 const ACTIVE_JOBS_POLL_IDLE_MS = 15000;
@@ -302,7 +304,7 @@ function CorroborationPanel({ summary }: { summary: StructuredReasoningSummary }
     <div className={`rounded-lg border p-3 ${tone}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-medium uppercase tracking-wider">Evidence confidence</p>
-        <span className="rounded-full border border-current/25 px-2 py-1 text-[10px] font-medium uppercase">
+        <span className="rounded-none border border-current/25 px-2 py-1 text-[10px] font-medium uppercase">
           {formatUserLabel(assessment.status)}
         </span>
       </div>
@@ -573,6 +575,7 @@ function ChatWorkspace() {
   const [renameTitle, setRenameTitle] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
   const [mobileWorkspaceOpen, setMobileWorkspaceOpen] = useState(false);
+  const researchPane = useWorkspacePane("research-sidebar", RESEARCH_SIDEBAR_WIDTH);
   const endRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const lastEntryRef = useRef<string | null>(null);
@@ -1232,7 +1235,7 @@ function ChatWorkspace() {
     <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-background font-sans text-foreground">
       <AppNav active="research" />
 
-      <main className="flex min-h-0 w-full flex-1 overflow-hidden">
+      <main className="flex min-h-0 w-full flex-1 overflow-hidden" style={researchPane.style}>
         {mobileWorkspaceOpen ? (
           <button
             type="button"
@@ -1251,7 +1254,7 @@ function ChatWorkspace() {
             mobileWorkspaceOpen
               ? "fixed inset-y-0 left-0 z-[70] flex w-[min(88vw,360px)] shadow-2xl"
               : "hidden"
-          } h-full min-h-0 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950 lg:relative lg:inset-auto lg:z-auto lg:flex lg:w-[320px] lg:shadow-none`}
+          } h-full min-h-0 shrink-0 flex-col border-r border-line bg-panel lg:relative lg:inset-auto lg:z-auto lg:w-[clamp(260px,var(--pane-width),min(720px,50%))] lg:shadow-none ${researchPane.open ? "lg:flex" : "lg:hidden"}`}
         >
           {mobileWorkspaceOpen ? (
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800 lg:hidden">
@@ -1307,7 +1310,7 @@ function ChatWorkspace() {
                     className={`group w-full rounded-lg border px-3 py-3 transition ${
                       isActive
                         ? "border-sky-300 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/30"
-                        : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950"
+                        : "border-line bg-panel "
                     }`}
                   >
                     {isRenaming ? (
@@ -1408,6 +1411,9 @@ function ChatWorkspace() {
             )}
           </div>
         </aside>
+        {researchPane.open ? (
+          <WorkspaceDivider side="left" controls="research-workspace-panel" label="Resize research sidebar" width={researchPane.width} defaultWidth={RESEARCH_SIDEBAR_WIDTH} onResize={researchPane.setWidth} />
+        ) : null}
 
         <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <div className="shrink-0 border-b border-slate-200 bg-white/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70 sm:px-6">
@@ -1483,12 +1489,12 @@ function ChatWorkspace() {
                   <Link href="/verification" className="text-action underline">Return to review</Link>
                 </div>}
               </div>
-              <div className="flex flex-wrap gap-2 lg:hidden">
+              <div className="flex flex-wrap gap-2">
                 <button
                   ref={mobileWorkspaceTriggerRef}
                   type="button"
                   onClick={() => setMobileWorkspaceOpen(true)}
-                  className="inline-flex items-center gap-2 rounded border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700"
+                  className="workspace-control lg:hidden"
                   aria-expanded={mobileWorkspaceOpen}
                   aria-controls="research-workspace-panel"
                 >
@@ -1497,8 +1503,18 @@ function ChatWorkspace() {
                 </button>
                 <button
                   type="button"
+                  onClick={researchPane.toggle}
+                  className="workspace-control hidden lg:inline-flex"
+                  aria-expanded={researchPane.open}
+                  aria-controls="research-workspace-panel"
+                >
+                  <PanelLeftOpen size={16} aria-hidden="true" />
+                  {researchPane.open ? "Hide sidebar" : "Show sidebar"}
+                </button>
+                <button
+                  type="button"
                   onClick={startNewChat}
-                  className="rounded border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700"
+                  className="workspace-control lg:hidden"
                 >
                   New chat
                 </button>
@@ -1528,8 +1544,8 @@ function ChatWorkspace() {
                   Prophet intelligently groups your queries to the right context. Probe a specific thesis, ask for research updates, or challenge an assumption.
                 </p>
                 <div className="mt-8 flex flex-wrap justify-center gap-3">
-                  <button onClick={() => setInput("What are the core vulnerabilities in our largest tech holding?")} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-slate-700">What are the core vulnerabilities in our largest tech holding?</button>
-                  <button onClick={() => setInput("Summarize recent developments for Apple.")} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-slate-700">Summarize recent developments for Apple.</button>
+                  <button onClick={() => setInput("What are the core vulnerabilities in our largest tech holding?")} className="rounded-none border border-line bg-panel px-4 py-2 text-sm text-slate-600 hover:border-slate-300  dark:text-slate-300 dark:hover:border-slate-700">What are the core vulnerabilities in our largest tech holding?</button>
+                  <button onClick={() => setInput("Summarize recent developments for Apple.")} className="rounded-none border border-line bg-panel px-4 py-2 text-sm text-slate-600 hover:border-slate-300  dark:text-slate-300 dark:hover:border-slate-700">Summarize recent developments for Apple.</button>
                 </div>
               </div>
             ) : (
@@ -1542,7 +1558,7 @@ function ChatWorkspace() {
                           m.role === "assistant"
                             ? "rounded-lg bg-sky-600"
                             : m.role === "user"
-                              ? "rounded-full border border-slate-300 bg-slate-200 dark:border-slate-700 dark:bg-slate-800"
+                              ? "rounded-none border border-slate-300 bg-slate-200 dark:border-slate-700 dark:bg-slate-800"
                               : "rounded-lg border border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900"
                         }`}>
                           <span className={`${
@@ -1608,12 +1624,12 @@ function ChatWorkspace() {
                             />
                             <div className="flex flex-wrap gap-2 text-xs">
                               {m.meta.stance ? (
-                                <span className="rounded-full border border-slate-200 px-3 py-1 dark:border-slate-700">
+                                <span className="rounded-none border border-slate-200 px-3 py-1 dark:border-slate-700">
                                   Stance: {formatUserLabel(m.meta.stance)}
                                 </span>
                               ) : null}
                               {m.meta.confidence_band ? (
-                                <span className="rounded-full border border-slate-200 px-3 py-1 dark:border-slate-700">
+                                <span className="rounded-none border border-slate-200 px-3 py-1 dark:border-slate-700">
                                   Confidence: {formatUserLabel(m.meta.confidence_band)}
                                 </span>
                               ) : null}
@@ -1837,17 +1853,17 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
   return (
     <div className="space-y-3 rounded-lg border border-slate-200 px-3 py-3 text-sm dark:border-slate-800">
       <div className="flex flex-wrap gap-2 text-xs">
-        <span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-800">{formatUserLabel(trace.run_type)}</span>
-        <span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-800">{formatModelUsedLabel(trace.model_used)}</span>
-        <span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-800">{trace.input_tokens ?? 0} in</span>
-        <span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-800">{trace.output_tokens ?? 0} out</span>
-        <span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-800">{trace.duration_ms ?? 0}ms</span>
+        <span className="rounded-none border border-slate-200 px-2 py-1 dark:border-slate-800">{formatUserLabel(trace.run_type)}</span>
+        <span className="rounded-none border border-slate-200 px-2 py-1 dark:border-slate-800">{formatModelUsedLabel(trace.model_used)}</span>
+        <span className="rounded-none border border-slate-200 px-2 py-1 dark:border-slate-800">{trace.input_tokens ?? 0} in</span>
+        <span className="rounded-none border border-slate-200 px-2 py-1 dark:border-slate-800">{trace.output_tokens ?? 0} out</span>
+        <span className="rounded-none border border-slate-200 px-2 py-1 dark:border-slate-800">{trace.duration_ms ?? 0}ms</span>
       </div>
       {researchPlan ? (
         <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="font-medium">Question research plan</p>
-            <span className="rounded-full border border-slate-200 px-2 py-1 text-xs dark:border-slate-800">
+            <span className="rounded-none border border-slate-200 px-2 py-1 text-xs dark:border-slate-800">
               {formatUserLabel(researchPlan.mode)}
             </span>
           </div>
@@ -1912,12 +1928,12 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
           ) : null}
           <div className="flex flex-wrap gap-2 text-xs">
             {stance ? (
-              <span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-800">
+              <span className="rounded-none border border-slate-200 px-2 py-1 dark:border-slate-800">
                 stance {formatUserLabel(stance)}
               </span>
             ) : null}
             {confidenceBand ? (
-              <span className="rounded-full border border-slate-200 px-2 py-1 dark:border-slate-800">
+              <span className="rounded-none border border-slate-200 px-2 py-1 dark:border-slate-800">
                 confidence {formatUserLabel(confidenceBand)}
               </span>
             ) : null}
@@ -1943,7 +1959,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
                 {gapFlags.slice(0, 5).map((item) => (
                   <span
                     key={item}
-                    className="rounded-full border border-amber-300/60 bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-200"
+                    className="rounded-none border border-amber-300/60 bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-200"
                   >
                     {formatUserLabel(item)}
                   </span>
@@ -1972,7 +1988,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
                 {retrievalLayers.map((item) => (
                   <span
                     key={item}
-                    className="rounded-full border border-slate-200 px-2 py-1 text-xs dark:border-slate-800"
+                    className="rounded-none border border-slate-200 px-2 py-1 text-xs dark:border-slate-800"
                   >
                     {formatUserLabel(item)}
                   </span>
@@ -2118,7 +2134,7 @@ function ActualProcessSummary({
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
         <span>Answer audit</span>
         {displayedConfidence ? (
-          <span className="rounded-full border border-slate-200 px-2 py-1 text-[10px] dark:border-slate-700">
+          <span className="rounded-none border border-slate-200 px-2 py-1 text-[10px] dark:border-slate-700">
             {formatUserLabel(displayedConfidence)}
           </span>
         ) : null}

@@ -81,7 +81,7 @@ function NodeRelevancePanel({ node }: { node: GraphNodeDetail }) {
         <div className="h-2 w-2 rounded-full bg-teal-500 dark:bg-teal-400" />
         <h4 className="text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300">Why this matters</h4>
         {significance ? (
-          <span className="rounded-full border border-teal-300 bg-white/70 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-teal-700 dark:border-teal-700 dark:bg-teal-900/50 dark:text-teal-200">
+          <span className="rounded-none border border-teal-300 bg-white/70 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-teal-700 dark:border-teal-700 dark:bg-teal-900/50 dark:text-teal-200">
             {significance}
           </span>
         ) : null}
@@ -149,7 +149,7 @@ function NodePillGroup({
       </div>
       <div className="flex flex-wrap gap-2">
         {values.map((value) => (
-          <span key={`${label}:${value}`} className={`rounded-full border px-2 py-1 text-[11px] font-semibold tracking-wide ${toneClass}`}>
+          <span key={`${label}:${value}`} className={`rounded-none border px-2 py-1 text-[11px] font-semibold tracking-wide ${toneClass}`}>
             {value}
           </span>
         ))}
@@ -230,7 +230,7 @@ function VisibleNodeProperties({ node }: { node: GraphNodeDetail }) {
           <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 dark:border-sky-800/60 dark:bg-sky-950/20">
             <div className="text-[11px] uppercase tracking-wider text-sky-500">Match relevance</div>
             <div className="mt-2 flex items-center gap-2">
-              <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+              <div className="h-2 flex-1 overflow-hidden rounded-none bg-slate-200 dark:bg-slate-800">
                 <div className="h-full bg-sky-500" style={{ width: `${Math.round((node.relevance || 0) * 100)}%` }} />
               </div>
               <span className="text-xs font-mono font-bold text-sky-600 dark:text-sky-400">
@@ -297,12 +297,16 @@ export default function TimelinePage() {
       const snapshot = await loadMonitorSnapshot(
         () => apiFetch<TimelineItem[]>("/timeline?limit=50"),
         () => apiFetch<KnowledgeChangeSummary>("/timeline/knowledge-changes?limit=12"),
+        (items) => {
+          setItems(items);
+          hasLoadedFeed.current = true;
+          setFeedLoaded(true);
+          setFeedError(null);
+          setLoading(false);
+        },
       );
-      setItems(snapshot.items);
-      setKnowledgeChanges(snapshot.changes);
+      if (snapshot.changes) setKnowledgeChanges(snapshot.changes);
       setFeedError(snapshot.warning);
-      hasLoadedFeed.current = true;
-      setFeedLoaded(true);
     } catch (err) {
       setFeedError(err instanceof Error ? err.message : "Unable to load timeline.");
     } finally {
@@ -322,7 +326,7 @@ export default function TimelinePage() {
       })
       .catch(() => undefined);
     const interval = window.setInterval(() => {
-      void loadTimeline();
+      if (!document.hidden) void loadTimeline();
     }, 15000);
     return () => window.clearInterval(interval);
   }, [loadTimeline]);
@@ -459,7 +463,7 @@ export default function TimelinePage() {
     <div className="min-h-screen bg-background text-foreground font-sans">
       <AppNav active="timeline" />
 
-      <main className="mx-auto grid w-full max-w-[1440px] grid-cols-1 gap-8 px-4 py-8 sm:px-6 lg:px-8 xl:grid-cols-[1.15fr_0.85fr]">
+      <main className="workspace-frame grid grid-cols-1 gap-8 py-8 xl:grid-cols-[1.15fr_0.85fr]">
         <section className="space-y-8">
           <PageHeader
             eyebrow="Monitoring"
@@ -541,7 +545,7 @@ export default function TimelinePage() {
                     >
                       <div className="p-5">
                         <div className="mb-3 flex flex-wrap items-center gap-2">
-                          <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider ${getSignalTone(item.signal_score)}`}>
+                          <span className={`rounded-none border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider ${getSignalTone(item.signal_score)}`}>
                             {scoreLabel(item)} {item.signal_score.toFixed(2)}
                           </span>
                           <span className="text-xs text-slate-500 dark:text-slate-400">
@@ -622,14 +626,14 @@ export default function TimelinePage() {
         </section>
 
         <aside className="space-y-6 xl:sticky xl:top-24 self-start xl:max-h-[calc(100vh-7rem)] xl:overflow-y-auto xl:pr-1">
-          <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+          <section className="rounded-lg border border-line bg-panel p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Knowledge Changes</h2>
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Audit events when available; older rows are marked as derived.</p>
               </div>
               {knowledgeChanges ? (
-                <span className="rounded-full border border-slate-200 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                <span className="rounded-none border border-slate-200 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:border-slate-800 dark:text-slate-400">
                   {knowledgeChanges.changes.length} latest
                 </span>
               ) : null}
@@ -659,11 +663,11 @@ export default function TimelinePage() {
                       }`}
                     >
                       <div className="mb-1 flex flex-wrap items-center gap-2">
-                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest ${getChangeTone(change.change_type)}`}>
+                        <span className={`rounded-none border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest ${getChangeTone(change.change_type)}`}>
                           {change.change_type}
                         </span>
                         <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{change.node_type}</span>
-                        <span className="rounded-full border border-slate-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:border-slate-700">
+                        <span className="rounded-none border border-slate-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:border-slate-700">
                           {change.change_source === "audit_event" ? "audit" : "derived"}
                         </span>
                         <span className="ml-auto text-[10px] text-slate-400">{formatDateTime(change.changed_at)}</span>
@@ -690,7 +694,7 @@ export default function TimelinePage() {
             )}
           </section>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+          <section className="rounded-lg border border-line bg-panel p-6">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Information Node</h2>
@@ -703,7 +707,7 @@ export default function TimelinePage() {
                     setSelectedNode(null);
                     setSelectedNodeKey(null);
                   }}
-                  className="rounded-full border border-slate-300 px-3 py-1 text-xs text-slate-500 hover:border-slate-400 hover:text-slate-700 dark:border-slate-700 dark:text-slate-400 dark:hover:border-slate-500 dark:hover:text-slate-200"
+                  className="rounded-none border border-slate-300 px-3 py-1 text-xs text-slate-500 hover:border-slate-400 hover:text-slate-700 dark:border-slate-700 dark:text-slate-400 dark:hover:border-slate-500 dark:hover:text-slate-200"
                 >
                   Clear
                 </button>
@@ -810,7 +814,7 @@ export default function TimelinePage() {
                                     key={`${direction}:${connection.edge_id}`}
                                     type="button"
                                     onClick={() => void openNode(connection.node_type, connection.node_id)}
-                                    className="rounded-full border border-slate-300 bg-white px-3 py-2 text-left text-xs hover:border-sky-400 hover:text-sky-700 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-sky-600 dark:hover:text-sky-300"
+                                    className="rounded-none border border-slate-300 bg-white px-3 py-2 text-left text-xs hover:border-sky-400 hover:text-sky-700 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-sky-600 dark:hover:text-sky-300"
                                   >
                                     <span className="font-semibold">{connection.label}</span>
                                     <span className="mx-1 text-slate-400">·</span>
@@ -866,7 +870,7 @@ export default function TimelinePage() {
             ) : null}
           </section>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+          <section className="rounded-lg border border-line bg-panel p-6">
             <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-4">Add Research Note</h2>
             <form onSubmit={handleNoteSubmit} className="space-y-4">
               <select value={selectedSourceId} onChange={(e) => setSelectedSourceId(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900">
@@ -883,7 +887,7 @@ export default function TimelinePage() {
             </form>
           </section>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+          <section className="rounded-lg border border-line bg-panel p-6">
             <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-4">Ingest URL</h2>
             <form
               onSubmit={async (e) => {
@@ -923,7 +927,7 @@ export default function TimelinePage() {
             </form>
           </section>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+          <section className="rounded-lg border border-line bg-panel p-6">
             <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">Research Discipline</h2>
             <p className="text-sm text-slate-500 dark:text-slate-400">Every note is persisted as raw evidence first, then parsed into claims, facts, and events with provenance preserved.</p>
             <Link href="/sources" className="mt-3 inline-block text-sm text-sky-600 dark:text-sky-400">Manage trusted sources</Link>
