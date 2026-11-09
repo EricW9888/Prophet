@@ -8,7 +8,7 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from sqlalchemy import desc, or_, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
@@ -1840,113 +1840,112 @@ class PortfolioService:
         return (ticker or "").strip().upper()
 
     @staticmethod
-    def _snapshot_number(token: str) -> float | None:
-        cleaned = (
-            (token or "")
-            .strip()
-            .strip(":")
-            .replace("$", "")
-            .replace(",", "")
-            .replace("%", "")
-        )
-        if cleaned in ("", "-", "."):
-            return None
-        try:
-            return float(cleaned)
-        except ValueError:
-            return None
-
-    @staticmethod
-    def _looks_like_ticker(token: str) -> bool:
-        token = (token or "").strip().strip(":")
-        return (
-            bool(re.match(r"^[A-Za-z][A-Za-z.\-]{0,5}$", token)) and not token.isdigit()
-        )
-
-    @staticmethod
     def parse_holdings_snapshot(raw: str) -> dict:
-        """Parse a pasted/exported holdings snapshot into a reconcile payload.
-
-        Deterministic (no LLM) so it can be unit-tested. Accepts:
-          * a freeform paste, one holding per line: ``EXMPL 10``, ``EXMPL,10``,
-            ``10 EXMPL``, ``EXMPL: 10.5``
-          * a CSV/TSV export with a ``Symbol``/``Ticker``/``Instrument`` column
-            and a ``Quantity``/``Shares`` column (e.g. a Robinhood statement)
-          * a cash line: ``CASH 2500`` / ``Buying power: 2500``
-        Returns ``{"holdings": [{"ticker","quantity"}], "cash": float|None}``.
-        """
-
-        def split_row(line: str) -> list[str]:
-            if "," in line:
-                parts = line.split(",")
-            elif "\t" in line:
-                parts = line.split("\t")
-            else:
-                parts = line.split()
-            return [p.strip() for p in parts if p.strip() != ""]
-
-        def extract_number(text: str) -> float | None:
-            match = re.search(r"[-+]?\$?[\d,]*\.?\d+", text or "")
-            return PortfolioService._snapshot_number(match.group(0)) if match else None
-
-        holdings: list[dict] = []
-        cash: float | None = None
-
-        # Cash lines are matched on the raw text first, so a thousands-comma in
-        # the value can't collide with comma-as-delimiter.
-        cash_re = re.compile(
-            r"^\s*(cash(?:\s*balance)?|buying\s*power|total\s*cash|settled\s*cash)\b[:=]?\s*(.+)$",
-            re.IGNORECASE,
+        """Parse every nonblank statement row or reject the whole snapshot."""
+        source = raw.lstrip("\ufeff")
+        lines = [
+            (i, line.strip())
+            for i, line in enumerate(source.splitlines(), 1)
+            if line.strip()
+        ]
+        symbols = {"symbol", "ticker", "instrument"}
+        quantities = {"quantity", "shares", "qty", "units", "share quantity"}
+        cash_pattern = re.compile(
+            r"^(cash(?:\s+balance)?|total\s+cash|settled\s+cash)(?:\s*[:=,]\s*|\s+)(.*)$",
+            re.I,
         )
-        data_lines: list[str] = []
-        for line in (raw or "").splitlines():
-            if not line.strip():
-                continue
-            match = cash_re.match(line)
-            if match:
-                number = extract_number(match.group(2))
-                if number is not None:
-                    cash = number
-                continue
-            data_lines.append(line)
+        buying_power = re.compile(r"^buying\s+power\b", re.I)
+        ticker_pattern = re.compile(r"[A-Z0-9][A-Z0-9.\^=\-]{0,31}", re.I)
+        number_pattern = re.compile(
+            r"[+-]?\$?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)?(?:\.[0-9]+)?"
+        )
+        holdings: list[dict] = []
+        cash = None
 
-        rows = [split_row(ln) for ln in data_lines]
+        def reject(row: int, reason: str) -> None:
+            raise ValueError(f"Statement row {row}: {reason}.")
 
-        sym_keys = {"symbol", "ticker", "instrument"}
-        qty_keys = {"quantity", "shares", "qty", "units", "share quantity"}
-        sym_i = qty_i = None
-        if rows:
-            header = [c.lower() for c in rows[0]]
-            if any(c in sym_keys for c in header) and any(
-                c in qty_keys for c in header
+        def number(value: str, row: int) -> Decimal:
+            token = value.strip()
+            if token.startswith("(") and token.endswith(")"):
+                token = "-" + token[1:-1]
+            if (
+                len(token) > 24
+                or not number_pattern.fullmatch(token)
+                or not any(c.isdigit() for c in token)
             ):
-                sym_i = next(i for i, c in enumerate(header) if c in sym_keys)
-                qty_i = next(i for i, c in enumerate(header) if c in qty_keys)
-                rows = rows[1:]
+                reject(row, "enter one finite amount or share count")
+            return Decimal(token.replace("$", "").replace(",", ""))
 
-        for cols in rows:
-            if not cols:
+        def holding(ticker: str, value: str, row: int) -> None:
+            ticker = ticker.strip().upper()
+            if not ticker_pattern.fullmatch(ticker) or ticker == "CASH":
+                reject(row, "enter an instrument ticker and share count")
+            holdings.append({"ticker": ticker, "quantity": number(value, row)})
+
+        body = []
+        for row, line in lines:
+            if buying_power.match(line):
+                reject(row, "use the statement's cash balance, not buying power")
+            match = cash_pattern.fullmatch(line)
+            if not match:
+                body.append((row, line))
                 continue
-            if sym_i is not None:
-                if len(cols) <= max(sym_i, qty_i):
-                    continue
-                ticker, qty = cols[sym_i], PortfolioService._snapshot_number(
-                    cols[qty_i]
-                )
-                if PortfolioService._looks_like_ticker(ticker) and qty is not None:
-                    holdings.append({"ticker": ticker.upper(), "quantity": qty})
-                continue
-            tickers = [c for c in cols if PortfolioService._looks_like_ticker(c)]
-            numbers = [
-                n
-                for n in (PortfolioService._snapshot_number(c) for c in cols)
-                if n is not None
+            amount = number(match[2], row)
+            if cash is not None and cash != amount:
+                reject(row, "the statement contains conflicting cash balances")
+            cash = amount
+
+        if body:
+            row, header = body[0]
+            delimiter = "\t" if "\t" in header else ","
+            header_values = [
+                value.strip().casefold()
+                for value in next(csv.reader([header], delimiter=delimiter))
             ]
-            if len(tickers) == 1 and numbers:
-                holdings.append(
-                    {"ticker": tickers[0].strip(":").upper(), "quantity": numbers[0]}
-                )
-
+            ticker_columns = [
+                i for i, value in enumerate(header_values) if value in symbols
+            ]
+            quantity_columns = [
+                i for i, value in enumerate(header_values) if value in quantities
+            ]
+            if ticker_columns or quantity_columns:
+                if len(ticker_columns) != 1 or len(quantity_columns) != 1:
+                    reject(
+                        row,
+                        "the header must identify exactly one symbol column and one share count column",
+                    )
+                for row, line in body[1:]:
+                    try:
+                        columns = next(
+                            csv.reader([line], delimiter=delimiter, strict=True)
+                        )
+                    except csv.Error:
+                        reject(row, "CSV quoting is invalid")
+                    if len(columns) != len(header_values):
+                        reject(row, "the column count does not match the header")
+                    holding(
+                        columns[ticker_columns[0]], columns[quantity_columns[0]], row
+                    )
+                if not holdings:
+                    reject(
+                        body[0][0],
+                        "the header has no holdings below it; use CASH alone for a cash-only comparison",
+                    )
+            else:
+                for row, line in body:
+                    match = re.fullmatch(r"([^,\s:]+)(?:\s*[:,]\s*|\s+)(\S+)", line)
+                    if not match:
+                        reject(
+                            row,
+                            "use one symbol and share count, or a CSV with Symbol and Quantity headers",
+                        )
+                    first, second = match.groups()
+                    if (
+                        second.strip().isalpha() or re.search(r"[A-Za-z]", second)
+                    ) and not re.search(r"[A-Za-z]", first):
+                        first, second = second, first
+                    holding(first, second, row)
         return {"holdings": holdings, "cash": cash}
 
     @staticmethod
@@ -1999,10 +1998,11 @@ class PortfolioService:
 
     async def reconcile_positions(
         self,
-        snapshot: list[dict],
+        snapshot: list[dict] | None,
         *,
-        broker_cash: float | None = None,
+        broker_cash: Decimal | float | None = None,
         create_review_items: bool = True,
+        listed_only: bool = False,
     ) -> dict:
         """Reconcile the reconstructed book against an authoritative snapshot.
 
@@ -2014,52 +2014,69 @@ class PortfolioService:
         than silently corrected — the book is rebuilt from evidence, so a human
         decides what truth wins.
         """
-        positions = (
-            (
-                await self.session.execute(
-                    select(Position).options(selectinload(Position.security))
+        if create_review_items:
+            # The same owner queue can be reached from Settings, Positions,
+            # and automation. Serialize only the writers across processes.
+            await self.session.execute(
+                select(
+                    func.pg_advisory_xact_lock(
+                        func.hashtext("portfolio_reconciliation")
+                    )
                 )
             )
-            .scalars()
-            .all()
+        holdings_scope = (
+            "none" if snapshot is None else "listed" if listed_only else "complete"
         )
+        diffs: list[dict] = []
+        pos_id_by_ticker = {}
+        if snapshot is not None:
+            positions = list(
+                await self.session.scalars(
+                    select(Position)
+                    .where(Position.list_type == "holding", Position.quantity != 0)
+                    .options(selectinload(Position.security))
+                    .order_by(Position.id)
+                )
+            )
+            book = []
+            for position in positions:
+                ticker = self._norm_ticker(getattr(position.security, "ticker", None))
+                quantity = _to_decimal(position.quantity)
+                if position.direction == "short":
+                    quantity = -abs(quantity)
+                book.append({"ticker": ticker, "quantity": quantity})
+                pos_id_by_ticker.setdefault(ticker, position.id)
+            diffs = self.diff_positions(book, snapshot)
+            if listed_only:
+                listed = {self._norm_ticker(row["ticker"]) for row in snapshot}
+                diffs = [row for row in diffs if row["ticker"] in listed]
 
-        book = [
-            {"ticker": getattr(p.security, "ticker", None), "quantity": p.quantity}
-            for p in positions
-            if _to_decimal(p.quantity) != 0
-        ]
-        pos_id_by_ticker = {
-            self._norm_ticker(getattr(p.security, "ticker", None)): p.id
-            for p in positions
-        }
-
-        diffs = self.diff_positions(book, snapshot)
-
+        cash_status = "not_supplied"
         cash_discrepancy = None
         if broker_cash is not None:
-            latest_ledger = (
-                await self.session.execute(
-                    select(CashLedgerEntry)
-                    .order_by(
-                        desc(CashLedgerEntry.executed_at),
-                        desc(CashLedgerEntry.created_at),
-                    )
-                    .limit(1)
+            latest_ledger = await self.session.scalar(
+                select(CashLedgerEntry)
+                .order_by(
+                    desc(CashLedgerEntry.executed_at),
+                    desc(CashLedgerEntry.created_at),
+                    desc(CashLedgerEntry.id),
                 )
-            ).scalar_one_or_none()
-            book_cash = (
-                _to_decimal(latest_ledger.balance_after)
-                if latest_ledger
-                else Decimal("0")
+                .limit(1)
             )
-            delta = _to_decimal(broker_cash) - book_cash
-            if abs(delta) > Decimal("1"):  # ignore sub-dollar rounding
-                cash_discrepancy = {
-                    "book_cash": float(book_cash),
-                    "broker_cash": float(broker_cash),
-                    "delta": float(delta),
-                }
+            cash_status = (
+                "compared" if latest_ledger is not None else "book_unavailable"
+            )
+            if latest_ledger is not None:
+                book_cash = _to_decimal(latest_ledger.balance_after).quantize(
+                    Decimal("0.01")
+                )
+                cash = _to_decimal(broker_cash).quantize(Decimal("0.01"))
+                if cash != book_cash:
+                    cash_discrepancy = {
+                        "book_cash": book_cash,
+                        "broker_cash": cash,
+                        "delta": cash - book_cash,
+                    }
 
         created = 0
         if create_review_items:
@@ -2079,7 +2096,7 @@ class PortfolioService:
                         await self.session.execute(
                             select(ReviewQueueItem).where(
                                 ReviewQueueItem.item_id == item_id,
-                                ReviewQueueItem.status == "pending",
+                                ReviewQueueItem.status.in_(("pending", "in_progress")),
                                 ReviewQueueItem.trigger_reason.like(
                                     "Reconciliation discrepancy%"
                                 ),
@@ -2118,7 +2135,7 @@ class PortfolioService:
                         await self.session.execute(
                             select(ReviewQueueItem).where(
                                 ReviewQueueItem.item_id == item_id,
-                                ReviewQueueItem.status == "pending",
+                                ReviewQueueItem.status.in_(("pending", "in_progress")),
                             )
                         )
                     )
@@ -2143,7 +2160,12 @@ class PortfolioService:
             await self.session.commit()
 
         return {
-            "in_sync": len(diffs) == 0 and cash_discrepancy is None,
+            "in_sync": (snapshot is not None or cash_status == "compared")
+            and not diffs
+            and cash_discrepancy is None
+            and cash_status != "book_unavailable",
+            "holdings_scope": holdings_scope,
+            "cash_status": cash_status,
             "discrepancies": diffs,
             "cash_discrepancy": cash_discrepancy,
             "review_items_created": created,

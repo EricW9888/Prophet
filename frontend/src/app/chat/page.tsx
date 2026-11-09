@@ -4,8 +4,8 @@ import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import WorkspaceDivider, { useWorkspacePane } from "@/components/WorkspaceDivider";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Check, ChevronDown, PanelLeftOpen, Pencil, X } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import { Check, ChevronDown, Maximize2, PanelLeftOpen, Paperclip, Pencil, X } from "lucide-react";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import AppNav from "@/components/AppNav";
@@ -16,6 +16,7 @@ import {
   AgentConversationList,
   AgentConversationSummary,
   AgentResolve,
+  AgentResearchReceipt,
   AgentTurnJob,
   AgentTurnJobList,
   AgentTurn,
@@ -34,6 +35,13 @@ const WATCHERS_COLLAPSED_STORAGE_KEY = "prophet:research-watches-collapsed";
 const ACTIVE_JOBS_POLL_ACTIVE_MS = 5000;
 const ACTIVE_JOBS_POLL_IDLE_MS = 15000;
 const ACTIVE_JOBS_POLL_HIDDEN_MS = 60000;
+const MAX_ATTACHMENT_BYTES = 24_000;
+const MAX_ATTACHMENTS = 3;
+const ANSWER_TEXT_CLASS = "prose prose-slate max-w-none break-words text-sm leading-7 dark:prose-invert md:text-base prose-headings:mb-2 prose-headings:mt-5 prose-headings:text-current prose-p:my-3 prose-li:my-1 prose-strong:text-current prose-a:text-sky-600 dark:prose-a:text-sky-400";
+type DraftAttachment = { name: string; text: string; bytes: number };
+const ANSWER_COMPONENTS: Components = {
+  table: ({ children }) => <div className="overflow-x-auto"><table>{children}</table></div>,
+};
 
 type Message = {
   role: "user" | "assistant" | "system";
@@ -48,6 +56,7 @@ type Message = {
     confidence_band?: string | null;
     thesis_summary?: string | null;
     rationale_summary?: string | null;
+    research_receipt?: AgentResearchReceipt | null;
     source_feedback_influence?: AgentTurn["source_feedback_influence"];
     historical_analogy_lenses?: AgentTurn["historical_analogy_lenses"];
     actions?: AgentTurn["actions"];
@@ -562,6 +571,11 @@ function ChatWorkspace() {
   const [selectedSubjectName, setSelectedSubjectName] = useState("Portfolio");
   const [resolvedPreview, setResolvedPreview] = useState<AgentResolve | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [focusedAnswer, setFocusedAnswer] = useState<Message | null>(null);
+  const answerDialog = useRef<HTMLDialogElement>(null);
+  const attachmentInput = useRef<HTMLInputElement>(null);
   const [allowActions, setAllowActions] = useState(false);
   const [allowActionsLoaded, setAllowActionsLoaded] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -695,6 +709,7 @@ function ChatWorkspace() {
         confidence_band: turn.confidence_band,
         thesis_summary: turn.thesis_summary,
         rationale_summary: turn.rationale_summary,
+        research_receipt: turn.research_receipt,
         source_feedback_influence: turn.source_feedback_influence,
         historical_analogy_lenses: turn.historical_analogy_lenses,
         actions: turn.actions,
@@ -935,6 +950,7 @@ function ChatWorkspace() {
                   confidence_band: entry.confidence_band,
                   thesis_summary: entry.thesis_summary,
                   rationale_summary: entry.rationale_summary,
+                  research_receipt: entry.research_receipt,
                   source_feedback_influence: entry.source_feedback_influence,
                   historical_analogy_lenses: entry.historical_analogy_lenses,
                   actions: entry.actions,
@@ -1106,11 +1122,14 @@ function ChatWorkspace() {
     if (!input.trim() || isTyping || Boolean(activeJob && isActiveTurnJob(activeJob))) return;
 
     const userMessage = input.trim();
+    const submittedAttachments = attachments;
     const submissionEpoch = selectionEpochRef.current;
     setInput("");
+    setAttachments([]);
+    setAttachmentError(null);
     resizeComposer("");
     setError(null);
-    const optimisticUserMessage = { role: "user", content: userMessage, createdAt: new Date().toISOString() } as Message;
+    const optimisticUserMessage = { role: "user", content: submittedAttachments.length ? `${userMessage}\n\nFiles: ${submittedAttachments.map((file) => file.name).join(", ")}` : userMessage, createdAt: new Date().toISOString() } as Message;
     setMessages((prev) => [...prev, optimisticUserMessage]);
     setIsTyping(true);
     setActiveJobRequestMessage(userMessage);
@@ -1122,7 +1141,8 @@ function ChatWorkspace() {
         body: JSON.stringify({
           ...researchTurnContext(activeSessionId, pinnedSubject),
           message: userMessage,
-          auto_execute: allowActions,
+          auto_execute: allowActions && !submittedAttachments.length,
+          attachments: submittedAttachments.map(({ name, text }) => ({ name, text })),
         }),
       });
       if (!response.ok) {
@@ -1136,11 +1156,53 @@ function ChatWorkspace() {
     } catch (err) {
       if (submissionEpoch !== selectionEpochRef.current) return;
       setError(err instanceof Error ? err.message : "Unable to start this turn.");
+      setMessages((previous) => previous.filter((item) => item !== optimisticUserMessage));
+      setInput(userMessage);
+      resizeComposer(userMessage);
+      setAttachments(submittedAttachments);
       setActiveJobRequestMessage(null);
       setIsTyping(false);
-    } finally {
     }
   }
+
+  async function addAttachments(files: FileList | null) {
+    if (!files?.length) return;
+    const selected = Array.from(files);
+    if (attachments.length + selected.length > MAX_ATTACHMENTS || attachments.reduce((total, file) => total + file.bytes, 0) + selected.reduce((total, file) => total + file.size, 0) > MAX_ATTACHMENT_BYTES) {
+      setAttachmentError("Choose up to 3 text files, totaling 24 KB or less.");
+      return;
+    }
+    const epoch = selectionEpochRef.current;
+    try {
+      const additions = await Promise.all(selected.map(async (file) => {
+        if (!/\.(txt|md|csv|tsv|json)$/i.test(file.name) || file.name.length > 200) throw new Error("Choose TXT, Markdown, CSV, TSV, or JSON files.");
+        const text = new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer());
+        if (!text.trim() || text.includes(String.fromCharCode(0))) throw new Error("Attachments must contain readable text.");
+        return { name: file.name, text, bytes: file.size };
+      }));
+      if (epoch !== selectionEpochRef.current) return;
+      setAttachments((previous) => [...previous, ...additions]);
+      setAttachmentError(null);
+    } catch (err) {
+      if (epoch === selectionEpochRef.current) setAttachmentError(err instanceof Error ? err.message : "Could not read these files.");
+    }
+  }
+
+  function draftFollowUp(question: string) {
+    setInput((current) => {
+      const draft = current.trim() ? `${current}\n\n${question}` : question;
+      return draft;
+    });
+    answerDialog.current?.close();
+    window.requestAnimationFrame(() => {
+      resizeComposer(composerRef.current?.value ?? "");
+      composerRef.current?.focus();
+    });
+  }
+
+  useLayoutEffect(() => {
+    if (focusedAnswer && !answerDialog.current?.open) answerDialog.current?.showModal();
+  }, [focusedAnswer]);
 
   function handleComposerKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -1150,6 +1212,8 @@ function ChatWorkspace() {
   }
 
   function startNewChat() {
+    setAttachments([]);
+    setAttachmentError(null);
     selectionEpochRef.current += 1;
     conversationChosenRef.current = true;
     setPinnedSubject(null);
@@ -1220,16 +1284,8 @@ function ChatWorkspace() {
   }
 
   const activeConversation = conversations.find((item) => item.session_id === activeSessionId) ?? null;
-  const liveEvents = activeJob?.events.slice(-5) ?? [];
+  const liveEvents = activeJob?.events.filter((event) => event.phase !== "thinking") ?? [];
   const executionActive = allowActionsLoaded ? allowActions : false;
-  const liveStatus =
-    elapsedSeconds < 6
-      ? "Resolving context and assembling evidence."
-      : elapsedSeconds < 20
-      ? "Running the reasoning pass on the current packet."
-      : elapsedSeconds < 45
-      ? "Still analyzing. This turn is deeper than a quick summary."
-      : "Long-running reasoning in progress. You can move around the product and reconnect to it.";
 
   return (
     <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-background font-sans text-foreground">
@@ -1573,7 +1629,7 @@ function ChatWorkspace() {
                         </div>
                       </div>
                       <div
-                        className={`w-full rounded-lg p-4 text-sm leading-relaxed md:text-base ${
+                        className={`w-full min-w-0 rounded-lg p-4 text-sm leading-relaxed md:text-base ${
                           m.role === "user"
                             ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
                             : m.role === "system"
@@ -1581,16 +1637,13 @@ function ChatWorkspace() {
                             : "border border-slate-200 bg-white text-slate-800 dark:border-slate-800 dark:bg-[#111] dark:text-slate-200"
                         }`}
                       >
-                        {formatTimestamp(m.createdAt) ? (
-                          <p
-                            className={`mb-2 text-[11px] uppercase tracking-wide ${
-                              m.role === "user"
-                                ? "text-right text-slate-500 dark:text-slate-400"
-                                : "text-slate-400"
-                            }`}
-                          >
-                            {formatTimestamp(m.createdAt)}
-                          </p>
+                        {formatTimestamp(m.createdAt) || m.role === "assistant" ? (
+                          <div className={`mb-2 flex flex-wrap items-center gap-2 ${m.role === "user" ? "justify-end" : "justify-between"}`}>
+                            <p className="text-[11px] uppercase tracking-wide text-muted">{formatTimestamp(m.createdAt)}</p>
+                            {m.role === "assistant" ? (
+                              <button type="button" className="workspace-control" onClick={() => setFocusedAnswer(m)}><Maximize2 size={14} aria-hidden="true" /> Full screen</button>
+                            ) : null}
+                          </div>
                         ) : null}
                         {m.isArtifact ? (
                           <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
@@ -1608,14 +1661,18 @@ function ChatWorkspace() {
                             </button>
                           </div>
                         ) : m.role === "assistant" ? (
-                          <div className="prose prose-slate max-w-none break-words text-sm leading-7 dark:prose-invert md:text-base prose-headings:mb-2 prose-headings:mt-5 prose-headings:text-current prose-p:my-3 prose-li:my-1 prose-strong:text-current prose-a:text-sky-600 dark:prose-a:text-sky-400">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          <div className={ANSWER_TEXT_CLASS}>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={ANSWER_COMPONENTS}>
                               {m.content}
                             </ReactMarkdown>
                           </div>
                         ) : (
                           <div className="whitespace-pre-wrap break-words leading-7">{m.content}</div>
                         )}
+                        {m.role === "assistant" && (m.meta?.research_receipt || m.meta?.process_mode === "attached_text") && !messages.slice(idx + 1).some((entry) => entry.role === "assistant") ? (
+                          <button type="button" className="workspace-control mt-3" onClick={() => draftFollowUp("What evidence would change your conclusion, and how would you check it?")}>Draft follow-up</button>
+                        ) : null}
+                        {m.meta?.research_receipt ? <ResearchReceipt receipt={m.meta.research_receipt} /> : null}
                         {m.role === "assistant" && m.meta ? (
                           <div className="mt-4 space-y-3 border-t border-slate-200 pt-4 dark:border-slate-800">
                             <ActualProcessSummary
@@ -1685,80 +1742,38 @@ function ChatWorkspace() {
                   </div>
                 ))}
                 {isTyping ? (
-                  <div className="flex w-full justify-start">
-                    <div className="flex w-full max-w-[960px] gap-4">
-                      <div className="mt-1 flex-shrink-0">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-600">
-                          <span className="font-mono text-xs font-bold text-white">AI</span>
-                        </div>
-                      </div>
-                      <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm leading-relaxed text-slate-800 dark:border-slate-800 dark:bg-[#111] dark:text-slate-200 md:text-base">
-                        <p className="font-medium">
-                          {allowActions ? "Prophet is analyzing and can act on what it finds." : "Prophet is analyzing your request."}
-                        </p>
-                        <div className="mt-3 rounded-lg border border-slate-200 p-3 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                          <p>
-                            {resolvedPreview?.subject_name
-                              ? `Resolved context: ${resolvedPreview.subject_name}.`
-                              : "Waiting for the backend to finish this turn."}
-                          </p>
-                          <p className="mt-2">
-                            {liveStatus}
-                          </p>
-                          <p className="mt-2">
-                            Analysis continues in the background even if you leave this page briefly.
-                          </p>
-                          {activeJobRequestMessage ? (
-                            <p className="mt-2 text-slate-600 dark:text-slate-300">
-                              Working on: <span className="font-medium">{activeJobRequestMessage}</span>
-                            </p>
-                          ) : null}
-                        </div>
-                        <div className="mt-4 flex items-center justify-between gap-4">
-                          <p className="text-xs uppercase tracking-wider text-slate-400">{elapsedSeconds}s elapsed</p>
-                          {activeJob?.job_id ? (
-                            <p className="text-xs text-slate-500 dark:text-slate-400">Turn ID {activeJob.job_id.slice(0, 8)}</p>
-                          ) : null}
-                        </div>
-                        {liveEvents.length > 0 ? (
-                          <div className="mt-4 space-y-2">
-                            <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                              Live trace
-                            </p>
-                            {liveEvents.map((event, index) => {
-                              const eventDetail = event.metadata ?? event.detail;
-                              const subagentRole =
-                                typeof eventDetail?.subagent_role === "string" ? eventDetail.subagent_role : null;
-                              const subagentInsight =
-                                typeof eventDetail?.subagent_insight === "string" ? eventDetail.subagent_insight : null;
-                              return (
-                                <div key={`${event.phase}-${event.created_at}-${index}`} className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800">
-                                  <div className="flex items-center justify-between gap-3">
-                                    <p className="font-medium capitalize">{event.phase.replaceAll("_", " ")}</p>
-                                    <time className="text-[11px] text-slate-400">{formatTimestamp(event.created_at)}</time>
-                                  </div>
-                                  <p className="mt-1 text-slate-500 dark:text-slate-400">{event.message}</p>
-                                  {subagentRole && subagentInsight ? (
-                                    <div className="mt-2 rounded-lg bg-slate-50/50 p-2 text-xs italic text-slate-600 dark:bg-slate-900/40 dark:text-slate-300 border-l-2 border-sky-500">
-                                      <span className="font-bold not-italic">{subagentRole}:</span> {subagentInsight}
-                                    </div>
-                                  ) : null}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : null}
-                        <details className="mt-4 rounded-lg border border-dashed border-slate-200 px-3 py-3 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                          <summary className="cursor-pointer font-medium uppercase tracking-wider">
-                            What this live trace means
-                          </summary>
-                          <p className="mt-2">
-                            This is a live progress view. It shows what Prophet is already doing in the background, not a rigid scripted checklist.
-                          </p>
-                        </details>
-                      </div>
+                  <section className="w-full max-w-[960px] border border-line bg-panel p-4 text-sm" aria-label="Research activity">
+                    <div className="flex flex-wrap justify-between gap-2">
+                      <span className="font-semibold">{liveEvents.at(-1) ? formatUserLabel(liveEvents.at(-1)!.phase) : "Starting turn"}</span>
+                      <span className="text-xs tabular-nums text-muted">{elapsedSeconds}s elapsed</span>
                     </div>
-                  </div>
+                    <p role="status" className="mt-1 text-muted">{liveEvents.at(-1)?.message ?? "Sending your request to Prophet."}</p>
+                    {resolvedPreview?.subject_name ? <p className="mt-1 text-xs text-muted">Context: {resolvedPreview.subject_name}</p> : null}
+                    {activeJobRequestMessage && !messages.some((message) => message.role === "user" && message.content.startsWith(activeJobRequestMessage)) ? (
+                      <p className="mt-1 truncate text-xs text-muted">{activeJobRequestMessage}</p>
+                    ) : null}
+                    {liveEvents.length ? (
+                      <details className="mt-3 border-t border-line pt-2">
+                        <summary className="cursor-pointer text-xs font-medium">Work log · {liveEvents.length} updates</summary>
+                        <ol className="mt-2 max-h-64 space-y-2 overflow-auto">
+                          {liveEvents.map((event, index) => {
+                            const detail = event.detail ?? event.metadata;
+                            const query = typeof detail?.query === "string" ? detail.query : null;
+                            const direct = detail?.direct_evidence_count;
+                            const linked = detail?.holdings_with_evidence;
+                            return (
+                              <li key={`${event.phase}-${event.created_at}-${index}`} className="border-l border-line pl-2">
+                                <p><span className="font-medium">{formatUserLabel(event.phase)}:</span> {event.message}</p>
+                                {query ? <p className="break-words text-xs text-muted">Search: {query}</p> : null}
+                                {typeof direct === "number" ? <p className="text-xs text-muted">{direct} direct evidence items · {Number(detail?.contradiction_evidence_count ?? 0)} contradictory</p> : null}
+                                {Array.isArray(linked) && typeof detail?.holding_count === "number" ? <p className="text-xs text-muted">{linked.length} of {detail.holding_count} holdings linked in this packet</p> : null}
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      </details>
+                    ) : null}
+                  </section>
                 ) : null}
                 <div ref={endRef} />
               </div>
@@ -1792,10 +1807,28 @@ function ChatWorkspace() {
                   Agent actions
                   <span className="w-5 text-left text-muted">{executionActive ? "On" : "Off"}</span>
                 </button>
+                <div className="ml-auto flex items-center gap-2">
+                  <input ref={attachmentInput} type="file" multiple hidden accept=".txt,.md,.csv,.tsv,.json" onChange={(event) => { void addAttachments(event.currentTarget.files); event.currentTarget.value = ""; }} />
+                  <button type="button" className="workspace-control" disabled={isTyping} onClick={() => attachmentInput.current?.click()}><Paperclip size={15} aria-hidden="true" /> Attach text</button>
+                </div>
                 {activeJob && isActiveTurnJob(activeJob) ? (
                   <span className="truncate text-xs text-muted">Turn running in background</span>
                 ) : null}
               </div>
+              {attachments.length ? (
+                <div className="mb-2 space-y-1.5">
+                  <ul aria-label="Attached files" className="flex flex-wrap gap-2">
+                    {attachments.map((file, index) => (
+                      <li key={`${file.name}-${index}`} className="inline-flex min-w-0 items-center gap-2 border border-line bg-panel px-2 py-1 text-xs">
+                        <span className="max-w-52 truncate">{file.name}</span>
+                        <button type="button" aria-label={`Remove ${file.name}`} onClick={() => setAttachments((previous) => previous.filter((_, i) => i !== index))}><X size={14} /></button>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-xs text-muted">This turn uses the attached text only. The configured model receives it. Prophet saves filenames and the answer, including any excerpts it quotes.</p>
+                </div>
+              ) : null}
+              {attachmentError ? <p role="alert" className="mb-2 text-xs text-red-500">{attachmentError}</p> : null}
               <div className="relative">
                 <textarea
                   ref={composerRef}
@@ -1811,7 +1844,7 @@ function ChatWorkspace() {
                 />
                 <button
                   type="submit"
-                  disabled={Boolean(activeJob && isActiveTurnJob(activeJob)) || !input.trim()}
+                  disabled={isTyping || Boolean(activeJob && isActiveTurnJob(activeJob)) || !input.trim()}
                   className="absolute bottom-2.5 right-2.5 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-700 disabled:opacity-50"
                 >
                   Send
@@ -1821,7 +1854,51 @@ function ChatWorkspace() {
           </div>
         </section>
       </main>
+      <dialog ref={answerDialog} onClose={() => setFocusedAnswer(null)} aria-labelledby="focused-answer-title" className="fixed inset-0 m-0 h-dvh max-h-none w-screen max-w-none border-none bg-background p-0 text-foreground backdrop:bg-background">
+        {focusedAnswer ? (
+          <div className="flex min-h-full flex-col">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-line bg-background px-4 py-3 sm:px-8">
+              <h2 id="focused-answer-title" className="font-semibold">Prophet answer</h2>
+              <button type="button" className="workspace-control" onClick={() => answerDialog.current?.close()}><X size={16} aria-hidden="true" /> Close full screen</button>
+            </div>
+            <article className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-8">
+              <div className={ANSWER_TEXT_CLASS}><ReactMarkdown remarkPlugins={[remarkGfm]} components={ANSWER_COMPONENTS}>{focusedAnswer.content}</ReactMarkdown></div>
+              {focusedAnswer.meta?.rationale_summary ? <p className="mt-5 border-t border-line pt-4 text-sm"><strong>Rationale:</strong> {focusedAnswer.meta.rationale_summary}</p> : null}
+              {focusedAnswer.meta?.research_receipt ? <ResearchReceipt receipt={focusedAnswer.meta.research_receipt} /> : null}
+            </article>
+          </div>
+        ) : null}
+      </dialog>
     </div>
+  );
+}
+
+function ResearchReceipt({ receipt }: { receipt: AgentResearchReceipt }) {
+  const count = receipt.holdings_with_linked_evidence.length;
+  return (
+    <details className="mt-4 border border-line bg-panel p-3 text-sm">
+      <summary className="cursor-pointer font-medium">
+        Evidence coverage{receipt.holdings_count != null ? ` · ${count} of ${receipt.holdings_count} holdings with linked evidence` : ""}
+      </summary>
+      {receipt.holdings_count != null ? <p className="mt-2 text-muted">Counts explicit links in the stored evidence selected for this answer. It does not measure news, prices, or the entire knowledge base.{count ? ` Linked: ${receipt.holdings_with_linked_evidence.join(", ")}.` : ""}</p> : null}
+      {receipt.checks.length ? (
+        <ul className="mt-3 space-y-2">
+          {receipt.checks.map((check) => (
+            <li key={check.lane} className="border-l border-line pl-2">
+              <span className="font-medium">{check.lane}</span> · {check.result_count ? `${check.result_count} candidate${check.result_count === 1 ? "" : "s"}` : formatUserLabel(check.status)}
+              <p className="break-words text-xs text-muted">{check.query}</p>
+            </li>
+          ))}
+        </ul>
+      ) : <p className="mt-2 text-muted">No external check recorded for this answer.</p>}
+      {receipt.candidate_sources.length ? (
+        <ul className="mt-3 space-y-1">
+          {receipt.candidate_sources.filter((source) => /^https?:\/\//i.test(source.url)).map((source) => (
+            <li key={source.url}><a className="break-words text-sky-600 underline dark:text-sky-400" href={source.url} target="_blank" rel="noreferrer">{source.title || source.url}</a>{source.published_date ? <span className="ml-2 text-xs text-muted">{source.published_date.slice(0, 10)}</span> : null}</li>
+          ))}
+        </ul>
+      ) : null}
+    </details>
   );
 }
 

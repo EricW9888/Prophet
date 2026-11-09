@@ -11,6 +11,15 @@ from investos.config import settings
 
 class AgentActionLogService:
     @staticmethod
+    def is_routine_action(item: dict) -> bool:
+        return (
+            item.get("source") == "automation"
+            and item.get("status") == "ok"
+            and item.get("action_type")
+            in {"market_data_refresh", "risk_refresh", "database_backup"}
+        )
+
+    @staticmethod
     def _log_path() -> Path:
         path = Path(settings.STORAGE_DIR) / "_system" / "agent_actions.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -62,6 +71,7 @@ class AgentActionLogService:
         status: str | None = None,
         session_id: str | None = None,
         include_internal: bool = False,
+        include_routine: bool = True,
     ) -> list[dict[str, Any]]:
         path = cls._log_path()
         if not path.exists():
@@ -89,6 +99,8 @@ class AgentActionLogService:
             if status and str(entry.get("status") or "") != status:
                 continue
             if session_id and str(entry.get("session_id") or "") != session_id:
+                continue
+            if not include_routine and cls.is_routine_action(entry):
                 continue
             metadata = entry.get("metadata")
             if (

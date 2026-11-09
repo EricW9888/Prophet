@@ -34,7 +34,9 @@ def days_between(start: datetime | None, end: datetime | None) -> float:
     return max(0.0, (b - a).total_seconds() / 86400.0)
 
 
-def source_claim_due_at(record: Any, claim: Any | None = None) -> datetime | None:
+def source_claim_review_target(
+    record: Any, claim: Any | None = None
+) -> datetime | None:
     valid_until = as_utc(getattr(claim, "valid_until", None))
     if valid_until is not None:
         return valid_until
@@ -59,6 +61,32 @@ def source_claim_due_at(record: Any, claim: Any | None = None) -> datetime | Non
     if claim_time is None:
         return None
     return claim_time + timedelta(days=days)
+
+
+def source_claim_due_at(record: Any, claim: Any | None = None) -> datetime | None:
+    """First operational review time; a historical target cannot backdate knowledge."""
+    target = source_claim_review_target(record, claim)
+    if target is None:
+        return None
+    return max(
+        value
+        for value in (
+            target,
+            as_utc(getattr(record, "claim_time", None)),
+            as_utc(getattr(claim, "public_time", None)),
+            as_utc(getattr(claim, "ingest_time", None)),
+            as_utc(getattr(claim, "created_at", None)),
+        )
+        if value is not None
+    )
+
+
+def source_claim_next_review_at(
+    record: Any, claim: Any | None = None
+) -> datetime | None:
+    due_at = source_claim_due_at(record, claim)
+    retry_at = as_utc(getattr(record, "next_assessment_at", None))
+    return max(due_at, retry_at) if due_at and retry_at else due_at or retry_at
 
 
 def source_claim_priority(

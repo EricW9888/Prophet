@@ -2,15 +2,18 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.db import get_session
+from investos.models.entity import Entity, Security
 from investos.models.evidence import RawEvidence, SourceItem
 from investos.models.fundamental import FundamentalMetric
 from investos.models.graph import Edge
 from investos.models.knowledge import Claim, Event, Fact
 from investos.models.market_setup import MarketSetupSignal
+from investos.models.portfolio import Position
 from investos.models.profile import Profile
 from investos.models.source import Source
 from investos.schemas.graph import (
@@ -29,6 +32,40 @@ from investos.services.graph import GraphService
 from investos.services.subject_alias import SubjectAliasService
 
 router = APIRouter(prefix="/graph", tags=["graph"])
+
+
+class HoldingSubjectResponse(BaseModel):
+    position_id: UUID
+    entity_id: UUID
+    ticker: str
+    name: str
+    has_profile: bool
+
+
+@router.get("/holding-subjects", response_model=list[HoldingSubjectResponse])
+async def get_holding_subjects(session: AsyncSession = Depends(get_session)):
+    profile_exists = (
+        select(Profile.id)
+        .where(Profile.subject_type == "entity", Profile.subject_id == Entity.id)
+        .exists()
+    )
+    rows = await session.execute(
+        select(Position.id, Entity.id, Security.ticker, Entity.name, profile_exists)
+        .join(Security, Position.security_id == Security.id)
+        .join(Entity, Security.entity_id == Entity.id)
+        .where(Position.list_type == "holding", Position.quantity != 0)
+        .order_by(Security.ticker, Position.id)
+    )
+    return [
+        HoldingSubjectResponse(
+            position_id=position_id,
+            entity_id=entity_id,
+            ticker=ticker,
+            name=name,
+            has_profile=has_profile,
+        )
+        for position_id, entity_id, ticker, name, has_profile in rows
+    ]
 
 
 async def _count(session: AsyncSession, model, *filters) -> int:

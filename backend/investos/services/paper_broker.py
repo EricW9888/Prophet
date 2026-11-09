@@ -177,6 +177,7 @@ class LocalPaperBroker:
         request: PaperOrderRequest,
         account_equity: Decimal,
         cash_reserve: Decimal,
+        executed_at: datetime | None = None,
         existing_reserved_notional: Decimal = Decimal("0"),
     ) -> PaperBrokerExecution:
         normalized = self.normalize_state(state)
@@ -247,7 +248,7 @@ class LocalPaperBroker:
         position = self._position(normalized, str(request.security_id), create=True)
         current_quantity = _decimal(position.get("quantity"))
         current_cost = _decimal(position.get("avg_cost_basis"))
-        filled_at = request.quote_time or datetime.now(UTC)
+        filled_at = max(request.submitted_at, executed_at or request.submitted_at)
         position["current_price"] = _as_float(fill_price)
         position["marked_at"] = filled_at.isoformat()
 

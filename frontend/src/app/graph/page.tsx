@@ -21,7 +21,6 @@ import {
   GraphStats,
   GraphWebEdge,
   GraphWebNode,
-  ProfileListItem,
 } from "@/lib/api";
 import { formatUserLabel } from "@/lib/formatting";
 import { CENTER_X, CENTER_Y, HEIGHT, WIDTH, nodeVisualRadius, type PositionedNode } from "@/lib/graph-layout-geometry";
@@ -461,7 +460,8 @@ function makeEdgeAskPrompt(edge: GraphWebEdge, nodeByKey: Record<string, Positio
 }
 
 export default function GraphPage() {
-  const [seedItems, setSeedItems] = useState<ProfileListItem[]>([]);
+  const [holdingSubjects, setHoldingSubjects] = useState<{ position_id: string; entity_id: string; ticker: string; name: string; has_profile: boolean }[] | null>(null);
+  const [holdingsError, setHoldingsError] = useState(false);
   const [knowledgeQuery, setKnowledgeQuery] = useState("");
   const [knowledgeResults, setKnowledgeResults] = useState<GraphSearchResult[]>([]);
   const [knowledgeSearching, setKnowledgeSearching] = useState(false);
@@ -737,13 +737,15 @@ export default function GraphPage() {
   );
 
   const loadInventory = useCallback(async (signal: AbortSignal) => {
-    const [profiles, stats] = await Promise.allSettled([
-      apiFetch<ProfileListItem[]>("/profiles?show_all=false", { signal }),
-      apiFetch<GraphStats>("/graph/stats", { signal }),
+    setHoldingsError(false);
+    await Promise.allSettled([
+      apiFetch<NonNullable<typeof holdingSubjects>>("/graph/holding-subjects", { signal }).then((holdings) => {
+        if (!signal.aborted) setHoldingSubjects(holdings);
+      }, () => { if (!signal.aborted) setHoldingsError(true); }),
+      apiFetch<GraphStats>("/graph/stats", { signal }).then((stats) => {
+        if (!signal.aborted) setGraphStats(stats);
+      }),
     ]);
-    if (signal.aborted) return;
-    if (profiles.status === "fulfilled") setSeedItems(profiles.value);
-    if (stats.status === "fulfilled") setGraphStats(stats.value);
   }, []);
 
   useEffect(() => {
@@ -996,7 +998,6 @@ export default function GraphPage() {
     showSystemNodes,
   ]);
 
-  const visibleSeedItems = useMemo(() => seedItems, [seedItems]);
   const rawNodeCount = activeGraph?.nodes.length ?? 0;
   const rawEdgeCount = activeGraph?.edges.length ?? 0;
   const visibleNodeCount = visibleGraph?.nodes.length ?? 0;
@@ -2229,7 +2230,7 @@ export default function GraphPage() {
           <section className="min-w-0 rounded-lg border border-line bg-panel p-4 sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                Tracked research subjects
+                {knowledgeQuery.trim().length >= 2 ? "Knowledge search" : `Portfolio holdings${holdingSubjects ? ` (${holdingSubjects.length})` : ""}`}
               </h2>
               <label className="flex w-full items-center gap-2 border-b border-slate-300 px-1 py-1.5 text-sm dark:border-slate-700">
                 <Search size={15} className="shrink-0 text-slate-400" aria-hidden="true" />
@@ -2242,30 +2243,31 @@ export default function GraphPage() {
               </label>
             </div>
             <div className="mt-4 grid grid-cols-1 gap-2">
-              {(knowledgeQuery.trim().length >= 2 ? knowledgeResults : visibleSeedItems).map((item) => {
-                const nodeType = "node_type" in item ? item.node_type : item.subject_type;
-                const nodeId = "node_id" in item ? item.node_id : item.subject_id;
-                const label = "label" in item ? item.label : item.subject_name;
-                const subtitle = "subtitle" in item ? item.subtitle : null;
+              {knowledgeQuery.trim().length < 2 ? (
+                holdingsError ? <p className="text-xs text-muted">Holdings could not be loaded. Knowledge search is still available.</p> :
+                  holdingSubjects === null ? <p className="text-xs text-muted">Loading holdings…</p> :
+                    holdingSubjects.length === 0 ? <p className="text-xs text-muted">No open positions.</p> : null
+              ) : null}
+              {(knowledgeQuery.trim().length >= 2 ? knowledgeResults.map((item) => ({ key: `${item.node_type}:${item.node_id}`, type: item.node_type, id: item.node_id, label: item.label, caption: formatUserLabel(item.node_type), subtitle: item.subtitle })) : (holdingSubjects ?? []).map((item) => ({ key: item.position_id, type: "entity", id: item.entity_id, label: item.name, caption: item.ticker, subtitle: item.has_profile ? "Research profile" : "No profile yet" }))).map((item) => {
                 return (
                   <button
-                    key={`${nodeType}:${nodeId}`}
+                    key={item.key}
                     type="button"
-                    onClick={() => void openGraph(nodeType, nodeId)}
+                    onClick={() => void openGraph(item.type, item.id)}
                     className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs text-slate-700 hover:border-sky-400 hover:bg-white dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-sky-600 dark:hover:bg-slate-950"
                   >
                     <span className="flex min-w-0 items-start justify-between gap-2">
                       <span className="shrink-0 text-[9px] font-semibold uppercase text-slate-400">
-                        {formatUserLabel(nodeType)}
+                        {item.caption}
                       </span>
-                      {subtitle ? (
+                      {item.subtitle ? (
                         <span className="min-w-0 break-words text-right text-[10px] text-slate-400 [overflow-wrap:anywhere]">
-                          {subtitle}
+                          {item.subtitle}
                         </span>
                       ) : null}
                     </span>
                     <span className="mt-1 block break-words font-medium leading-5 [overflow-wrap:anywhere]">
-                      {label}
+                      {item.label}
                     </span>
                   </button>
                 );

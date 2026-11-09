@@ -23,13 +23,21 @@ from investos.services.knowledge_time import (
     is_legacy_synthetic_event_time,
 )
 from investos.services.operating_state import OperatingStateService
-from investos.services.source_claim_policy import source_claim_due_at
+from investos.services.source_claim_policy import (
+    source_claim_due_at,
+    source_claim_next_review_at,
+)
 
 router = APIRouter(prefix="/timeline", tags=["timeline"])
 
 
 def _display_time(item) -> tuple[datetime, str]:
     event_time = _effective_event_time(item)
+    if isinstance(item, Claim):
+        if item.public_time is not None:
+            return item.public_time, "published"
+        if event_time is not None:
+            return event_time, "claim reference date"
     if event_time is not None:
         return event_time, "happened"
     if getattr(item, "public_time", None) is not None:
@@ -91,6 +99,7 @@ class TimelineItemResponse(BaseModel):
     valid_until: datetime | None = None
     outcome_status: str | None = None
     outcome_due_at: datetime | None = None
+    outcome_next_review_at: datetime | None = None
     outcome_assessed_at: datetime | None = None
     outcome_notes: str | None = None
     created_at: datetime
@@ -554,13 +563,16 @@ async def get_timeline(
         seen.add(fingerprint)
         outcome = claim_records.get(node.id) if kind == "claim" else None
         due_at = source_claim_due_at(outcome, node) if outcome else None
+        next_review_at = source_claim_next_review_at(outcome, node) if outcome else None
         outcome_status = outcome.assessment if outcome else None
         if (
             outcome_status == "pending"
-            and due_at is not None
-            and due_at > datetime.now(UTC)
+            and next_review_at is not None
+            and next_review_at > datetime.now(UTC)
         ):
-            outcome_status = "scheduled"
+            outcome_status = (
+                "retry_scheduled" if next_review_at != due_at else "scheduled"
+            )
         items.append(
             TimelineItemResponse(
                 id=node.id,
@@ -591,6 +603,11 @@ async def get_timeline(
                 valid_until=node.valid_until,
                 outcome_status=outcome_status,
                 outcome_due_at=due_at,
+                outcome_next_review_at=(
+                    next_review_at
+                    if outcome_status in {"pending", "scheduled", "retry_scheduled"}
+                    else None
+                ),
                 outcome_assessed_at=outcome.assessment_time if outcome else None,
                 outcome_notes=outcome.notes if outcome else None,
                 created_at=node.created_at,

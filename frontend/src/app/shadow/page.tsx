@@ -229,7 +229,7 @@ export default function ShadowPage() {
 
   async function submitManualPaperOrder(
     experimentId: string,
-    order: { ticker: string; side: "buy" | "sell"; quantity: number; rationale: string },
+    order: ManualOrderDraft,
   ) {
     setRunningJob(`manual-order:${experimentId}`);
     setError(null);
@@ -242,7 +242,7 @@ export default function ShadowPage() {
           body: JSON.stringify(order),
         },
       );
-      const latest = updated.orders.at(-1);
+      const latest = updated.orders.find((item) => item.client_order_id === `manual:${experimentId}:${order.client_request_id}`);
       setNotice(
         latest?.status === "filled"
           ? `Paper order filled by the simulator: ${latest.side.toUpperCase()} ${latest.requested_quantity.toFixed(4)} ${latest.ticker}.`
@@ -254,9 +254,8 @@ export default function ShadowPage() {
       setExperiments((previous) =>
         previous.map((item) => (item.id === experimentId ? updated : item)),
       );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to submit paper order.");
-      throw err;
+      if (!latest) throw new Error("The simulator did not return a receipt. Retry to check this order.");
+      return latest.status;
     } finally {
       setRunningJob(null);
     }
@@ -537,10 +536,10 @@ export default function ShadowPage() {
                     hint="This is why the system decided this live experiment was worth running."
                   />
                   <InfoCard
-                    label="Cloned state"
-                    body={`holdings ${experiment.snapshot_summary.holding_count ?? 0} · tracked ${experiment.snapshot_summary.tracked_count ?? 0}`}
-                    detail={`market value ${formatCurrency(experiment.snapshot_summary.total_market_value)} · buying power ${formatCurrency(experiment.snapshot_summary.remaining_buying_power)}`}
-                    hint="This is the live portfolio state the experiment started from. It is not a historical rewind."
+                    label="Starting paper account"
+                    body={experiment.snapshot_summary.paper_starting_cash != null ? `${formatCurrency(experiment.snapshot_summary.paper_starting_cash)} in cash` : `Cloned ${experiment.snapshot_summary.holding_count ?? 0} live holdings`}
+                    detail={experiment.snapshot_summary.paper_starting_cash != null ? "No positions were cloned." : `Market value ${formatCurrency(experiment.snapshot_summary.total_market_value)} · buying power ${formatCurrency(experiment.snapshot_summary.remaining_buying_power)}`}
+                    hint="Captured when the account was created."
                   />
                   <InfoCard
                     label="Guidance mode"
@@ -559,6 +558,21 @@ export default function ShadowPage() {
                 <OpportunitySummary profile={experiment.report?.opportunity_summary ?? experiment.discovery_profile} />
 
                 <ExperimentOutcomeSummary experiment={experiment} />
+
+                {experiment.execution_mode === "manual" ? (
+                  <details className="mt-3 border border-line bg-panel p-3" onToggle={(event) => { if (event.currentTarget.open) void loadExperimentDetails(experiment.id); }}>
+                    <summary className="cursor-pointer text-sm font-semibold">Paper order ticket and ledger</summary>
+                    {detailedExperimentIds.current.has(experiment.id) ? (
+                      <PaperBrokerLedger
+                        experiment={experiment}
+                        cancelingOrderId={runningJob?.startsWith("order:") ? runningJob.slice(6) : null}
+                        submittingOrder={runningJob === `manual-order:${experiment.id}`}
+                        onCancel={cancelPaperOrder}
+                        onSubmitManual={submitManualPaperOrder}
+                      />
+                    ) : <p className="mt-3 text-sm text-muted">{loadingDetailIds.has(experiment.id) ? "Loading order ticket…" : "Open to load the paper account."}</p>}
+                  </details>
+                ) : null}
 
                 {experiment.operator_prompt ? (
                   <details
@@ -930,13 +944,13 @@ export default function ShadowPage() {
                     </div>
                   ) : null}
 
-                  <PaperBrokerLedger
+                  {experiment.execution_mode !== "manual" ? <PaperBrokerLedger
                     experiment={experiment}
                     cancelingOrderId={runningJob?.startsWith("order:") ? runningJob.slice(6) : null}
                     submittingOrder={runningJob === `manual-order:${experiment.id}`}
                     onCancel={cancelPaperOrder}
                     onSubmitManual={submitManualPaperOrder}
-                  />
+                  /> : null}
 
                   <div className="mt-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
                     <div className="flex items-start justify-between gap-3">
@@ -982,6 +996,8 @@ export default function ShadowPage() {
   );
 }
 
+type ManualOrderDraft = { ticker: string; side: "buy" | "sell"; quantity: number; rationale: string; client_request_id: string };
+
 function PaperBrokerLedger({
   experiment,
   cancelingOrderId,
@@ -995,13 +1011,15 @@ function PaperBrokerLedger({
   onCancel: (experimentId: string, orderId: string) => Promise<void>;
   onSubmitManual: (
     experimentId: string,
-    order: { ticker: string; side: "buy" | "sell"; quantity: number; rationale: string },
-  ) => Promise<void>;
+    order: ManualOrderDraft,
+  ) => Promise<string>;
 }) {
   const [ticker, setTicker] = useState("");
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [quantity, setQuantity] = useState("");
   const [rationale, setRationale] = useState("");
+  const [orderError, setOrderError] = useState<string | null>(null);
+  const pendingDraft = useRef<{ signature: string; id: string } | null>(null);
   const account = experiment.run_details.paper_account;
   const orders = experiment.orders ?? [];
   const fills = experiment.fills ?? [];
@@ -1014,14 +1032,26 @@ function PaperBrokerLedger({
     event.preventDefault();
     const parsedQuantity = Number(quantity);
     if (!ticker.trim() || !Number.isFinite(parsedQuantity) || parsedQuantity <= 0) return;
-    await onSubmitManual(experiment.id, {
+    if (submittingOrder) return;
+    const draft = {
       ticker: ticker.trim().toUpperCase(),
       side,
       quantity: parsedQuantity,
       rationale: rationale.trim() || "User-submitted paper order.",
-    });
-    setQuantity("");
-    setRationale("");
+    };
+    const signature = JSON.stringify(draft);
+    if (pendingDraft.current?.signature !== signature) pendingDraft.current = { signature, id: crypto.randomUUID() };
+    setOrderError(null);
+    try {
+      const status = await onSubmitManual(experiment.id, { ...draft, client_request_id: pendingDraft.current.id });
+      pendingDraft.current = null;
+      if (status === "accepted" || status === "filled") {
+        setQuantity("");
+        setRationale("");
+      }
+    } catch (error) {
+      setOrderError(error instanceof Error ? error.message : "The simulator did not confirm the order. Retry this draft.");
+    }
   }
 
   return (
@@ -1029,7 +1059,7 @@ function PaperBrokerLedger({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Paper broker ledger</p>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Orders are derived from model intent; only deterministic fills change this account.</p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{isManual ? "Only simulated fills change this account." : "Prophet proposes orders. Only simulated fills change this account."}</p>
         </div>
         <span className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
           {account?.provider?.replaceAll("_", " ") ?? "local simulator"} · {fills.length} fill{fills.length === 1 ? "" : "s"}
@@ -1097,6 +1127,7 @@ function PaperBrokerLedger({
           <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
             Market/day simulation only. The broker rejects untracked tickers, oversells, insufficient buying power, and buys above the configured per-order equity cap. Outside regular hours, valid orders wait without changing positions.
           </p>
+          {orderError ? <p role="alert" className="mt-2 text-sm text-red-500">{orderError}</p> : null}
         </form>
       ) : null}
 
@@ -1379,6 +1410,7 @@ function ShadowLabProcess() {
 }
 
 function ExperimentJourney({ experiment }: { experiment: ShadowExperiment }) {
+  if (experiment.execution_mode === "manual") return null;
   const normalized = experiment.run_status === "pending" ? "queued" : experiment.run_status;
   const activeIndex =
     normalized === "completed"

@@ -736,6 +736,11 @@ class ReasoningService:
             "Name source titles or URLs when relying on fresh snippets. If fresh search failed, returned no results, or was "
             "rate-limited, say the current-event claim is unverified instead of filling with stale local context. "
             "Do not treat ephemeral fresh-search snippets as accepted thesis evidence until they have been ingested and extracted. "
+            "When explaining portfolio performance, separate measured contributions, hypotheses about causes, and open questions. "
+            "A broad price move or market-only snippets cannot by themselves establish a specific sector or company catalyst. "
+            "A pending watcher without a verified future date is not an upcoming event. Holding presence is not evidence coverage; "
+            "selected_holding_evidence counts only links in the selected packet, so report missing support rather than filling it in. "
+            "Format substantial answers in Markdown with short paragraphs, headings, and lists for genuinely distinct points. "
             "For earnings, guidance, deals, announcements, or other market events, separate prior investor expectations "
             "from the actual result, market sentiment and positioning, institutional or ownership flows, price reaction, "
             "estimate/guidance revisions, peer read-through, and portfolio sizing or timing implication. "
@@ -1078,6 +1083,8 @@ class ReasoningService:
                     "remaining_buying_power",
                     "pct_capital_deployed",
                     "top_holdings",
+                    "holdings",
+                    "selected_holding_evidence",
                     "subject_peer_exposures",
                     "peer_exposures",
                     "active_watchers",

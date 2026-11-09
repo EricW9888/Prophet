@@ -124,6 +124,7 @@ export type TimelineItem = {
   valid_until?: string | null;
   outcome_status?: "pending" | "scheduled" | "correct" | "incorrect" | "partially_correct" | "indeterminate" | string | null;
   outcome_due_at?: string | null;
+  outcome_next_review_at?: string | null;
   outcome_assessed_at?: string | null;
   outcome_notes?: string | null;
   created_at: string;
@@ -638,6 +639,7 @@ export type ShadowExperiment = {
     tracked_count?: number;
     total_market_value?: number;
     remaining_buying_power?: number;
+    paper_starting_cash?: number;
   };
   run_details: {
     guidance?: {
@@ -1678,6 +1680,13 @@ export type ShadowOpportunityProfile = {
   }>;
 };
 
+export type AgentResearchReceipt = {
+  holdings_count?: number | null;
+  holdings_with_linked_evidence: string[];
+  checks: { lane: string; query: string; status: string; result_count: number }[];
+  candidate_sources: { title?: string | null; url: string; published_date?: string | null; lane?: string | null }[];
+};
+
 export type AgentTurn = {
   session_id: string;
   assistant_message: string;
@@ -1691,6 +1700,7 @@ export type AgentTurn = {
   confidence_band?: string | null;
   thesis_summary?: string | null;
   rationale_summary?: string | null;
+  research_receipt?: AgentResearchReceipt | null;
   source_feedback_influence?: SourceFeedbackInfluence | null;
   historical_analogy_lenses?: HistoricalAnalogyLens[] | null;
   actions: Array<{
@@ -1781,6 +1791,7 @@ export type AgentConversationHistory = {
     confidence_band?: string | null;
     thesis_summary?: string | null;
     rationale_summary?: string | null;
+    research_receipt?: AgentResearchReceipt | null;
     source_feedback_influence?: SourceFeedbackInfluence | null;
     historical_analogy_lenses?: HistoricalAnalogyLens[] | null;
     actions: Array<{
@@ -2180,6 +2191,8 @@ export type CashDiscrepancy = {
 
 export type ReconcileResponse = {
   in_sync: boolean;
+  holdings_scope: "none" | "listed" | "complete";
+  cash_status: "not_supplied" | "compared" | "book_unavailable";
   discrepancies: ReconcileDiff[];
   cash_discrepancy?: CashDiscrepancy | null;
   review_items_created: number;
@@ -2188,10 +2201,11 @@ export type ReconcileResponse = {
 export async function reconcileFromText(
   text: string,
   createReviewItems: boolean,
+  listedOnly = false,
 ): Promise<ReconcileResponse> {
   return apiFetch<ReconcileResponse>("/portfolio/reconcile/text", {
     method: "POST",
-    body: JSON.stringify({ text, create_review_items: createReviewItems }),
+    body: JSON.stringify({ text, create_review_items: createReviewItems, listed_only: listedOnly }),
   });
 }
 

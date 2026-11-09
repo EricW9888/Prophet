@@ -15,6 +15,7 @@ async def get_agent_activity(
     action_type: str | None = Query(default=None),
     status: str | None = Query(default=None),
     session_id: str | None = Query(default=None),
+    include_routine: bool = Query(default=True),
     session: AsyncSession = Depends(get_session),
 ):
     return DashboardService(session).recent_agent_activity(
@@ -23,4 +24,5 @@ async def get_agent_activity(
         action_type=action_type,
         status=status,
         session_id=session_id,
+        include_routine=include_routine,
     )

@@ -131,6 +131,7 @@ export default function ActivityPage() {
   const [error, setError] = useState<string | null>(null);
   const [source, setSource] = useState<(typeof SOURCES)[number]>("all");
   const [status, setStatus] = useState<(typeof STATUSES)[number]>("all");
+  const [includeRoutine, setIncludeRoutine] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -144,7 +145,7 @@ export default function ActivityPage() {
       setLoading(true);
       setError(null);
       try {
-        const params = new URLSearchParams({ limit: "120" });
+        const params = new URLSearchParams({ limit: "120", include_routine: String(includeRoutine) });
         if (source !== "all") params.set("source", source);
         if (status !== "all") params.set("status", status);
         if (sessionId) params.set("session_id", sessionId);
@@ -168,7 +169,7 @@ export default function ActivityPage() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [source, status, sessionId]);
+  }, [source, status, sessionId, includeRoutine]);
 
   const normalizedItems = useMemo(() => mergeRelatedActions(items), [items]);
 
@@ -194,10 +195,11 @@ export default function ActivityPage() {
         <PageHeader
           eyebrow="System activity"
           title="What Prophet did"
-          description="A dated catch-up stream of research, reasoning, automation, and system actions beyond the latest dashboard summary."
+          description="Catch up on research, actions and failures. Routine price, risk and backup refreshes are available when you need them."
           actions={(
             <>
             <select
+              aria-label="Activity source"
               value={source}
               onChange={(event) => setSource(event.target.value as (typeof SOURCES)[number])}
               className="rounded-none border border-slate-300 bg-white px-4 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
@@ -209,6 +211,7 @@ export default function ActivityPage() {
               ))}
             </select>
             <select
+              aria-label="Activity status"
               value={status}
               onChange={(event) => setStatus(event.target.value as (typeof STATUSES)[number])}
               className="rounded-none border border-slate-300 bg-white px-4 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
@@ -219,6 +222,10 @@ export default function ActivityPage() {
                 </option>
               ))}
             </select>
+            <label className="inline-flex items-center gap-2 px-2 text-sm text-muted">
+              <input type="checkbox" checked={includeRoutine} onChange={(event) => setIncludeRoutine(event.target.checked)} />
+              Include routine refreshes
+            </label>
             </>
           )}
         />

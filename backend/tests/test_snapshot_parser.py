@@ -1,3 +1,5 @@
+import pytest
+
 from investos.services.portfolio import PortfolioService
 
 parse = PortfolioService.parse_holdings_snapshot
@@ -35,7 +37,17 @@ def test_dollar_signs_and_blank_lines_ignored():
     assert {"ticker": "AAPL", "quantity": 0.0} in out["holdings"]
 
 
-def test_garbage_returns_empty():
-    out = parse("just some prose with no holdings at all")
-    assert out["holdings"] == []
-    assert out["cash"] is None
+@pytest.mark.parametrize(
+    "bad_line",
+    ["just some prose with no holdings at all", "MEMA missing", "Buying power: 200"],
+)
+def test_partial_statement_is_rejected_instead_of_silently_comparing(bad_line):
+    with pytest.raises(ValueError, match="Statement row 2"):
+        parse(f"AUTO 10\n{bad_line}")
+
+
+def test_csv_preserves_blank_quantity_and_quoted_commas():
+    result = parse('Symbol,Quantity,Price\nAUTO,"1,250.50",2\n')
+    assert result["holdings"][0]["quantity"] == 1250.5
+    with pytest.raises(ValueError, match="Statement row 2"):
+        parse("Symbol,Quantity,Price\nAUTO,,2\n")
