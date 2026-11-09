@@ -2,6 +2,21 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadMonitorSnapshot } from "../src/lib/monitor.ts";
 
+test("the evidence feed appears while its secondary summary is still pending", async () => {
+  const items = [{ id: "synthetic" }];
+  let release;
+  let showed;
+  const pendingChanges = new Promise((resolve) => { release = resolve; });
+  const completed = loadMonitorSnapshot(async () => items, () => pendingChanges, (data) => { showed = data; });
+  try {
+    await new Promise(setImmediate);
+    assert.equal(showed, items);
+  } finally {
+    release({ changes: [] });
+  }
+  assert.equal((await completed).items, items);
+});
+
 test("a secondary summary failure preserves the available evidence feed and its times", async () => {
   const items = [{ id: "synthetic", display_time: "2026-10-10T12:00:00Z", created_at: "2026-10-11T12:00:00Z" }];
   const snapshot = await loadMonitorSnapshot(async () => items, async () => { throw new Error("summary unavailable"); });

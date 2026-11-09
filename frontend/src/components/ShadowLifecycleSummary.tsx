@@ -4,7 +4,7 @@ import { ShadowLifecycleCounts } from "@/lib/api";
 export default function ShadowLifecycleSummary({ counts }: { counts?: ShadowLifecycleCounts | null }) {
   if (!counts) return null;
   return (
-    <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950" aria-label="Shadow lifecycle">
+    <section className="min-w-0 rounded-lg border border-line bg-panel p-4" aria-label="Shadow lifecycle">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">Shadow experiments</h2>
         <Link href="/shadow" className="text-xs text-sky-700 dark:text-sky-300">Review runs</Link>

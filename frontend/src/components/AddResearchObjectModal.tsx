@@ -71,7 +71,7 @@ export default function AddResearchObjectModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-2xl overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900">
+      <div className="w-full max-w-2xl overflow-hidden rounded-lg border border-line bg-panel shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-6 py-4 dark:border-slate-800 dark:bg-slate-800/50">
           <div>
             <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Track Name</h3>

@@ -90,7 +90,7 @@ export default function ReconcilePanel({ id, initiallyOpen = false }: ReconcileP
             <div className="space-y-3">
               <div className="flex flex-wrap gap-2 text-xs">
                 <span
-                  className={`rounded-full px-3 py-1 font-medium ${
+                  className={`rounded-none px-3 py-1 font-medium ${
                     result.in_sync
                       ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
                       : "bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
@@ -99,7 +99,7 @@ export default function ReconcilePanel({ id, initiallyOpen = false }: ReconcileP
                   {result.in_sync ? "In sync with the statement" : `${result.discrepancies.length} discrepancy(ies)`}
                 </span>
                 {result.review_items_created > 0 ? (
-                  <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-700 dark:bg-sky-950/30 dark:text-sky-300">
+                  <span className="rounded-none bg-sky-50 px-3 py-1 text-sky-700 dark:bg-sky-950/30 dark:text-sky-300">
                     {result.review_items_created} review item(s) created
                   </span>
                 ) : null}

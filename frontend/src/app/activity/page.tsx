@@ -190,7 +190,7 @@ export default function ActivityPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <AppNav active="activity" />
-      <main className="mx-auto w-full max-w-[1440px] px-4 py-8 sm:px-6 lg:px-8">
+      <main className="workspace-frame py-8">
         <PageHeader
           eyebrow="System activity"
           title="What Prophet did"
@@ -200,7 +200,7 @@ export default function ActivityPage() {
             <select
               value={source}
               onChange={(event) => setSource(event.target.value as (typeof SOURCES)[number])}
-              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+              className="rounded-none border border-slate-300 bg-white px-4 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
             >
               {SOURCES.map((value) => (
                 <option key={value} value={value}>
@@ -211,7 +211,7 @@ export default function ActivityPage() {
             <select
               value={status}
               onChange={(event) => setStatus(event.target.value as (typeof STATUSES)[number])}
-              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+              className="rounded-none border border-slate-300 bg-white px-4 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
             >
               {STATUSES.map((value) => (
                 <option key={value} value={value}>
@@ -266,7 +266,7 @@ export default function ActivityPage() {
                 {dayItems.map((item) => (
                   <article
                     key={item.id}
-                    className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950"
+                    className="rounded-lg border border-line bg-panel p-4"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -277,7 +277,7 @@ export default function ActivityPage() {
                           <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                             {item.displayTitle}
                           </span>
-                          <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${actionAccent(item.status)}`}>
+                          <span className={`rounded-none border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${actionAccent(item.status)}`}>
                             {item.displayStatus}
                           </span>
                         </div>

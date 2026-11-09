@@ -147,7 +147,7 @@ export default function PushNotificationSettings() {
   const active = Boolean(subscription && permission === "granted");
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+    <section className="rounded-lg border border-line bg-panel p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
           <div className="rounded-md border border-slate-200 p-2 dark:border-slate-700">

@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
 import AddResearchObjectModal from "./AddResearchObjectModal";
@@ -19,28 +19,37 @@ export default function PositionsTable() {
   const [showBuildHistory, setShowBuildHistory] = useState(false);
   const [showRecentChanges, setShowRecentChanges] = useState(false);
 
-  const loadOverview = useCallback(async () => {
+  const loadVersion = useRef(0);
+  const loadOverview = useCallback(async (refresh = true) => {
+    const version = ++loadVersion.current;
     try {
-      const data = await apiFetch<PortfolioOverview>("/portfolio/overview");
+      const data = await apiFetch<PortfolioOverview>(`/portfolio/overview?refresh=${refresh}`);
+      if (version !== loadVersion.current) return;
       setOverview(data);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load portfolio workspace.");
+      if (version === loadVersion.current) setError(err instanceof Error ? err.message : "Unable to load portfolio workspace.");
     } finally {
-      setLoading(false);
+      if (version === loadVersion.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void loadOverview();
+    let active = true;
+    // Show retained holdings before waiting for the optional upstream quote refresh.
+    void loadOverview(false).then(() => { if (active) void loadOverview(); });
     const interval = window.setInterval(() => {
-      void loadOverview();
+      if (!document.hidden) void loadOverview();
     }, 20000);
-    return () => window.clearInterval(interval);
+    return () => {
+      active = false;
+      loadVersion.current += 1;
+      window.clearInterval(interval);
+    };
   }, [loadOverview]);
 
   function handleResearchSaved() {
-    void loadOverview();
+    void loadOverview(false);
   }
 
   const holdings = overview?.holdings ?? [];
@@ -76,7 +85,7 @@ export default function PositionsTable() {
 
   return (
     <>
-      <AddTransactionModal isOpen={isTransactionModalOpen} onClose={() => setIsTransactionModalOpen(false)} onSaved={loadOverview} />
+      <AddTransactionModal isOpen={isTransactionModalOpen} onClose={() => setIsTransactionModalOpen(false)} onSaved={() => loadOverview(false)} />
       <AddResearchObjectModal isOpen={isResearchModalOpen} onClose={() => setIsResearchModalOpen(false)} onSaved={handleResearchSaved} />
 
       <section className="space-y-6">
@@ -91,7 +100,7 @@ export default function PositionsTable() {
           />
         ) : null}
         <div className="grid min-w-0 gap-6 2xl:grid-cols-[1.35fr_0.65fr]">
-          <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 sm:p-6 dark:border-slate-800 dark:bg-slate-950">
+          <section className="min-w-0 rounded-lg border border-line bg-panel p-4 sm:p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Live holdings</p>
@@ -245,14 +254,14 @@ function CollapsiblePanel({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+    <section className="rounded-lg border border-line bg-panel p-6">
       <button type="button" onClick={onToggle} className="flex w-full items-start justify-between gap-4 text-left">
         <div>
           <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{eyebrow}</p>
           <h3 className="mt-1 text-xl font-semibold tracking-tight">{title}</h3>
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{summary}</p>
         </div>
-        <span className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300">
+        <span className="rounded-none border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300">
           {open ? "Hide" : "Expand"}
         </span>
       </button>
@@ -273,7 +282,7 @@ function SidebarList({
   emptyState: string;
 }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+    <section className="rounded-lg border border-line bg-panel p-6">
       <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{title}</p>
       <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{description}</p>
       <div className="mt-4 space-y-3">

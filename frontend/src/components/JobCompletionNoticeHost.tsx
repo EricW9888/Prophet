@@ -72,7 +72,7 @@ export default function JobCompletionNoticeHost() {
         <div className="flex items-center gap-2">
           <Link
             href={notice.sessionId ? `/chat?session_id=${notice.sessionId}` : "/chat"}
-            className="rounded-full bg-sky-600 px-3 py-2 text-xs font-semibold text-white"
+            className="rounded-none bg-sky-600 px-3 py-2 text-xs font-semibold text-white"
           >
             Open chat
           </Link>
@@ -84,7 +84,7 @@ export default function JobCompletionNoticeHost() {
               }
               setNotice(null);
             }}
-            className="rounded-full border border-slate-300 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300"
+            className="rounded-none border border-slate-300 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300"
           >
             Dismiss
           </button>

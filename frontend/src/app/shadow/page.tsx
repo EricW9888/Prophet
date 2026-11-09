@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import AppNav from "@/components/AppNav";
 import FloatingNotice from "@/components/FloatingNotice";
 import PageHeader from "@/components/PageHeader";
 import ShadowLifecycleSummary from "@/components/ShadowLifecycleSummary";
 import ShadowRunHistory from "@/components/ShadowRunHistory";
+import { useWorkspaceReads } from "@/lib/workspace-reads";
 import WorkspaceState from "@/components/WorkspaceState";
 import { API_BASE, apiFetch, AutomationStatus, ShadowExperiment, ShadowFamily, ShadowLifecycleCounts } from "@/lib/api";
 import { isRecordId } from "@/lib/workflows";
@@ -27,9 +28,6 @@ export default function ShadowPage() {
   const [autoRun, setAutoRun] = useState(true);
   const [accountBasis, setAccountBasis] = useState<"clone_portfolio" | "cash_only">("clone_portfolio");
   const [startingCash, setStartingCash] = useState("100000");
-  const [loading, setLoading] = useState(true);
-  const [loadedOnce, setLoadedOnce] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [runningJob, setRunningJob] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +35,6 @@ export default function ShadowPage() {
   const [expandedZones, setExpandedZones] = useState<Set<string>>(new Set());
   const [loadingDetailIds, setLoadingDetailIds] = useState<Set<string>>(new Set());
   const detailedExperimentIds = useRef<Set<string>>(new Set());
-  const loadedOnceRef = useRef(false);
   const lastLinkedRunRef = useRef("");
 
   function toggleZone(key: string) {
@@ -49,25 +46,28 @@ export default function ShadowPage() {
     });
   }
 
-  async function loadState(options?: { background?: boolean }) {
-    if (!options?.background && !loadedOnceRef.current) {
-      setLoading(true);
-    }
-    try {
-      const [shadowData, automationData, lifecycleData, familyData] = await Promise.all([
-        apiFetch<ShadowExperiment[]>("/shadow/experiments"),
-        apiFetch<AutomationStatus>("/automation/status"),
-        apiFetch<ShadowLifecycleCounts>("/shadow/lifecycle"),
-        apiFetch<ShadowFamily[]>("/shadow/families"),
-      ]);
-      const linkedId = window.location.hash.replace(/^#experiment-/, "");
-      if (isRecordId(linkedId) && !shadowData.some(item => item.id === linkedId)) {
-        try {
-          shadowData.unshift(await apiFetch<ShadowExperiment>(`/shadow/experiments/${linkedId}`));
-        } catch {
-          setError("The linked paper run is unavailable. Other retained runs remain available below.");
+  const { read, status } = useWorkspaceReads<"runs" | "automation" | "lifecycle" | "families" | "linked">();
+  const linkedRun = useRef<ShadowExperiment | null>(null);
+  const loadedOnce = Boolean(status.runs?.ready);
+  const loadError = status.runs?.error;
+  const loading = !loadedOnce && !loadError;
+
+  const loadState = useCallback(async (options?: { background?: boolean }) => {
+    const replace = !options?.background;
+    const requests = [
+      read<AutomationStatus>("automation", "/automation/status", setAutomation, replace),
+      read<ShadowLifecycleCounts>("lifecycle", "/shadow/lifecycle", setCounts, replace),
+      read<ShadowFamily[]>("families", "/shadow/families", setFamilies, replace),
+      read<ShadowExperiment[]>("runs", "/shadow/experiments", data => {
+        const linkedId = window.location.hash.replace(/^#experiment-/, "");
+        const missing = isRecordId(linkedId) && !data.some(item => item.id === linkedId);
+        const shadowData = missing && linkedRun.current?.id === linkedId ? [linkedRun.current, ...data] : data;
+        if (missing && linkedRun.current?.id !== linkedId) {
+          void read<ShadowExperiment>("linked", "/shadow/experiments/" + linkedId, item => {
+            linkedRun.current = item;
+            setExperiments(current => current.some(run => run.id === item.id) ? current : [item, ...current]);
+          }, replace);
         }
-      }
       setExperiments((previous) =>
         shadowData.map((summary) => {
           if (!detailedExperimentIds.current.has(summary.id)) return summary;
@@ -86,24 +86,14 @@ export default function ShadowPage() {
           };
         }),
       );
-      setAutomation(automationData);
-      setCounts(lifecycleData);
-      setFamilies(familyData);
-      loadedOnceRef.current = true;
-      setLoadedOnce(true);
-      setLoadError(null);
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Unable to load shadow lab.");
-    } finally {
-      if (!options?.background) {
-        setLoading(false);
-      }
-    }
-  }
+      }, replace),
+    ];
+    await Promise.all(requests);
+  }, [read]);
 
   useEffect(() => {
     void loadState();
-  }, []);
+  }, [loadState]);
 
   useEffect(() => {
     const hash = window.location.hash;
@@ -141,10 +131,10 @@ export default function ShadowPage() {
 
   useEffect(() => {
     const interval = window.setInterval(() => {
-      void loadState({ background: true });
+      if (!document.hidden) void loadState({ background: true });
     }, hasActiveExperiment ? 3000 : 15000);
     return () => window.clearInterval(interval);
-  }, [hasActiveExperiment]);
+  }, [hasActiveExperiment, loadState]);
 
   async function createExperiment(e: React.FormEvent) {
     e.preventDefault();
@@ -298,7 +288,7 @@ export default function ShadowPage() {
     <div className="min-h-screen bg-background font-sans text-foreground">
       <AppNav active="experiments" />
 
-      <main className="mx-auto grid w-full max-w-[1440px] grid-cols-1 items-start gap-6 px-4 py-8 sm:px-6 lg:px-8 xl:grid-cols-[minmax(360px,0.72fr)_minmax(0,1.28fr)]">
+      <main className="workspace-frame grid grid-cols-1 items-start gap-6 py-8 xl:grid-cols-[minmax(360px,0.72fr)_minmax(0,1.28fr)]">
         {error ? (
           <FloatingNotice tone="error" message={error} onDismiss={() => setError(null)} />
         ) : null}
@@ -312,12 +302,17 @@ export default function ShadowPage() {
           description="Run a parallel portfolio experiment from the live book, then review what changed, why, and how the result compared with the real portfolio."
         />
 
+        {(["lifecycle", "families", "automation", "linked"] as const).some(key => status[key]?.error) ? (
+          <WorkspaceState className="xl:col-span-2" compact kind="degraded" title="Some simulation details are unavailable"
+            description={"Unavailable: " + (["lifecycle", "families", "automation", "linked"] as const).filter(key => status[key]?.error).join(", ")}
+            actionLabel="Retry" onAction={() => void loadState()} />
+        ) : null}
         <div className="xl:col-span-2"><ShadowLifecycleSummary counts={counts} /></div>
         <ShadowLabProcess />
 
         <section className="self-start space-y-6 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto xl:pr-1">
 
-          <form onSubmit={createExperiment} className="space-y-5 rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-950">
+          <form onSubmit={createExperiment} className="space-y-5 rounded-lg border border-line bg-panel p-5">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Launch a new experiment</h2>
@@ -433,7 +428,7 @@ export default function ShadowPage() {
             </button>
           </form>
 
-          <details className="rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-950">
+          <details className="rounded-lg border border-line bg-panel p-5">
             <summary className="list-none cursor-pointer">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -511,7 +506,7 @@ export default function ShadowPage() {
             />
           ) : (
             experiments.map((experiment) => (
-              <article id={`experiment-${experiment.id}`} key={experiment.id} className="min-w-0 scroll-mt-24 overflow-hidden rounded-lg border border-slate-200 bg-white p-5 [overflow-wrap:anywhere] target:border-sky-500 dark:border-slate-800 dark:bg-slate-950">
+              <article id={`experiment-${experiment.id}`} key={experiment.id} className="min-w-0 scroll-mt-24 overflow-hidden rounded-lg border border-line bg-panel p-5 [overflow-wrap:anywhere] target:border-sky-500">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
@@ -650,7 +645,7 @@ export default function ShadowPage() {
                             </p>
                           </div>
                           <span
-                            className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-semibold uppercase text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            className="rounded-none border border-slate-300 px-2.5 py-1 text-xs font-semibold uppercase text-slate-600 dark:border-slate-700 dark:text-slate-300"
                             title="Provisional means fewer than the configured minimum repeated experiments. Validated requires repeated, directionally consistent outcomes. Mixed means the family has meaningful counterexamples."
                           >
                             {experiment.lesson.maturity_status}
@@ -1633,8 +1628,8 @@ function ComparisonBar({
     <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
       <p className="text-xs uppercase tracking-wider text-slate-400">{label}</p>
       <p className="mt-2 text-lg font-semibold">{formatPct(value)}</p>
-      <div className="mt-3 h-2 rounded-full bg-slate-200 dark:bg-slate-800">
-        <div className={`h-2 rounded-full ${toneClass}`} style={{ width: pct }} />
+      <div className="mt-3 h-2 rounded-none bg-slate-200 dark:bg-slate-800">
+        <div className={`h-2 rounded-none ${toneClass}`} style={{ width: pct }} />
       </div>
     </div>
   );

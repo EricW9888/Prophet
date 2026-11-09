@@ -35,7 +35,8 @@ class ProfileService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def list_profiles(self, *, show_all: bool = False) -> list[ProfileListItem]:
+    async def list_seed_profiles(self, *, show_all: bool = False) -> list[Profile]:
+        """Return ordered profiles for a workspace scope without loading detail."""
         profiles = list(
             (
                 await self.session.execute(
@@ -45,7 +46,21 @@ class ProfileService:
             .scalars()
             .all()
         )
-        tracked_entity_ids = await self._tracked_entity_ids() if not show_all else set()
+        if show_all:
+            return profiles
+        tracked_entity_ids = await self._tracked_entity_ids()
+        return [
+            profile
+            for profile in profiles
+            if profile.subject_type in {"portfolio", "position"}
+            or (
+                profile.subject_type == "entity"
+                and profile.subject_id in tracked_entity_ids
+            )
+        ]
+
+    async def list_profiles(self, *, show_all: bool = False) -> list[ProfileListItem]:
+        profiles = await self.list_seed_profiles(show_all=show_all)
         items: list[ProfileListItem] = []
         for profile in profiles:
             subject_name = await self._subject_name(
@@ -57,13 +72,6 @@ class ProfileService:
             coverage = await self._load_coverage(
                 profile.subject_type, profile.subject_id
             )
-            if not show_all and not self._is_portfolio_relevant(
-                profile=profile,
-                subject_name=subject_name,
-                conclusion=conclusion,
-                tracked_entity_ids=tracked_entity_ids,
-            ):
-                continue
             items.append(
                 ProfileListItem(
                     id=profile.id,
@@ -98,22 +106,6 @@ class ProfileService:
             .all()
         )
         return set(rows)
-
-    def _is_portfolio_relevant(
-        self,
-        *,
-        profile: Profile,
-        subject_name: str,
-        conclusion: ConclusionState | None,
-        tracked_entity_ids: set[UUID],
-    ) -> bool:
-        if profile.subject_type == "portfolio":
-            return True
-        if profile.subject_type == "position":
-            return True
-        if profile.subject_type == "entity":
-            return profile.subject_id in tracked_entity_ids
-        return False
 
     async def get_profile(self, profile_id: UUID) -> ProfileDetailResponse | None:
         profile = (

@@ -128,7 +128,7 @@ export default function DecisionsPage() {
   return (
     <div className="min-h-screen bg-background text-foreground font-sans">
       <AppNav active="portfolio" />
-      <main className="mx-auto grid w-full max-w-[1440px] grid-cols-1 gap-8 px-4 py-8 sm:px-6 lg:px-8 xl:grid-cols-[0.9fr_1.1fr]">
+      <main className="workspace-frame grid grid-cols-1 gap-8 py-8 xl:grid-cols-[0.9fr_1.1fr]">
         <PageHeader
           className="xl:col-span-2"
           eyebrow="Learning loop"
@@ -136,7 +136,7 @@ export default function DecisionsPage() {
           description="Review what Prophet concluded, what changed, how simulations and later outcomes differed, and what the system learned."
         />
         <section className="space-y-6">
-          <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950 space-y-4">
+          <section className="rounded-lg border border-line bg-panel p-6  space-y-4">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Automated record with manual override</h2>
@@ -187,12 +187,12 @@ export default function DecisionsPage() {
           {loading ? (
             <div className="text-sm text-slate-500 animate-pulse">Loading decisions...</div>
           ) : decisions.length === 0 ? (
-            <div className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950 text-slate-500 dark:text-slate-400">
+            <div className="rounded-lg border border-line bg-panel p-6  text-slate-500 dark:text-slate-400">
               No decisions recorded yet.
             </div>
           ) : (
             decisions.map((decision) => (
-              <article key={decision.id} className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+              <article key={decision.id} className="rounded-lg border border-line bg-panel p-6">
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <h2 className="text-xl font-semibold tracking-tight">{decision.position_label ?? "Unlinked decision"}</h2>

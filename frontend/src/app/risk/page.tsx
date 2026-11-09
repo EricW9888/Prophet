@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
+import { useWorkspaceReads } from "@/lib/workspace-reads";
 import AppNav from "@/components/AppNav";
 import AdvisoryTrialPanel from "@/components/AdvisoryTrialPanel";
+import WorkspaceState from "@/components/WorkspaceState";
 import PageHeader from "@/components/PageHeader";
 import PortfolioRiskPanel from "@/components/PortfolioRiskPanel";
 import { API_BASE, apiFetch, BenchmarkRecord, PerformanceAttribution, RiskSummary } from "@/lib/api";
@@ -14,10 +16,10 @@ export default function RiskPage() {
   const [summary, setSummary] = useState<RiskSummary | null>(null);
   const [attribution, setAttribution] = useState<PerformanceAttribution | null>(null);
   const [benchmarks, setBenchmarks] = useState<BenchmarkRecord[]>([]);
-  const [loading, setLoading] = useState(true);
   const [attributionLoading, setAttributionLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const refreshingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [attributionError, setAttributionError] = useState<string | null>(null);
   const [windowDays, setWindowDays] = useState("21");
@@ -28,27 +30,24 @@ export default function RiskPage() {
     benchmark_type: "broad_market",
   });
 
-  async function loadState(refresh = false) {
+  const { read, status } = useWorkspaceReads<"summary" | "benchmarks">();
+
+  const loadState = useCallback(async (refresh = false) => {
+    if (!refresh && refreshingRef.current) return;
     if (refresh) {
+      refreshingRef.current = true;
       setRefreshing(true);
-    } else {
-      setLoading(true);
     }
+    void read<BenchmarkRecord[]>("benchmarks", "/benchmarks", setBenchmarks);
     try {
-      const [riskSummary, benchmarkRows] = await Promise.all([
-        apiFetch<RiskSummary>(`/risk/summary?refresh=${refresh ? "true" : "false"}`),
-        apiFetch<BenchmarkRecord[]>("/benchmarks"),
-      ]);
-      setSummary(riskSummary);
-      setBenchmarks(benchmarkRows);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load risk context.");
+      await read<RiskSummary>("summary", "/risk/summary?refresh=" + refresh, setSummary);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (refresh) {
+        refreshingRef.current = false;
+        setRefreshing(false);
+      }
     }
-  }
+  }, [read]);
 
   async function loadAttribution(days: number) {
     setAttributionLoading(true);
@@ -69,10 +68,10 @@ export default function RiskPage() {
     void loadState(false);
     void loadAttribution(21);
     const interval = window.setInterval(() => {
-      void loadState(false);
+      if (!document.hidden) void loadState(false);
     }, 20000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [loadState]);
 
   async function createBenchmark(e: React.FormEvent) {
     e.preventDefault();
@@ -109,7 +108,7 @@ export default function RiskPage() {
   return (
     <div className="min-h-screen bg-background text-foreground font-sans">
       <AppNav active="risk" />
-      <main className="mx-auto w-full max-w-[1440px] space-y-8 px-4 py-8 sm:px-6 lg:px-8">
+      <main className="workspace-frame space-y-8 py-8">
         <PageHeader
           eyebrow="Portfolio"
           title="Risk and benchmark"
@@ -130,10 +129,14 @@ export default function RiskPage() {
         <PortfolioRiskPanel />
         <AdvisoryTrialPanel />
 
-        {loading || !summary ? (
-          <div className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950 text-sm text-slate-500 animate-pulse">
-            Loading benchmark context...
-          </div>
+        {status.benchmarks?.error ? (
+          <WorkspaceState compact kind="degraded" title="Benchmark list unavailable" description={status.benchmarks.error} actionLabel="Retry" onAction={() => void loadState(false)} />
+        ) : null}
+        {status.summary?.error ? (
+          <WorkspaceState compact kind={summary ? "degraded" : "error"} title="Benchmark context unavailable" description={status.summary.error} actionLabel="Retry" onAction={() => void loadState(false)} />
+        ) : null}
+        {!summary ? (
+          status.summary?.error ? null : <WorkspaceState compact kind="loading" title="Loading benchmark context" description="Reading stored exposures and benchmark settings." />
         ) : (
           <>
             <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
@@ -230,7 +233,9 @@ export default function RiskPage() {
 
           <Panel title="Known Benchmarks" eyebrow="Reference universe">
             <div className="space-y-3">
-              {benchmarks.length === 0 ? (
+              {!status.benchmarks?.ready ? (
+                <p className="text-sm text-muted">{status.benchmarks?.error ? "Benchmark list could not be loaded." : "Loading benchmark list…"}</p>
+              ) : benchmarks.length === 0 ? (
                 <p className="text-sm text-slate-500 dark:text-slate-400">No benchmarks saved yet.</p>
               ) : (
                 benchmarks.map((benchmark) => (
@@ -406,7 +411,7 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+    <section className="rounded-lg border border-line bg-panel p-6">
       <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{eyebrow}</p>
       <h2 className="mt-1 text-xl font-semibold tracking-tight">{title}</h2>
       <div className="mt-4">{children}</div>
@@ -416,7 +421,7 @@ function Panel({
 
 function MetricCard({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-950">
+    <div className="rounded-lg border border-line bg-panel p-5">
       <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{label}</p>
       <p className="mt-2 text-3xl font-semibold tracking-tight">{value}</p>
       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{detail}</p>

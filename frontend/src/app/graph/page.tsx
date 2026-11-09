@@ -6,8 +6,10 @@ import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { Maximize2, RotateCcw, Search, X, ZoomIn, ZoomOut } from "lucide-react";
+import { Maximize2, PanelRightClose, PanelRightOpen, RotateCcw, Search, ZoomIn, ZoomOut } from "lucide-react";
 import AppNav from "@/components/AppNav";
+import WorkspaceDivider, { useWorkspacePane } from "@/components/WorkspaceDivider";
+import WorkspaceState from "@/components/WorkspaceState";
 import SourceProvenanceLinks from "@/components/SourceProvenanceLinks";
 import {
   apiFetch,
@@ -22,19 +24,9 @@ import {
   ProfileListItem,
 } from "@/lib/api";
 import { formatUserLabel } from "@/lib/formatting";
+import { CENTER_X, CENTER_Y, HEIGHT, WIDTH, nodeVisualRadius, type PositionedNode } from "@/lib/graph-layout-geometry";
+import type { GraphLayoutRequest } from "@/lib/graph-layout";
 
-type PositionedNode = GraphWebNode & {
-  x?: number;
-  y?: number;
-  vx?: number;
-  vy?: number;
-  fx?: number | null;
-  fy?: number | null;
-  index?: number;
-  degree?: number;
-  layout_node_count?: number;
-};
-type PositionedLink = d3.SimulationLinkDatum<PositionedNode>;
 type GestureEventWithScale = Event & { scale?: number };
 type GraphViewBox = {
   x: number;
@@ -42,28 +34,13 @@ type GraphViewBox = {
   width: number;
   height: number;
 };
-type PortfolioGraphOverview = {
-  id?: string;
-  portfolio_id?: string;
-  holdings?: Array<{ id: string }>;
-};
 type GraphMode = "portfolio" | "all" | "focused";
 
-const WIDTH = 5200;
-const HEIGHT = 3400;
-const CENTER_X = WIDTH / 2;
-const CENTER_Y = HEIGHT / 2;
+const INSPECTOR_DEFAULT_WIDTH = 420;
 const DEFAULT_GRAPH_VIEW_BOX: GraphViewBox = { x: 0, y: 0, width: WIDTH, height: HEIGHT };
-const GRAPH_LAYOUT_PADDING = 96;
 const MAX_GRAPH_LAYOUT_TARGET_ASPECT = (WIDTH / HEIGHT) * 0.92;
 const MIN_GRAPH_LAYOUT_TARGET_ASPECT = 0.65;
-const NODE_COLLISION_PADDING = 10;
-const OVERLAP_RESOLUTION_ITERATIONS = 36;
 const NODE_DRAG_THRESHOLD_PX = 6;
-const OVERVIEW_SEED_LIMIT = 40;
-const ALL_KNOWLEDGE_SEED_LIMIT = 100;
-const OVERVIEW_NEIGHBORHOOD_DEPTH = 2;
-const OVERVIEW_NEIGHBORHOOD_LIMIT = 20;
 const FOCUSED_NEIGHBORHOOD_DEPTH = 2;
 const FOCUSED_NEIGHBORHOOD_LIMIT = 56;
 const LABEL_DETAIL_ZOOM = 1.35;
@@ -295,27 +272,6 @@ function compactNodeLabel(label: string, radius: number) {
   );
 }
 
-function nodeVisualRadius(node: GraphWebNode, state: { selected: boolean; compare: boolean }) {
-  const degree = Number((node as { degree?: number }).degree ?? 0);
-  const graphSize = Number((node as { layout_node_count?: number }).layout_node_count ?? 0);
-  const densityScale =
-    graphSize >= 450
-      ? 0.48
-      : graphSize >= 300
-        ? 0.64
-        : graphSize >= 180
-          ? 0.78
-          : 1;
-  const tierBump = node.tier === "critical" ? 5 : node.tier === "high" ? 3 : 0;
-  const degreeBump = degree >= 8 ? 5 : degree >= 4 ? 2 : 0;
-  const radius = node.is_root
-    ? (42 + degreeBump) * Math.max(0.7, densityScale)
-    : state.compare
-      ? (30 + tierBump) * Math.max(0.65, densityScale)
-      : Math.max(9, (22 + tierBump + degreeBump) * densityScale);
-  return state.selected ? Math.max(38, radius) : radius;
-}
-
 function shouldShowNodeLabel(
   node: PositionedNode,
   state: { selected: boolean; connected: boolean; hovered: boolean; zoom: number },
@@ -449,276 +405,11 @@ function nodeTypeSortOrder(nodeType: string) {
   return index === -1 ? orderedTypes.length + 1 : index;
 }
 
-function stableHash(value: string) {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-function stableUnit(value: string, salt: string) {
-  return stableHash(`${salt}:${value}`) / 0xffffffff;
-}
-
-function stableSignedUnit(value: string, salt: string) {
-  return stableUnit(value, salt) * 2 - 1;
-}
-
-function nodeLayoutAnchor(node: GraphWebNode) {
-  if (node.is_root) {
-    return { x: CENTER_X, y: CENTER_Y, spreadX: 0, spreadY: 0 };
-  }
-  if (node.node_type === "portfolio") {
-    return { x: CENTER_X, y: CENTER_Y, spreadX: 120, spreadY: 80 };
-  }
-  const angle = stableUnit(node.key, "layout-angle") * Math.PI * 2;
-  const band =
-    node.node_type === "position"
-      ? 260
-      : node.layer === "source"
-        ? 660
-        : node.layer === "operating"
-          ? 560
-          : 420;
-  return {
-    x: CENTER_X + Math.cos(angle) * band,
-    y: CENTER_Y + Math.sin(angle) * band * 0.72,
-    spreadX: 220,
-    spreadY: 150,
-  };
-}
-
-function nodeLayoutStrength(node: PositionedNode) {
-  if (node.is_root) return 0.18;
-  if (node.node_type === "portfolio") return 0.1;
-  return 0.025;
-}
-
-function organicSeedPosition(node: GraphWebNode, index: number) {
-  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-  const sequenceOffset = stableUnit(node.key, "organic-sequence") * 0.45;
-  const angle = (index + 1 + sequenceOffset) * goldenAngle + stableUnit(node.key, "organic-angle") * 0.38;
-  const radialUnit = Math.sqrt(Math.min(0.98, Math.max(0.06, stableUnit(node.key, "organic-radius"))));
-  const extentX = WIDTH * 0.38;
-  const extentY = HEIGHT * 0.34;
-  const anchor = nodeLayoutAnchor(node);
-  const anchorWeight = node.node_type === "portfolio" ? 0.45 : 0.08;
-  const organicX = CENTER_X + Math.cos(angle) * extentX * radialUnit + stableSignedUnit(node.key, "organic-x") * 90;
-  const organicY = CENTER_Y + Math.sin(angle) * extentY * radialUnit + stableSignedUnit(node.key, "organic-y") * 70;
-  return {
-    x: organicX * (1 - anchorWeight) + anchor.x * anchorWeight,
-    y: organicY * (1 - anchorWeight) + anchor.y * anchorWeight,
-  };
-}
-
 function markSingleGraphRoot<T extends GraphWebNode>(nodes: T[], rootKey: string | null) {
   return nodes.map((node) => {
     const isRoot = Boolean(rootKey && node.key === rootKey);
     return node.is_root === isRoot ? node : { ...node, is_root: isRoot };
   });
-}
-
-function deterministicNodePosition(
-  node: GraphWebNode,
-  index: number,
-) {
-  if (node.is_root) {
-    return { x: CENTER_X, y: CENTER_Y };
-  }
-  return organicSeedPosition(node, index);
-}
-
-function normalizeGraphLayout(
-  graphNodes: PositionedNode[],
-  rootKey: string | null,
-) {
-  if (!graphNodes.length) {
-    return graphNodes;
-  }
-  const root = graphNodes.find((node) => node.key === rootKey) ?? graphNodes.find((node) => node.is_root);
-  const anchorX =
-    root?.x ??
-    graphNodes.reduce((sum, node) => sum + (node.x ?? CENTER_X), 0) / graphNodes.length;
-  const anchorY =
-    root?.y ??
-    graphNodes.reduce((sum, node) => sum + (node.y ?? CENTER_Y), 0) / graphNodes.length;
-  const offsetX = CENTER_X - anchorX;
-  const offsetY = CENTER_Y - anchorY;
-  return graphNodes.map((node) => {
-    if (node.key === rootKey || (!rootKey && node.is_root)) {
-      return { ...node, x: CENTER_X, y: CENTER_Y, vx: 0, vy: 0 };
-    }
-    return {
-      ...node,
-      x: (node.x ?? CENTER_X) + offsetX,
-      y: (node.y ?? CENTER_Y) + offsetY,
-      vx: 0,
-      vy: 0,
-    };
-  });
-}
-
-function keepNodeWithinLayoutBounds(node: PositionedNode) {
-  const beforeX = node.x ?? CENTER_X;
-  const beforeY = node.y ?? CENTER_Y;
-  const radius = nodeVisualRadius(node, { selected: false, compare: false });
-  const minX = GRAPH_LAYOUT_PADDING + radius;
-  const maxX = WIDTH - GRAPH_LAYOUT_PADDING - radius;
-  const minY = GRAPH_LAYOUT_PADDING + radius;
-  const maxY = HEIGHT - GRAPH_LAYOUT_PADDING - radius;
-  node.x = Math.min(maxX, Math.max(minX, beforeX));
-  node.y = Math.min(maxY, Math.max(minY, beforeY));
-  return Math.abs((node.x ?? CENTER_X) - beforeX) > 0.001 || Math.abs((node.y ?? CENTER_Y) - beforeY) > 0.001;
-}
-
-function separateOverlappingNodes(
-  nodes: PositionedNode[],
-  rootKeys: Set<string>,
-  iterations: number,
-) {
-  for (let iteration = 0; iteration < iterations; iteration += 1) {
-    let moved = false;
-    for (let aIndex = 0; aIndex < nodes.length; aIndex += 1) {
-      for (let bIndex = aIndex + 1; bIndex < nodes.length; bIndex += 1) {
-        const a = nodes[aIndex];
-        const b = nodes[bIndex];
-        const aRadius = nodeVisualRadius(a, { selected: false, compare: false });
-        const bRadius = nodeVisualRadius(b, { selected: false, compare: false });
-        const minDistance = aRadius + bRadius + NODE_COLLISION_PADDING;
-        let dx = (b.x ?? CENTER_X) - (a.x ?? CENTER_X);
-        let dy = (b.y ?? CENTER_Y) - (a.y ?? CENTER_Y);
-        let distance = Math.hypot(dx, dy);
-        if (distance >= minDistance) {
-          continue;
-        }
-        if (distance < 0.001) {
-          const angle = stableUnit(`${a.key}:${b.key}`, "overlap-angle") * Math.PI * 2;
-          dx = Math.cos(angle);
-          dy = Math.sin(angle);
-          distance = 1;
-        }
-        const overlap = minDistance - distance;
-        const nx = dx / distance;
-        const ny = dy / distance;
-        const aPinned = rootKeys.has(a.key);
-        const bPinned = rootKeys.has(b.key);
-        if (aPinned && bPinned) {
-          continue;
-        }
-        if (aPinned) {
-          b.x = (b.x ?? CENTER_X) + nx * overlap;
-          b.y = (b.y ?? CENTER_Y) + ny * overlap;
-        } else if (bPinned) {
-          a.x = (a.x ?? CENTER_X) - nx * overlap;
-          a.y = (a.y ?? CENTER_Y) - ny * overlap;
-        } else {
-          const push = overlap / 2;
-          a.x = (a.x ?? CENTER_X) - nx * push;
-          a.y = (a.y ?? CENTER_Y) - ny * push;
-          b.x = (b.x ?? CENTER_X) + nx * push;
-          b.y = (b.y ?? CENTER_Y) + ny * push;
-        }
-        moved = true;
-      }
-    }
-    for (const node of nodes) {
-      if (!rootKeys.has(node.key)) {
-        moved = keepNodeWithinLayoutBounds(node) || moved;
-      }
-    }
-    if (!moved) {
-      break;
-    }
-  }
-}
-
-function resolveNodeOverlaps(
-  graphNodes: PositionedNode[],
-  rootKey: string | null,
-  targetAspect: number,
-) {
-  const resolved = graphNodes.map((node) => ({
-    ...node,
-    x: node.x ?? CENTER_X,
-    y: node.y ?? CENTER_Y,
-    vx: 0,
-    vy: 0,
-  }));
-  const rootKeys = new Set(
-    resolved
-      .filter((node) => node.is_root || node.key === rootKey)
-      .map((node) => node.key),
-  );
-
-  for (const node of resolved) {
-    if (rootKeys.has(node.key)) {
-      node.fx = CENTER_X;
-      node.fy = CENTER_Y;
-    }
-  }
-  const graphSize = Math.max(1, resolved.length);
-  const chargeStrength =
-    graphSize >= 350
-      ? -24
-      : graphSize >= 220
-        ? -36
-        : graphSize >= 120
-          ? -56
-          : -84;
-  const relaxation = d3.forceSimulation<PositionedNode>(resolved)
-    .force("collision", d3.forceCollide<PositionedNode>().radius((node) => {
-      const radius = nodeVisualRadius(node, { selected: false, compare: false });
-      return radius + NODE_COLLISION_PADDING;
-    }).strength(0.95).iterations(10))
-    .force("charge", d3.forceManyBody<PositionedNode>().strength(chargeStrength))
-    .force("x", d3.forceX<PositionedNode>(CENTER_X).strength(0.002))
-    .force("y", d3.forceY<PositionedNode>(CENTER_Y).strength(0.002))
-    .alphaDecay(0.045)
-    .stop();
-  for (let tick = 0; tick < 220; tick += 1) {
-    relaxation.tick();
-  }
-  for (const node of resolved) {
-    node.fx = null;
-    node.fy = null;
-    if (!rootKeys.has(node.key)) {
-      keepNodeWithinLayoutBounds(node);
-    }
-  }
-  separateOverlappingNodes(resolved, rootKeys, OVERLAP_RESOLUTION_ITERATIONS);
-
-  const normalized = normalizeGraphLayout(resolved, rootKey);
-  const positioned = normalized.filter(
-    (node): node is PositionedNode & { x: number; y: number } =>
-      Number.isFinite(node.x) && Number.isFinite(node.y),
-  );
-  if (positioned.length > 1) {
-    const minX = Math.min(...positioned.map((node) => node.x));
-    const maxX = Math.max(...positioned.map((node) => node.x));
-    const minY = Math.min(...positioned.map((node) => node.y));
-    const maxY = Math.max(...positioned.map((node) => node.y));
-    const spanX = Math.max(1, maxX - minX);
-    const spanY = Math.max(1, maxY - minY);
-    const currentAspect = spanX / spanY;
-    if (currentAspect < targetAspect) {
-      const horizontalScale = Math.min(2.5, targetAspect / currentAspect);
-      for (const node of normalized) {
-        if (node.key !== rootKey && !node.is_root) {
-          node.x = CENTER_X + ((node.x ?? CENTER_X) - CENTER_X) * horizontalScale;
-        }
-      }
-    } else if (currentAspect > targetAspect) {
-      const verticalScale = Math.min(2.5, currentAspect / targetAspect);
-      for (const node of normalized) {
-        if (node.key !== rootKey && !node.is_root) {
-          node.y = CENTER_Y + ((node.y ?? CENTER_Y) - CENTER_Y) * verticalScale;
-        }
-      }
-    }
-  }
-  return normalized;
 }
 
 function nodeRetentionScore(node: GraphWebNode) {
@@ -774,9 +465,6 @@ export default function GraphPage() {
   const [knowledgeQuery, setKnowledgeQuery] = useState("");
   const [knowledgeResults, setKnowledgeResults] = useState<GraphSearchResult[]>([]);
   const [knowledgeSearching, setKnowledgeSearching] = useState(false);
-  const [workspaceGraph, setWorkspaceGraph] = useState<GraphNeighborhood | null>(null);
-  const [allKnowledgeGraph, setAllKnowledgeGraph] = useState<GraphNeighborhood | null>(null);
-  const [stableGraph, setStableGraph] = useState<GraphNeighborhood | null>(null);
   const [graphStats, setGraphStats] = useState<GraphStats | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<GraphNodeDetail | null>(null);
@@ -797,7 +485,9 @@ export default function GraphPage() {
   const nodePositionsRef = useRef<Map<string, { x: number; y: number; vx?: number; vy?: number }>>(new Map());
   const manualNodePositionsRef = useRef<Record<string, { x: number; y: number }>>({});
   const selectionGenerationRef = useRef(0);
-  const graphInitializationStartedRef = useRef(false);
+  const graphRequestRef = useRef<AbortController | null>(null);
+  const inspector = useWorkspacePane("knowledge-inspector", INSPECTOR_DEFAULT_WIDTH);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [graphAskJob, setGraphAskJob] = useState<AgentTurnJob | null>(null);
   const [graphAskResult, setGraphAskResult] = useState<AgentTurn | null>(null);
   const [graphAskError, setGraphAskError] = useState<string | null>(null);
@@ -805,9 +495,11 @@ export default function GraphPage() {
   const [graphAskContext, setGraphAskContext] = useState<"node" | "edge" | null>(null);
   const [graphAskUserPrompt, setGraphAskUserPrompt] = useState("");
   const [showSystemCitations, setShowSystemCitations] = useState(false);
-  const simulationRef = useRef<d3.Simulation<PositionedNode, PositionedLink> | null>(null);
   const [nodes, setNodes] = useState<PositionedNode[]>([]);
-  const stableGraphRef = useRef<GraphNeighborhood | null>(null);
+  const [layoutGraph, setLayoutGraph] = useState<GraphNeighborhood | null>(null);
+  const [layoutError, setLayoutError] = useState<{ graph: GraphNeighborhood; message: string } | null>(null);
+  const hasGraphSurface = graph !== null;
+  const graphRef = useRef<GraphNeighborhood | null>(null);
   const graphViewportRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<SVGGElement>(null);
@@ -831,7 +523,6 @@ export default function GraphPage() {
   } | null>(null);
   const isDraggingNodeRef = useRef(false);
   const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
-  const hasGraphNodes = nodes.length > 0;
 
 
   // Attach D3 zoom when the graph surface exists. Keep this separate from
@@ -903,7 +594,7 @@ export default function GraphPage() {
         svgEl.removeEventListener("gestureend", handleGesture);
       }
     };
-  }, [hasGraphNodes]);
+  }, [hasGraphSurface]);
 
   const toSvgPoint = useCallback((clientX: number, clientY: number) => {
     if (!svgRef.current) return { x: CENTER_X, y: CENTER_Y };
@@ -941,7 +632,7 @@ export default function GraphPage() {
     );
   }, []);
 
-  const fitNodesToViewport = useCallback((targetNodes: PositionedNode[]) => {
+  const fitNodesToViewport = useCallback((targetNodes: PositionedNode[], animate = false) => {
     if (!targetNodes.length || !svgRef.current) return;
     const positioned = targetNodes.filter((n): n is PositionedNode & { x: number; y: number } => Number.isFinite(n.x) && Number.isFinite(n.y));
     if (!positioned.length) return;
@@ -979,10 +670,12 @@ export default function GraphPage() {
     setViewTransform(nextViewTransform);
 
     if (zoomRef.current) {
-      d3.select(svgRef.current)
-        .transition()
-        .duration(750)
-        .call(zoomRef.current.transform, nextTransform);
+      const svg = d3.select(svgRef.current).interrupt();
+      if (animate && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        svg.transition().duration(180).call(zoomRef.current.transform, nextTransform);
+      } else {
+        svg.call(zoomRef.current.transform, nextTransform);
+      }
     } else {
       d3.select(containerRef.current).attr("transform", nextTransform.toString());
     }
@@ -993,6 +686,7 @@ export default function GraphPage() {
     if (!viewport) return;
 
     let animationFrame = 0;
+    let initialFit = hasGraphSurface;
     const resizeObserver = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect;
       if (!rect) return;
@@ -1003,44 +697,24 @@ export default function GraphPage() {
         Math.abs(current.y - nextViewBox.y) > 0.5 ||
         Math.abs(current.width - nextViewBox.width) > 0.5 ||
         Math.abs(current.height - nextViewBox.height) > 0.5;
-      if (!changed) return;
-      graphViewBoxRef.current = nextViewBox;
-      setGraphViewBox(nextViewBox);
-      const nextTargetAspect = graphLayoutTargetAspect(nextViewBox);
-      if (Math.abs(layoutTargetAspectRef.current - nextTargetAspect) > 0.04) {
-        layoutTargetAspectRef.current = nextTargetAspect;
-        nodePositionsRef.current.clear();
-        setLayoutNonce((currentNonce) => currentNonce + 1);
+      if (changed) {
+        graphViewBoxRef.current = nextViewBox;
+        setGraphViewBox(nextViewBox);
+        // A pane resize changes the camera. It must not recompute the world
+        // layout or take away the user's current pan and zoom.
+        layoutTargetAspectRef.current = graphLayoutTargetAspect(nextViewBox);
       }
-      cancelAnimationFrame(animationFrame);
-      animationFrame = requestAnimationFrame(() => {
-        fitNodesToViewport(renderedNodesRef.current);
-      });
+      if (initialFit) {
+        initialFit = false;
+        animationFrame = requestAnimationFrame(() => fitNodesToViewport(renderedNodesRef.current));
+      }
     });
     resizeObserver.observe(viewport);
     return () => {
       cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
     };
-  }, [fitNodesToViewport, hasGraphNodes]);
-
-  const freezeSimulationNodes = useCallback(
-    (simulation: d3.Simulation<PositionedNode, PositionedLink>) => {
-      const frozen = (simulation.nodes() as PositionedNode[]).map((node) => {
-        const x = node.x ?? CENTER_X;
-        const y = node.y ?? CENTER_Y;
-        node.x = x;
-        node.y = y;
-        node.vx = 0;
-        node.vy = 0;
-        nodePositionsRef.current.set(node.key, { x, y, vx: 0, vy: 0 });
-        return { ...node, x, y, vx: 0, vy: 0 };
-      });
-      simulation.stop();
-      return frozen;
-    },
-    [],
-  );
+  }, [fitNodesToViewport, hasGraphSurface]);
 
   const handleNodePointerDown = useCallback(
     (event: React.PointerEvent<SVGGElement>, node: PositionedNode) => {
@@ -1062,125 +736,15 @@ export default function GraphPage() {
     [toGraphPoint],
   );
 
-  useEffect(() => {
-    stableGraphRef.current = stableGraph;
-  }, [stableGraph]);
-
-  const loadSeeds = useCallback(async () => {
-    const items = await apiFetch<ProfileListItem[]>("/profiles?show_all=false");
-    setSeedItems(items);
-    return items;
+  const loadInventory = useCallback(async (signal: AbortSignal) => {
+    const [profiles, stats] = await Promise.allSettled([
+      apiFetch<ProfileListItem[]>("/profiles?show_all=false", { signal }),
+      apiFetch<GraphStats>("/graph/stats", { signal }),
+    ]);
+    if (signal.aborted) return;
+    if (profiles.status === "fulfilled") setSeedItems(profiles.value);
+    if (stats.status === "fulfilled") setGraphStats(stats.value);
   }, []);
-
-  const loadGraphStats = useCallback(async () => {
-    try {
-      setGraphStats(await apiFetch<GraphStats>("/graph/stats"));
-    } catch {
-      setGraphStats(null);
-    }
-  }, []);
-
-  const buildGraphFromSeeds = useCallback(
-    async (
-      seeds: Array<{ subject_type: string; subject_id: string }>,
-      options?: { preferredRootKey?: string | null; depth?: number; limit?: number },
-    ) => {
-      const seedMap = new Map<string, { subject_type: string; subject_id: string }>();
-      for (const seed of seeds) {
-        seedMap.set(`${seed.subject_type}:${seed.subject_id}`, seed);
-      }
-      const seedSlice = Array.from(seedMap.values());
-      const depth = options?.depth ?? OVERVIEW_NEIGHBORHOOD_DEPTH;
-      const limit = options?.limit ?? OVERVIEW_NEIGHBORHOOD_LIMIT;
-      const neighborhoods = await Promise.all(
-        seedSlice.map((item) =>
-          apiFetch<GraphNeighborhood>(
-            `/graph/neighborhood/${item.subject_type}/${item.subject_id}?depth=${depth}&limit=${limit}&include_system=${showSystemNodes}`,
-          ).catch(() => null),
-        ),
-      );
-      const valid = neighborhoods.filter((item): item is GraphNeighborhood => item !== null);
-      const nonSystemValid = valid.filter((item) => {
-        const root = item.nodes.find((node) => node.key === item.root_key);
-        return root?.layer !== "system";
-      });
-      const usable = nonSystemValid.length > 0 ? nonSystemValid : valid;
-      if (usable.length === 0) {
-        return null;
-      }
-      const nodeMap = new Map<string, GraphWebNode>();
-      const edgeMap = new Map<string, GraphNeighborhood["edges"][number]>();
-      for (const neighborhood of usable) {
-        for (const node of neighborhood.nodes) {
-          if (!nodeMap.has(node.key)) {
-            nodeMap.set(node.key, node);
-          }
-        }
-        for (const edge of neighborhood.edges) {
-          const edgeKey = graphEdgeIdentity(edge);
-          if (!edgeMap.has(edgeKey)) {
-            edgeMap.set(edgeKey, edge);
-          }
-        }
-      }
-      const mergedNodes = Array.from(nodeMap.values());
-      const overviewRootKey =
-        (options?.preferredRootKey && mergedNodes.some((node) => node.key === options.preferredRootKey)
-          ? options.preferredRootKey
-          : null) ??
-        mergedNodes.find((node) => node.node_type === "portfolio")?.key ??
-        usable[0].root_key;
-      return {
-        root_key: overviewRootKey,
-        depth,
-        nodes: markSingleGraphRoot(mergedNodes, overviewRootKey),
-        edges: Array.from(edgeMap.values()),
-      } satisfies GraphNeighborhood;
-    },
-    [showSystemNodes],
-  );
-
-  const buildWorkspaceGraph = useCallback(async (items: ProfileListItem[]) => {
-    const portfolioProfile = items.find((item) => item.subject_type === "portfolio");
-    let portfolioId: string | null = portfolioProfile?.subject_id ?? null;
-    let holdingSeeds: Array<{ subject_type: string; subject_id: string }> = [];
-    try {
-      const overview = await apiFetch<PortfolioGraphOverview>("/portfolio/overview");
-      portfolioId = overview.id ?? overview.portfolio_id ?? portfolioId;
-      holdingSeeds = (overview.holdings ?? []).slice(0, OVERVIEW_SEED_LIMIT).map((holding) => ({
-        subject_type: "position",
-        subject_id: holding.id,
-      }));
-    } catch {
-      // Fallback if overview fails
-    }
-
-    const seedCandidates = [
-      ...(portfolioId ? [{ subject_type: "portfolio", subject_id: portfolioId }] : []),
-      ...holdingSeeds,
-      ...items.slice(0, OVERVIEW_SEED_LIMIT).map((item) => ({
-        subject_type: item.subject_type,
-        subject_id: item.subject_id,
-      })),
-    ];
-    return buildGraphFromSeeds(seedCandidates, {
-      preferredRootKey: portfolioId ? `portfolio:${portfolioId}` : null,
-    });
-  }, [buildGraphFromSeeds]);
-
-  const buildAllKnowledgeGraph = useCallback(async () => {
-    const items = await apiFetch<ProfileListItem[]>("/profiles?show_all=true");
-    const portfolioProfile = items.find((item) => item.subject_type === "portfolio");
-    return buildGraphFromSeeds(
-      items.slice(0, ALL_KNOWLEDGE_SEED_LIMIT).map((item) => ({
-        subject_type: item.subject_type,
-        subject_id: item.subject_id,
-      })),
-      {
-        preferredRootKey: portfolioProfile ? `portfolio:${portfolioProfile.subject_id}` : null,
-      },
-    );
-  }, [buildGraphFromSeeds]);
 
   useEffect(() => {
     const query = knowledgeQuery.trim();
@@ -1189,123 +753,91 @@ export default function GraphPage() {
       setKnowledgeSearching(false);
       return;
     }
+    const controller = new AbortController();
     setKnowledgeSearching(true);
     const timeout = window.setTimeout(() => {
       void apiFetch<GraphSearchResult[]>(
         `/graph/search?query=${encodeURIComponent(query)}&limit=12`,
+        { signal: controller.signal },
       )
-        .then(setKnowledgeResults)
-        .catch(() => setKnowledgeResults([]))
-        .finally(() => setKnowledgeSearching(false));
+        .then((results) => { if (!controller.signal.aborted) setKnowledgeResults(results); })
+        .catch(() => { if (!controller.signal.aborted) setKnowledgeResults([]); })
+        .finally(() => { if (!controller.signal.aborted) setKnowledgeSearching(false); });
     }, 250);
-    return () => window.clearTimeout(timeout);
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
   }, [knowledgeQuery]);
 
-  const loadDetail = useCallback(async (nodeType: string, nodeId: string, generation?: number) => {
+  const loadDetail = useCallback(async (nodeType: string, nodeId: string, generation: number) => {
     setDetailLoading(true);
+    setDetailError(null);
     try {
       const detail = await apiFetch<GraphNodeDetail>(`/graph/nodes/${nodeType}/${nodeId}`);
-      if (generation !== undefined && generation !== selectionGenerationRef.current) {
-        return;
-      }
+      if (generation !== selectionGenerationRef.current) return;
       setSelectedDetail(detail);
-      setSelectedKey(`${nodeType}:${nodeId}`);
-      setSelectedEdgeId(null);
     } catch (err) {
-      if (generation === undefined || generation === selectionGenerationRef.current) {
-        setError(err instanceof Error ? err.message : "Unable to load node detail.");
-      }
+      if (generation === selectionGenerationRef.current) setDetailError(humanizeGraphError(err));
     } finally {
-      if (generation === undefined || generation === selectionGenerationRef.current) {
-        setDetailLoading(false);
-      }
+      if (generation === selectionGenerationRef.current) setDetailLoading(false);
     }
   }, []);
 
-  const openGraph = useCallback(async (nodeType: string, nodeId: string, options?: { setActive?: boolean }) => {
-    const generation = ++selectionGenerationRef.current;
-    const setActive = options?.setActive ?? true;
+  const loadGraph = useCallback(async (
+    mode: GraphMode,
+    includeSystem: boolean,
+    focus?: { nodeType: string; nodeId: string },
+  ) => {
+    if (mode === "focused" && !focus) return;
+    graphRequestRef.current?.abort();
+    const request = new AbortController();
+    graphRequestRef.current = request;
     setLoading(true);
     setError(null);
     setGraphNotice(null);
+    const path = focus
+      ? `/graph/neighborhood/${focus.nodeType}/${focus.nodeId}?depth=${FOCUSED_NEIGHBORHOOD_DEPTH}&limit=${FOCUSED_NEIGHBORHOOD_LIMIT}&include_system=${includeSystem}`
+      : `/graph/workspace?scope=${mode === "all" ? "expanded" : "portfolio"}&include_system=${includeSystem}`;
     try {
-      const neighborhood = await apiFetch<GraphNeighborhood>(
-        `/graph/neighborhood/${nodeType}/${nodeId}?depth=${FOCUSED_NEIGHBORHOOD_DEPTH}&limit=${FOCUSED_NEIGHBORHOOD_LIMIT}&include_system=${showSystemNodes}`,
-      );
-      if (generation !== selectionGenerationRef.current) return;
-      setGraph(neighborhood);
-      setStableGraph(neighborhood);
-      setGraphMode("focused");
-      viewTransformRef.current = { x: 0, y: 0, k: 1 };
-      setViewTransform({ x: 0, y: 0, k: 1 });
-      nodePositionsRef.current.clear();
-      manualNodePositionsRef.current = {};
-      if (setActive) {
-        setSelectedKey(neighborhood.root_key);
-      }
+      const next = await apiFetch<GraphNeighborhood | null>(path, { signal: request.signal });
+      if (request.signal.aborted) return;
+      graphRef.current = next;
+      setGraph(next);
+      setGraphMode(mode);
+      setShowSystemNodes(includeSystem);
+      const generation = ++selectionGenerationRef.current;
+      setSelectedKey(next?.root_key ?? null);
+      setSelectedDetail(null);
       setSelectedEdgeId(null);
-      await loadDetail(nodeType, nodeId, generation);
+      setDetailError(null);
+      setDetailLoading(false);
+      const root = next?.nodes.find((node) => node.key === next.root_key);
+      if (root) void loadDetail(root.node_type, root.id, generation);
     } catch (err) {
-      if (generation !== selectionGenerationRef.current) return;
+      if (request.signal.aborted) return;
       const message = humanizeGraphError(err);
-      if (stableGraphRef.current) {
-        setGraphNotice(message);
-      } else {
-        setError(message);
-      }
+      if (graphRef.current) setGraphNotice(message);
+      else setError(message);
     } finally {
-      if (generation === selectionGenerationRef.current) {
-        setLoading(false);
-      }
+      if (!request.signal.aborted) setLoading(false);
     }
-  }, [loadDetail, showSystemNodes]);
+  }, [loadDetail]);
+
+  const openGraph = useCallback((nodeType: string, nodeId: string) => (
+    loadGraph("focused", showSystemNodes, { nodeType, nodeId })
+  ), [loadGraph, showSystemNodes]);
 
   useEffect(() => {
-    if (graphInitializationStartedRef.current) return;
-    graphInitializationStartedRef.current = true;
-    const initializationGeneration = selectionGenerationRef.current;
-    void (async () => {
-      try {
-        void loadGraphStats();
-        const items = await loadSeeds();
-        if (initializationGeneration !== selectionGenerationRef.current) return;
-        setGraphNotice(null);
-        if (items[0]) {
-          const workspaceGraph = await buildWorkspaceGraph(items);
-          if (initializationGeneration !== selectionGenerationRef.current) return;
-          if (workspaceGraph) {
-            setWorkspaceGraph(workspaceGraph);
-            setGraph(workspaceGraph);
-            setStableGraph(workspaceGraph);
-            setGraphMode("portfolio");
-            nodePositionsRef.current.clear();
-            manualNodePositionsRef.current = {};
-            setSelectedKey(workspaceGraph.root_key);
-            setSelectedEdgeId(null);
-            const portfolioProfile = items.find((item) => item.subject_type === "portfolio");
-            await loadDetail(
-              portfolioProfile?.subject_type ?? items[0].subject_type,
-              portfolioProfile?.subject_id ?? items[0].subject_id,
-              initializationGeneration,
-            );
-            if (initializationGeneration === selectionGenerationRef.current) {
-              setLoading(false);
-            }
-          } else {
-            await openGraph(items[0].subject_type, items[0].subject_id);
-          }
-        } else {
-          setError(humanizeGraphError("graph_node_not_found"));
-          setLoading(false);
-        }
-      } catch (err) {
-        if (initializationGeneration === selectionGenerationRef.current) {
-          setError(humanizeGraphError(err));
-          setLoading(false);
-        }
-      }
-    })();
-  }, [buildWorkspaceGraph, loadDetail, loadGraphStats, loadSeeds, openGraph]);
+    const inventory = new AbortController();
+    void loadGraph("portfolio", false);
+    void loadInventory(inventory.signal);
+    return () => {
+      graphRequestRef.current?.abort();
+      inventory.abort();
+      selectionGenerationRef.current += 1;
+    };
+  }, [loadGraph, loadInventory]);
 
   useEffect(() => {
     if (!graphAskJob || !["queued", "running"].includes(graphAskJob.status)) {
@@ -1341,7 +873,7 @@ export default function GraphPage() {
     setShowSystemCitations(false);
   }, [selectedDetail?.id]);
 
-  const activeGraph = graph ?? stableGraph;
+  const activeGraph = graph;
   const activeRootKey = activeGraph?.root_key ?? null;
 
   const availableNodeTypes = useMemo(() => {
@@ -1478,113 +1010,43 @@ export default function GraphPage() {
         ? "Focused Node"
         : "Portfolio Web";
 
-  // --- Physics Simulation ---
+  // The bounded physics run must not block pan, navigation or the inspector.
   useEffect(() => {
-    if (!visibleGraph || !visibleGraph.nodes.length) {
-      setNodes([]);
-      return;
-    }
-
-    const degreeByKey = new Map<string, number>();
-    for (const edge of visibleGraph.edges) {
-      degreeByKey.set(edge.source_key, (degreeByKey.get(edge.source_key) ?? 0) + 1);
-      degreeByKey.set(edge.target_key, (degreeByKey.get(edge.target_key) ?? 0) + 1);
-    }
-
-    // Stable Layout: Use target positions from the persistent ref map
-    const initialNodes: PositionedNode[] = visibleGraph.nodes.map((n, index) => {
-      const manualPosition = manualNodePositionsRef.current[n.key];
-      const existing = nodePositionsRef.current.get(n.key);
-      const fallback = deterministicNodePosition(n, index);
-      const degree = degreeByKey.get(n.key) ?? 0;
-      return {
-        ...n,
-        degree,
-        layout_node_count: visibleGraph.nodes.length,
-        x: manualPosition?.x ?? existing?.x ?? fallback.x,
-        y: manualPosition?.y ?? existing?.y ?? fallback.y,
-        vx: existing?.vx ?? 0,
-        vy: existing?.vy ?? 0,
-        fx: manualPosition?.x,
-        fy: manualPosition?.y,
-      };
-    });
-
-    const initialLinks: PositionedLink[] = visibleGraph.edges.map(e => ({
-      source: e.source_key,
-      target: e.target_key,
-    }));
-
-    // Re-use or initialize simulation instance
-    let simulation = simulationRef.current;
-    if (!simulation) {
-      simulation = d3.forceSimulation<PositionedNode>()
-        .force("link", d3.forceLink<PositionedNode, PositionedLink>()
-          .id(d => d.key)
-          .strength(0.32)
-        )
-        .force("charge", d3.forceManyBody<PositionedNode>().strength(d => (d.degree ?? 0) === 0 ? -120 : -420))
-        .force("x", d3.forceX<PositionedNode>(CENTER_X).strength(nodeLayoutStrength))
-        .force("y", d3.forceY<PositionedNode>(CENTER_Y).strength(nodeLayoutStrength))
-        .force("collision", d3.forceCollide<PositionedNode>().radius(d => {
-          const r = nodeVisualRadius(d, { selected: false, compare: false });
-          return r + NODE_COLLISION_PADDING;
-        }).iterations(6))
-        .alphaDecay(0.07);
-
-      simulationRef.current = simulation;
-    }
-
-    // Update simulation data
-    simulation.nodes(initialNodes);
-    simulation
-      .force("x", d3.forceX<PositionedNode>(CENTER_X).strength(nodeLayoutStrength))
-      .force("y", d3.forceY<PositionedNode>(CENTER_Y).strength(nodeLayoutStrength))
-      .force("clusterX", null)
-      .force("clusterY", null);
-    const linkForce = simulation.force("link") as d3.ForceLink<PositionedNode, PositionedLink>;
-    linkForce.links(initialLinks)
-      .distance(l => {
-        const s = l.source as PositionedNode;
-        const t = l.target as PositionedNode;
-        if (s.is_root || t.is_root) return 260;
-        if (s.node_type === "position" || t.node_type === "position") return 200;
-        if (s.node_type === "entity" || t.node_type === "entity") return 180;
-        return 160;
-      });
-
-    simulation.stop();
-    simulation.alpha(0.9);
-    for (let index = 0; index < 180; index += 1) {
-      simulation.tick();
-    }
-    const frozen = resolveNodeOverlaps(
-      normalizeGraphLayout(freezeSimulationNodes(simulation), visibleGraph.root_key),
-      visibleGraph.root_key,
-      layoutTargetAspectRef.current,
-    );
-    for (const node of frozen) {
-      nodePositionsRef.current.set(node.key, { x: node.x ?? CENTER_X, y: node.y ?? CENTER_Y, vx: 0, vy: 0 });
-    }
-    renderedNodesRef.current = frozen;
-    setNodes(frozen);
-    fitNodesToViewport(frozen);
-  }, [fitNodesToViewport, freezeSimulationNodes, layoutNonce, visibleGraph]);
-
-  // Clean stop on page unmount
-  useEffect(() => {
-    return () => {
-      if (simulationRef.current) simulationRef.current.stop();
+    if (!visibleGraph?.nodes.length) return;
+    const worker = new Worker(new URL("../../lib/graph-layout.worker.ts", import.meta.url), { type: "module" });
+    worker.onmessage = ({ data }: MessageEvent<PositionedNode[]>) => {
+      for (const node of data) {
+        nodePositionsRef.current.set(node.key, { x: node.x ?? CENTER_X, y: node.y ?? CENTER_Y, vx: 0, vy: 0 });
+      }
+      renderedNodesRef.current = data;
+      setNodes(data);
+      setLayoutGraph(visibleGraph);
+      setLayoutError(null);
+      fitNodesToViewport(data);
     };
-  }, []);
+    worker.onerror = (event) => {
+      event.preventDefault();
+      setLayoutError({ graph: visibleGraph, message: "The graph data loaded, but its layout could not be drawn." });
+    };
+    worker.postMessage({
+      graph: visibleGraph,
+      positions: nodePositionsRef.current,
+      manual: manualNodePositionsRef.current,
+      targetAspect: layoutTargetAspectRef.current,
+    } satisfies GraphLayoutRequest);
+    return () => worker.terminate();
+  }, [fitNodesToViewport, layoutNonce, visibleGraph]);
+
+  const layoutPending = Boolean(visibleGraph?.nodes.length && layoutGraph !== visibleGraph);
+  const activeLayoutError = layoutError?.graph === visibleGraph ? layoutError?.message : null;
 
   const displayedNodes = useMemo(
     () =>
-      nodes.map((node) => {
+      (layoutGraph === visibleGraph ? nodes : []).map((node) => {
         const manual = manualNodePositionsRef.current[node.key];
         return manual ? { ...node, x: manual.x, y: manual.y, fx: manual.x, fy: manual.y } : node;
       }),
-    [nodes],
+    [nodes, layoutGraph, visibleGraph],
   );
 
   const nodeByKey = useMemo(() => {
@@ -1688,6 +1150,7 @@ export default function GraphPage() {
     if (isBackgroundInteractionTarget(event.target)) {
       selectionGenerationRef.current += 1;
       setDetailLoading(false);
+      setDetailError(null);
       setSelectedKey(null);
       setSelectedEdgeId(null);
       setSelectedDetail(null);
@@ -1728,92 +1191,6 @@ export default function GraphPage() {
       graphViewportRef.current?.releasePointerCapture(event.pointerId);
     }
   }, [handleNodeClick]);
-
-  function restoreWorkspaceGraph() {
-    if (!workspaceGraph) {
-      return;
-    }
-    setGraph(workspaceGraph);
-    setStableGraph(workspaceGraph);
-    setGraphMode("portfolio");
-    viewTransformRef.current = { x: 0, y: 0, k: 1 };
-    setViewTransform({ x: 0, y: 0, k: 1 });
-    nodePositionsRef.current.clear();
-    manualNodePositionsRef.current = {};
-    setSelectedEdgeId(null);
-    setSelectedKey(workspaceGraph.root_key);
-  }
-
-  function resetGraphCachesForScopeChange() {
-    setWorkspaceGraph(null);
-    setAllKnowledgeGraph(null);
-    setStableGraph(null);
-    setGraph(null);
-    setSelectedDetail(null);
-    setSelectedEdgeId(null);
-    nodePositionsRef.current.clear();
-    manualNodePositionsRef.current = {};
-    setLoading(true);
-  }
-
-  async function showPortfolioGraph() {
-    if (workspaceGraph) {
-      restoreWorkspaceGraph();
-      return;
-    }
-    setLoading(true);
-    try {
-      const items = await loadSeeds();
-      const nextGraph = await buildWorkspaceGraph(items);
-      if (!nextGraph) {
-        setError(humanizeGraphError("graph_node_not_found"));
-        return;
-      }
-      setWorkspaceGraph(nextGraph);
-      setGraph(nextGraph);
-      setStableGraph(nextGraph);
-      setGraphMode("portfolio");
-      viewTransformRef.current = { x: 0, y: 0, k: 1 };
-      setViewTransform({ x: 0, y: 0, k: 1 });
-      nodePositionsRef.current.clear();
-      manualNodePositionsRef.current = {};
-      setSelectedKey(nextGraph.root_key);
-      setSelectedEdgeId(null);
-    } catch (err) {
-      setError(humanizeGraphError(err));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function showAllKnowledgeGraph() {
-    setLoading(true);
-    setError(null);
-    setGraphNotice(null);
-    try {
-      const nextGraph = allKnowledgeGraph ?? await buildAllKnowledgeGraph();
-      if (!nextGraph) {
-        setError(humanizeGraphError("graph_node_not_found"));
-        return;
-      }
-      if (!allKnowledgeGraph) {
-        setAllKnowledgeGraph(nextGraph);
-      }
-      setGraph(nextGraph);
-      setStableGraph(nextGraph);
-      setGraphMode("all");
-      viewTransformRef.current = { x: 0, y: 0, k: 1 };
-      setViewTransform({ x: 0, y: 0, k: 1 });
-      nodePositionsRef.current.clear();
-      manualNodePositionsRef.current = {};
-      setSelectedKey(nextGraph.root_key);
-      setSelectedEdgeId(null);
-    } catch (err) {
-      setError(humanizeGraphError(err));
-    } finally {
-      setLoading(false);
-    }
-  }
 
   async function startGraphAsk(
     prompt: string,
@@ -1864,7 +1241,7 @@ export default function GraphPage() {
             ) : null}
           </div>
           {graphAskJob ? (
-            <span className="rounded-full border border-amber-300 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-800 dark:text-amber-300">
+            <span className="rounded-none border border-amber-300 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-800 dark:text-amber-300">
               {graphAskJob.status}
             </span>
           ) : null}
@@ -1897,7 +1274,7 @@ export default function GraphPage() {
                 </div>
                 <Link
                   href={`/chat?session_id=${graphAskResult.session_id}`}
-                  className="inline-flex items-center justify-center rounded-full border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:border-slate-400 dark:border-slate-700 dark:text-slate-300"
+                  className="inline-flex items-center justify-center rounded-none border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:border-slate-400 dark:border-slate-700 dark:text-slate-300"
                 >
                   Open in chat
                 </Link>
@@ -1912,56 +1289,57 @@ export default function GraphPage() {
     <div className="min-h-screen bg-background text-foreground font-sans">
       <AppNav active="knowledge" />
 
-      <main className="mx-auto grid w-full max-w-[1920px] grid-cols-1 gap-5 px-3 py-5 sm:gap-8 sm:px-6 sm:py-8 lg:px-8 2xl:grid-cols-[minmax(0,1fr)_360px]">
-        <section className="min-w-0 space-y-4 sm:space-y-6">
-          <header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-6">
-            <div className="min-w-0">
-              <h1 className="text-3xl font-bold tracking-tight">Knowledge Web</h1>
-              <div className="mt-3 inline-flex rounded-full border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950">
+      <main className="workspace-frame space-y-3 py-4">
+          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
+              <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Knowledge Web</h1>
+              <div className="inline-flex gap-1">
                 <button
                   type="button"
-                  onClick={() => void showPortfolioGraph()}
+                  onClick={() => void loadGraph("portfolio", showSystemNodes)}
                   disabled={loading}
-                  className={[
-                    "rounded-full px-3 py-1 text-xs font-semibold transition-colors disabled:opacity-50",
-                    graphMode === "portfolio"
-                      ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950"
-                      : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900",
-                  ].join(" ")}
+                  className="workspace-control"
+                  aria-pressed={graphMode === "portfolio"}
                 >
                   Portfolio Web
                 </button>
                 <button
                   type="button"
-                  onClick={() => void showAllKnowledgeGraph()}
+                  onClick={() => void loadGraph("all", showSystemNodes)}
                   disabled={loading}
-                  className={[
-                    "rounded-full px-3 py-1 text-xs font-semibold transition-colors disabled:opacity-50",
-                    graphMode === "all"
-                      ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950"
-                      : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900",
-                  ].join(" ")}
+                  className="workspace-control"
+                  aria-pressed={graphMode === "all"}
                 >
                   Expanded Web
                 </button>
               </div>
             </div>
             <div className="flex max-w-full flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="workspace-control"
+                aria-expanded={inspector.open}
+                aria-controls="knowledge-inspector"
+                onClick={inspector.toggle}
+              >
+                {inspector.open ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
+                {inspector.open ? "Hide inspector" : "Show inspector"}
+              </button>
               {selectedDetail && selectedKey !== activeRootKey ? (
                 <button
                   type="button"
                   onClick={() => void openGraph(selectedDetail.node_type, selectedDetail.id)}
-                  className="rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-700 hover:border-sky-300 dark:border-sky-800/40 dark:bg-sky-900/20 dark:text-sky-300"
+                  className="rounded-none border border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-700 hover:border-sky-300 dark:border-sky-800/40 dark:bg-sky-900/20 dark:text-sky-300"
                 >
                   Focus on node
                 </button>
               ) : null}
-              {graph && workspaceGraph && graph.root_key !== workspaceGraph.root_key ? (
+              {graphMode === "focused" ? (
                 <button
                   type="button"
-                  onClick={() => restoreWorkspaceGraph()}
-                  disabled={!workspaceGraph}
-                  className="rounded-full border border-slate-300 px-4 py-2 text-sm text-slate-600 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
+                  onClick={() => void loadGraph("portfolio", showSystemNodes)}
+                  disabled={loading}
+                  className="rounded-none border border-slate-300 px-4 py-2 text-sm text-slate-600 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
                 >
                   Back to overview
                 </button>
@@ -1969,30 +1347,30 @@ export default function GraphPage() {
             </div>
           </header>
 
-          <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-3 sm:p-6 dark:border-slate-800 dark:bg-slate-950">
+        <div className="knowledge-split" style={inspector.style} data-inspector-open={inspector.open}>
+        <section className="min-w-0">
+          <section className="min-w-0 rounded-lg border border-line bg-panel p-3 sm:p-6">
             {graphNotice ? (
-              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-200">
-                {graphNotice}
-              </div>
+              <WorkspaceState compact kind="degraded" className="mb-3" title="Could not switch graph views" description={`${graphNotice} The last loaded graph is still available.`} />
             ) : null}
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
-                <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-900">
+                <span className="rounded-none bg-slate-100 px-3 py-1 dark:bg-slate-900">
                   {visibleNodeCount} nodes
                 </span>
-                <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-900">
+                <span className="rounded-none bg-slate-100 px-3 py-1 dark:bg-slate-900">
                   {visibleEdgeCount} connections
                 </span>
-                <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-900">
+                <span className="rounded-none bg-slate-100 px-3 py-1 dark:bg-slate-900">
                   {modeLabel}
                 </span>
                 {hiddenNodeCount > 0 || hiddenEdgeCount > 0 ? (
-                  <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-700 dark:bg-amber-950/25 dark:text-amber-300">
+                  <span className="rounded-none bg-amber-50 px-3 py-1 text-amber-700 dark:bg-amber-950/25 dark:text-amber-300">
                     {hiddenNodeCount} nodes / {hiddenEdgeCount} links hidden
                   </span>
                 ) : null}
                 {graphMode === "focused" ? (
-                  <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-700 dark:bg-sky-900/20 dark:text-sky-300">
+                  <span className="rounded-none bg-sky-50 px-3 py-1 text-sky-700 dark:bg-sky-900/20 dark:text-sky-300">
                     Focused view
                   </span>
                 ) : null}
@@ -2004,7 +1382,7 @@ export default function GraphPage() {
                     const anchor = viewportAnchor();
                     adjustZoom(viewTransformRef.current.k * 0.85, anchor.x, anchor.y);
                   }}
-                  className="rounded-full hover:bg-slate-100 p-2 text-slate-400 hover:text-slate-600 dark:hover:bg-slate-800"
+                  className="rounded-none hover:bg-slate-100 p-2 text-slate-400 hover:text-slate-600 dark:hover:bg-slate-800"
                   aria-label="Zoom out"
                   title="Zoom out"
                 >
@@ -2012,8 +1390,8 @@ export default function GraphPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => fitNodesToViewport(displayedNodes)}
-                  className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:text-slate-300"
+                  onClick={() => fitNodesToViewport(displayedNodes, true)}
+                  className="rounded-none border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:text-slate-300"
                   title="Fit graph"
                 >
                   <span className="inline-flex items-center gap-1.5">
@@ -2030,7 +1408,7 @@ export default function GraphPage() {
                     manualNodePositionsRef.current = {};
                     setLayoutNonce((current) => current + 1);
                   }}
-                  className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:text-slate-300"
+                  className="rounded-none border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:text-slate-300"
                   title="Reset layout"
                 >
                   <span className="inline-flex items-center gap-1.5">
@@ -2044,7 +1422,7 @@ export default function GraphPage() {
                     const anchor = viewportAnchor();
                     adjustZoom(viewTransformRef.current.k * 1.15, anchor.x, anchor.y);
                   }}
-                  className="rounded-full hover:bg-slate-100 p-2 text-slate-400 hover:text-slate-600 dark:hover:bg-slate-800"
+                  className="rounded-none hover:bg-slate-100 p-2 text-slate-400 hover:text-slate-600 dark:hover:bg-slate-800"
                   aria-label="Zoom in"
                   title="Zoom in"
                 >
@@ -2062,7 +1440,7 @@ export default function GraphPage() {
                   type="button"
                   onClick={() => setActiveNodeTypes([])}
                   className={[
-                    "rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors",
+                    "rounded-none border px-3 py-1 text-[11px] font-semibold transition-colors",
                     activeNodeTypes.length === 0
                       ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-300"
                       : "border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:text-slate-300",
@@ -2078,7 +1456,7 @@ export default function GraphPage() {
                       type="button"
                       onClick={() => toggleNodeTypeFilter(type)}
                       className={[
-                        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors",
+                        "inline-flex items-center gap-1.5 rounded-none border px-3 py-1 text-[11px] font-semibold transition-colors",
                         active
                           ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-300"
                           : "border-slate-200 text-slate-500 hover:border-slate-300 dark:border-slate-800 dark:text-slate-400",
@@ -2094,7 +1472,7 @@ export default function GraphPage() {
                 })}
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
-                <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 dark:border-slate-800 dark:bg-slate-950">
+                <label className="inline-flex items-center gap-2 rounded-none border border-line bg-panel px-3 py-1.5">
                   <input
                     type="checkbox"
                     checked={showDuplicateNodes}
@@ -2103,13 +1481,16 @@ export default function GraphPage() {
                   />
                   <span>Show duplicate labels</span>
                 </label>
-                <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 dark:border-slate-800 dark:bg-slate-950">
+                <label className="inline-flex items-center gap-2 rounded-none border border-line bg-panel px-3 py-1.5">
                   <input
                     type="checkbox"
                     checked={showSystemNodes}
+                    disabled={loading}
                     onChange={(event) => {
-                      resetGraphCachesForScopeChange();
-                      setShowSystemNodes(event.target.checked);
+                      const root = graph?.nodes.find((node) => node.key === graph.root_key);
+                      void loadGraph(graphMode, event.target.checked, graphMode === "focused" && root
+                        ? { nodeType: root.node_type, nodeId: root.id }
+                        : undefined);
                     }}
                     className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
                   />
@@ -2140,60 +1521,40 @@ export default function GraphPage() {
               </details>
             ) : null}
 
-            <div className="relative mt-4 min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-[radial-gradient(circle_at_center,rgba(14,165,233,0.1),transparent_48%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(241,245,249,0.94))] sm:mt-6 dark:border-slate-800 dark:bg-[radial-gradient(circle_at_center,rgba(14,165,233,0.14),transparent_48%),linear-gradient(180deg,rgba(8,15,22,0.98),rgba(5,8,13,0.98))]">
-              {error && !activeGraph ? (
-                <div className="absolute inset-0 flex items-center justify-center bg-slate-50/10 backdrop-blur-[2px] z-10">
-                  <div className="max-w-md p-6 bg-white rounded-lg border border-rose-100 shadow-xl text-center">
-                    <X className="w-10 h-10 text-rose-500 mx-auto mb-4" />
-                    <p className="text-sm font-bold text-slate-900 mb-2">Knowledge Web is temporarily unavailable</p>
-                    <p className="text-xs text-rose-500 bg-rose-50 p-3 rounded-lg break-words">
-                      {error}
-                    </p>
-                    <button
-                      onClick={() => {
-                        setError(null);
-                        setGraphNotice(null);
-                        void loadSeeds().then((s) => s && openGraph(s[0].subject_type, s[0].subject_id));
-                      }}
-                      className="mt-6 px-4 py-2 bg-sky-600 text-white rounded-lg text-xs font-bold hover:bg-sky-700 transition-all font-mono uppercase tracking-widest"
-                    >
-                      Reconnect
-                    </button>
-                  </div>
-                </div>
-              ) : !activeGraph ? (
-                <div className="flex h-[72dvh] min-h-[460px] max-h-[720px] flex-col items-center justify-center px-6 text-center sm:h-[calc(100dvh-11rem)] sm:min-h-[620px] sm:max-h-[980px] sm:px-8">
-                  {error && error.includes("graph_node_not_found") ? (
-                    <>
-                      <svg className="h-12 w-12 text-slate-300 dark:text-slate-700 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
-                      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Knowledge Web is initializing</h3>
-                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 max-w-md">
-                        There are currently no nodes in the graph to display. The system will populate connections once it ingests your portfolio, notes, or external intelligence.
-                      </p>
-                    </>
-                  ) : (
-                    <div className="text-sm text-red-500">{error || "Building connected web..."}</div>
-                  )}
+            <div className="relative mt-3 min-w-0 overflow-hidden border border-line bg-background">
+              {!activeGraph ? (
+                <div className="knowledge-canvas flex items-center justify-center p-4">
+                  <WorkspaceState
+                    kind={error ? "error" : loading ? "loading" : "empty"}
+                    title={error ? "Knowledge Web unavailable" : loading ? "Loading Knowledge Web" : "No knowledge to map yet"}
+                    description={error ?? (loading ? "Connecting stored subjects and evidence." : "Add a holding, track a research subject, or ingest evidence to start building the map.")}
+                    actionLabel={error ? "Retry" : undefined}
+                    onAction={error ? () => void loadGraph("portfolio", showSystemNodes) : undefined}
+                  />
                 </div>
               ) : (
                 <div
                   ref={graphViewportRef}
                   data-pull-refresh-ignore
-                  className="relative h-[72dvh] min-h-[460px] max-h-[720px] w-full touch-pan-y select-none overflow-hidden rounded-lg border border-white/5 bg-slate-950/20 sm:h-[calc(100dvh-11rem)] sm:min-h-[620px] sm:max-h-[980px] sm:touch-none"
+                  className="knowledge-canvas relative w-full touch-pan-y select-none overflow-hidden sm:touch-none"
                   style={{ overscrollBehavior: "contain" }}
                   onPointerDown={handleCanvasPointerDown}
                   onPointerMove={handleCanvasPointerMove}
                   onPointerUp={handleCanvasPointerUp}
                   onPointerCancel={handleCanvasPointerUp}
                 >
-                  <div className="pointer-events-none absolute left-3 top-3 z-10 rounded border border-white/10 bg-slate-950/72 px-2.5 py-1.5 text-[10px] text-slate-300 backdrop-blur-sm">
-                    Pinch or scroll to zoom · tap a node for its full label
+                  <div className="pointer-events-none absolute left-3 top-3 z-10 border border-line bg-panel px-2.5 py-1.5 text-xs text-muted">
+                    Scroll or pinch to zoom · select a node to inspect it
                   </div>
-                  {loading && (
+                  {activeLayoutError ? (
+                    <div className="absolute inset-0 z-20 grid place-items-center p-4">
+                      <WorkspaceState kind="error" title="Graph layout unavailable" description={activeLayoutError} actionLabel="Retry" onAction={() => { setLayoutError(null); setLayoutNonce((value) => value + 1); }} />
+                    </div>
+                  ) : (loading || layoutPending) && (
                     <div className="absolute inset-0 flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px] z-20 pointer-events-none">
                       <div className="flex flex-col items-center gap-4">
                         <div className="w-8 h-8 border-4 border-sky-500/30 border-t-sky-500 rounded-full animate-spin"></div>
-                        <p className="text-xs font-bold text-sky-100 tracking-widest uppercase animate-pulse">Syncing Map...</p>
+                        <p className="text-sm text-sky-100" role="status">{loading ? "Loading graph…" : "Arranging graph…"}</p>
                       </div>
                     </div>
                   )}
@@ -2392,10 +1753,11 @@ export default function GraphPage() {
                         type="button"
                         onClick={(event) => {
                           event.stopPropagation();
-                          document.getElementById("knowledge-connection-detail")?.scrollIntoView({
+                          inspector.setOpen(true);
+                          requestAnimationFrame(() => document.getElementById("knowledge-connection-detail")?.scrollIntoView({
                             behavior: "smooth",
                             block: "start",
-                          });
+                          }));
                         }}
                         className="shrink-0 rounded border border-amber-300/50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-100 hover:border-amber-200 hover:text-white"
                       >
@@ -2421,10 +1783,11 @@ export default function GraphPage() {
                         type="button"
                         onClick={(event) => {
                           event.stopPropagation();
-                          document.getElementById("knowledge-node-detail")?.scrollIntoView({
+                          inspector.setOpen(true);
+                          requestAnimationFrame(() => document.getElementById("knowledge-node-detail")?.scrollIntoView({
                             behavior: "smooth",
                             block: "start",
-                          });
+                          }));
                         }}
                         className="shrink-0 rounded border border-sky-300/50 px-2.5 py-1.5 text-[11px] font-semibold text-sky-100 hover:border-sky-200 hover:text-white"
                       >
@@ -2439,20 +1802,23 @@ export default function GraphPage() {
 
         </section>
 
-        <aside className="min-w-0 space-y-6 self-start 2xl:sticky 2xl:top-24 2xl:max-h-[calc(100vh-7rem)] 2xl:overflow-y-auto 2xl:pr-2">
+        {inspector.open ? (
+          <WorkspaceDivider side="right" controls="knowledge-inspector" label="Resize Knowledge inspector" width={inspector.width} defaultWidth={INSPECTOR_DEFAULT_WIDTH} onResize={inspector.setWidth} />
+        ) : null}
+        <aside id="knowledge-inspector" aria-label="Knowledge inspector" hidden={!inspector.open} className="min-w-0 space-y-3 self-start lg:sticky lg:top-20 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto">
           {activeEdge ? (
-            <section id="knowledge-connection-detail" className="min-w-0 scroll-mt-24 rounded-lg border border-slate-200 bg-white p-4 sm:p-6 dark:border-slate-800 dark:bg-slate-950">
+            <section id="knowledge-connection-detail" className="min-w-0 scroll-mt-24 rounded-lg border border-line bg-panel p-4 sm:p-6">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Connection detail</h2>
                   <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    Relationship meaning is shown here instead of spraying labels across the graph.
+                    Inspect the link between the two subjects.
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setSelectedEdgeId(null)}
-                  className="rounded-full border border-slate-300 px-3 py-1 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                  className="rounded-none border border-slate-300 px-3 py-1 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300"
                 >
                   Clear
                 </button>
@@ -2491,7 +1857,7 @@ export default function GraphPage() {
                       context: "edge",
                     });
                   }}
-                  className="inline-flex items-center justify-center rounded-full border border-sky-300 px-4 py-2 text-xs font-medium text-sky-700 hover:border-sky-400 dark:border-sky-800 dark:text-sky-300"
+                  className="inline-flex items-center justify-center rounded-none border border-sky-300 px-4 py-2 text-xs font-medium text-sky-700 hover:border-sky-400 dark:border-sky-800 dark:text-sky-300"
                 >
                   Analyze this connection
                 </button>
@@ -2500,7 +1866,7 @@ export default function GraphPage() {
             </section>
           ) : null}
 
-          <section id="knowledge-node-detail" className="min-w-0 scroll-mt-24 rounded-lg border border-slate-200 bg-white p-4 sm:p-6 dark:border-slate-800 dark:bg-slate-950">
+          <section id="knowledge-node-detail" className="min-w-0 scroll-mt-24 rounded-lg border border-line bg-panel p-4 sm:p-6">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Node detail</h2>
@@ -2521,7 +1887,7 @@ export default function GraphPage() {
                       context: "node",
                     })
                   }
-                  className="rounded-full border border-amber-300 px-3 py-1 text-[10px] text-amber-700 hover:border-amber-400 dark:border-amber-800 dark:text-amber-300"
+                  className="rounded-none border border-amber-300 px-3 py-1 text-[10px] text-amber-700 hover:border-amber-400 dark:border-amber-800 dark:text-amber-300"
                 >
                   Analyze node
                 </button>
@@ -2532,6 +1898,8 @@ export default function GraphPage() {
               <div className="mt-5 rounded-lg border border-slate-200 p-4 text-xs text-slate-500 animate-pulse dark:border-slate-800 dark:text-slate-400">
                 Loading node detail...
               </div>
+            ) : detailError ? (
+              <p role="alert" className="mt-4 text-sm text-rose-700 dark:text-rose-300">{detailError}</p>
             ) : selectedDetail ? (
               <div className="mt-5 space-y-5">
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
@@ -2564,7 +1932,7 @@ export default function GraphPage() {
                         context: "node",
                       })
                     }
-                    className="inline-flex items-center justify-center rounded-full border border-amber-300 px-4 py-2 text-xs font-medium text-amber-700 hover:border-amber-400 dark:border-amber-800 dark:text-amber-300"
+                    className="inline-flex items-center justify-center rounded-none border border-amber-300 px-4 py-2 text-xs font-medium text-amber-700 hover:border-amber-400 dark:border-amber-800 dark:text-amber-300"
                   >
                     Run node analysis
                   </button>
@@ -2627,7 +1995,7 @@ export default function GraphPage() {
                         Why This Is In Your Graph
                       </span>
                       {selectedDetail.properties?.portfolio_significance ? (
-                        <span className="rounded-full border border-teal-300 bg-teal-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-teal-700 dark:border-teal-700 dark:bg-teal-900/50 dark:text-teal-200">
+                        <span className="rounded-none border border-teal-300 bg-teal-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-teal-700 dark:border-teal-700 dark:bg-teal-900/50 dark:text-teal-200">
                           {String(selectedDetail.properties.portfolio_significance)}
                         </span>
                       ) : null}
@@ -2654,7 +2022,7 @@ export default function GraphPage() {
 	                          {propertyList(selectedDetail.properties?.affected_holdings).map((holding) => (
 	                            <span
 	                              key={`affected-${holding}`}
-	                              className="rounded-full border border-teal-300 bg-white/70 px-2 py-1 text-[10px] font-semibold tracking-wide text-teal-700 dark:border-teal-400/30 dark:bg-teal-500/10 dark:text-teal-100"
+	                              className="rounded-none border border-teal-300 bg-white/70 px-2 py-1 text-[10px] font-semibold tracking-wide text-teal-700 dark:border-teal-400/30 dark:bg-teal-500/10 dark:text-teal-100"
 	                            >
 	                              {holding}
 	                            </span>
@@ -2682,7 +2050,7 @@ export default function GraphPage() {
                           {selectedDetail.properties.linked_holdings.map((holding) => (
                             <span
                               key={`holding-${String(holding)}`}
-                              className="rounded-full border border-sky-300 bg-sky-100 px-2 py-1 text-[10px] font-semibold tracking-wide text-sky-700 dark:border-sky-400/30 dark:bg-sky-500/10 dark:text-sky-200"
+                              className="rounded-none border border-sky-300 bg-sky-100 px-2 py-1 text-[10px] font-semibold tracking-wide text-sky-700 dark:border-sky-400/30 dark:bg-sky-500/10 dark:text-sky-200"
                             >
                               {String(holding)}
                             </span>
@@ -2700,7 +2068,7 @@ export default function GraphPage() {
                           {selectedDetail.properties.linked_companies.map((company) => (
                             <span
                               key={`company-${String(company)}`}
-                              className="rounded-full border border-emerald-300 bg-emerald-100 px-2 py-1 text-[10px] font-semibold tracking-wide text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-200"
+                              className="rounded-none border border-emerald-300 bg-emerald-100 px-2 py-1 text-[10px] font-semibold tracking-wide text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-200"
                             >
                               {String(company)}
                             </span>
@@ -2719,7 +2087,7 @@ export default function GraphPage() {
                         <div className="min-w-0 rounded-lg border border-sky-200 bg-sky-50/30 px-2 py-1.5 dark:border-sky-800/60 dark:bg-sky-950/20">
                           <div className="text-[10px] text-sky-500 font-bold uppercase tracking-tighter">Match Relevance</div>
                           <div className="mt-0.5 flex items-center gap-2">
-                            <div className="h-1.5 flex-1 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                            <div className="h-1.5 flex-1 bg-slate-200 dark:bg-slate-800 rounded-none overflow-hidden">
                               <div
                                 className="h-full bg-sky-500 transition-all duration-1000"
                                 style={{ width: `${(selectedDetail.relevance || 0) * 100}%` }}
@@ -2761,15 +2129,15 @@ export default function GraphPage() {
                       <div key={citation.raw_evidence_id} className="min-w-0 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                         <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">{citation.source_name}</div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
-                          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                          <span className="rounded-none border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                             {citation.source_type.replaceAll("_", " ")}
                           </span>
                           {citation.source_item_type ? (
-                            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                            <span className="rounded-none border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                               {citation.source_item_type.replaceAll("_", " ")}
                             </span>
                           ) : null}
-                          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${citationOriginClasses(citation.origin_kind)}`}>
+                          <span className={`rounded-none border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${citationOriginClasses(citation.origin_kind)}`}>
                             {citation.origin_label ?? "Source catalog"}
                           </span>
                         </div>
@@ -2808,7 +2176,7 @@ export default function GraphPage() {
                         <button
                           type="button"
                           onClick={() => setShowSystemCitations((current) => !current)}
-                          className="rounded-full border border-amber-300 px-3 py-1 text-xs text-amber-700 dark:border-amber-800 dark:text-amber-300"
+                          className="rounded-none border border-amber-300 px-3 py-1 text-xs text-amber-700 dark:border-amber-800 dark:text-amber-300"
                         >
                           {showSystemCitations ? "Hide" : "Show"}
                         </button>
@@ -2819,10 +2187,10 @@ export default function GraphPage() {
                             <div key={citation.raw_evidence_id} className="min-w-0 rounded-lg border border-amber-100 bg-amber-50/60 p-4 dark:border-amber-950 dark:bg-amber-950/10">
                               <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{citation.source_name}</div>
                               <div className="mt-2 flex flex-wrap gap-1.5">
-                                <span className="rounded-full border border-amber-200 bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+                                <span className="rounded-none border border-amber-200 bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
                                   {citation.system_reason?.replaceAll("_", " ") ?? "system memory"}
                                 </span>
-                                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${citationOriginClasses(citation.origin_kind)}`}>
+                                <span className={`rounded-none border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${citationOriginClasses(citation.origin_kind)}`}>
                                   {citation.origin_label ?? "Source catalog"}
                                 </span>
                               </div>
@@ -2858,7 +2226,7 @@ export default function GraphPage() {
             )}
           </section>
 
-          <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 sm:p-6 dark:border-slate-800 dark:bg-slate-950">
+          <section className="min-w-0 rounded-lg border border-line bg-panel p-4 sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Tracked research subjects
@@ -2911,6 +2279,7 @@ export default function GraphPage() {
             </div>
           </section>
         </aside>
+        </div>
       </main>
     </div>
   );

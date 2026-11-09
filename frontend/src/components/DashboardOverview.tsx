@@ -1,17 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { ShieldCheck } from "lucide-react";
-import {
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Area,
-  AreaChart,
-  XAxis,
-  YAxis,
-} from "recharts";
+
 
 import { apiFetch, DashboardSummary } from "@/lib/api";
 import { automationJobHealth, automationOverallHealth, type AutomationHealth } from "@/lib/automation";
@@ -27,6 +20,10 @@ import {
   safeFormatPct,
   formatUserLabel
 } from "@/lib/formatting";
+
+const PortfolioBuildChart = dynamic(() => import("./PortfolioBuildChart"), {
+  loading: () => <p className="py-4 text-sm text-muted" role="status">Loading capital history chart…</p>,
+});
 
 function HeroMetric({ label, value, detail, href }: { label: string; value: string; detail: string; href?: string }) {
   const content = (
@@ -113,21 +110,23 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
 
   if (loading) {
     return (
-      <div className="space-y-6">
+      <div className="min-w-0 space-y-6">
       <WorkspaceState
         kind="loading"
         title="Loading your portfolio workspace"
         description="Prophet is reconciling the live book, research queue, and automation status."
         className="min-h-72"
       />
-      {children}
+      <div key="dashboard-body" className="space-y-6">
+        <div key="portfolio-ledger">{children}</div>
+      </div>
       </div>
     );
   }
 
   if (!summary) {
     return (
-      <div className="space-y-6">
+      <div className="min-w-0 space-y-6">
       <WorkspaceState
         kind="error"
         title="Portfolio workspace unavailable"
@@ -136,7 +135,9 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
         onAction={() => void loadSummary()}
         className="min-h-72"
       />
-      {children}
+      <div key="dashboard-body" className="space-y-6">
+        <div key="portfolio-ledger">{children}</div>
+      </div>
       </div>
     );
   }
@@ -193,7 +194,7 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
 
       <PortfolioDataReviewNotice count={summary.portfolio_data_review_total ?? 0} />
 
-      <div className="space-y-6">
+      <div key="dashboard-body" className="space-y-6">
         <Panel className="xl:col-span-1">
           <SectionTitle
             title="Investment attention"
@@ -267,7 +268,7 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
           </div>
         </Panel>
 
-        {children}
+        <div key="portfolio-ledger">{children}</div>
 
         <details className="min-w-0 rounded-lg border border-line bg-panel p-4 md:p-5">
           <summary className="cursor-pointer text-sm font-semibold">Research activity and system status · {automationLabel}</summary>
@@ -749,7 +750,7 @@ function ActionFeedRow({
               {formatUserLabel(source)} · {label}
             </div>
             {recentCount && recentCount > 1 ? (
-              <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              <span className="rounded-none bg-slate-200 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                 {recentCount}x
               </span>
             ) : null}
@@ -808,78 +809,6 @@ function ScannerRow({
       <div className="text-right">
         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Score</div>
         <div className="mt-1 text-sm font-black text-slate-900 dark:text-slate-100">{score.toFixed(1)}</div>
-      </div>
-    </div>
-  );
-}
-
-function PortfolioBuildChart({ points }: { points: DashboardSummary["portfolio_build_series"] }) {
-  if (points.length === 0) return <div className="py-12 text-center text-slate-400 italic text-sm">No series data</div>;
-
-  if (!points?.length) return null;
-
-  return (
-    <div className="mt-4 h-[180px] w-full">
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={points}>
-          <defs>
-            <linearGradient id="colorDeployed" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#0284c7" stopOpacity={0.3}/>
-              <stop offset="95%" stopColor="#0284c7" stopOpacity={0}/>
-            </linearGradient>
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148,163,184,0.18)" />
-          <XAxis
-            dataKey="as_of"
-            hide
-          />
-          <YAxis
-            hide
-            domain={['dataMin - 5000', 'dataMax + 5000']}
-          />
-          <Tooltip
-            content={({ active, payload }) => {
-              if (active && payload && payload.length) {
-                const data = payload[0].payload;
-                return (
-                  <div className="rounded-lg border border-slate-200 bg-white/95 p-3 shadow-xl backdrop-blur-sm dark:border-slate-700 dark:bg-slate-950/95">
-                    <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">
-                      {new Date(data.as_of).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </p>
-                    <p className="text-sm font-black text-slate-900 dark:text-slate-100">
-                      {safeFormatCurrency(data.net_capital_deployed)}
-                    </p>
-                    <div className="mt-1 flex items-center gap-2">
-                       <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-500 dark:bg-sky-950/30 dark:text-sky-300">
-                         {data.transaction_count} txns
-                       </span>
-                    </div>
-                  </div>
-                );
-              }
-              return null;
-            }}
-          />
-          <Area
-            type="monotone"
-            dataKey="net_capital_deployed"
-            stroke="#0284c7"
-            strokeWidth={3}
-            fillOpacity={1}
-            fill="url(#colorDeployed)"
-            animationDuration={1500}
-          />
-        </AreaChart>
-      </ResponsiveContainer>
-      <div className="mt-4 flex items-end justify-between">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-tighter text-slate-400 dark:text-slate-500">Current Inflow</p>
-          <p className="text-sm font-black text-slate-900 dark:text-slate-100">{safeFormatCurrency(points[points.length-1].net_capital_deployed)}</p>
-        </div>
-        <div className="text-right">
-          <p className="text-[10px] font-bold uppercase tracking-tighter text-slate-400 dark:text-slate-500">Velocity</p>
-          <p className="text-sm font-black text-slate-900 dark:text-slate-100">{points[points.length-1].transaction_count} txns</p>
-        </div>
       </div>
     </div>
   );

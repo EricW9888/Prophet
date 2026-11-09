@@ -7,6 +7,14 @@ material uncertainty; Simulate observes a paper-only hypothesis. The secondary
 menu holds portfolio records, the research library and system activity. Settings
 owns setup, connector configuration and presentation preferences.
 
+Workspace navigation and task surfaces use the available window width with a
+shared gutter. Reading areas, forms and dialogs can still constrain their own
+line length. On wide screens, drag the Knowledge inspector or Research sidebar
+divider, or focus it and use the arrow keys. Double-click the divider or press
+Enter to restore its default width. Each pane can collapse and keeps its layout
+in that browser. On compact screens, the Knowledge inspector stacks below the
+map and Research uses its Chats and watches drawer.
+
 | Task | Starting surface | Context and next action |
 | --- | --- | --- |
 | Establish portfolio truth | Settings, Positions, History | Configure a scoped connector, inspect imported receipts and identity reviews, then reconcile holdings and cash against broker records. Setup readiness does not certify external reconciliation. |
@@ -25,6 +33,13 @@ message and a retry action. Secondary failures disclose which information is
 unavailable while preserving usable primary data. An action failure stays near
 the action and does not erase unrelated loaded evidence. Unknown, skipped and
 quarantined stages do not receive a completed-work success indicator.
+
+Sources and Discovery load the active view's reads independently. Settings,
+History, Risk, and Simulate retain primary content while secondary reads finish
+or report a failure. Knowledge builds each scoped view in one backend read,
+then calculates node positions off the browser's main thread. Selecting a node
+loads its inspector separately. Resizing the inspector changes the visible
+canvas without rebuilding the graph or resetting its camera.
 
 Diagnostics, provider details and provenance belong behind disclosure controls
 when they are not needed for the immediate decision. Source links retain evidence

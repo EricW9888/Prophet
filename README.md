@@ -170,6 +170,9 @@ configurable in `.env.example`.
 <details>
 <summary>Run the complete local check suite</summary>
 
+Create and select a disposable test database as described in
+[the backend test instructions](backend/README.md#tests-and-checks).
+
 ```bash
 cd backend
 poetry run coverage run --branch --source=investos -m pytest -q

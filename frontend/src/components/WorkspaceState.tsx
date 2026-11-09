@@ -26,6 +26,34 @@ const stateIcon = {
   degraded: AlertTriangle,
 };
 
+export function WorkspaceRead({
+  name, state, retry, children,
+}: {
+  name: string;
+  state?: { ready: boolean; error?: string };
+  retry: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="min-w-0 space-y-3">
+      {!state?.ready && !state?.error ? (
+        <WorkspaceState compact kind="loading" title={`Loading ${name}`} description="The rest of the workspace remains available." />
+      ) : null}
+      {state?.error ? (
+        <WorkspaceState
+          compact
+          kind={state.ready ? "degraded" : "error"}
+          title={`${name} could not be loaded`}
+          description={state.ready ? `${state.error} Showing the last loaded data.` : state.error}
+          actionLabel="Retry"
+          onAction={retry}
+        />
+      ) : null}
+      {state?.ready ? children : null}
+    </div>
+  );
+}
+
 export default function WorkspaceState({
   kind,
   title,

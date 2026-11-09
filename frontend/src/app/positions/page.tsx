@@ -1,5 +1,6 @@
+import Link from "next/link";
 import AppNav from "@/components/AppNav";
-import DashboardOverview from "@/components/DashboardOverview";
+import PageHeader from "@/components/PageHeader";
 import PositionsTable from "@/components/PositionsTable";
 import ReconcilePanel from "@/components/ReconcilePanel";
 
@@ -8,8 +9,12 @@ export default function PositionsPage() {
     <div className="min-h-screen bg-background text-foreground font-sans">
       <AppNav active="portfolio" />
 
-      <main className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-        <DashboardOverview />
+      <main className="workspace-frame space-y-6 py-6">
+        <PageHeader
+          title="Positions"
+          description="Inspect holdings and tracked names, record transactions, and reconcile the ledger."
+          actions={<Link href="/verification?domain=portfolio_data" className="workspace-control">Portfolio data review</Link>}
+        />
 
         <section>
           <PositionsTable />

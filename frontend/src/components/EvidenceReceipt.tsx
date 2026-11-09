@@ -60,7 +60,7 @@ function Receipt({ evidenceId }: { evidenceId: string }) {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
+    <div className="workspace-frame py-6">
       <Link href="/sources" className="mb-6 inline-flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100">
         <ArrowLeft className="h-4 w-4" />
         Sources
@@ -280,7 +280,7 @@ function StatusPill({ children, tone = "neutral" }: { children: string; tone?: "
       ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
       : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300";
   return (
-    <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${className}`}>
+    <span className={`rounded-none border px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${className}`}>
       {children}
     </span>
   );
@@ -304,7 +304,7 @@ function OriginPill({ children, kind }: { children: string; kind?: string | null
       ? "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/30 dark:text-orange-300"
       : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300";
   return (
-    <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${className}`}>
+    <span className={`rounded-none border px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${className}`}>
       {children}
     </span>
   );
