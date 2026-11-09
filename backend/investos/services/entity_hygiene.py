@@ -41,6 +41,7 @@ from investos.services.artifact_hygiene import (
     normalize_subject_name,
 )
 from investos.services.knowledge_audit import KnowledgeAuditService
+from investos.services.security_catalog import SecurityCatalogService
 
 
 class EntityHygieneService:
@@ -1243,12 +1244,25 @@ class EntityHygieneService:
             .all()
         )
         merged: list[dict] = []
+        catalog = SecurityCatalogService(self.session)
         for entity in securityless_entities:
             if not entity.name or self._classify(entity.name) == "artifact":
                 continue
-            target_record = self._duplicate_entity_target_name(
-                entity.name, canonical_entries
-            )
+            if catalog.is_issuer_symbol_label(entity.name):
+                security = await catalog.resolve_issuer_symbol_label(entity.name)
+                if security is None:
+                    # Do not let a matching ticker override a conflicting issuer name.
+                    continue
+                target_record = {
+                    "entity": security.entity,
+                    "ticker": security.ticker,
+                    "match_reason": "issuer name and catalog symbol agree",
+                    "match_score": 100,
+                }
+            else:
+                target_record = self._duplicate_entity_target_name(
+                    entity.name, canonical_entries
+                )
             if target_record is None:
                 continue
             target = target_record["entity"]

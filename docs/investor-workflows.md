@@ -46,6 +46,8 @@ profile. A broad portfolio update checks recent stored evidence by holding and
 makes bounded external checks of the market, relevant industries and material
 holdings. The answer's coverage receipt distinguishes the holdings roster,
 explicit links in the selected evidence, and provisional external candidates.
+An issuer label with a ticker resolves to a catalog entity only when the name
+and symbol agree. The audited entity cleanup uses the same check for old labels.
 The live work log records observable stages. Text attachments are read-only
 inputs for one turn; Prophet retains filenames and the answer, not the input
 files themselves.

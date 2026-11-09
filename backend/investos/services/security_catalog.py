@@ -10,6 +10,11 @@ from investos.models.entity import Entity, Security
 from investos.models.knowledge_mutation import KnowledgeMutation
 from investos.schemas.portfolio import SecuritySymbolChangeRequest
 from investos.services.knowledge_audit import KnowledgeAuditService
+from investos.services.subject_alias import normalize_alias
+
+ISSUER_SYMBOL_LABEL = re.compile(
+    r"^(?P<name>.+?)\s+\((?P<symbol>[A-Z0-9][A-Z0-9.\^=\-]{0,31})\)$"
+)
 
 
 class SecurityCatalogService:
@@ -57,6 +62,28 @@ class SecurityCatalogService:
                 "Symbol has multiple current or historical identities; instrument review is required"
             )
         return candidates[0] if candidates else None
+
+    @staticmethod
+    def is_issuer_symbol_label(label: str) -> bool:
+        return ISSUER_SYMBOL_LABEL.fullmatch(label.strip()) is not None
+
+    async def resolve_issuer_symbol_label(self, label: str) -> Security | None:
+        """Require the supplied issuer name and symbol to agree with the catalog."""
+        match = ISSUER_SYMBOL_LABEL.fullmatch(label.strip())
+        if match is None:
+            return None
+        try:
+            security = await self.resolve_existing(match["symbol"])
+        except ValueError:
+            return None
+        if security is None or not security.is_active:
+            return None
+        issuer_name = normalize_alias(match["name"])
+        known_names = {
+            normalize_alias(name)
+            for name in (security.entity.name, *(security.entity.aliases or []))
+        }
+        return security if issuer_name and issuer_name in known_names else None
 
     async def change_symbol(
         self, security_id: UUID, payload: SecuritySymbolChangeRequest

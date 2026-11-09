@@ -37,6 +37,7 @@ from investos.services.knowledge_time import (
 )
 from investos.services.market_setup import MarketSetupSignalService
 from investos.services.operating_loop import OperatingLoopService
+from investos.services.security_catalog import SecurityCatalogService
 from investos.services.source_learning import SourceLearningService
 from investos.services.watcher import WatcherService
 from investos.workers.coverage import CoverageWorker
@@ -1614,6 +1615,12 @@ class ExtractionWorker:
             self.session.add(theme)
             await self.session.flush()
             return theme.id
+
+        security = await SecurityCatalogService(
+            self.session
+        ).resolve_issuer_symbol_label(subject_name)
+        if security is not None:
+            return security.entity_id
 
         entity = (
             await self.session.execute(

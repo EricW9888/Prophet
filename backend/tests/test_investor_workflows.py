@@ -31,6 +31,7 @@ from investos.schemas.shadow import (
     ShadowOrderCreate,
 )
 from investos.services.dashboard import DashboardService
+from investos.services.entity_hygiene import EntityHygieneService
 from investos.services.market_data import MarketDataService
 from investos.services.portfolio import PortfolioService
 from investos.services.profile import ProfileService
@@ -38,6 +39,7 @@ from investos.services.retrieval import RetrievalService
 from investos.services.review import ReviewService
 from investos.services.shadow import ShadowService
 from investos.services.source import SourceService
+from investos.workers.extraction import ExtractionWorker
 
 
 @pytest.fixture
@@ -852,6 +854,43 @@ async def test_cash_only_shadow_uses_its_own_starting_value_and_cannot_learn_fro
     assert response.result.actual_return == 0
     assert response.result.alpha == 0
     assert response.run_details["observation_window"]["calibration_allowed"] is False
+
+
+async def test_issuer_symbol_agreement_prevents_split_evidence_and_conflicting_merges(
+    workflow_session,
+):
+    session = workflow_session
+    canonical = Entity(name="Fixture Semiconductor Corporation", entity_type="company")
+    archived = Entity(
+        name="Fixture Semiconductor Corporation (SYNISS)", entity_type="company"
+    )
+    conflicting = Entity(name="Different Issuer (SYNISS)", entity_type="company")
+    session.add_all([canonical, archived, conflicting])
+    await session.flush()
+    session.add(
+        Security(
+            entity_id=canonical.id,
+            ticker="SYNISS",
+            asset_class="equity",
+            instrument_type="common_stock",
+        )
+    )
+    await session.flush()
+    extractor = ExtractionWorker(session)
+    assert (
+        await extractor._get_or_create_subject(archived.name, "entity") == canonical.id
+    )
+    assert (
+        await extractor._get_or_create_subject(conflicting.name, "entity")
+        == conflicting.id
+    )
+    proposed = await EntityHygieneService(session)._merge_duplicate_entities(
+        dry_run=True
+    )
+    match = next(row for row in proposed if row["id"] == str(archived.id))
+    assert match["target_id"] == str(canonical.id)
+    assert not any(row["id"] == str(conflicting.id) for row in proposed)
+    assert await session.get(Entity, archived.id) is not None
 
 
 async def source_records(session):
