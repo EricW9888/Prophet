@@ -32,6 +32,7 @@ class ShadowOrderCreate(BaseModel):
     side: Literal["buy", "sell"]
     quantity: float = Field(gt=0)
     rationale: str = Field(default="User-submitted paper order.", max_length=1000)
+    client_request_id: UUID | None = None
 
 
 class ShadowActionResponse(BaseModel):

@@ -1,8 +1,9 @@
 """Synthetic record identities exercise the actual PostgreSQL navigation path."""
 
 import importlib.util
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -12,20 +13,31 @@ from sqlalchemy.pool import NullPool
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
+from investos.api.routes.graph import get_holding_subjects
 from investos.config import settings
 from investos.models.catalog import SourceClaimRecord
 from investos.models.entity import Entity, Security
 from investos.models.evidence import RawEvidence, SourceItem
 from investos.models.graph import Edge
 from investos.models.knowledge import Claim, Fact
-from investos.models.portfolio import Position
+from investos.models.portfolio import CashLedgerEntry, Position
 from investos.models.profile import Profile
 from investos.models.review import ReviewQueueItem
+from investos.models.shadow import ShadowFill, ShadowOrder
 from investos.models.source import Source
+from investos.schemas.shadow import (
+    ShadowExperimentCreate,
+    ShadowExperimentResponse,
+    ShadowOrderCreate,
+)
 from investos.services.dashboard import DashboardService
+from investos.services.market_data import MarketDataService
 from investos.services.portfolio import PortfolioService
 from investos.services.profile import ProfileService
+from investos.services.retrieval import RetrievalService
 from investos.services.review import ReviewService
+from investos.services.shadow import ShadowService
+from investos.services.source import SourceService
 
 
 @pytest.fixture
@@ -448,6 +460,131 @@ async def test_position_reconciliation_producer_records_data_domain_and_keeps_id
     assert "thesis" not in response.why_now_summary
 
 
+async def test_open_holdings_remain_visible_without_profiles_and_statement_scope_is_explicit(
+    workflow_session,
+):
+    session = workflow_session
+    entity = Entity(name="Synthetic issuer without a profile", entity_type="company")
+    session.add(entity)
+    await session.flush()
+    security = Security(
+        entity_id=entity.id,
+        ticker="SYNFULL",
+        asset_class="equity",
+        instrument_type="common_stock",
+    )
+    session.add(security)
+    await session.flush()
+    position = Position(
+        security_id=security.id, direction="long", list_type="holding", quantity=2
+    )
+    ledger = CashLedgerEntry(
+        entry_type="deposit",
+        amount=100,
+        balance_after=100,
+        executed_at=datetime.now(UTC),
+    )
+    session.add_all([position, ledger])
+    await session.flush()
+
+    subject = next(
+        item
+        for item in await get_holding_subjects(session)
+        if item.position_id == position.id
+    )
+    assert subject.entity_id == entity.id and subject.has_profile is False
+    service = PortfolioService(session)
+    cash = await service.reconcile_positions(
+        None, broker_cash=110, create_review_items=False
+    )
+    assert cash["holdings_scope"] == "none" and not cash["discrepancies"]
+    assert cash["cash_discrepancy"]["delta"] == 10
+    full = await service.reconcile_positions([], create_review_items=False)
+    assert any(item["ticker"] == "SYNFULL" for item in full["discrepancies"])
+    partial = await service.reconcile_positions(
+        [{"ticker": "OTHER", "quantity": 1}],
+        listed_only=True,
+        create_review_items=False,
+    )
+    assert partial["holdings_scope"] == "listed"
+    assert {item["ticker"] for item in partial["discrepancies"]} == {"OTHER"}
+    assert (
+        await session.scalar(
+            select(ReviewQueueItem).where(ReviewQueueItem.item_id == position.id)
+        )
+        is None
+    )
+    assert position.quantity == 2 and ledger.balance_after == 100
+
+
+async def test_manual_paper_retry_and_delayed_fill_use_one_order_and_execution_time(
+    workflow_session, monkeypatch
+):
+    session = workflow_session
+    entity = Entity(name="Synthetic paper security", entity_type="company")
+    session.add(entity)
+    await session.flush()
+    security = Security(
+        entity_id=entity.id,
+        ticker="SYNPAPER",
+        asset_class="equity",
+        instrument_type="common_stock",
+    )
+    session.add(security)
+    await session.flush()
+    service = ShadowService(session)
+    experiment = await service.create_experiment(
+        ShadowExperimentCreate(
+            name="Synthetic paper account",
+            policy_description="Test a simulated order",
+            auto_run=False,
+            account_basis="cash_only",
+            starting_cash=10_000,
+        )
+    )
+    experiment_id = experiment.id
+    quote = {
+        "price": 20,
+        "session": "pre",
+        "quote_time": datetime.now(UTC) - timedelta(minutes=1),
+    }
+    live = AsyncMock(return_value=quote)
+    monkeypatch.setattr(MarketDataService, "get_live_price", live)
+    request = ShadowOrderCreate(
+        ticker="SYNPAPER", side="buy", quantity=1.5, client_request_id=uuid4()
+    )
+    await service.submit_manual_paper_order(experiment_id, request)
+    await service.submit_manual_paper_order(experiment_id, request)
+    with pytest.raises(ValueError, match="different order"):
+        await service.submit_manual_paper_order(
+            experiment_id, request.model_copy(update={"quantity": 2})
+        )
+    assert live.await_count == 1
+    order = (
+        await session.scalars(
+            select(ShadowOrder).where(ShadowOrder.experiment_id == experiment_id)
+        )
+    ).one()
+    assert order.status == "accepted"
+    submitted_at = order.submitted_at
+    fetch = AsyncMock(return_value={"SYNPAPER": dict(quote, session="regular")})
+    monkeypatch.setattr(MarketDataService, "fetch_quotes", fetch)
+    assert await service.refresh_pending_paper_orders() == 0
+    quote_time = datetime.now(UTC)
+    fetch.return_value = {
+        "SYNPAPER": {"price": 21, "session": "regular", "quote_time": quote_time}
+    }
+    assert await service.refresh_pending_paper_orders() == 1
+    assert await service.refresh_pending_paper_orders() == 0
+    fill = (
+        await session.scalars(
+            select(ShadowFill).where(ShadowFill.experiment_id == experiment_id)
+        )
+    ).one()
+    assert submitted_at < fill.quote_time <= fill.filled_at
+    assert fill.quantity == 1.5
+
+
 async def test_review_domain_migration_preserves_concerns_and_only_backfills_known_producers(
     workflow_session,
 ):
@@ -561,6 +698,160 @@ async def test_subject_evidence_and_claim_review_retain_the_original_receipt(
             ReviewQueueItem(item_type="source_claim_record", item_id=record.id)
         )
         assert navigation == {"evidence_id": raw.id}
+
+
+async def test_backfilled_forecast_can_use_dated_outcomes_from_before_discovery(
+    workflow_session,
+):
+    session = workflow_session
+    raw, item = await source_records(session)
+    entity = Entity(name="Synthetic archived earnings issuer", entity_type="company")
+    session.add(entity)
+    target = datetime(2026, 10, 29, tzinfo=UTC)
+    discovery = target + timedelta(days=10)
+    values = dict(
+        source_item_id=item.id,
+        confidence=0.7,
+        tier="signal",
+        importance="high",
+        directness="secondary",
+        novelty="historical",
+        contradiction_role="neutral",
+        ingest_time=discovery,
+        created_at=discovery,
+    )
+    forecast = Claim(
+        claim_type="forecast",
+        statement="Expects Q3 earnings to beat consensus",
+        valid_until=target,
+        **values,
+    )
+    dated = Fact(
+        fact_type="financial",
+        statement="Q3 earnings beat consensus",
+        event_time=target,
+        **values,
+    )
+    undated = Fact(
+        fact_type="financial",
+        statement="An undated report suggests a different result",
+        **values,
+    )
+    session.add_all([forecast, dated, undated])
+    await session.flush()
+    session.add_all(
+        [
+            Edge(
+                source_type=kind,
+                source_id=node.id,
+                target_type="entity",
+                target_id=entity.id,
+                relationship_type="about",
+            )
+            for kind, node in (("claim", forecast), ("fact", dated), ("fact", undated))
+        ]
+    )
+    record = SourceClaimRecord(
+        source_id=raw.source_id,
+        claim_id=forecast.id,
+        claim_time=discovery,
+        assessment="pending",
+    )
+    session.add(record)
+    await session.flush()
+    bundle = await SourceService(session)._source_claim_assessment_bundle(record.id)
+    assert bundle["due_at"] == discovery
+    assert [item["id"] for item in bundle["follow_up_evidence"]] == [str(dated.id)]
+    recent = Fact(
+        fact_type="financial",
+        statement="Recent material result",
+        event_time=datetime.now(UTC) - timedelta(minutes=10),
+        **values,
+    )
+    session.add(recent)
+    await session.flush()
+    session.add(
+        Edge(
+            source_type="fact",
+            source_id=recent.id,
+            target_type="entity",
+            target_id=entity.id,
+            relationship_type="about",
+        )
+    )
+    await session.flush()
+    holdings = [
+        {
+            "ticker": "ARCHIVE",
+            "entity_id": str(entity.id),
+            "security_id": str(uuid4()),
+            "position_id": str(uuid4()),
+        },
+        {
+            "ticker": "NO-LINK",
+            "entity_id": str(uuid4()),
+            "security_id": str(uuid4()),
+            "position_id": str(uuid4()),
+        },
+    ]
+    retrieval = RetrievalService(session)
+    selected = await retrieval._recent_holding_evidence(holdings, limit=10)
+    assert [row.id for row in selected] == [recent.id]
+    assert await retrieval._selected_holding_evidence(holdings, {recent.id}) == [
+        {"ticker": "ARCHIVE", "linked_evidence_count": 1},
+        {"ticker": "NO-LINK", "linked_evidence_count": 0},
+    ]
+
+
+async def test_cash_only_shadow_uses_its_own_starting_value_and_cannot_learn_from_late_start(
+    workflow_session, monkeypatch
+):
+    session = workflow_session
+    entity = Entity(name="Synthetic baseline issuer", entity_type="company")
+    session.add(entity)
+    await session.flush()
+    security = Security(
+        entity_id=entity.id,
+        ticker="SYNBASE",
+        asset_class="equity",
+        instrument_type="common_stock",
+    )
+    session.add(security)
+    await session.flush()
+    session.add(
+        Position(
+            security_id=security.id,
+            direction="long",
+            list_type="holding",
+            quantity=2,
+            current_price=25,
+            market_value=50,
+        )
+    )
+    await session.flush()
+    monkeypatch.setattr(MarketDataService, "fetch_quotes", AsyncMock(return_value={}))
+    service = ShadowService(session)
+    now = datetime.now(UTC)
+    experiment = await service.create_experiment(
+        ShadowExperimentCreate(
+            name="Synthetic late cash-only experiment",
+            policy_description="Observe a cash baseline",
+            auto_run=True,
+            start_point=now - timedelta(days=1),
+            end_point=now - timedelta(seconds=2),
+            account_basis="cash_only",
+            starting_cash=10_000,
+        )
+    )
+    completed = await service.run_experiment(experiment.id)
+    response = ShadowExperimentResponse.model_validate(
+        await service.serialize_experiment(completed)
+    )
+    assert response.run_status == "completed"
+    assert response.result.shadow_return == 0
+    assert response.result.actual_return == 0
+    assert response.result.alpha == 0
+    assert response.run_details["observation_window"]["calibration_allowed"] is False
 
 
 async def source_records(session):

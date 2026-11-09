@@ -124,11 +124,16 @@ async def reconcile_positions(
     rather than silently overwriting the evidence-built book.
     """
     svc = PortfolioService(session)
-    snapshot = [{"ticker": h.ticker, "quantity": h.quantity} for h in payload.holdings]
+    snapshot = (
+        [{"ticker": h.ticker, "quantity": h.quantity} for h in payload.holdings]
+        if payload.holdings is not None
+        else None
+    )
     return await svc.reconcile_positions(
         snapshot,
         broker_cash=payload.cash,
         create_review_items=payload.create_review_items,
+        listed_only=payload.listed_only,
     )
 
 
@@ -140,16 +145,20 @@ async def reconcile_positions_from_text(
     """Reconcile against a pasted/CSV holdings snapshot (e.g. a Robinhood
     statement export). The snapshot is parsed deterministically — no LLM."""
     svc = PortfolioService(session)
-    parsed = svc.parse_holdings_snapshot(payload.text)
+    try:
+        parsed = svc.parse_holdings_snapshot(payload.text)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not parsed["holdings"] and parsed["cash"] is None:
         raise HTTPException(
             status_code=422,
             detail="Could not parse any holdings. Use lines like 'EXMPL 10' or a CSV with Symbol/Quantity columns.",
         )
     return await svc.reconcile_positions(
-        parsed["holdings"],
+        parsed["holdings"] or None,
         broker_cash=parsed["cash"],
         create_review_items=payload.create_review_items,
+        listed_only=payload.listed_only,
     )
 
 

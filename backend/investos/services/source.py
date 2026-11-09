@@ -32,6 +32,7 @@ from investos.models.source import Source, SourceQualitySegment
 from investos.schemas.source import SourceCreate, SourceUpdate
 from investos.services.evidence_processing import EvidenceProcessingService
 from investos.services.knowledge_audit import KnowledgeAuditService
+from investos.services.knowledge_time import is_legacy_synthetic_event_time
 from investos.services.source_claim_policy import (
     source_claim_due_at,
     source_claim_priority,
@@ -1540,10 +1541,24 @@ class SourceService:
             return None
         record, claim, source = row
         subjects = await self._source_claim_subjects(record, claim)
+        target = self._as_utc(claim.valid_until)
+        late_undated_claim = (
+            claim.public_time is None
+            and target is not None
+            and target < self._as_utc(record.claim_time)
+        )
         follow_up_evidence = await self.follow_up_graph_evidence(
             subjects=subjects,
-            after_time=record.claim_time,
+            # An archived forecast can be verified with dated results already
+            # published when the forecast was discovered. This is outcome
+            # learning, not evidence Prophet had for a historical decision.
+            after_time=(
+                target - timedelta(microseconds=1)
+                if late_undated_claim
+                else record.claim_time
+            ),
             exclude_nodes={("claim", claim.id)},
+            require_source_date=late_undated_claim,
         )
         return {
             "record": record,
@@ -1614,6 +1629,7 @@ class SourceService:
         after_time: datetime | None,
         exclude_nodes: set[tuple[str, UUID]] | None = None,
         limit: int = 24,
+        require_source_date: bool = False,
     ) -> list[dict]:
         """Collect later subject-linked graph evidence for outcome assessment."""
         if not subjects:
@@ -1703,9 +1719,12 @@ class SourceService:
         filtered = [
             node
             for node in nodes
-            if after_dt is None
-            or self._as_utc(node.get("date_obj")) is None
-            or self._as_utc(node.get("date_obj")) > after_dt
+            if (not require_source_date or node["date_is_source_dated"])
+            and (
+                after_dt is None
+                or self._as_utc(node.get("date_obj")) is None
+                or self._as_utc(node.get("date_obj")) > after_dt
+            )
         ]
         filtered.sort(
             key=lambda item: self._as_utc(item.get("date_obj"))
@@ -1716,12 +1735,24 @@ class SourceService:
         for node in filtered[:limit]:
             node = dict(node)
             node.pop("date_obj", None)
+            node.pop("date_is_source_dated", None)
             payloads.append(node)
         return payloads
 
     @staticmethod
     def _source_claim_node_payload(node_type: str, node) -> dict:
-        date_obj = SourceService._best_node_time(node)
+        event_time = getattr(node, "event_time", None)
+        public_time = getattr(node, "public_time", None)
+        if node_type != "event" and is_legacy_synthetic_event_time(
+            event_time,
+            public_time=public_time,
+            ingest_time=getattr(node, "ingest_time", None),
+        ):
+            event_time = None
+        source_date = SourceService._as_utc(event_time or public_time)
+        date_obj = source_date or SourceService._as_utc(
+            getattr(node, "ingest_time", None) or getattr(node, "created_at", None)
+        )
         text = getattr(node, "statement", None) or getattr(node, "title", None) or ""
         return {
             "id": str(node.id),
@@ -1729,6 +1760,7 @@ class SourceService:
             "text": _bounded_excerpt(text, 500),
             "date": None if date_obj is None else date_obj.isoformat(),
             "date_obj": date_obj,
+            "date_is_source_dated": source_date is not None,
             "tier": getattr(node, "tier", None),
             "importance": getattr(node, "importance", None),
             "contradiction_role": getattr(node, "contradiction_role", None),

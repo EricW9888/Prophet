@@ -2,7 +2,14 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+MAX_AGENT_ATTACHMENT_BYTES = 24_000
+
+
+class AgentTextAttachment(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    text: str = Field(min_length=1, max_length=MAX_AGENT_ATTACHMENT_BYTES)
 
 
 class AgentTurnRequest(BaseModel):
@@ -11,6 +18,40 @@ class AgentTurnRequest(BaseModel):
     subject_type: str | None = None
     message: str
     auto_execute: bool = True
+    attachments: list[AgentTextAttachment] = Field(default_factory=list, max_length=3)
+
+    @model_validator(mode="after")
+    def validate_attachments(self):
+        if not self.attachments:
+            return self
+        if not self.message.strip():
+            raise ValueError("Ask a question about the attached files.")
+        for item in self.attachments:
+            if (
+                not item.name.lower().endswith((".txt", ".md", ".csv", ".tsv", ".json"))
+                or not item.name.isprintable()
+                or "/" in item.name
+                or chr(92) in item.name
+            ):
+                raise ValueError("Attach a TXT, Markdown, CSV, TSV, or JSON file.")
+            if not item.text.strip() or chr(0) in item.text:
+                raise ValueError("Attachments must contain readable text.")
+        if (
+            sum(
+                len(item.text.encode("utf-8", errors="replace"))
+                for item in self.attachments
+            )
+            > MAX_AGENT_ATTACHMENT_BYTES
+        ):
+            raise ValueError("Attachments must total 24 KB or less.")
+        return self
+
+
+class AgentResearchReceipt(BaseModel):
+    holdings_count: int | None = None
+    holdings_with_linked_evidence: list[str] = Field(default_factory=list)
+    checks: list[dict] = Field(default_factory=list)
+    candidate_sources: list[dict] = Field(default_factory=list)
 
 
 class AgentActionResponse(BaseModel):
@@ -51,6 +92,7 @@ class AgentTurnResponse(BaseModel):
     confidence_band: Optional[str] = None
     thesis_summary: Optional[str] = None
     rationale_summary: Optional[str] = None
+    research_receipt: AgentResearchReceipt | None = None
     source_feedback_influence: dict | None = None
     historical_analogy_lenses: list[dict] | None = None
     actions: list[AgentActionResponse] = Field(default_factory=list)
@@ -112,6 +154,7 @@ class AgentConversationEntryResponse(BaseModel):
     confidence_band: str | None = None
     thesis_summary: str | None = None
     rationale_summary: str | None = None
+    research_receipt: AgentResearchReceipt | None = None
     source_feedback_influence: dict | None = None
     historical_analogy_lenses: list[dict] | None = None
     actions: list[AgentActionResponse] = Field(default_factory=list)

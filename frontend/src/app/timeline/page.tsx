@@ -27,6 +27,10 @@ function formatDateTime(value?: string | null) {
   return date.toLocaleString();
 }
 
+function formatCalendarDate(value: string) {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeZone: "UTC" }).format(new Date(value));
+}
+
 function formatPropertyValue(key: string, value: unknown) {
   if (Array.isArray(value)) return value.join(", ");
   if (value == null || value === "") return "Not recorded";
@@ -403,6 +407,7 @@ export default function TimelinePage() {
     const labels: Record<string, string> = {
       pending: "Outcome review due",
       scheduled: "Outcome review scheduled",
+      retry_scheduled: "Waiting to recheck the outcome",
       correct: "Later evidence supported this",
       incorrect: "Later evidence challenged this",
       partially_correct: "Later evidence was mixed",
@@ -412,14 +417,15 @@ export default function TimelinePage() {
   };
 
   const scoreLabel = (item: TimelineItem) => {
-    if (item.temporal_status === "outcome_due") return "review priority";
+    if (item.outcome_status === "pending") return "review priority";
     return "timeline priority";
   };
 
   const visibleItems = items.filter((item) => {
-    const resolvedOutcome = item.outcome_status && !["pending", "scheduled"].includes(item.outcome_status);
-    if (feedMode === "history") return item.temporal_status === "historical" || Boolean(resolvedOutcome);
-    if (feedMode === "attention") return item.temporal_status !== "historical" || item.outcome_status === "pending";
+    const past = ["historical", "outcome_due"].includes(item.temporal_status);
+    const resolvedOutcome = item.outcome_status && !["pending", "scheduled", "retry_scheduled"].includes(item.outcome_status);
+    if (feedMode === "history") return past || Boolean(resolvedOutcome);
+    if (feedMode === "attention") return item.outcome_status === "pending" || (!past && !resolvedOutcome);
     return true;
   });
 
@@ -524,7 +530,7 @@ export default function TimelinePage() {
                         {item.item_type}
                       </span>
                       <time className="text-xs text-slate-400 font-medium font-mono">
-                        {item.display_time_label} {formatDateTime(item.display_time || item.created_at)}
+                        {item.display_time_label} {item.display_time_label === "claim reference date" ? formatCalendarDate(item.display_time) : formatDateTime(item.display_time || item.created_at)}
                       </time>
                       {item.display_time !== item.created_at ? (
                         <span className="text-xs text-slate-400">
@@ -535,7 +541,7 @@ export default function TimelinePage() {
                         <span className="text-xs text-slate-400">about {item.subject_name}</span>
                       ) : null}
                       <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${temporalTone(item.temporal_status)}`}>
-                        {item.temporal_status.replaceAll("_", " ")}
+                        {item.temporal_status === "outcome_due" && item.outcome_status !== "pending" ? "past target" : item.temporal_status.replaceAll("_", " ")}
                       </span>
                     </div>
                     <article
@@ -562,6 +568,9 @@ export default function TimelinePage() {
                           <div>
                             <div className="font-semibold uppercase tracking-wider text-slate-400">Time context</div>
                             <p className="mt-1 leading-relaxed text-slate-600 dark:text-slate-300">{item.temporal_explanation}</p>
+                            {item.item_type === "claim" && item.valid_until ? (
+                              <p className="mt-1 text-slate-500 dark:text-slate-400">Target date: {formatCalendarDate(item.valid_until)}</p>
+                            ) : null}
                           </div>
                           {outcomeLabel(item.outcome_status) ? (
                             <div className="border-l-2 border-amber-300 pl-3 dark:border-amber-700">
@@ -569,8 +578,10 @@ export default function TimelinePage() {
                               <p className="mt-1 font-medium text-slate-700 dark:text-slate-200">{outcomeLabel(item.outcome_status)}</p>
                               {item.outcome_assessed_at ? (
                                 <p className="mt-1 text-slate-400">Assessed {formatDateTime(item.outcome_assessed_at)}</p>
-                              ) : item.outcome_due_at ? (
-                                <p className="mt-1 text-slate-400">Due {formatDateTime(item.outcome_due_at)}</p>
+                              ) : item.outcome_next_review_at || item.outcome_due_at ? (
+                                <p className="mt-1 text-slate-400">
+                                  {item.outcome_status === "retry_scheduled" ? "Recheck from" : item.outcome_status === "scheduled" ? "Review available from" : "Review eligible since"} {formatDateTime(item.outcome_next_review_at ?? item.outcome_due_at)}
+                                </p>
                               ) : null}
                               {item.outcome_notes ? (
                                 <p className="mt-2 leading-relaxed text-slate-600 dark:text-slate-300">

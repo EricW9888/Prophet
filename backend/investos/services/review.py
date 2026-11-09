@@ -445,6 +445,8 @@ class ReviewService:
                 .where(
                     SourceClaimRecord.assessment == "pending",
                     Claim.is_deprecated.is_(False),
+                    (SourceClaimRecord.next_assessment_at.is_(None))
+                    | (SourceClaimRecord.next_assessment_at <= now),
                 )
                 .order_by(SourceClaimRecord.claim_time)
                 .limit(SOURCE_CLAIM_REVIEW_LIMIT)

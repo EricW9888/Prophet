@@ -1,7 +1,8 @@
 import re
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import desc, or_, select
+from sqlalchemy import desc, func, literal, or_, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.models.catalog import SourceTrustProfile, SourceValueProfile
@@ -39,6 +40,7 @@ class RetrievalService:
         subject_id: UUID,
         subject_type: str,
         max_depth: int = 5,
+        recent_portfolio_update: bool = False,
     ) -> EvidencePacket:
         lesson_ids = await self._relevant_lesson_ids(
             query=query,
@@ -52,6 +54,7 @@ class RetrievalService:
                 subject_id=subject_id,
                 max_depth=max_depth,
                 lesson_ids=lesson_ids,
+                recent_update=recent_portfolio_update,
             )
         direct_edges = list(
             (
@@ -256,60 +259,64 @@ class RetrievalService:
         subject_id: UUID,
         max_depth: int,
         lesson_ids: list[UUID],
+        recent_update: bool = False,
     ) -> EvidencePacket:
-        terms = self._query_terms(query)
-        fact_filter = Fact.is_deprecated.is_(False)
-        claim_filter = Claim.is_deprecated.is_(False)
-        event_filter = Event.is_deprecated.is_(False)
+        if recent_update:
+            facts, claims, events = [], [], []
+        else:
+            terms = self._query_terms(query)
+            fact_filter = Fact.is_deprecated.is_(False)
+            claim_filter = Claim.is_deprecated.is_(False)
+            event_filter = Event.is_deprecated.is_(False)
 
-        if terms:
-            fact_filter = fact_filter & or_(
-                *[Fact.statement.ilike(f"%{t}%") for t in terms]
-            )
-            claim_filter = claim_filter & or_(
-                *[Claim.statement.ilike(f"%{t}%") for t in terms]
-            )
-            event_filter = event_filter & or_(
-                *[Event.title.ilike(f"%{t}%") for t in terms],
-                *[Event.description.ilike(f"%{t}%") for t in terms],
-            )
+            if terms:
+                fact_filter = fact_filter & or_(
+                    *[Fact.statement.ilike(f"%{t}%") for t in terms]
+                )
+                claim_filter = claim_filter & or_(
+                    *[Claim.statement.ilike(f"%{t}%") for t in terms]
+                )
+                event_filter = event_filter & or_(
+                    *[Event.title.ilike(f"%{t}%") for t in terms],
+                    *[Event.description.ilike(f"%{t}%") for t in terms],
+                )
 
-        facts = (
-            (
-                await self.session.execute(
-                    select(Fact)
-                    .where(fact_filter)
-                    .order_by(desc(Fact.created_at))
-                    .limit(max_depth)
+            facts = (
+                (
+                    await self.session.execute(
+                        select(Fact)
+                        .where(fact_filter)
+                        .order_by(desc(Fact.created_at))
+                        .limit(max_depth)
+                    )
                 )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
-        )
-        claims = (
-            (
-                await self.session.execute(
-                    select(Claim)
-                    .where(claim_filter)
-                    .order_by(desc(Claim.created_at))
-                    .limit(max_depth)
+            claims = (
+                (
+                    await self.session.execute(
+                        select(Claim)
+                        .where(claim_filter)
+                        .order_by(desc(Claim.created_at))
+                        .limit(max_depth)
+                    )
                 )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
-        )
-        events = (
-            (
-                await self.session.execute(
-                    select(Event)
-                    .where(event_filter)
-                    .order_by(desc(Event.created_at))
-                    .limit(max_depth)
+            events = (
+                (
+                    await self.session.execute(
+                        select(Event)
+                        .where(event_filter)
+                        .order_by(desc(Event.created_at))
+                        .limit(max_depth)
+                    )
                 )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
-        )
 
         # If no matches found, we return empty so the reasoning layer can correctly identify a thin packet
         # and provide a thoughtful 'no evidence found' response instead of seeing irrelevant recent data.
@@ -336,6 +343,26 @@ class RetrievalService:
             subject_type="portfolio",
             subject_id=subject_id,
         )
+        portfolio = await self._portfolio_context(
+            "portfolio", subject_id=subject_id, query=query
+        )
+        if recent_update:
+            linked_recent = await self._recent_holding_evidence(
+                portfolio.get("holdings", []), limit=max_depth * 3
+            )
+            # A broad question should start with dated, holding-linked evidence
+            # instead of matching words such as "happened" against the graph.
+            direct_ids = list(dict.fromkeys(row.id for row in linked_recent))
+            connected_ids = []
+            historical_ids = []
+            contradiction_ids = [
+                row.id
+                for row in linked_recent
+                if row.contradiction == "contradicts_consensus"
+            ][:max_depth]
+        portfolio["selected_holding_evidence"] = await self._selected_holding_evidence(
+            portfolio.get("holdings", []), set(direct_ids)
+        )
         packet = EvidencePacket(
             query_text=query,
             subject_type="portfolio",
@@ -345,11 +372,7 @@ class RetrievalService:
             historical_evidence_ids=historical_ids[: max_depth * 2],
             contradiction_evidence_ids=contradiction_ids,
             lesson_ids=lesson_ids,
-            portfolio_context_json=await self._portfolio_context(
-                "portfolio",
-                subject_id=subject_id,
-                query=query,
-            ),
+            portfolio_context_json=portfolio,
             coverage_map_snapshot_json=self._coverage_snapshot(None, conclusion),
             retrieval_layers_used=[
                 "direct_evidence",
@@ -369,6 +392,104 @@ class RetrievalService:
         await self.session.commit()
         await self.session.refresh(packet)
         return packet
+
+    async def _recent_holding_evidence(self, holdings: list[dict], *, limit: int):
+        entity_ids = {UUID(item["entity_id"]) for item in holdings}
+        if not entity_ids:
+            return []
+        now = datetime.now(UTC)
+        since = now - timedelta(days=21)
+        statements = []
+        for kind, model in (("fact", Fact), ("claim", Claim), ("event", Event)):
+            observed = func.coalesce(model.event_time, model.public_time)
+            contradiction = (
+                Claim.contradiction_role if kind == "claim" else literal(None)
+            )
+            statements.append(
+                select(
+                    model.id.label("id"),
+                    Edge.target_id.label("entity_id"),
+                    observed.label("observed"),
+                    contradiction.label("contradiction"),
+                )
+                .join(Edge, (Edge.source_id == model.id) & (Edge.source_type == kind))
+                .where(
+                    Edge.target_type == "entity",
+                    Edge.target_id.in_(entity_ids),
+                    model.is_deprecated.is_(False),
+                    observed.between(since, now),
+                )
+                .distinct()
+            )
+        candidates = union_all(*statements).subquery()
+        ranked = select(
+            candidates,
+            func.row_number()
+            .over(
+                partition_by=candidates.c.entity_id,
+                order_by=(candidates.c.observed.desc(), candidates.c.id),
+            )
+            .label("rank"),
+        ).subquery()
+        return (
+            await self.session.execute(
+                select(ranked.c.id, ranked.c.contradiction)
+                .where(ranked.c.rank == 1)
+                .order_by(ranked.c.observed.desc(), ranked.c.id)
+                .limit(limit)
+            )
+        ).all()
+
+    async def _selected_holding_evidence(
+        self, holdings: list[dict], evidence_ids: set[UUID]
+    ) -> list[dict]:
+        """Count distinct evidence nodes explicitly linked to each holding in this packet."""
+        keys = (
+            ("entity", "entity_id"),
+            ("security", "security_id"),
+            ("position", "position_id"),
+        )
+        subject_ids = {
+            (kind, UUID(item[key])) for item in holdings for kind, key in keys
+        }
+        linked: dict[tuple[str, UUID], set[UUID]] = {}
+        if subject_ids and evidence_ids:
+            ids = {subject_id for _kind, subject_id in subject_ids}
+            rows = await self.session.execute(
+                select(
+                    Edge.source_type, Edge.source_id, Edge.target_type, Edge.target_id
+                ).where(
+                    or_(
+                        Edge.source_id.in_(evidence_ids) & Edge.target_id.in_(ids),
+                        Edge.target_id.in_(evidence_ids) & Edge.source_id.in_(ids),
+                    )
+                )
+            )
+            for source_type, source_id, target_type, target_id in rows:
+                if (
+                    target_type,
+                    target_id,
+                ) in subject_ids and source_id in evidence_ids:
+                    linked.setdefault((target_type, target_id), set()).add(source_id)
+                elif (
+                    source_type,
+                    source_id,
+                ) in subject_ids and target_id in evidence_ids:
+                    linked.setdefault((source_type, source_id), set()).add(target_id)
+        return [
+            {
+                "ticker": item["ticker"],
+                "linked_evidence_count": len(
+                    set().union(
+                        *(
+                            linked.get((kind, UUID(item[key])), set())
+                            for kind, key in keys
+                        )
+                    )
+                ),
+            }
+            for item in holdings
+        ]
 
     async def _query_expansion_ids(
         self,
@@ -1010,7 +1131,9 @@ class RetrievalService:
             for position, security, entity in position_rows
         }
         holdings = [
-            position for position in positions if position.list_type == "holding"
+            position
+            for position in positions
+            if position.list_type == "holding" and position.quantity != 0
         ]
         watchlist = [
             position for position in positions if position.list_type == "watchlist"
@@ -1119,6 +1242,11 @@ class RetrievalService:
             "total_market_value": round(total_market_value, 2),
             "remaining_buying_power": round(buying_power, 2),
             "pct_capital_deployed": pct_deployed,
+            **(
+                {"holdings": [position_details[position.id] for position in holdings]}
+                if subject_type == "portfolio"
+                else {}
+            ),
             "top_holdings": [
                 position_details[position.id]
                 for position in sorted(
@@ -1209,6 +1337,10 @@ class RetrievalService:
                     .where(
                         ActiveWatcher.is_active.is_(True),
                         ActiveWatcher.status == "pending",
+                        or_(
+                            ActiveWatcher.deadline.is_(None),
+                            ActiveWatcher.deadline > func.now(),
+                        ),
                         or_(*filters),
                     )
                     .order_by(desc(ActiveWatcher.created_at))

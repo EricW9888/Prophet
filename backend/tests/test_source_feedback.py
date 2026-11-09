@@ -479,9 +479,25 @@ def test_source_claim_review_due_time_uses_claim_horizon_policy():
     assert ReviewService._source_claim_due_at(record, stale_claim) == datetime(
         2026, 2, 1, tzinfo=timezone.utc
     )
-    assert ReviewService._source_claim_due_at(record, dated_claim) == datetime(
-        2021, 12, 31, tzinfo=timezone.utc
+    assert ReviewService._source_claim_due_at(record, dated_claim) == claim_time
+
+
+def test_late_discovery_keeps_target_but_review_starts_at_recording_and_honors_retry():
+    from investos.services.source_claim_policy import (
+        source_claim_next_review_at,
+        source_claim_review_target,
     )
+
+    target = datetime(2026, 10, 29, tzinfo=timezone.utc)
+    discovered = datetime(2026, 11, 8, 22, 19, tzinfo=timezone.utc)
+    retry = datetime(2026, 11, 10, 17, tzinfo=timezone.utc)
+    record = SimpleNamespace(claim_time=target, next_assessment_at=retry)
+    claim = SimpleNamespace(
+        valid_until=target, ingest_time=discovered, created_at=discovered
+    )
+    assert source_claim_review_target(record, claim) == target
+    assert ReviewService._source_claim_due_at(record, claim) == discovered
+    assert source_claim_next_review_at(record, claim) == retry
 
 
 def test_source_claim_review_copy_is_specific_and_actionable():

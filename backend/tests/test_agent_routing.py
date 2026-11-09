@@ -1,6 +1,11 @@
-import pytest
+from unittest.mock import AsyncMock
 
+import pytest
+from pydantic import ValidationError
+
+from investos.schemas.agent import AgentTurnRequest
 from investos.services.agent import AGENT_TOOLS, AgentService
+from investos.services.research import ResearchSearchResult, ResearchService
 
 
 def test_fallback_router_preserves_explicit_follow_up_correction():
@@ -52,6 +57,117 @@ async def test_classifier_freshness_decision_overrides_fallback_phrase_gate():
     )
 
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_vague_portfolio_update_checks_market_industry_and_loss_driver(
+    monkeypatch,
+):
+    async def discover(_self, *, query, **kwargs):
+        generic = {"title": "World news today", "url": "https://example.test/generic"}
+        matches = {
+            "Portfolio update: Market": {
+                "title": "Nasdaq fell",
+                "url": "https://example.test/market",
+            },
+            "Portfolio update: Industries": {
+                "title": "Memory Chips demand",
+                "url": "https://example.test/industry",
+            },
+            "Portfolio update: Holdings": {
+                "title": "SMALL guidance cut",
+                "url": "https://example.test/holding",
+            },
+        }
+        return ResearchSearchResult(
+            True, "ok", query, [generic, matches[kwargs["title"]]]
+        )
+
+    monkeypatch.setattr(ResearchService, "search", discover)
+    holdings = [
+        {
+            "ticker": f"BIG{i}",
+            "name": f"Big {i}",
+            "industry": "Memory Chips",
+            "market_value": 200 - i,
+        }
+        for i in range(5)
+    ]
+    holdings.append(
+        {
+            "ticker": "SMALL",
+            "name": "Smaller issuer",
+            "industry": "Memory Chips",
+            "market_value": 20,
+        }
+    )
+    result = await AgentService(None)._maybe_fresh_research_context(
+        message="what happened recently",
+        subject_name="Portfolio",
+        subject_type="portfolio",
+        packet_context={
+            "portfolio_context": {
+                "holdings": holdings,
+                "performance_attribution": {
+                    "items": [
+                        {
+                            "ticker": "SMALL",
+                            "contribution_pct": -4,
+                            "data_status": "complete",
+                        }
+                    ]
+                },
+            }
+        },
+        question_research_plan={
+            "external_research_required": True,
+            "retrieval_query": "what happened recently",
+        },
+    )
+    assert [item["lane"] for item in result["checks"]] == [
+        "Market",
+        "Industries",
+        "Holdings",
+    ]
+    assert "SMALL" in result["checks"][2]["query"]
+    assert all(item["result_count"] == 1 for item in result["checks"])
+    assert [item["url"] for item in result["results"]] == [
+        f"https://example.test/{path}" for path in ("market", "industry", "holding")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_attachment_turn_uses_read_only_model_path_without_saving_input_file(
+    monkeypatch,
+):
+    model = AsyncMock(
+        return_value={
+            "answer": "The report says twelve.",
+            "rationale": "Read the attached count.",
+        }
+    )
+    monkeypatch.setattr("investos.services.agent.call_llm_json", model)
+    service = AgentService(None)
+    persist = AsyncMock()
+    monkeypatch.setattr(service, "_persist_conversation_exchange", persist)
+    response = await service.handle_turn(
+        AgentTurnRequest(
+            message="What is the count?",
+            attachments=[
+                {"name": "report.csv", "text": "count,12\nattachment-only secret"}
+            ],
+        )
+    )
+    assert response.process_mode == "attached_text"
+    assert response.actions == []
+    assert "attachment-only secret" in model.await_args.kwargs["user_prompt"]
+    assert persist.await_args.kwargs["user_message"].endswith("Files: report.csv")
+    assert "attachment-only secret" not in str(persist.await_args.kwargs)
+    with pytest.raises(ValidationError, match="24 KB"):
+        AgentTurnRequest(
+            message="Too large",
+            attachments=[{"name": "report.txt", "text": "é" * 12_001}],
+        )
 
 
 @pytest.mark.parametrize(

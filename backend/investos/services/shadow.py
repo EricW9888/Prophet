@@ -311,12 +311,13 @@ class ShadowService:
             candidates.append((due_at, str(experiment.id), experiment))
         return min(candidates, key=lambda item: item[:2])[2] if candidates else None
 
-    async def get_experiment(self, experiment_id: UUID) -> ShadowExperiment | None:
-        return (
-            await self.session.execute(
-                select(ShadowExperiment).where(ShadowExperiment.id == experiment_id)
-            )
-        ).scalar_one_or_none()
+    async def get_experiment(
+        self, experiment_id: UUID, *, for_update: bool = False
+    ) -> ShadowExperiment | None:
+        query = select(ShadowExperiment).where(ShadowExperiment.id == experiment_id)
+        if for_update:
+            query = query.with_for_update().execution_options(populate_existing=True)
+        return await self.session.scalar(query)
 
     async def create_experiment(
         self, payload: ShadowExperimentCreate, *, previous_run_id: UUID | None = None
@@ -1836,6 +1837,10 @@ class ShadowService:
                 or self._target_step_count(context.get("horizon_label"))
             )
             actual_start_total = self._snapshot_total_value(initial_state)
+            initial_shadow_state = self._coerce_shadow_state(
+                initial_state.get("shadow_state") or {}, fallback_snapshot=initial_state
+            )
+            shadow_start_total = self._shadow_portfolio_total(initial_shadow_state, [])
             checkpoint_plan = (
                 {
                     "_checkpoint_source": "window_closed",
@@ -2178,7 +2183,7 @@ class ShadowService:
             actual_total_value = self._actual_portfolio_total(positions)
             shadow_return = self._portfolio_total_return(
                 current_total=shadow_total_value,
-                starting_total=actual_start_total,
+                starting_total=shadow_start_total,
             )
             actual_return = self._portfolio_total_return(
                 current_total=actual_total_value,
@@ -2363,6 +2368,8 @@ class ShadowService:
                     "regular_session_only": paper_runtime.require_regular_session,
                 },
                 "starting_total_value": round(actual_start_total, 2),
+                "starting_actual_total_value": round(actual_start_total, 2),
+                "starting_shadow_total_value": round(shadow_start_total, 2),
                 "ending_shadow_total_value": round(shadow_total_value, 2),
                 "ending_actual_total_value": round(actual_total_value, 2),
                 "run_log": prior_log + run_log,
@@ -2387,6 +2394,8 @@ class ShadowService:
                     ),
                     "calibration_allowed": not should_continue
                     and experiment.end_point > experiment.start_point
+                    and (parse_iso_datetime(progress.get("started_at")) or now)
+                    < experiment.end_point
                     and max(0.0, (now - experiment.end_point).total_seconds())
                     <= max(1, settings.SHADOW_REFRESH_INTERVAL_SECONDS),
                     "valuation_basis": "current_or_retained_deterministic_marks",
@@ -2881,7 +2890,13 @@ class ShadowService:
         experiment_id: UUID,
         order_id: UUID,
     ) -> ShadowExperiment:
-        experiment = await self.get_experiment(experiment_id)
+        async with self._experiment_run_lock(experiment_id):
+            return await self._cancel_paper_order_locked(experiment_id, order_id)
+
+    async def _cancel_paper_order_locked(
+        self, experiment_id: UUID, order_id: UUID
+    ) -> ShadowExperiment:
+        experiment = await self.get_experiment(experiment_id, for_update=True)
         if experiment is None:
             raise ValueError("Shadow experiment not found")
         order = (
@@ -2954,13 +2969,38 @@ class ShadowService:
             raise ValueError(
                 "Manual paper orders require a manual paper account. Autonomous experiments are model-directed."
             )
-        if self.experiment_run_is_active(experiment_id):
-            raise ValueError("The paper account is currently processing another order.")
+        ticker = payload.ticker.strip().upper()
+        client_order_id = (
+            f"manual:{experiment_id}:{payload.client_request_id or uuid4()}"
+        )
+        request_data = {
+            "ticker": ticker,
+            "side": payload.side,
+            "quantity": str(Decimal(str(payload.quantity)).normalize()),
+            "rationale": payload.rationale,
+        }
+
+        async def already_submitted() -> bool:
+            existing = await self.session.scalar(
+                select(ShadowOrder).where(
+                    ShadowOrder.client_order_id == client_order_id
+                )
+            )
+            if existing is None:
+                return False
+            if (existing.source_decision_json or {}).get(
+                "manual_request"
+            ) != request_data:
+                raise ValueError("This paper request ID belongs to a different order.")
+            return True
+
+        if await already_submitted():
+            await self.session.refresh(experiment)
+            return experiment
         runtime = RuntimeSettingsStore.load().paper_trading
         if not runtime.enabled or runtime.provider != "local_simulator":
             raise ValueError("The local paper broker is not enabled and ready.")
 
-        ticker = payload.ticker.strip().upper()
         security = (
             await self.session.execute(
                 select(Security).where(Security.ticker == ticker)
@@ -2972,7 +3012,19 @@ class ShadowService:
             )
 
         lock = self._experiment_run_lock(experiment_id)
+        quote = await MarketDataService(self.session).get_live_price(ticker)
         async with lock:
+            experiment = await self.get_experiment(experiment_id, for_update=True)
+            if (
+                experiment is None
+                or self.normalize_run_status(experiment.run_status) != "manual"
+            ):
+                raise ValueError(
+                    "This paper account is no longer accepting manual orders."
+                )
+            if await already_submitted():
+                await self.session.commit()
+                return experiment
             state_container = (
                 experiment.final_portfolio_state_json
                 or experiment.initial_portfolio_state_json
@@ -2982,7 +3034,6 @@ class ShadowService:
                 deepcopy(state_container.get("shadow_state") or {}),
                 fallback_snapshot=experiment.initial_portfolio_state_json or {},
             )
-            quote = await MarketDataService(self.session).get_live_price(ticker)
             positions = await self._positions_with_stance()
             account_equity = Decimal(
                 str(self._shadow_portfolio_total(shadow_state, positions))
@@ -3002,8 +3053,11 @@ class ShadowService:
                     submitted_at=submitted_at,
                     rationale=payload.rationale,
                     checkpoint_index=0,
-                    client_order_id=f"manual-{uuid4()}",
-                    source_decision={"source": "manual_order_ticket"},
+                    client_order_id=client_order_id,
+                    source_decision={
+                        "source": "manual_order_ticket",
+                        "manual_request": request_data,
+                    },
                 ),
                 account_equity=account_equity,
                 cash_reserve=Decimal("0"),
@@ -3694,8 +3748,18 @@ class ShadowService:
                 continue
             lock = self._experiment_run_lock(experiment_id)
             async with lock:
-                experiment = await self.get_experiment(experiment_id)
-                if experiment is None:
+                experiment = await self.get_experiment(experiment_id, for_update=True)
+                if experiment is None or experiment.run_status not in {
+                    "manual",
+                    "running",
+                }:
+                    await self.session.commit()
+                    continue
+                if (
+                    experiment.run_status == "running"
+                    and experiment.end_point <= datetime.now(UTC)
+                ):
+                    await self.session.commit()
                     continue
                 pending = list(
                     (
@@ -3710,6 +3774,7 @@ class ShadowService:
                     .all()
                 )
                 if not pending:
+                    await self.session.commit()
                     continue
                 ticker_by_security = {
                     str(order.security_id): order.ticker.upper() for order in pending
@@ -3774,6 +3839,11 @@ class ShadowService:
                 continue
             lock = self._experiment_run_lock(experiment.id)
             async with lock:
+                locked = await self.get_experiment(experiment.id, for_update=True)
+                if locked is None or locked.run_status not in {"manual", "running"}:
+                    await self.session.commit()
+                    continue
+                experiment = locked
                 state_container = (
                     experiment.final_portfolio_state_json
                     or experiment.initial_portfolio_state_json
@@ -3790,6 +3860,7 @@ class ShadowService:
                     and item.get("security_id")
                 ]
                 if not held:
+                    await self.session.commit()
                     continue
                 security_ids = [UUID(str(item["security_id"])) for item in held]
                 securities = list(
@@ -4537,7 +4608,7 @@ class ShadowService:
         policy_assessment = (
             f"The experiment {performance_summary}. "
             f"Policy mode: {guidance.get('guidance_mode', 'follow_existing_policy')}. "
-            f"Starting buying power was ${float(snapshot.get('remaining_buying_power') or 0.0):.2f} and ending buying power was "
+            f"Starting paper buying power was ${float(run_details.get('starting_buying_power', snapshot.get('paper_starting_cash', snapshot.get('remaining_buying_power'))) or 0.0):.2f} and ending paper buying power was "
             f"${ending_buying_power:.2f}."
         )
         if performance_direction == "outperformed":
@@ -5333,12 +5404,20 @@ class ShadowService:
         )
         run_log: list[dict[str, Any]] = []
         state = shadow_state
+        executed_at = datetime.now(UTC)
         for order in pending:
             ticker = ticker_by_security.get(
                 str(order.security_id)
             ) or await self._security_ticker(order.security_id)
             quote = quotes.get(ticker.upper()) or {}
-            if not quote.get("price"):
+            quote_time = self._quote_time(quote.get("quote_time"))
+            # A pending order cannot execute against a quote already known at
+            # submission, or a quote from after the current evaluation.
+            if (
+                not quote.get("price")
+                or quote_time is None
+                or not order.submitted_at < quote_time <= executed_at
+            ):
                 continue
             account_before = deepcopy(state)
             execution = paper_broker.submit_market_order(
@@ -5350,7 +5429,7 @@ class ShadowService:
                     quantity=Decimal(str(order.requested_quantity)),
                     reference_price=Decimal(str(quote["price"])),
                     quote_session=str(quote.get("session") or "unavailable"),
-                    quote_time=self._quote_time(quote.get("quote_time")),
+                    quote_time=quote_time,
                     submitted_at=order.submitted_at,
                     rationale=order.rationale,
                     checkpoint_index=order.checkpoint_index,
@@ -5360,6 +5439,7 @@ class ShadowService:
                 ),
                 account_equity=account_equity,
                 cash_reserve=cash_reserve,
+                executed_at=executed_at,
                 existing_reserved_notional=Decimal(str(order.reserved_notional or 0)),
             )
             state = execution.state

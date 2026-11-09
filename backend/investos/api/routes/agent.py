@@ -45,6 +45,7 @@ def _job_response(tracker: LiveJobTracker, job_id: UUID) -> AgentTurnJobResponse
                 "detail": event.detail,
             }
             for event in record.events
+            if event.phase != "thinking"
         ],
         result=result,
         error=record.error,

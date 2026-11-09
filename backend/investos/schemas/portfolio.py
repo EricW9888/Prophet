@@ -1,8 +1,16 @@
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    AnyHttpUrl,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
 class SecuritySymbolChangeRequest(BaseModel):
@@ -199,21 +207,31 @@ class PortfolioOverviewResponse(BaseModel):
 
 
 class ReconcileHolding(BaseModel):
-    ticker: str
-    quantity: float
+    ticker: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9.^=\-]{0,31}$")
+    quantity: Decimal = Field(max_digits=24, allow_inf_nan=False)
 
 
 class ReconcileRequest(BaseModel):
-    holdings: list[ReconcileHolding] = Field(default_factory=list)
-    cash: Optional[float] = None
+    holdings: list[ReconcileHolding] | None = None
+    cash: Decimal | None = Field(default=None, max_digits=24, allow_inf_nan=False)
     create_review_items: bool = True
+    listed_only: bool = False
+
+    @model_validator(mode="after")
+    def require_scope(self):
+        if self.holdings is None and self.cash is None:
+            raise ValueError("Supply a holdings snapshot or a cash balance")
+        if self.listed_only and self.holdings == []:
+            raise ValueError("A listed-only comparison requires at least one holding")
+        return self
 
 
 class ReconcileTextRequest(BaseModel):
     """Paste/CSV holdings snapshot (e.g. a Robinhood statement export)."""
 
-    text: str
-    create_review_items: bool = True
+    text: str = Field(min_length=1, max_length=262_144)
+    create_review_items: bool = False
+    listed_only: bool = False
 
 
 class ReconcileDiff(BaseModel):
@@ -232,6 +250,8 @@ class CashDiscrepancy(BaseModel):
 
 class ReconcileResponse(BaseModel):
     in_sync: bool
+    holdings_scope: Literal["none", "listed", "complete"]
+    cash_status: Literal["not_supplied", "compared", "book_unavailable"]
     discrepancies: list[ReconcileDiff] = Field(default_factory=list)
     cash_discrepancy: Optional[CashDiscrepancy] = None
     review_items_created: int = 0
