@@ -1317,19 +1317,7 @@ function ChatWorkspace() {
             ))}
           </div>
           {researchView === "Watches" ? <div className="min-h-0 flex-1 overflow-y-auto"><LiveWatchers /></div> : null}
-          {researchView === "Autonomous" ? (
-            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-              <p className="mb-3 text-xs text-muted">Completed background reviews. Open a finding to see why Prophet looked and what it found.</p>
-              {!autonomousReviews.length ? <p className="text-sm text-muted">No saved autonomous reviews yet.</p> : null}
-              {autonomousReviews.map((report) => (
-                <button key={report.session_id} type="button" className="block w-full border border-line p-3 text-left hover:border-line-strong" onClick={() => { setOpenReport(report); setMobileWorkspaceOpen(false); }}>
-                  <span className="flex flex-wrap items-baseline justify-between gap-2"><strong className="text-sm">{report.subject_name ?? report.title}</strong><time className="text-xs text-muted">{formatTimestamp(report.updated_at)}</time></span>
-                  {report.autonomous_reason ? <span className="mt-1 line-clamp-2 text-xs text-muted">{report.autonomous_reason}</span> : null}
-                  {report.latest_message_preview ? <span className="mt-2 line-clamp-2 text-xs text-muted">{stripInternalReasoningBlock(report.latest_message_preview)}</span> : null}
-                </button>
-              ))}
-            </div>
-          ) : null}
+          {researchView === "Autonomous" ? <AutonomousReviewList reviews={autonomousReviews} onOpen={(report) => { setOpenReport(report); setMobileWorkspaceOpen(false); }} /> : null}
           {researchView === "Chats" ? <>
           <div className="border-b border-slate-200 p-4 dark:border-slate-800">
             <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -1885,6 +1873,54 @@ function ChatWorkspace() {
           </div>
         ) : null}
       </dialog>
+    </div>
+  );
+}
+
+function AutonomousReviewList({ reviews, onOpen }: { reviews: AgentConversationSummary[]; onOpen: (review: AgentConversationSummary) => void }) {
+  const [query, setQuery] = useState("");
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+  const grouped = useMemo(() => {
+    const groups = new Map<string, AgentConversationSummary[]>();
+    const term = query.trim().toLowerCase();
+    for (const report of reviews) {
+      if (term && ![report.subject_name, report.title, report.autonomous_reason, report.latest_message_preview].some((text) => text?.toLowerCase().includes(term))) continue;
+      const key = report.subject_id ? `${report.subject_type}:${report.subject_id}` : report.subject_name ?? report.title;
+      const group = groups.get(key) ?? [];
+      group.push(report);
+      groups.set(key, group);
+    }
+    return [...groups.entries()];
+  }, [query, reviews]);
+  function reportButton(report: AgentConversationSummary, earlier = false) {
+    return (
+      <button key={report.session_id} type="button" className="block w-full border border-line p-3 text-left hover:border-line-strong" onClick={() => onOpen(report)}>
+        <span className="flex flex-wrap items-baseline justify-between gap-2">
+          <strong className="text-sm">{earlier ? "Earlier review" : report.subject_name ?? report.title}</strong>
+          <time className="text-xs text-muted" dateTime={report.updated_at}>{formatTimestamp(report.updated_at)}</time>
+        </span>
+        {report.autonomous_reason ? <span className="mt-1 line-clamp-2 text-xs text-muted">{report.autonomous_reason}</span> : null}
+        {report.latest_message_preview ? <span className="mt-2 line-clamp-2 text-xs text-muted">{stripInternalReasoningBlock(report.latest_message_preview)}</span> : null}
+      </button>
+    );
+  }
+  return (
+    <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+      <p className="text-xs text-muted">Latest finding for each subject. Open it to see why Prophet looked and what it found.</p>
+      {reviews.length ? <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Search autonomous findings" placeholder="Search findings" className="w-full border border-line bg-background px-2 py-2 text-sm" /> : null}
+      {!grouped.length ? <p className="text-sm text-muted">{reviews.length ? "No findings match this search." : "No saved autonomous reviews yet."}</p> : null}
+      {grouped.map(([key, group]) => {
+        const [latest, ...earlier] = group;
+        return (
+          <div key={key} className="space-y-1">
+            {reportButton(latest)}
+            {earlier.length ? <button type="button" aria-expanded={expandedGroup === key} className="w-full py-1 text-left text-xs text-action" onClick={() => setExpandedGroup(expandedGroup === key ? null : key)}>
+              {expandedGroup === key ? "Hide earlier reviews" : `Show ${earlier.length} earlier ${earlier.length === 1 ? "review" : "reviews"}`}
+            </button> : null}
+            {expandedGroup === key ? <div className="space-y-1 border-l border-line pl-2">{earlier.map((report) => reportButton(report, true))}</div> : null}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -18,6 +18,7 @@ map and Research uses a compact workspace drawer.
 Research separates **Chats**, **Autonomous**, and **Watches**. Chats are user
 conversations and their drafts. Autonomous contains saved background findings
 with their trigger and evidence, and opens independently of the current draft.
+The latest finding for each subject is visible first; earlier reviews remain searchable.
 Discussing a finding prepares a new chat without sending it. Watches are
 conditions still being monitored. Activity remains the dated receipt for work,
 deferrals, and errors.
