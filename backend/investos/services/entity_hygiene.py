@@ -40,6 +40,7 @@ from investos.services.artifact_hygiene import (
     label_from_profile_texts,
     normalize_subject_name,
 )
+from investos.services.graph_edge_state import GraphEdgeStateService
 from investos.services.knowledge_audit import KnowledgeAuditService
 from investos.services.security_catalog import SecurityCatalogService
 
@@ -814,30 +815,13 @@ class EntityHygieneService:
         return moved
 
     async def _retarget_edges_to_theme(self, entity_id, theme_id) -> int:
-        rows = (
-            (
-                await self.session.execute(
-                    select(Edge).where(
-                        or_(
-                            (Edge.source_type == "entity")
-                            & (Edge.source_id == entity_id),
-                            (Edge.target_type == "entity")
-                            & (Edge.target_id == entity_id),
-                        )
-                    )
-                )
-            )
-            .scalars()
-            .all()
+        return await GraphEdgeStateService(self.session).retarget_node_edges(
+            old_type="entity",
+            old_id=entity_id,
+            new_type="theme",
+            new_id=theme_id,
+            actor="entity_hygiene",
         )
-        for edge in rows:
-            if edge.source_type == "entity" and edge.source_id == entity_id:
-                edge.source_type = "theme"
-                edge.source_id = theme_id
-            if edge.target_type == "entity" and edge.target_id == entity_id:
-                edge.target_type = "theme"
-                edge.target_id = theme_id
-        return len(rows)
 
     async def _clear_graph_cache_for_entity(self, entity_id) -> int:
         layout_result = await self.session.execute(
@@ -1117,28 +1101,13 @@ class EntityHygieneService:
     async def _retarget_edges_to_entity(
         self, source_entity_id, target_entity_id
     ) -> int:
-        rows = (
-            (
-                await self.session.execute(
-                    select(Edge).where(
-                        or_(
-                            (Edge.source_type == "entity")
-                            & (Edge.source_id == source_entity_id),
-                            (Edge.target_type == "entity")
-                            & (Edge.target_id == source_entity_id),
-                        )
-                    )
-                )
-            )
-            .scalars()
-            .all()
+        return await GraphEdgeStateService(self.session).retarget_node_edges(
+            old_type="entity",
+            old_id=source_entity_id,
+            new_type="entity",
+            new_id=target_entity_id,
+            actor="entity_hygiene",
         )
-        for edge in rows:
-            if edge.source_type == "entity" and edge.source_id == source_entity_id:
-                edge.source_id = target_entity_id
-            if edge.target_type == "entity" and edge.target_id == source_entity_id:
-                edge.target_id = target_entity_id
-        return len(rows)
 
     async def _retarget_subject_aliases_to_entity(
         self, source_entity_id, target_entity_id

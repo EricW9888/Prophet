@@ -791,12 +791,7 @@ class DashboardService:
         return merged
 
     def _is_routine_action(self, item: dict) -> bool:
-        return (
-            str(item.get("source") or "") == "automation"
-            and str(item.get("status") or "") == "ok"
-            and str(item.get("action_type") or "")
-            in {"market_data_refresh", "risk_refresh", "database_backup"}
-        )
+        return AgentActionLogService.is_routine_action(item)
 
     def _dashboard_action_response(self, item: dict) -> DashboardAgentActionResponse:
         metadata = item.get("metadata")
@@ -831,6 +826,7 @@ class DashboardService:
         action_type: str | None = None,
         status: str | None = None,
         session_id: str | None = None,
+        include_routine: bool = True,
     ) -> list[DashboardAgentActionResponse]:
         return [
             self._dashboard_action_response(item)
@@ -840,6 +836,7 @@ class DashboardService:
                 action_type=action_type,
                 status=status,
                 session_id=session_id,
+                include_routine=include_routine,
             )
         ]
 

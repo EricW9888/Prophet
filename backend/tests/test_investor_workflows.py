@@ -20,6 +20,7 @@ from investos.models.entity import Entity, Security
 from investos.models.evidence import RawEvidence, SourceItem
 from investos.models.graph import Edge
 from investos.models.knowledge import Claim, Fact
+from investos.models.knowledge_mutation import KnowledgeMutation
 from investos.models.portfolio import CashLedgerEntry, Position
 from investos.models.profile import Profile
 from investos.models.review import ReviewQueueItem
@@ -32,6 +33,7 @@ from investos.schemas.shadow import (
 )
 from investos.services.dashboard import DashboardService
 from investos.services.entity_hygiene import EntityHygieneService
+from investos.services.graph_edge_state import GraphEdgeStateService
 from investos.services.market_data import MarketDataService
 from investos.services.portfolio import PortfolioService
 from investos.services.profile import ProfileService
@@ -923,6 +925,98 @@ async def test_issuer_symbol_agreement_prevents_split_evidence_and_conflicting_m
     )
     assert target == canonical.id
     assert await session.get(Entity, conflicting.id) is not None
+
+
+@pytest.mark.parametrize("new_type", ["entity", "theme"])
+async def test_subject_retarget_preserves_relationship_identity_and_handles_collisions(
+    workflow_session, new_type
+):
+    session = workflow_session
+    original, canonical, third, receipt = uuid4(), uuid4(), uuid4(), uuid4()
+
+    def edge(source_type, source, target_type, target, relationship, **kwargs):
+        return Edge(
+            source_type=source_type,
+            source_id=source,
+            target_type=target_type,
+            target_id=target,
+            relationship_type=relationship,
+            **kwargs,
+        )
+
+    retained = edge(
+        new_type,
+        canonical,
+        "entity",
+        third,
+        "contextualizes",
+        confidence=0.5,
+        reasoning="original canonical rationale",
+        properties_json={"origin": "canonical"},
+    )
+    duplicate = edge(
+        "entity",
+        original,
+        "entity",
+        third,
+        "contextualizes",
+        confidence=0.8,
+        reasoning="stronger archived rationale",
+        properties_json={"origin": "archived", "receipt": "older"},
+    )
+    moved = edge("claim", receipt, "entity", original, "about")
+    collapsed = [
+        edge("entity", original, new_type, canonical, "contextualizes"),
+        edge(new_type, canonical, "entity", original, "contextualizes"),
+        edge("entity", original, "entity", original, "contextualizes"),
+    ]
+    preexisting_self = edge(new_type, canonical, new_type, canonical, "contextualizes")
+    session.add_all([retained, duplicate, moved, preexisting_self, *collapsed])
+    await session.flush()
+    affected_ids = {duplicate.id, moved.id, *(item.id for item in collapsed)}
+    all_ids = affected_ids | {retained.id, preexisting_self.id}
+    duplicate_id = duplicate.id
+    service = GraphEdgeStateService(session)
+    assert (
+        await service.retarget_node_edges(
+            old_type="entity",
+            old_id=original,
+            new_type=new_type,
+            new_id=canonical,
+            actor="entity_hygiene",
+        )
+        == 5
+    )
+    assert (
+        await service.retarget_node_edges(
+            old_type="entity",
+            old_id=original,
+            new_type=new_type,
+            new_id=canonical,
+            actor="entity_hygiene",
+        )
+        == 0
+    )
+    rows = (await session.scalars(select(Edge).where(Edge.id.in_(all_ids)))).all()
+    assert {item.id for item in rows} == {retained.id, moved.id, preexisting_self.id}
+    assert (moved.target_type, moved.target_id) == (new_type, canonical)
+    assert (
+        retained.confidence == 0.8
+        and retained.reasoning == "stronger archived rationale"
+    )
+    assert retained.properties_json == {"origin": "canonical", "receipt": "older"}
+    mutations = (
+        await session.scalars(
+            select(KnowledgeMutation).where(
+                KnowledgeMutation.node_type == "edge",
+                KnowledgeMutation.node_id.in_(affected_ids),
+            )
+        )
+    ).all()
+    assert len(mutations) == 5
+    merge = next(item for item in mutations if item.node_id == duplicate_id)
+    assert merge.metadata_json["canonical_edge_id"] == str(retained.id)
+    assert merge.metadata_json["before"]["properties"]["origin"] == "archived"
 
 
 async def source_records(session):

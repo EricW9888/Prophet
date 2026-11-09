@@ -10,6 +10,38 @@ from investos.services.automation import AutomationCoordinator, JobTelemetry
 from investos.services.research import ResearchRunResult
 
 
+def test_activity_focus_filters_routine_success_before_the_feed_limit(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        AgentActionLogService,
+        "_log_path",
+        staticmethod(lambda: tmp_path / "actions.jsonl"),
+    )
+    for source, action, status in [
+        ("research", "research_attempt", "ok"),
+        ("automation", "research_loop", "deferred"),
+        ("automation", "market_data_refresh", "error"),
+        *[("automation", "market_data_refresh", "ok")] * 12,
+        ("automation", "risk_refresh", "ok"),
+    ]:
+        AgentActionLogService.append(
+            source=source, action_type=action, status=status, summary=action
+        )
+    visible = AgentActionLogService.recent(limit=3, include_routine=False)
+    assert [item["status"] for item in visible] == ["error", "deferred", "ok"]
+    assert [item["action_type"] for item in visible] == [
+        "market_data_refresh",
+        "research_loop",
+        "research_attempt",
+    ]
+    full = AgentActionLogService.recent(limit=2)
+    assert [item["action_type"] for item in full] == [
+        "risk_refresh",
+        "market_data_refresh",
+    ]
+
+
 @pytest.mark.parametrize(
     "result_status,expected",
     [("ok", "ok"), ("partial", "warning"), ("busy", "warning"), ("error", "error")],

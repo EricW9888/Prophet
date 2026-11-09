@@ -48,9 +48,16 @@ holdings. The answer's coverage receipt distinguishes the holdings roster,
 explicit links in the selected evidence, and provisional external candidates.
 An issuer label with a ticker resolves to a catalog entity only when the name
 and symbol agree. The audited entity cleanup uses the same check for old labels.
+When identities are consolidated, equivalent links keep their canonical
+relationship and audit the retired link; links that would point back to the same
+subject are recorded in the audit instead of creating new graph connections.
 The live work log records observable stages. Text attachments are read-only
 inputs for one turn; Prophet retains filenames and the answer, not the input
 files themselves.
+
+Activity keeps successful routine price, risk and backup refreshes behind
+**Include routine refreshes**, so those receipts cannot push research,
+deferrals or failures out of the default catch-up feed.
 
 Monitor shows a claim's target date separately from when its review became
 eligible. Late discovery can inform outcome learning using dated evidence
