@@ -439,7 +439,7 @@ class RiskService:
                     detail=entity.name,
                 )
             )
-            sector = (entity.sector or "Unclassified").strip()
+            sector = (entity.sector or "").strip() or "Unclassified"
             sector_totals[sector] += weight_pct
             asset_class = (security.asset_class or "unknown").strip()
             asset_class_totals[asset_class] += weight_pct
@@ -469,9 +469,10 @@ class RiskService:
         top_positions = sorted(
             position_exposures, key=lambda item: item.weight_pct, reverse=True
         )[:5]
-        if sector_exposures:
-            top_sector = sector_exposures[0].label
-            top_sector_weight_pct = sector_exposures[0].weight_pct
+        leading_sector = self._leading_sector(sector_exposures)
+        if leading_sector:
+            top_sector = leading_sector.label
+            top_sector_weight_pct = leading_sector.weight_pct
 
         portfolio_return_frac = None
         if total_cost_basis > 0:
@@ -620,6 +621,7 @@ class RiskService:
         ).scalar_one_or_none()
 
         sector_exposures = self._factors_for_prefix(factors, "sector:")
+        leading_sector = self._leading_sector(sector_exposures)
         asset_class_exposures = self._factors_for_prefix(factors, "asset_class:")
         top_positions = self._factors_for_prefix(factors, "single_name:")[:5]
         details = attribution.factor_contributions_json or {}
@@ -640,8 +642,8 @@ class RiskService:
             benchmark_return_pct=self._pct(attribution.factor_return),
             active_return_pct=self._pct(attribution.idiosyncratic_return),
             measurement_start=attribution.period_start,
-            top_sector=details.get("top_sector"),
-            top_sector_weight_pct=float(details.get("top_sector_weight_pct") or 0.0),
+            top_sector=leading_sector.label if leading_sector else None,
+            top_sector_weight_pct=leading_sector.weight_pct if leading_sector else 0.0,
             top_holding=details.get("top_holding"),
             top_holding_weight_pct=float(details.get("top_holding_weight_pct") or 0.0),
             concentration_hhi=float(details.get("concentration_hhi") or 0.0),
@@ -957,6 +959,19 @@ class RiskService:
             signal_source=record.signal_source,
             start_date=record.start_date,
             end_date=record.end_date,
+        )
+
+    @staticmethod
+    def _leading_sector(
+        exposures: list[ExposureItemResponse],
+    ) -> ExposureItemResponse | None:
+        return next(
+            (
+                row
+                for row in exposures
+                if row.label.strip().lower() not in {"", "unclassified"}
+            ),
+            None,
         )
 
     @staticmethod

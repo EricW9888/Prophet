@@ -618,14 +618,21 @@ class AgentService:
         progress_callback: (
             Callable[[str, str, dict[str, Any] | None], Awaitable[None] | None] | None
         ) = None,
+        *,
+        review_evidence: bool = False,
     ) -> AgentTurnResponse:
         session_id = payload.session_id or uuid4()
-        await self._emit_progress(
-            progress_callback,
-            "routing",
-            "Classifying the turn intent before attaching portfolio context.",
-        )
-        turn_intent = await self._classify_turn_intent(payload.message)
+        if review_evidence:
+            # The scheduler has already chosen an investment concern and subject.
+            # Classifying its generated prompt can mistake it for a status query.
+            turn_intent = {"route": "analyze"}
+        else:
+            await self._emit_progress(
+                progress_callback,
+                "routing",
+                "Classifying the turn intent before attaching portfolio context.",
+            )
+            turn_intent = await self._classify_turn_intent(payload.message)
         if turn_intent.get("route") == "conversation":
             await self._emit_progress(
                 progress_callback,
@@ -2046,6 +2053,7 @@ class AgentService:
         )
         response = await self.handle_turn(
             payload=payload,
+            review_evidence=True,
         )
         return {
             "status": "ok",
@@ -2056,6 +2064,9 @@ class AgentService:
             "subject_name": security.ticker,
             "review_item_id": str(review_item.id),
             "review_priority": float(review_item.priority_score or 0.0),
+            "reasoning_run_id": (
+                str(response.reasoning_run_id) if response.reasoning_run_id else None
+            ),
         }
 
     async def run_strategic_planning_cycle(self) -> dict[str, object]:
@@ -3246,6 +3257,7 @@ class AgentService:
                 .where(
                     Position.list_type == "holding",
                     Position.quantity > 0,
+                    ReviewQueueItem.review_domain == "investment",
                     ReviewQueueItem.status.in_(["pending", "in_review"]),
                 )
                 .order_by(

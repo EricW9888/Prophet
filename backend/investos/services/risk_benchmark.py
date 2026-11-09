@@ -24,6 +24,26 @@ class BenchmarkResponsePolicy(BaseModel):
     cost_bps_each_way: float = Field(ge=0, le=1000)
 
 
+def paper_trim(
+    *,
+    fill_value: float,
+    final_value: float,
+    fraction: float,
+    cost_bps_each_way: float,
+) -> tuple[float, float, float]:
+    """Uniform reduction followed by re-entry. Return value, turnover and costs."""
+    rate = cost_bps_each_way / 10000
+    sale = fraction * fill_value
+    sale_cost = sale * rate
+    cash = sale - sale_cost
+    buy_notional = cash / (1 + rate)
+    return (
+        (1 - fraction) * final_value + buy_notional,
+        sale + buy_notional,
+        sale_cost + cash - buy_notional,
+    )
+
+
 def run_benchmark(
     *,
     packet: dict,
@@ -79,7 +99,6 @@ def run_benchmark(
     fills = [quote for quote in quotes if quote[0] >= eligible_at]
     initial = result["covered_value"]
     final = quotes[-1][1]
-    cost_rate = policy.cost_bps_each_way / 10000
 
     def response(enabled: bool) -> dict:
         if not enabled or not fills or fills[0][0] >= quotes[-1][0]:
@@ -90,19 +109,18 @@ def run_benchmark(
                 "cost": 0.0,
             }
         fill_time, fill_value = fills[0]
-        sale = policy.reduction_fraction * fill_value
-        sale_cost = sale * cost_rate
-        cash = sale - sale_cost
-        # Buy notional plus buy fee cannot exceed available cash.
-        buy_notional = cash / (1 + cost_rate)
-        buy_cost = cash - buy_notional
-        ending = (1 - policy.reduction_fraction) * final + buy_notional
+        ending, turnover, cost = paper_trim(
+            fill_value=fill_value,
+            final_value=final,
+            fraction=policy.reduction_fraction,
+            cost_bps_each_way=policy.cost_bps_each_way,
+        )
         return {
             "ending_value": round(ending, 2),
             "fill_at": fill_time.isoformat(),
             "reentry_at": quotes[-1][0].isoformat(),
-            "turnover": round(sale + buy_notional, 2),
-            "cost": round(sale_cost + buy_cost, 2),
+            "turnover": round(turnover, 2),
+            "cost": round(cost, 2),
         }
 
     candidate = response(alerted)

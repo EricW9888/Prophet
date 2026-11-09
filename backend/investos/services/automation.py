@@ -1441,7 +1441,7 @@ class AutomationCoordinator:
         async with async_session_maker() as session:
             try:
                 result = await AgentService(session).run_reflection_cycle()
-                telemetry.last_status = "ok"
+                telemetry.last_status = str(result["status"])
                 telemetry.detail = f"{result['detail']}"
                 if result.get("subject_id") or result.get("actions"):
                     self._log_job_action(
@@ -1457,6 +1457,7 @@ class AutomationCoordinator:
                             "actions": result.get("actions"),
                             "review_item_id": result.get("review_item_id"),
                             "review_priority": result.get("review_priority"),
+                            "reasoning_run_id": result.get("reasoning_run_id"),
                         },
                         visible=bool(result.get("actions")),
                     )

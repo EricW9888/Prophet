@@ -300,6 +300,7 @@ class MarketDataService:
         timestamps = chart.get("timestamp") or []
         quote = ((chart.get("indicators") or {}).get("quote") or [{}])[0]
         closes = quote.get("close") or []
+        opens = quote.get("open") or []
         volumes = quote.get("volume") or []
         adjusted = ((chart.get("indicators") or {}).get("adjclose") or [{}])[0].get(
             "adjclose"
@@ -312,6 +313,10 @@ class MarketDataService:
         regular = (meta.get("currentTradingPeriod") or {}).get("regular") or {}
         session_start = regular.get("start")
         session_end = regular.get("end")
+
+        def regular_session(timestamp: int) -> bool:
+            # A same-date daily label alone is not a verified opening time.
+            return bool(session_start and session_end and timestamp == session_start)
 
         def completed_at(timestamp: int) -> datetime:
             day = datetime.fromtimestamp(timestamp, timezone).date()
@@ -331,6 +336,14 @@ class MarketDataService:
             {
                 "timestamp": datetime.fromtimestamp(timestamp, tz=UTC),
                 "close": float(close),
+                "open": (
+                    self._finite_number(opens[index]) if index < len(opens) else None
+                ),
+                "session_open_at": (
+                    datetime.fromtimestamp(session_start, UTC)
+                    if regular_session(timestamp)
+                    else None
+                ),
                 "adjusted_close": (
                     self._finite_number(adjusted[index])
                     if index < len(adjusted)

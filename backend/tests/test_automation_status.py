@@ -156,6 +156,51 @@ async def test_reflection_without_review_pressure_does_not_start_agent_turn():
     service.handle_turn.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_scheduled_investment_review_reaches_evidence_planning():
+    from uuid import uuid4
+
+    class ReachedEvidencePlanning(Exception):
+        pass
+
+    subject_id = uuid4()
+    service = AgentService(None)
+    service._select_autonomous_candidate = AsyncMock(
+        return_value=(
+            None,
+            SimpleNamespace(ticker="SYN", entity_id=subject_id),
+            SimpleNamespace(trigger_reason="Test a material evidence gap"),
+        )
+    )
+    service._classify_turn_intent = AsyncMock(return_value={"route": "operate"})
+    service._maybe_operating_context_answer = AsyncMock(
+        side_effect=AssertionError(
+            "A scheduled review cannot return a status snapshot."
+        )
+    )
+    service.conversation_history = AsyncMock(return_value=SimpleNamespace(entries=[]))
+    service.resolve_context = AsyncMock(
+        return_value=SimpleNamespace(
+            subject_id=subject_id,
+            subject_type="entity",
+            subject_name="Synthetic issuer",
+            candidates=[],
+        )
+    )
+    service._plan_question_research = AsyncMock(side_effect=ReachedEvidencePlanning)
+
+    with pytest.raises(ReachedEvidencePlanning):
+        await service.run_reflection_cycle()
+
+    service._classify_turn_intent.assert_not_awaited()
+    service._maybe_operating_context_answer.assert_not_awaited()
+    assert service.resolve_context.await_args.kwargs["subject_id"] == subject_id
+    assert (
+        service._plan_question_research.await_args.kwargs["subject_name"]
+        == "Synthetic issuer"
+    )
+
+
 @pytest.mark.parametrize(
     ("result", "expected"),
     [

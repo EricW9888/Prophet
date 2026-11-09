@@ -236,7 +236,7 @@ export default function OpportunitiesPage() {
         DISCOVERY_RUN_TIMEOUT_MS,
       );
       await loadState();
-      setNotice("Bounded discovery run completed. Review the run telemetry and any new candidate.");
+      setNotice("Discovery status updated. Review coverage, provider usage, and any new candidates.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to run opportunity discovery.");
     } finally {
@@ -391,7 +391,7 @@ export default function OpportunitiesPage() {
             <button
               type="button"
               onClick={() => void runDiscovery()}
-              disabled={busy === "run"}
+              disabled={busy === "run" || !universe.some((item) => item.enabled)}
               className="inline-flex h-9 items-center gap-2 rounded-md bg-slate-900 px-3 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white"
             >
               {busy === "run" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
@@ -400,6 +400,12 @@ export default function OpportunitiesPage() {
             </>
           )}
         />
+
+        {!loading && !universe.some((item) => item.enabled) && (
+          <p className="mb-4 rounded border border-line p-3 text-sm text-muted">
+            Discovery needs an enabled universe. Open Universe to preview eligible holdings and watchlist names or add a security.
+          </p>
+        )}
 
         <section className="grid grid-cols-2 gap-px border-b border-slate-200 bg-slate-200 sm:grid-cols-4 dark:border-slate-800 dark:bg-slate-800">
           {[

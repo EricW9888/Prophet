@@ -537,12 +537,16 @@ class OpportunityDiscoveryService:
                 )
 
             await self._evaluate_run(run=run, members=members)
-            run.status = "completed" if run.failed_count == 0 else "partial"
-            run.detail = (
-                "opportunity_candidate_evaluated"
-                if run.planned_count
-                else "no_due_opportunity_subjects"
-            )
+            if run.universe_size == 0 and run.planned_count == 0:
+                run.status = "waiting_for_config"
+                run.detail = "opportunity_universe_empty"
+            else:
+                run.status = "completed" if run.failed_count == 0 else "partial"
+                run.detail = (
+                    "opportunity_candidate_evaluated"
+                    if run.planned_count
+                    else "no_due_opportunity_subjects"
+                )
         except Exception as exc:
             run.status = "failed"
             run.detail = f"{type(exc).__name__}: {str(exc)[:800]}"
