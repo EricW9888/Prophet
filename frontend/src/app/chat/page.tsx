@@ -1637,16 +1637,13 @@ function ChatWorkspace() {
                             : "border border-slate-200 bg-white text-slate-800 dark:border-slate-800 dark:bg-[#111] dark:text-slate-200"
                         }`}
                       >
-                        {formatTimestamp(m.createdAt) ? (
-                          <p
-                            className={`mb-2 text-[11px] uppercase tracking-wide ${
-                              m.role === "user"
-                                ? "text-right text-slate-500 dark:text-slate-400"
-                                : "text-slate-400"
-                            }`}
-                          >
-                            {formatTimestamp(m.createdAt)}
-                          </p>
+                        {formatTimestamp(m.createdAt) || m.role === "assistant" ? (
+                          <div className={`mb-2 flex flex-wrap items-center gap-2 ${m.role === "user" ? "justify-end" : "justify-between"}`}>
+                            <p className="text-[11px] uppercase tracking-wide text-muted">{formatTimestamp(m.createdAt)}</p>
+                            {m.role === "assistant" ? (
+                              <button type="button" className="workspace-control" onClick={() => setFocusedAnswer(m)}><Maximize2 size={14} aria-hidden="true" /> Full screen</button>
+                            ) : null}
+                          </div>
                         ) : null}
                         {m.isArtifact ? (
                           <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
@@ -1672,13 +1669,8 @@ function ChatWorkspace() {
                         ) : (
                           <div className="whitespace-pre-wrap break-words leading-7">{m.content}</div>
                         )}
-                        {m.role === "assistant" ? (
-                          <div className="mt-3 flex flex-wrap items-center gap-2">
-                            <button type="button" className="workspace-control" onClick={() => setFocusedAnswer(m)}><Maximize2 size={14} aria-hidden="true" /> Full screen</button>
-                            {(m.meta?.research_receipt || m.meta?.process_mode === "attached_text") && !messages.slice(idx + 1).some((entry) => entry.role === "assistant") ? (
-                              <button type="button" className="workspace-control" onClick={() => draftFollowUp("What evidence would change your conclusion, and how would you check it?")}>Draft follow-up</button>
-                            ) : null}
-                          </div>
+                        {m.role === "assistant" && (m.meta?.research_receipt || m.meta?.process_mode === "attached_text") && !messages.slice(idx + 1).some((entry) => entry.role === "assistant") ? (
+                          <button type="button" className="workspace-control mt-3" onClick={() => draftFollowUp("What evidence would change your conclusion, and how would you check it?")}>Draft follow-up</button>
                         ) : null}
                         {m.meta?.research_receipt ? <ResearchReceipt receipt={m.meta.research_receipt} /> : null}
                         {m.role === "assistant" && m.meta ? (

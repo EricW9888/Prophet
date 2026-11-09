@@ -891,6 +891,38 @@ async def test_issuer_symbol_agreement_prevents_split_evidence_and_conflicting_m
     assert match["target_id"] == str(canonical.id)
     assert not any(row["id"] == str(conflicting.id) for row in proposed)
     assert await session.get(Entity, archived.id) is not None
+    _, receipt = await source_records(session)
+    claim = Claim(
+        source_item_id=receipt.id,
+        claim_type="forecast",
+        statement="Fixture archived forecast",
+        confidence=0.7,
+        tier="signal",
+        importance="high",
+        directness="secondary",
+        novelty="historical",
+        contradiction_role="neutral",
+    )
+    session.add(claim)
+    await session.flush()
+    session.add(
+        Edge(
+            source_type="claim",
+            source_id=claim.id,
+            target_type="entity",
+            target_id=archived.id,
+            relationship_type="about",
+        )
+    )
+    await session.flush()
+    await EntityHygieneService(session)._merge_duplicate_entities(dry_run=False)
+    target = await session.scalar(
+        select(Edge.target_id).where(
+            Edge.source_id == claim.id, Edge.target_type == "entity"
+        )
+    )
+    assert target == canonical.id
+    assert await session.get(Entity, conflicting.id) is not None
 
 
 async def source_records(session):
