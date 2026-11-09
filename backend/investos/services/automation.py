@@ -12,6 +12,7 @@ from sqlalchemy import desc, select
 from investos.config import settings
 from investos.core.provider_health import ProviderHealthStore, probe_llm_provider
 from investos.core.research_providers import configured_research_providers
+from investos.core.work_signals import listen_for_work_signals
 from investos.db import async_session_maker
 from investos.models.coverage import CoverageMap, UnresolvedQuestion
 from investos.models.entity import Entity, Security
@@ -66,9 +67,29 @@ class JobTelemetry:
     last_run_at: datetime | None = None
     last_status: str = "idle"
     detail: str | None = None
+    last_trigger: str | None = None
 
 
 class AutomationCoordinator:
+    SIGNAL_JOBS = {
+        "evidence_arrived": ("evidence_processing",),
+        "evidence_ready": ("question_resolution", "agent_reflection"),
+        "question_actionable": ("research_loop",),
+        "shadow_evidence_queued": ("shadow_refresh",),
+        "provider_recovered": (
+            "evidence_processing",
+            "question_resolution",
+            "research_loop",
+            "agent_reflection",
+            "shadow_refresh",
+        ),
+        "queue_catchup": (
+            "evidence_processing",
+            "question_resolution",
+            "research_loop",
+            "shadow_refresh",
+        ),
+    }
     LLM_DEPENDENT_JOBS = frozenset(
         {
             "research_loop",
@@ -97,6 +118,10 @@ class AutomationCoordinator:
         )
         self.telemetry: dict[str, JobTelemetry] = {}
         self._shutting_down = False
+        self._signal_listener: asyncio.Task | None = None
+        self._pending_signals: dict[str, str] = {}
+        self._active_jobs: set[str] = set()
+        self._last_model_attempt_at: dict[str, datetime] = {}
 
     @property
     def enabled(self):
@@ -129,11 +154,17 @@ class AutomationCoordinator:
         return True
 
     async def _run_provider_health_probe(self):
-        health = await probe_llm_provider()
         telemetry = self.telemetry["provider_health_probe"]
+        previous_state = ProviderHealthStore.public_status()["state"]
+        health = await probe_llm_provider()
+        recovered = health["state"] == "healthy" and (
+            previous_state in {"open", "probing"} or telemetry.last_status == "deferred"
+        )
         telemetry.last_run_at = datetime.now(UTC)
         telemetry.last_status = "ok" if health["state"] == "healthy" else "deferred"
         telemetry.detail = f"provider_health={health['state']} next_probe={health.get('next_probe_at')}"
+        if recovered:
+            self.signal_ready_work("provider_recovered")
 
     def start(self) -> None:
         if not settings.AUTOMATION_ENABLED:
@@ -241,9 +272,10 @@ class AutomationCoordinator:
         )
         self.scheduler.start()
         self.sync_runtime_jobs()
+        self._signal_listener = asyncio.create_task(
+            listen_for_work_signals(self.signal_ready_work)
+        )
         self._schedule_startup_run("integrity_audit", self._run_integrity_audit)
-        self._schedule_startup_run("research_loop", self._run_research_loop)
-        self._schedule_startup_run("evidence_processing", self._run_evidence_processing)
         self._schedule_startup_run("market_data_refresh", self._run_market_data_refresh)
         self._schedule_startup_run("risk_refresh", self._run_risk_refresh)
         self._schedule_startup_run("gmail_sync", self._run_gmail_sync)
@@ -264,6 +296,11 @@ class AutomationCoordinator:
         self._shutting_down = True
         if self.scheduler.running:
             self.scheduler.shutdown(wait=False)
+        if self._signal_listener is not None:
+            self._signal_listener.cancel()
+            await asyncio.gather(self._signal_listener, return_exceptions=True)
+            self._signal_listener = None
+        self._pending_signals.clear()
 
     def status(self) -> list[JobTelemetry]:
         self.sync_runtime_jobs()
@@ -273,6 +310,7 @@ class AutomationCoordinator:
         for telemetry in self.telemetry.values():
             telemetry.last_run_at = None
             telemetry.detail = None
+            telemetry.last_trigger = None
             telemetry.last_status = "idle" if telemetry.enabled else "disabled"
         self.sync_runtime_jobs()
 
@@ -316,9 +354,61 @@ class AutomationCoordinator:
         }
         if name not in mapping:
             raise ValueError(f"Unknown job: {name}")
-        if self._provider_defers(name):
+        await self._dispatch_job(name, mapping[name], trigger="manual")
+
+    def signal_ready_work(self, signal: str) -> None:
+        """Wake existing workers; the signal itself cannot make work eligible."""
+        if not self.enabled or self._shutting_down:
             return
-        await mapping[name]()
+        for name in self.SIGNAL_JOBS.get(signal, ()):
+            telemetry = self.telemetry.get(name)
+            if telemetry is not None and telemetry.enabled:
+                pending = self._pending_signals.get(name)
+                if pending is None or pending == "queue_catchup":
+                    self._pending_signals[name] = signal
+                self._expedite_pending_job(name)
+
+    def _expedite_pending_job(self, name: str) -> None:
+        if (
+            self._shutting_down
+            or name in self._active_jobs
+            or name not in self._pending_signals
+        ):
+            return
+        job = self.scheduler.get_job(name)
+        if job is None or job.next_run_time is None:
+            return
+        run_at = datetime.now(UTC) + timedelta(seconds=2)
+        last_attempt = self._last_model_attempt_at.get(name)
+        if last_attempt is not None:
+            run_at = max(
+                run_at,
+                last_attempt + timedelta(seconds=self.telemetry[name].interval_seconds),
+            )
+        if run_at < job.next_run_time:
+            self.scheduler.modify_job(name, next_run_time=run_at)
+
+    async def _dispatch_job(
+        self, name: str, func: Callable[[], object], *, trigger: str
+    ) -> None:
+        if self._shutting_down or name in self._active_jobs:
+            return
+        telemetry = self.telemetry.get(name)
+        signal = self._pending_signals.pop(name, None)
+        if telemetry is not None:
+            telemetry.last_trigger = (
+                f"signal:{signal}" if signal and trigger != "manual" else trigger
+            )
+        self._active_jobs.add(name)
+        try:
+            if self._provider_defers(name):
+                return
+            result = func()
+            if hasattr(result, "__await__"):
+                await result
+        finally:
+            self._active_jobs.discard(name)
+            self._expedite_pending_job(name)
 
     def _register_job(
         self,
@@ -353,7 +443,7 @@ class AutomationCoordinator:
         if telemetry is None or not telemetry.enabled:
             return
         self.scheduler.add_job(
-            self._scheduled_job(name, func),
+            self._scheduled_job(name, func, trigger="startup"),
             "date",
             run_date=datetime.now(UTC)
             + timedelta(seconds=max(0, int(delay_seconds or 0))),
@@ -377,7 +467,7 @@ class AutomationCoordinator:
 
         async def runner() -> None:
             for name, func in enabled_jobs:
-                await self._scheduled_job(name, func)()
+                await self._scheduled_job(name, func, trigger="startup")()
 
         self.scheduler.add_job(
             runner,
@@ -389,15 +479,11 @@ class AutomationCoordinator:
         )
 
     def _scheduled_job(
-        self, name: str, func: Callable[[], object]
+        self, name: str, func: Callable[[], object], *, trigger: str = "interval"
     ) -> Callable[[], object]:
         async def runner() -> None:
             try:
-                if self._provider_defers(name):
-                    return
-                result = func()
-                if hasattr(result, "__await__"):
-                    await result
+                await self._dispatch_job(name, func, trigger=trigger)
             except asyncio.CancelledError:
                 if self._shutting_down:
                     telemetry = self.telemetry.get(name)
@@ -500,6 +586,9 @@ class AutomationCoordinator:
         visible: bool = True,
     ) -> None:
         action_metadata = dict(metadata or {})
+        telemetry = self.telemetry.get(job_name)
+        if telemetry is not None and telemetry.last_trigger:
+            action_metadata.setdefault("automation_trigger", telemetry.last_trigger)
         if not visible:
             action_metadata["internal_state"] = True
         AgentActionLogService.append(
@@ -543,6 +632,7 @@ class AutomationCoordinator:
                     )
                     await session.commit()
                     return
+                self._last_model_attempt_at["research_loop"] = datetime.now(UTC)
                 result = await ResearchService(session).run_targeted_question(question)
                 telemetry.last_status = result.telemetry_status
                 telemetry.detail = (
@@ -1441,6 +1531,8 @@ class AutomationCoordinator:
         async with async_session_maker() as session:
             try:
                 result = await AgentService(session).run_reflection_cycle()
+                if result.get("subject_id"):
+                    self._last_model_attempt_at["agent_reflection"] = datetime.now(UTC)
                 telemetry.last_status = str(result["status"])
                 telemetry.detail = f"{result['detail']}"
                 if result.get("subject_id") or result.get("actions"):

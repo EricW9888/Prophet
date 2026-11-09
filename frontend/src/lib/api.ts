@@ -1813,11 +1813,13 @@ export type AgentConversationSummary = {
   subject_name?: string | null;
   latest_message_preview?: string | null;
   artifact_count?: number;
+  autonomous_reason?: string | null;
   updated_at: string;
 };
 
 export type AgentConversationList = {
   conversations: AgentConversationSummary[];
+  autonomous_reviews?: AgentConversationSummary[];
 };
 
 export type ReasoningTrace = {

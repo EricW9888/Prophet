@@ -31,6 +31,7 @@ from investos.schemas.shadow import (
     ShadowExperimentResponse,
     ShadowOrderCreate,
 )
+from investos.services.agent import PORTFOLIO_SUBJECT_ID, AgentService
 from investos.services.dashboard import DashboardService
 from investos.services.entity_hygiene import EntityHygieneService
 from investos.services.graph_edge_state import GraphEdgeStateService
@@ -1017,6 +1018,51 @@ async def test_subject_retarget_preserves_relationship_identity_and_handles_coll
     merge = next(item for item in mutations if item.node_id == duplicate_id)
     assert merge.metadata_json["canonical_edge_id"] == str(retained.id)
     assert merge.metadata_json["before"]["properties"]["origin"] == "archived"
+
+
+async def test_autonomous_reviews_are_separate_without_rewriting_saved_turns(
+    workflow_session,
+):
+    service = AgentService(workflow_session)
+    manual, archived, autonomous = uuid4(), uuid4(), uuid4()
+
+    async def save(session_id, message, reason=None):
+        await service._persist_conversation_exchange(
+            session_id=session_id,
+            user_message=message,
+            user_subject_id=PORTFOLIO_SUBJECT_ID,
+            user_subject_type="portfolio",
+            assistant_message="Saved evidence finding.",
+            assistant_subject_id=PORTFOLIO_SUBJECT_ID,
+            assistant_subject_type="portfolio",
+            assistant_metadata={},
+            autonomous_reason=reason,
+        )
+
+    await save(manual, "What happened recently?")
+    await save(
+        archived,
+        "Autonomous review for SYN, prompted by this unresolved review signal: Verify the archived catalyst. Determine whether the supplied evidence can help.",
+    )
+    await save(
+        autonomous,
+        "A newly saved review task",
+        "A material evidence gap became reviewable.",
+    )
+    listing = await service.list_conversations()
+    assert manual in {item.session_id for item in listing.conversations}
+    assert not {archived, autonomous} & {
+        item.session_id for item in listing.conversations
+    }
+    reports = {item.session_id: item for item in listing.autonomous_reviews}
+    assert reports[archived].autonomous_reason == "Verify the archived catalyst"
+    assert (
+        reports[autonomous].autonomous_reason
+        == "A material evidence gap became reviewable."
+    )
+    assert reports[autonomous].title == "Portfolio · Autonomous review"
+    with pytest.raises(ValueError, match="conversation_not_found"):
+        await service.update_conversation(autonomous, title="A user chat")
 
 
 async def source_records(session):

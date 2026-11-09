@@ -255,8 +255,12 @@ def test_research_result_exposes_operator_truth(result, expected):
     assert result.telemetry_status == expected
 
 
-def test_start_schedules_sequential_calibration_catchup_jobs(monkeypatch):
+async def test_start_schedules_sequential_calibration_catchup_jobs(monkeypatch):
     monkeypatch.setattr(settings, "AUTOMATION_ENABLED", True)
+    listener = AsyncMock()
+    monkeypatch.setattr(
+        "investos.services.automation.listen_for_work_signals", listener
+    )
     coordinator = AutomationCoordinator()
     coordinator._register_job = Mock()
     coordinator.scheduler.start = Mock()
@@ -265,6 +269,9 @@ def test_start_schedules_sequential_calibration_catchup_jobs(monkeypatch):
     coordinator._schedule_startup_sequence = Mock()
 
     coordinator.start()
+    await coordinator._signal_listener
+    listener.assert_awaited_once_with(coordinator.signal_ready_work)
+    await coordinator.shutdown()
 
     registered_names = [
         call.args[0] for call in coordinator._register_job.call_args_list

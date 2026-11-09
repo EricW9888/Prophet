@@ -11,6 +11,7 @@ class AutomationJobStatus(BaseModel):
     last_run_at: Optional[datetime] = None
     last_status: str = "idle"
     detail: Optional[str] = None
+    last_trigger: Optional[str] = None
 
 
 class AutomationStatusResponse(BaseModel):
