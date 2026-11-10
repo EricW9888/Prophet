@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import case, delete, desc, func, select
+from sqlalchemy import case, delete, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.models.catalog import SourceClaimRecord
@@ -45,6 +45,7 @@ from investos.services.source_claim_policy import (
 )
 
 SOURCE_CLAIM_REVIEW_LIMIT = 75
+PORTFOLIO_MONITOR_REVIEW_LIMIT = 5
 RECEIPT_REVIEW_TYPES = {
     "raw_evidence",
     "mailbox_identity",
@@ -62,23 +63,34 @@ class ReviewService:
         self, *, limit: int = 100, offset: int = 0, domain: ReviewDomain | None = None
     ) -> list[ReviewQueueItemResponse]:
         items = (
-            (
-                await self.session.execute(
-                    select(ReviewQueueItem)
-                    .where(*self._queue_conditions(domain))
-                    .order_by(
-                        desc(ReviewQueueItem.priority_score),
-                        desc(ReviewQueueItem.created_at),
-                        ReviewQueueItem.id,
-                    )
-                    .limit(limit)
-                    .offset(offset)
-                )
+            await self.session.scalars(
+                self._queue_statement(domain).limit(limit).offset(offset)
             )
-            .scalars()
-            .all()
-        )
+        ).all()
         return [await self._serialize(item) for item in items]
+
+    async def portfolio_monitor_queue(
+        self, *, position_ids: set[UUID], entity_ids: set[UUID]
+    ) -> tuple[int, list[ReviewQueueItemResponse]]:
+        relevant = or_(
+            (ReviewQueueItem.item_type == "position")
+            & ReviewQueueItem.item_id.in_(position_ids),
+            (ReviewQueueItem.item_type == "entity")
+            & ReviewQueueItem.item_id.in_(entity_ids),
+            ReviewQueueItem.item_type == "shadow_experiment",
+        )
+        # Count all matches in the same statement that selects the ranked preview.
+        rows = (
+            await self.session.execute(
+                self._queue_statement()
+                .where(relevant)
+                .add_columns(func.count().over())
+                .limit(PORTFOLIO_MONITOR_REVIEW_LIMIT)
+            )
+        ).all()
+        return (rows[0][1] if rows else 0), [
+            await self._serialize(item) for item, _ in rows
+        ]
 
     async def queue_page(
         self, *, limit: int = 100, offset: int = 0, domain: ReviewDomain | None = None
@@ -96,6 +108,17 @@ class ReviewService:
         if domain is not None:
             conditions.append(ReviewQueueItem.review_domain == domain)
         return conditions
+
+    def _queue_statement(self, domain: ReviewDomain | None = None):
+        return (
+            select(ReviewQueueItem)
+            .where(*self._queue_conditions(domain))
+            .order_by(
+                desc(ReviewQueueItem.priority_score),
+                desc(ReviewQueueItem.created_at),
+                ReviewQueueItem.id,
+            )
+        )
 
     async def queue_counts(self) -> dict[ReviewDomain, int]:
         rows = await self.session.execute(
