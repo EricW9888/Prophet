@@ -1,6 +1,6 @@
 import copy
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -39,6 +39,39 @@ async def clean():
             delete(ScenarioAnalysis).where(ScenarioAnalysis.name == SCENARIO_NAME)
         )
         await session.commit()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_value_history_uses_dated_full_book_marks_and_keeps_partial_gaps():
+    await clean()
+    try:
+        async with async_session_maker() as session:
+            service = PortfolioRiskService(session)
+            packet = frozen_packet()
+            for snapshot in packet["snapshots"].values():
+                snapshot["daily_observations"] = snapshot["daily_observations"][-1:]
+            complete = await service.capture(packet)
+            assert complete.assessment.result["status"] == "insufficient_data"
+            assert complete.assessment.result["covered_positions"] == 3
+            later = copy.deepcopy(packet)
+            later["cutoff"] = (
+                datetime.fromisoformat(packet["cutoff"]) + timedelta(hours=1)
+            ).isoformat()
+            later["snapshots"].pop("SYN-B")
+            partial = await service.capture(later)
+
+            marks = await service.captured_value_history()
+            assert [mark.assessment_id for mark in marks] == [
+                complete.assessment.id,
+                partial.assessment.id,
+            ]
+            assert marks[0].captured_at == datetime.fromisoformat(packet["cutoff"])
+            assert marks[0].price_session.isoformat() == "2025-05-21"
+            assert marks[0].value_usd == complete.assessment.result["covered_value"]
+            assert (marks[1].covered_positions, marks[1].total_positions) == (2, 3)
+            assert marks[1].value_usd is None
+    finally:
+        await clean()
 
 
 @pytest.mark.asyncio(loop_scope="session")

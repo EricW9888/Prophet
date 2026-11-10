@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -18,6 +18,15 @@ class PortfolioRiskAssessment(BaseModel):
     detected_at: datetime
     packet_hash: str
     result: dict[str, Any]
+
+
+class CapturedHoldingsValue(BaseModel):
+    assessment_id: UUID
+    captured_at: datetime
+    price_session: date | None = None
+    covered_positions: int
+    total_positions: int
+    value_usd: float | None = None
 
 
 class PortfolioRiskState(BaseModel):

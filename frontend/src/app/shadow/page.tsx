@@ -6,6 +6,7 @@ import AppNav from "@/components/AppNav";
 import FloatingNotice from "@/components/FloatingNotice";
 import PageHeader from "@/components/PageHeader";
 import ShadowLifecycleSummary from "@/components/ShadowLifecycleSummary";
+import ShadowEquityTimeline from "@/components/ShadowEquityTimeline";
 import ShadowRunHistory from "@/components/ShadowRunHistory";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
 import WorkspaceState from "@/components/WorkspaceState";
@@ -558,6 +559,16 @@ export default function ShadowPage() {
                 <OpportunitySummary profile={experiment.report?.opportunity_summary ?? experiment.discovery_profile} />
 
                 <ExperimentOutcomeSummary experiment={experiment} />
+
+                <details className="mt-3 min-w-0 border border-line p-3" onToggle={(event) => { if (event.currentTarget.open) void loadExperimentDetails(experiment.id, true); }}>
+                  <summary className="cursor-pointer text-sm font-semibold">Paper equity and actions</summary>
+                  {detailedExperimentIds.current.has(experiment.id) ? <ShadowEquityTimeline experiment={experiment} /> : null}
+                  {loadingDetailIds.has(experiment.id) ? <p className="mt-2 text-xs text-muted" role="status">Loading retained checkpoints…</p> : (
+                    <button type="button" className="workspace-control mt-3" onClick={() => void loadExperimentDetails(experiment.id, true)}>
+                      {detailedExperimentIds.current.has(experiment.id) ? "Reload checkpoints" : "Load checkpoints"}
+                    </button>
+                  )}
+                </details>
 
                 {experiment.execution_mode === "manual" ? (
                   <details className="mt-3 border border-line bg-panel p-3" onToggle={(event) => { if (event.currentTarget.open) void loadExperimentDetails(experiment.id); }}>

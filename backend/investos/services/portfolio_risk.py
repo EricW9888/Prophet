@@ -27,6 +27,7 @@ from investos.models.portfolio import Position
 from investos.models.quant import ScenarioAnalysis
 from investos.models.watcher import ActiveWatcher
 from investos.schemas.portfolio_risk import (
+    CapturedHoldingsValue,
     PortfolioRiskAssessment,
     PortfolioRiskState,
     RiskWatchPolicy,
@@ -364,6 +365,46 @@ class PortfolioRiskService:
             .order_by(desc(ScenarioAnalysis.computed_at))
             .limit(1)
         )
+
+    async def captured_value_history(self) -> list[CapturedHoldingsValue]:
+        """Use recorded book/price pairs, leaving a gap for an incomplete book."""
+        result = ScenarioAnalysis.portfolio_impact_json
+        rows = (
+            await self.session.execute(
+                select(
+                    ScenarioAnalysis.id,
+                    result["cutoff"].astext,
+                    result["latest_session_date"].astext,
+                    result["covered_positions"].as_integer(),
+                    result["total_positions"].as_integer(),
+                    result["covered_value"].as_float(),
+                    result["currency"].astext,
+                )
+                .where(ScenarioAnalysis.name == SCENARIO_NAME)
+                .order_by(desc(ScenarioAnalysis.computed_at), desc(ScenarioAnalysis.id))
+                .limit(180)
+            )
+        ).all()
+        points = [
+            CapturedHoldingsValue(
+                assessment_id=identifier,
+                captured_at=clock(cutoff),
+                price_session=price_session,
+                covered_positions=covered,
+                total_positions=total,
+                value_usd=(
+                    positive(value)
+                    if price_session
+                    and covered == total
+                    and total > 0
+                    and currency == "USD"
+                    else None
+                ),
+            )
+            for identifier, cutoff, price_session, covered, total, value, currency in rows
+            if cutoff and covered is not None and total is not None
+        ]
+        return sorted(points, key=lambda point: point.captured_at)
 
     async def snapshots_at(self, tickers: list[str], cutoff: datetime) -> dict:
         """Reuse an actual earlier capture without pretending a new fetch is old."""

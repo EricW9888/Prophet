@@ -87,6 +87,15 @@ export type PortfolioBuildPoint = {
   transaction_count: number;
 };
 
+export type CapturedHoldingsValue = {
+  assessment_id: string;
+  captured_at: string;
+  price_session: string | null;
+  covered_positions: number;
+  total_positions: number;
+  value_usd: number | null;
+};
+
 export type PortfolioOverview = {
   holdings: Position[];
   watchlist: Position[];
@@ -642,6 +651,8 @@ export type ShadowExperiment = {
     paper_starting_cash?: number;
   };
   run_details: {
+    performance_observations?: Array<{ captured_at?: string | null; equity: number }>;
+    performance_invalidated_reason?: string | null;
     guidance?: {
       guidance_mode?: string;
       guidance_summary?: string;

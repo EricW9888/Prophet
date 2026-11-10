@@ -144,7 +144,8 @@ export default function PushNotificationSettings() {
   }
 
   const supported = permission !== "unsupported";
-  const active = Boolean(subscription && permission === "granted");
+  const active = Boolean(subscription && permission === "granted" && status?.ready);
+  const canEnable = supported && permission !== "denied" && status?.ready && status.application_server_key;
 
   return (
     <section className="rounded-lg border border-line bg-panel p-6">
@@ -159,12 +160,10 @@ export default function PushNotificationSettings() {
           </div>
           <div>
             <h2 className="text-base font-semibold text-slate-950 dark:text-slate-100">
-              Owner notifications
+              Device notifications
             </h2>
             <p className="mt-1 max-w-2xl text-sm text-slate-600 dark:text-slate-400">
-              Receive an advisory alert when a durable watch or reminder changes state.
-              Lock-screen messages stay generic; open Prophet to review the evidence and
-              adjustment plan.
+              Get an optional browser or desktop notification when a watch or reminder changes. The lock screen shows a generic alert; details stay in Prophet.
             </p>
           </div>
         </div>
@@ -175,7 +174,7 @@ export default function PushNotificationSettings() {
               : "border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400"
           }`}
         >
-          {active ? "On for this device" : "Off for this device"}
+          {active ? "On for this device" : status && !status.ready ? "Setup required" : "Off for this device"}
         </span>
       </div>
 
@@ -198,7 +197,7 @@ export default function PushNotificationSettings() {
         </div>
       </div>
 
-      {!supported && (
+      {status?.ready && !supported && (
         <div className="mt-4 flex items-start gap-3 border-l-2 border-amber-400 pl-3 text-sm text-slate-600 dark:text-slate-300">
           <Smartphone className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
@@ -216,10 +215,15 @@ export default function PushNotificationSettings() {
         </p>
       )}
 
-      {status?.configuration_error && (
-        <p className="mt-4 border-l-2 border-red-500 pl-3 text-sm text-red-600 dark:text-red-300">
-          {status.configuration_error}
-        </p>
+      {status && !status.ready && (
+        <div className="mt-4 border-l-2 border-line pl-3 text-sm">
+          <p className="font-medium">{status.enabled ? "The Prophet host needs a sender contact for push delivery." : "Push delivery is disabled on the Prophet host."}</p>
+          <p className="mt-1 text-muted">You can still see watch and reminder updates inside Prophet.</p>
+          <details className="mt-2 text-xs text-muted">
+            <summary className="cursor-pointer">Host setup details</summary>
+            <p className="mt-2">{status.configuration_error ?? "Enable WEB_PUSH_ENABLED on the Prophet host to allow device subscriptions."} Restart the local launcher after changing its environment, then return here to enable this device.</p>
+          </details>
+        </div>
       )}
 
       {error && <p className="mt-4 text-sm text-red-600 dark:text-red-300">{error}</p>}
@@ -227,26 +231,19 @@ export default function PushNotificationSettings() {
         <p className="mt-4 text-sm text-emerald-700 dark:text-emerald-300">{message}</p>
       )}
 
-      <div className="mt-5 flex flex-wrap gap-2">
-        {!active ? (
+      {(subscription || canEnable) && <div className="mt-5 flex flex-wrap gap-2">
+        {!subscription ? (
           <button
             type="button"
             onClick={() => void enable()}
-            disabled={
-              busy ||
-              !supported ||
-              permission === "denied" ||
-              !status?.enabled ||
-              !status.ready ||
-              !status.application_server_key
-            }
+            disabled={busy}
             className="rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950"
           >
             {busy ? "Working..." : "Enable on this device"}
           </button>
         ) : (
           <>
-            <button
+            {active && <button
               type="button"
               onClick={() => void test()}
               disabled={busy}
@@ -254,7 +251,7 @@ export default function PushNotificationSettings() {
             >
               <Send className="h-4 w-4" />
               Send test
-            </button>
+            </button>}
             <button
               type="button"
               onClick={() => void disable()}
@@ -265,7 +262,7 @@ export default function PushNotificationSettings() {
             </button>
           </>
         )}
-      </div>
+      </div>}
     </section>
   );
 }
