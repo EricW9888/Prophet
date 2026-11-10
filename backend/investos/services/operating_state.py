@@ -884,16 +884,11 @@ class OperatingStateService:
         ).all()
         holding_entity_ids = {entity.id for _, _, entity in holding_rows}
         holding_position_ids = {position.id for position, _, _ in holding_rows}
-        queue = await ReviewService(self.session).list_queue()
-        relevant_queue = [
-            item
-            for item in queue
-            if (
-                (item.item_type == "position" and item.item_id in holding_position_ids)
-                or (item.item_type == "entity" and item.item_id in holding_entity_ids)
-                or item.item_type == "shadow_experiment"
-            )
-        ]
+        relevant_review_count, relevant_queue = await ReviewService(
+            self.session
+        ).portfolio_monitor_queue(
+            position_ids=holding_position_ids, entity_ids=holding_entity_ids
+        )
         research_rows = (
             (
                 await self.session.execute(
@@ -949,7 +944,7 @@ class OperatingStateService:
                 break
         return {
             "monitored_holding_count": len(holding_rows),
-            "priority_review_count": len(relevant_queue),
+            "priority_review_count": relevant_review_count,
             "priority_review_items": [
                 {
                     "item_label": item.item_label,
@@ -957,7 +952,7 @@ class OperatingStateService:
                     "priority_score": float(item.priority_score),
                     "trigger_reason": item.trigger_reason,
                 }
-                for item in relevant_queue[:5]
+                for item in relevant_queue
             ],
             "recent_research_items": recent_research,
         }
