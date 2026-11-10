@@ -176,11 +176,15 @@ class AgentConversationSummaryResponse(BaseModel):
     subject_name: str | None = None
     latest_message_preview: str | None = None
     artifact_count: int = 0
+    autonomous_reason: str | None = None
     updated_at: datetime
 
 
 class AgentConversationListResponse(BaseModel):
     conversations: list[AgentConversationSummaryResponse] = Field(default_factory=list)
+    autonomous_reviews: list[AgentConversationSummaryResponse] = Field(
+        default_factory=list
+    )
 
 
 class AgentConversationUpdateRequest(BaseModel):

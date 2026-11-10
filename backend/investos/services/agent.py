@@ -623,6 +623,7 @@ class AgentService:
         ) = None,
         *,
         review_evidence: bool = False,
+        review_trigger: str | None = None,
     ) -> AgentTurnResponse:
         session_id = payload.session_id or uuid4()
         if payload.attachments:
@@ -1435,6 +1436,7 @@ class AgentService:
                 assistant_message=assistant_message,
                 assistant_subject_id=resolved.subject_id,
                 assistant_subject_type=resolved.subject_type,
+                autonomous_reason=review_trigger if review_evidence else None,
                 assistant_metadata={
                     "origin": "agent_chat",
                     "reasoning_run_id": str(reasoning_run.id),
@@ -2111,13 +2113,15 @@ class AgentService:
                 f"Autonomous review for {security.ticker}, prompted by this unresolved review signal: "
                 f"{review_item.trigger_reason}. Determine whether the supplied evidence can reduce that uncertainty or change "
                 "the accepted view. Take no action when the packet adds no material information. Start research, a watch, or a "
-                "shadow experiment only when it closes a concrete gap or tests a falsifiable decision-relevant claim."
+                "shadow experiment only when it closes a concrete gap or tests a falsifiable decision-relevant claim. "
+                f"Keep the conclusion on {security.ticker}; if holding-specific evidence is thin, identify the missing evidence."
             ),
             auto_execute=True,
         )
         response = await self.handle_turn(
             payload=payload,
             review_evidence=True,
+            review_trigger=review_item.trigger_reason,
         )
         return {
             "status": "ok",
@@ -2462,6 +2466,7 @@ class AgentService:
         )
         grouped: dict[str, dict] = {}
         artifact_counts: dict[str, int] = {}
+        autonomous_sessions: dict[str, str | None] = {}
         for evidence in evidence_rows:
             metadata = evidence.metadata_json or {}
             raw_session_id = metadata.get("session_id")
@@ -2472,6 +2477,21 @@ class AgentService:
             if session_uuid is None:
                 continue
             content = await self._load_raw_content(evidence)
+            if self._is_autonomous_review(metadata, content=content):
+                reason = metadata.get("autonomous_reason")
+                if not reason and metadata.get("role") == "user":
+                    reason = (
+                        re.split(
+                            r"unresolved review signal:\s*",
+                            content or "",
+                            maxsplit=1,
+                            flags=re.I,
+                        )[-1]
+                        .split(". Determine whether the supplied evidence", 1)[0]
+                        .strip()
+                    )
+                if session_key not in autonomous_sessions or reason:
+                    autonomous_sessions[session_key] = reason or None
             if self._is_background_conversation_memory(
                 evidence, metadata, content=content
             ):
@@ -2497,18 +2517,24 @@ class AgentService:
                 "latest_message_preview": content[:140] if content else None,
                 "updated_at": evidence.created_at,
             }
-        conversations = sorted(
-            [
-                AgentConversationSummaryResponse(
-                    **data,
-                    artifact_count=artifact_counts.get(session_key, 0),
+        conversations = []
+        autonomous_reviews = []
+        for session_key, data in grouped.items():
+            is_autonomous = session_key in autonomous_sessions
+            if is_autonomous:
+                subject = data["subject_name"]
+                data["title"] = (
+                    f"{subject} · Autonomous review" if subject else "Autonomous review"
                 )
-                for session_key, data in grouped.items()
-            ],
-            key=lambda item: item.updated_at,
-            reverse=True,
+            result = AgentConversationSummaryResponse(
+                **data,
+                artifact_count=artifact_counts.get(session_key, 0),
+                autonomous_reason=autonomous_sessions.get(session_key),
+            )
+            (autonomous_reviews if is_autonomous else conversations).append(result)
+        return AgentConversationListResponse(
+            conversations=conversations, autonomous_reviews=autonomous_reviews
         )
-        return AgentConversationListResponse(conversations=conversations)
 
     async def update_conversation(
         self, session_id: UUID, *, title: str
@@ -2534,7 +2560,10 @@ class AgentService:
                 evidence, evidence.metadata_json or {}
             )
         ]
-        if not session_rows:
+        if not session_rows or any(
+            self._is_autonomous_review(item.metadata_json or {})
+            for item in session_rows
+        ):
             raise ValueError("conversation_not_found")
         for evidence in session_rows:
             metadata = dict(evidence.metadata_json or {})
@@ -3024,9 +3053,16 @@ class AgentService:
         assistant_subject_id: UUID,
         assistant_subject_type: str,
         assistant_metadata: dict,
+        autonomous_reason: str | None = None,
     ) -> None:
         source = await self._get_or_create_conversation_source()
         session_title = self._session_title_from_message(user_message)
+        origin = {"origin": "agent_chat"}
+        if autonomous_reason is not None:
+            origin = {
+                "origin": "autonomous_review",
+                "autonomous_reason": autonomous_reason,
+            }
         await self._store_agent_memory(
             source_id=source.id,
             title=f"User turn: {user_message[:80]}",
@@ -3038,7 +3074,7 @@ class AgentService:
                 "session_title": session_title,
                 "subject_id": str(user_subject_id),
                 "subject_type": user_subject_type,
-                "origin": "agent_chat",
+                **origin,
                 "message_kind": "chat",
             },
         )
@@ -3054,7 +3090,7 @@ class AgentService:
                 "subject_id": str(assistant_subject_id),
                 "subject_type": assistant_subject_type,
                 **assistant_metadata,
-                "origin": "agent_chat",
+                **origin,
                 "message_kind": "chat",
             },
         )
@@ -3198,6 +3234,22 @@ class AgentService:
         if content is not None:
             title_parts.append(content)
         return any(self._is_background_conversation_text(part) for part in title_parts)
+
+    @staticmethod
+    def _is_autonomous_review(metadata: dict, *, content: str | None = None) -> bool:
+        if metadata.get("origin") == "autonomous_review":
+            return True
+        title = str(metadata.get("session_title") or "")
+        pattern = (
+            r"^Autonomous review for [^,]+, prompted by this unresolved review signal:"
+        )
+        return bool(
+            re.match(pattern, title, flags=re.I)
+            or (
+                metadata.get("role") == "user"
+                and re.match(pattern, content or "", flags=re.I)
+            )
+        )
 
     @staticmethod
     def _is_background_conversation_text(text: str | None) -> bool:

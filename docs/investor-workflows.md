@@ -13,7 +13,15 @@ line length. On wide screens, drag the Knowledge inspector or Research sidebar
 divider, or focus it and use the arrow keys. Double-click the divider or press
 Enter to restore its default width. Each pane can collapse and keeps its layout
 in that browser. On compact screens, the Knowledge inspector stacks below the
-map and Research uses its Chats and watches drawer.
+map and Research uses a compact workspace drawer.
+
+Research separates **Chats**, **Autonomous**, and **Watches**. Chats are user
+conversations and their drafts. Autonomous contains saved background findings
+with their trigger and evidence, and opens independently of the current draft.
+The latest finding for each subject is visible first; earlier reviews remain searchable.
+Discussing a finding prepares a new chat without sending it. Watches are
+conditions still being monitored. Activity remains the dated receipt for work,
+deferrals, and errors.
 
 | Task | Starting surface | Context and next action |
 | --- | --- | --- |

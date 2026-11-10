@@ -25,7 +25,11 @@ async def provider_health():
 
 
 @router.post("/provider-health/probe")
-async def probe_provider_health():
+async def probe_provider_health(request: Request):
+    coordinator = getattr(request.app.state, "automation", None)
+    if coordinator is not None and coordinator.enabled:
+        await coordinator.run_job("provider_health_probe")
+        return ProviderHealthStore.public_status()
     return await probe_llm_provider()
 
 
@@ -179,6 +183,7 @@ async def get_automation_status(request: Request):
                 last_run_at=item.last_run_at,
                 last_status=item.last_status,
                 detail=item.detail,
+                last_trigger=item.last_trigger,
             )
             for item in coordinator.status()
         ]
@@ -208,6 +213,7 @@ async def run_automation_job(job_name: str, request: Request):
             last_run_at=item.last_run_at,
             last_status=item.last_status,
             detail=item.detail,
+            last_trigger=item.last_trigger,
         )
         for item in coordinator.status()
     ]

@@ -225,6 +225,15 @@ portfolio relevance, unresolved uncertainty, or another concrete expected
 information gain. Unchanged/no-op checkpoints may support deduplication and
 telemetry, but are not presented as meaningful agent activity.
 
+Committed evidence intake, material extraction, actionable questions, and
+shadow evidence receipts wake their existing workers through PostgreSQL
+notifications. The application also wakes eligible work when the model probe
+recovers. These signals contain only a category; the persisted queues own
+eligibility and deduplication. Signals coalesce, share the same execution guard
+as manual and interval runs, and retain existing model work budgets. Startup
+and reconnect check durable queues after subscription. Interval checks remain
+for external polling, time-based eligibility, and recovery if a signal is missed.
+
 ## Frontend Surfaces
 
 Shadow risk-statistic conventions and availability boundaries are documented in

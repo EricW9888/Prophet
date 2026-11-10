@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import WorkspaceDivider, { useWorkspacePane } from "@/components/WorkspaceDivider";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Check, ChevronDown, Maximize2, PanelLeftOpen, Paperclip, Pencil, X } from "lucide-react";
+import { Check, Maximize2, PanelLeftOpen, Paperclip, Pencil, X } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -31,7 +31,7 @@ import { readResearchEntry, researchTurnContext, type ResearchSubject } from "@/
 const ACTIVE_JOB_STORAGE_KEY = "prophet:active-chat-job";
 const ALLOW_ACTIONS_STORAGE_KEY = "prophet:allow-agent-actions";
 const RESEARCH_SIDEBAR_WIDTH = 320;
-const WATCHERS_COLLAPSED_STORAGE_KEY = "prophet:research-watches-collapsed";
+const RESEARCH_VIEWS = ["Chats", "Autonomous", "Watches"] as const;
 const ACTIVE_JOBS_POLL_ACTIVE_MS = 5000;
 const ACTIVE_JOBS_POLL_IDLE_MS = 15000;
 const ACTIVE_JOBS_POLL_HIDDEN_MS = 60000;
@@ -94,15 +94,6 @@ function formatCountdown(seconds?: number | null) {
   if (days > 0) return `${days}d ${hours}h left`;
   if (hours > 0) return `${hours}h ${minutes}m left`;
   return `${Math.max(1, minutes)}m left`;
-}
-
-function watchesStartCollapsed() {
-  if (typeof window === "undefined") return false;
-  try {
-    return window.localStorage.getItem(WATCHERS_COLLAPSED_STORAGE_KEY) === "true";
-  } catch {
-    return false;
-  }
 }
 
 type StructuredReasoningSummary = {
@@ -383,7 +374,7 @@ function CorroborationPanel({ summary }: { summary: StructuredReasoningSummary }
 
 function LiveWatchers() {
   const [watchers, setWatchers] = useState<ActiveWatcher[]>([]);
-  const [collapsed, setCollapsed] = useState(watchesStartCollapsed);
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
@@ -391,26 +382,23 @@ function LiveWatchers() {
       try {
         const data = await apiFetch<ActiveWatcher[]>("/watcher/active");
         setWatchers(data);
-      } catch {}
+        setLoadState("ready");
+      } catch {
+        setLoadState("error");
+      }
     };
     load();
     const interval = setInterval(load, 10000);
     return () => clearInterval(interval);
   }, []);
 
-  if (watchers.length === 0) return null;
+  if (watchers.length === 0) return (
+    <p className="p-4 text-sm text-muted" role="status">
+      {loadState === "loading" ? "Loading watches…" : loadState === "error" ? "Watches are unavailable. Prophet will retry." : "No active watches. When Prophet monitors a condition, it will appear here."}
+    </p>
+  );
   const visibleWatchers = showAll ? watchers : watchers.slice(0, 12);
   const overdueCount = watchers.filter((watcher) => watcher.is_overdue).length;
-
-  const toggleCollapsed = () => {
-    setCollapsed((current) => {
-      const next = !current;
-      try {
-        window.localStorage.setItem(WATCHERS_COLLAPSED_STORAGE_KEY, String(next));
-      } catch {}
-      return next;
-    });
-  };
 
   const dismissWatcher = async (watcherId: string) => {
     await apiFetch(`/watcher/${watcherId}/deactivate`, { method: "POST" });
@@ -419,13 +407,7 @@ function LiveWatchers() {
 
   return (
     <section className="shrink-0 border-b border-slate-200 dark:border-slate-800">
-      <button
-        type="button"
-        onClick={toggleCollapsed}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-xs font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900/60 dark:hover:text-slate-100"
-        aria-expanded={!collapsed}
-        aria-controls="research-live-watches"
-      >
+      <h2 className="px-4 py-3 text-xs font-medium text-muted">
         <span>
           Live watches <span className="tabular-nums">({watchers.length})</span>
           {overdueCount > 0 ? (
@@ -434,16 +416,8 @@ function LiveWatchers() {
             </span>
           ) : null}
         </span>
-        <ChevronDown
-          className={`h-4 w-4 shrink-0 transition-transform ${collapsed ? "-rotate-90" : ""}`}
-          aria-hidden="true"
-        />
-      </button>
-      <div
-        id="research-live-watches"
-        hidden={collapsed}
-        className="max-h-[30vh] space-y-3 overflow-y-auto overscroll-contain px-4 pb-4 pr-5"
-      >
+      </h2>
+      <div className="space-y-3 px-4 pb-4">
         {visibleWatchers.map((w) => (
           <div key={w.id} className="rounded-lg border border-sky-200 bg-sky-50/30 p-3 text-xs dark:border-sky-900/30 dark:bg-sky-900/10">
             <div className="flex items-center justify-between">
@@ -567,6 +541,9 @@ function ChatWorkspace() {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [conversations, setConversations] = useState<AgentConversationSummary[]>([]);
+  const [autonomousReviews, setAutonomousReviews] = useState<AgentConversationSummary[]>([]);
+  const [researchView, setResearchView] = useState<(typeof RESEARCH_VIEWS)[number]>("Chats");
+  const [openReport, setOpenReport] = useState<AgentConversationSummary | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [selectedSubjectName, setSelectedSubjectName] = useState("Portfolio");
   const [resolvedPreview, setResolvedPreview] = useState<AgentResolve | null>(null);
@@ -620,6 +597,7 @@ function ChatWorkspace() {
   const loadConversations = useCallback(async () => {
     const result = await apiFetch<AgentConversationList>("/agent/conversations");
     setConversations(result.conversations);
+    setAutonomousReviews(result.autonomous_reviews ?? []);
     setActiveSessionId((current) => {
       if (!conversationChosenRef.current && !current && result.conversations.length > 0) {
         return result.conversations[0].session_id;
@@ -1212,6 +1190,7 @@ function ChatWorkspace() {
   }
 
   function startNewChat() {
+    setResearchView("Chats");
     setAttachments([]);
     setAttachmentError(null);
     selectionEpochRef.current += 1;
@@ -1284,6 +1263,7 @@ function ChatWorkspace() {
   }
 
   const activeConversation = conversations.find((item) => item.session_id === activeSessionId) ?? null;
+  const linkedReport = autonomousReviews.find((item) => item.session_id === activeSessionId) ?? null;
   const liveEvents = activeJob?.events.filter((event) => event.phase !== "thinking") ?? [];
   const executionActive = allowActionsLoaded ? allowActions : false;
 
@@ -1295,7 +1275,7 @@ function ChatWorkspace() {
         {mobileWorkspaceOpen ? (
           <button
             type="button"
-            aria-label="Close chats and watches"
+            aria-label="Close research workspace"
             onClick={closeMobileWorkspace}
             className="fixed inset-0 z-[60] bg-slate-950/45 backdrop-blur-[1px] lg:hidden"
           />
@@ -1305,7 +1285,7 @@ function ChatWorkspace() {
           id="research-workspace-panel"
           role={mobileWorkspaceOpen ? "dialog" : undefined}
           aria-modal={mobileWorkspaceOpen ? true : undefined}
-          aria-label="Chats and watches"
+          aria-label="Research workspace"
           className={`${
             mobileWorkspaceOpen
               ? "fixed inset-y-0 left-0 z-[70] flex w-[min(88vw,360px)] shadow-2xl"
@@ -1314,19 +1294,31 @@ function ChatWorkspace() {
         >
           {mobileWorkspaceOpen ? (
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800 lg:hidden">
-              <p className="text-sm font-semibold">Chats and watches</p>
+              <p className="text-sm font-semibold">Research workspace</p>
               <button
                 type="button"
                 autoFocus
                 onClick={closeMobileWorkspace}
                 className="inline-flex h-9 w-9 items-center justify-center rounded border border-slate-200 text-slate-500 dark:border-slate-800 dark:text-slate-400"
-                title="Close chats and watches"
+                title="Close research workspace"
               >
                 <X className="h-4 w-4" />
-                <span className="sr-only">Close chats and watches</span>
+                <span className="sr-only">Close research workspace</span>
               </button>
             </div>
           ) : null}
+          <div role="group" aria-label="Research views" className="grid grid-cols-3 gap-1 border-b border-line p-2">
+            {RESEARCH_VIEWS.map((view) => (
+              <button key={view} type="button" aria-pressed={view === researchView} className={`min-w-0 border px-1 py-2 text-xs font-medium ${view === researchView ? "border-line-strong bg-background text-foreground" : "border-transparent text-muted hover:text-foreground"}`}
+                onClick={() => {
+                  setResearchView(view);
+                  if (view === "Autonomous") void loadConversations().catch(() => setError("Autonomous reviews could not be refreshed."));
+                }}>{view}</button>
+            ))}
+          </div>
+          {researchView === "Watches" ? <div className="min-h-0 flex-1 overflow-y-auto"><LiveWatchers /></div> : null}
+          {researchView === "Autonomous" ? <AutonomousReviewList reviews={autonomousReviews} onOpen={(report) => { setOpenReport(report); setMobileWorkspaceOpen(false); }} /> : null}
+          {researchView === "Chats" ? <>
           <div className="border-b border-slate-200 p-4 dark:border-slate-800">
             <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
               Saved chats
@@ -1350,7 +1342,6 @@ function ChatWorkspace() {
             }}
             onCancel={(jobId) => void cancelJob(jobId)}
           />
-          <LiveWatchers />
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {conversations.length === 0 ? (
               <p className="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
@@ -1466,6 +1457,7 @@ function ChatWorkspace() {
               })
             )}
           </div>
+          </> : null}
         </aside>
         {researchPane.open ? (
           <WorkspaceDivider side="left" controls="research-workspace-panel" label="Resize research sidebar" width={researchPane.width} defaultWidth={RESEARCH_SIDEBAR_WIDTH} onResize={researchPane.setWidth} />
@@ -1517,7 +1509,7 @@ function ChatWorkspace() {
                 ) : (
                   <div className="flex items-center gap-2">
                     <h1 className="text-2xl font-semibold tracking-tight">
-                      {activeConversation?.title ?? "New chat"}
+                      {activeConversation?.title ?? linkedReport?.title ?? "New chat"}
                     </h1>
                     {activeConversation ? (
                       <button
@@ -1533,7 +1525,9 @@ function ChatWorkspace() {
                   </div>
                 )}
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                  {activeConversation
+                  {linkedReport
+                    ? "Saved background review. Open the report to start a separate follow-up."
+                    : activeConversation
                     ? `Talking with Prophet about ${activeConversation.subject_name ?? selectedSubjectName}.`
                     : pinnedSubject
                       ? `Research context: ${pinnedSubject.subject_name ?? pinnedSubject.subject_type}. Review the draft, then send when ready.`
@@ -1555,7 +1549,7 @@ function ChatWorkspace() {
                   aria-controls="research-workspace-panel"
                 >
                   <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
-                  Chats and watches
+                  Browse research
                 </button>
                 <button
                   type="button"
@@ -1606,7 +1600,7 @@ function ChatWorkspace() {
               </div>
             ) : (
               <div className="space-y-6">
-                {messages.map((m, idx) => (
+                {messages.map((m, idx) => (linkedReport && m.role === "user" && m.content.startsWith("Autonomous review for ") ? null : (
                   <div key={idx} className={`flex w-full ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                     <div className={`flex w-full gap-4 ${m.role === "user" ? "max-w-[720px] flex-row-reverse" : "max-w-[960px] flex-row"}`}>
                       <div className="mt-1 flex-shrink-0">
@@ -1669,7 +1663,7 @@ function ChatWorkspace() {
                         ) : (
                           <div className="whitespace-pre-wrap break-words leading-7">{m.content}</div>
                         )}
-                        {m.role === "assistant" && (m.meta?.research_receipt || m.meta?.process_mode === "attached_text") && !messages.slice(idx + 1).some((entry) => entry.role === "assistant") ? (
+                        {!linkedReport && m.role === "assistant" && (m.meta?.research_receipt || m.meta?.process_mode === "attached_text") && !messages.slice(idx + 1).some((entry) => entry.role === "assistant") ? (
                           <button type="button" className="workspace-control mt-3" onClick={() => draftFollowUp("What evidence would change your conclusion, and how would you check it?")}>Draft follow-up</button>
                         ) : null}
                         {m.meta?.research_receipt ? <ResearchReceipt receipt={m.meta.research_receipt} /> : null}
@@ -1740,7 +1734,7 @@ function ChatWorkspace() {
                       </div>
                     </div>
                   </div>
-                ))}
+                )))}
                 {isTyping ? (
                   <section className="w-full max-w-[960px] border border-line bg-panel p-4 text-sm" aria-label="Research activity">
                     <div className="flex flex-wrap justify-between gap-2">
@@ -1781,7 +1775,7 @@ function ChatWorkspace() {
           </div>
 
           <div className="shrink-0 border-t border-line bg-background/90 px-4 py-3 backdrop-blur sm:px-6">
-            <form onSubmit={handleSubmit} className="mx-auto max-w-5xl">
+            {linkedReport ? <button type="button" className="workspace-control" onClick={() => setOpenReport(linkedReport)}>Open autonomous review</button> : <form onSubmit={handleSubmit} className="mx-auto max-w-5xl">
               <div className="mb-2 flex min-h-8 items-center justify-between gap-3">
                 <button
                   type="button"
@@ -1850,10 +1844,20 @@ function ChatWorkspace() {
                   Send
                 </button>
               </div>
-            </form>
+            </form>}
           </div>
         </section>
       </main>
+      {openReport ? <AutonomousReport report={openReport} onClose={() => setOpenReport(null)} onDiscuss={(summary) => {
+        startNewChat();
+        if (openReport.subject_id && openReport.subject_type) {
+          setPinnedSubject({ subject_id: openReport.subject_id, subject_type: openReport.subject_type, subject_name: openReport.subject_name ?? undefined });
+        }
+        const draft = `Follow up on Prophet’s autonomous review of ${openReport.subject_name ?? "this subject"}. What evidence supports the finding, and what is still uncertain?\n\nFinding to check: ${summary}`;
+        setInput(draft);
+        setOpenReport(null);
+        window.requestAnimationFrame(() => { resizeComposer(draft); composerRef.current?.focus(); });
+      }} /> : null}
       <dialog ref={answerDialog} onClose={() => setFocusedAnswer(null)} aria-labelledby="focused-answer-title" className="fixed inset-0 m-0 h-dvh max-h-none w-screen max-w-none border-none bg-background p-0 text-foreground backdrop:bg-background">
         {focusedAnswer ? (
           <div className="flex min-h-full flex-col">
@@ -1870,6 +1874,108 @@ function ChatWorkspace() {
         ) : null}
       </dialog>
     </div>
+  );
+}
+
+function AutonomousReviewList({ reviews, onOpen }: { reviews: AgentConversationSummary[]; onOpen: (review: AgentConversationSummary) => void }) {
+  const [query, setQuery] = useState("");
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+  const grouped = useMemo(() => {
+    const groups = new Map<string, AgentConversationSummary[]>();
+    const term = query.trim().toLowerCase();
+    for (const report of reviews) {
+      if (term && ![report.subject_name, report.title, report.autonomous_reason, report.latest_message_preview].some((text) => text?.toLowerCase().includes(term))) continue;
+      const key = report.subject_id ? `${report.subject_type}:${report.subject_id}` : report.subject_name ?? report.title;
+      const group = groups.get(key) ?? [];
+      group.push(report);
+      groups.set(key, group);
+    }
+    return [...groups.entries()];
+  }, [query, reviews]);
+  function reportButton(report: AgentConversationSummary, earlier = false) {
+    return (
+      <button key={report.session_id} type="button" className="block w-full border border-line p-3 text-left hover:border-line-strong" onClick={() => onOpen(report)}>
+        <span className="flex flex-wrap items-baseline justify-between gap-2">
+          <strong className="text-sm">{earlier ? "Earlier review" : report.subject_name ?? report.title}</strong>
+          <time className="text-xs text-muted" dateTime={report.updated_at}>{formatTimestamp(report.updated_at)}</time>
+        </span>
+        {report.autonomous_reason ? <span className="mt-1 line-clamp-2 text-xs text-muted">{report.autonomous_reason}</span> : null}
+        {report.latest_message_preview ? <span className="mt-2 line-clamp-2 text-xs text-muted">{stripInternalReasoningBlock(report.latest_message_preview)}</span> : null}
+      </button>
+    );
+  }
+  return (
+    <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+      <p className="text-xs text-muted">Latest finding for each subject. Open it to see why Prophet looked and what it found.</p>
+      {reviews.length ? <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Search autonomous findings" placeholder="Search findings" className="w-full border border-line bg-background px-2 py-2 text-sm" /> : null}
+      {!grouped.length ? <p className="text-sm text-muted">{reviews.length ? "No findings match this search." : "No saved autonomous reviews yet."}</p> : null}
+      {grouped.map(([key, group]) => {
+        const [latest, ...earlier] = group;
+        return (
+          <div key={key} className="space-y-1">
+            {reportButton(latest)}
+            {earlier.length ? <button type="button" aria-expanded={expandedGroup === key} className="w-full py-1 text-left text-xs text-action" onClick={() => setExpandedGroup(expandedGroup === key ? null : key)}>
+              {expandedGroup === key ? "Hide earlier reviews" : `Show ${earlier.length} earlier ${earlier.length === 1 ? "review" : "reviews"}`}
+            </button> : null}
+            {expandedGroup === key ? <div className="space-y-1 border-l border-line pl-2">{earlier.map((report) => reportButton(report, true))}</div> : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AutonomousReport({
+  report,
+  onClose,
+  onDiscuss,
+}: {
+  report: AgentConversationSummary;
+  onClose: () => void;
+  onDiscuss: (summary: string) => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [finding, setFinding] = useState<AgentConversationHistory["entries"][number] | null>(null);
+  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  useLayoutEffect(() => { dialog.current?.showModal(); }, []);
+  useEffect(() => {
+    const controller = new AbortController();
+    void apiFetch<AgentConversationHistory>(`/agent/history?session_id=${report.session_id}`, { signal: controller.signal })
+      .then((history) => {
+        if (controller.signal.aborted) return;
+        setFinding(history.entries.find((entry) => entry.role === "assistant" && !entry.is_artifact) ?? null);
+        setState("ready");
+      }, () => { if (!controller.signal.aborted) setState("error"); });
+    return () => controller.abort();
+  }, [report.session_id]);
+  const summary = finding ? stripInternalReasoningBlock(finding.content) : "";
+  return (
+    <dialog ref={dialog} onClose={onClose} aria-labelledby="autonomous-report-title"
+      className="fixed inset-0 m-0 h-dvh max-h-none w-screen max-w-none border-none bg-background p-0 text-foreground backdrop:bg-background">
+      <article className="mx-auto min-h-full w-full max-w-5xl px-4 py-5 sm:px-8">
+        <header className="mb-5 flex flex-wrap items-start justify-between gap-3 border-b border-line pb-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Autonomous finding · {formatTimestamp(report.updated_at)}</p>
+            <h2 id="autonomous-report-title" className="mt-1 text-xl font-semibold">{report.subject_name ?? report.title}</h2>
+          </div>
+          <button type="button" className="workspace-control" onClick={() => dialog.current?.close()}><X size={15} aria-hidden="true" /> Close review</button>
+        </header>
+        {report.autonomous_reason ? <p className="mb-4 border-l-2 border-line-strong pl-3 text-sm"><strong>Why Prophet looked:</strong> {report.autonomous_reason}</p> : null}
+        {state !== "ready" || !finding ? (
+          <p role="status" className="text-sm text-muted">{state === "loading" ? "Loading the saved review…" : state === "error" ? "The saved review could not be loaded. Close and reopen it to retry." : "No completed finding was saved for this review."}</p>
+        ) : (
+          <>
+            <div className={ANSWER_TEXT_CLASS}><ReactMarkdown remarkPlugins={[remarkGfm]} components={ANSWER_COMPONENTS}>{summary}</ReactMarkdown></div>
+            {finding.rationale_summary ? <p className="mt-4 text-sm"><strong>Rationale:</strong> {finding.rationale_summary}</p> : null}
+            {finding.research_receipt ? <ResearchReceipt receipt={finding.research_receipt} /> : null}
+            <div className="mt-5 flex flex-wrap gap-2 border-t border-line pt-4">
+              <button type="button" className="workspace-control" onClick={() => onDiscuss(summary.replace(/\s+/g, " ").slice(0, 480))}>Discuss in a new chat</button>
+              <Link href="/activity" className="workspace-control">See Activity</Link>
+            </div>
+          </>
+        )}
+      </article>
+    </dialog>
   );
 }
 

@@ -289,6 +289,9 @@ export default function ActivityPage() {
                           </span>
                         </div>
                         <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{item.displaySummary}</p>
+                        {typeof item.metadata?.automation_trigger === "string" && item.metadata.automation_trigger.startsWith("signal:") ? (
+                          <p className="mt-2 text-xs text-muted">Prompted by {formatUserLabel(item.metadata.automation_trigger.slice(7)).toLowerCase()}</p>
+                        ) : null}
                         {Object.keys(item.metadata || {}).length > 0 ? (
                           <details className="mt-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
                             <summary className="cursor-pointer text-xs font-medium text-slate-500 dark:text-slate-400">
