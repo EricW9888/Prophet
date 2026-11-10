@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -14,6 +15,7 @@ import socket
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -32,8 +34,10 @@ BACKEND_LOG = PRIVATE_RUNTIME_DIR / "backend.log"
 FRONTEND_LOG = PRIVATE_RUNTIME_DIR / "frontend.log"
 APP_URL = "http://127.0.0.1:3000"
 BACKEND_HEALTH_URL = "http://127.0.0.1:8000/health"
+FRONTEND_BUILD_URL = f"{APP_URL}/build-info"
 BACKEND_PORT = 8000
 FRONTEND_PORT = 3000
+CONTROL_PATH = PRIVATE_RUNTIME_DIR / "launcher-control.json"
 
 
 class StartupError(RuntimeError):
@@ -215,6 +219,7 @@ def run_command(
     *,
     cwd: Path = ROOT,
     capture: bool = False,
+    environment: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         list(command),
@@ -222,6 +227,7 @@ def run_command(
         check=False,
         text=True,
         capture_output=capture,
+        env=environment,
     )
     if result.returncode != 0:
         rendered = " ".join(command)
@@ -406,6 +412,24 @@ def frontend_build_digest() -> str:
     )
 
 
+def backend_build_digest() -> str:
+    return digest_paths(
+        (
+            *(BACKEND_DIR / "investos").rglob("*.py"),
+            *(BACKEND_DIR / "alembic").rglob("*.py"),
+            BACKEND_DIR / "pyproject.toml",
+            BACKEND_DIR / "poetry.lock",
+        )
+    )
+
+
+def installed_frontend_build() -> str | None:
+    try:
+        return (FRONTEND_DIR / ".next" / "BUILD_ID").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+
+
 def ensure_docker_ready(docker: str) -> None:
     result = subprocess.run(
         [docker, "info"],
@@ -498,10 +522,24 @@ def bootstrap(*, development: bool) -> None:
         build_digest = frontend_build_digest()
         if (
             cache.get("frontend_build") != build_digest
-            or not (FRONTEND_DIR / ".next" / "BUILD_ID").exists()
+            or installed_frontend_build() != build_digest
         ):
             print("Building the frontend...")
-            run_command([npm, "run", "build"], cwd=FRONTEND_DIR)
+            run_command(
+                [npm, "run", "build"],
+                cwd=FRONTEND_DIR,
+                environment={
+                    **frontend_process_environment(),
+                    "PROPHET_BUILD_INPUT": build_digest,
+                },
+            )
+            if (
+                installed_frontend_build() != build_digest
+                or frontend_build_digest() != build_digest
+            ):
+                raise StartupError(
+                    "Frontend inputs changed or the production build identity could not be verified. Run start again."
+                )
             cache["frontend_build"] = build_digest
 
     save_cache(cache)
@@ -556,6 +594,16 @@ def terminate_child(child: ChildProcess) -> None:
         child.log_handle.close()
         return
     if os.name == "nt":
+        # Uvicorn and Node can handle CTRL_BREAK when a console is attached.
+        # Detached Windows sessions may reject that signal; the fallback still
+        # targets only the process tree this launcher started.
+        try:
+            child.process.send_signal(signal.CTRL_BREAK_EVENT)
+            child.process.wait(timeout=8)
+            child.log_handle.close()
+            return
+        except (OSError, subprocess.TimeoutExpired):
+            pass
         subprocess.run(
             ["taskkill", "/PID", str(child.process.pid), "/T", "/F"],
             check=False,
@@ -612,8 +660,166 @@ def wait_for_services(
     )
 
 
-def supervise(children: Sequence[ChildProcess]) -> None:
-    print("Prophet is running. Keep this window open; press Ctrl+C to stop it.")
+def runtime_identity(url: str) -> tuple[str | None, str | None]:
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(url, timeout=1) as response:
+            payload = json.loads(response.read(2048))
+        return hex_identity(payload.get("build"), 64), hex_identity(
+            payload.get("instance"), 32
+        )
+    except (OSError, ValueError, AttributeError):
+        return None, None
+
+
+def hex_identity(value: object, length: int) -> str | None:
+    if (
+        isinstance(value, str)
+        and len(value) == length
+        and all(char in "0123456789abcdef" for char in value)
+    ):
+        return value
+    return None
+
+
+def control_proof(secret: str, message: str) -> str:
+    return hmac.new(
+        bytes.fromhex(secret), message.encode("ascii"), "sha256"
+    ).hexdigest()
+
+
+def read_control_line(connection: socket.socket) -> str:
+    data = bytearray()
+    deadline = time.monotonic() + 0.75
+    while len(data) < 256:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        connection.settimeout(remaining)
+        chunk = connection.recv(256 - len(data))
+        if not chunk:
+            break
+        data.extend(chunk)
+        if b"\n" in data:
+            return data.split(b"\n", 1)[0].decode("ascii")
+    return ""
+
+
+class LauncherControl:
+    """A private rendezvous for this launcher; callers never signal recorded PIDs."""
+
+    def __init__(self, instance: str):
+        self.instance = instance
+        self.secret = secrets.token_hex(32)
+        self.path = CONTROL_PATH
+        self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            self.listener.bind(("127.0.0.1", 0))
+            self.listener.listen(2)
+            self.listener.settimeout(0.5)
+            self.record = {
+                "instance": instance,
+                "secret": self.secret,
+                "port": self.listener.getsockname()[1],
+            }
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=self.path.parent, delete=False
+            ) as handle:
+                temporary = Path(handle.name)
+                json.dump(self.record, handle)
+            try:
+                temporary.replace(self.path)
+            finally:
+                temporary.unlink(missing_ok=True)
+        except BaseException:
+            self.listener.close()
+            raise
+
+    def stop_requested(self) -> bool:
+        try:
+            connection, _ = self.listener.accept()
+            with connection:
+                message = read_control_line(connection).split()
+                if (
+                    len(message) != 2
+                    or not hex_identity(message[0], 32)
+                    or not hex_identity(message[1], 64)
+                ):
+                    return False
+                nonce, proof = message
+                if not hmac.compare_digest(
+                    proof, control_proof(self.secret, f"stop:{self.instance}:{nonce}")
+                ):
+                    return False
+                connection.sendall(
+                    (
+                        control_proof(self.secret, f"accepted:{self.instance}:{nonce}")
+                        + "\n"
+                    ).encode("ascii")
+                )
+                return True
+        except (OSError, UnicodeError):
+            return False
+
+    def close(self) -> None:
+        self.listener.close()
+        try:
+            if json.loads(self.path.read_text(encoding="utf-8")) == self.record:
+                self.path.unlink(missing_ok=True)
+        except (OSError, ValueError):
+            pass
+
+
+def request_owned_stop() -> None:
+    if not any(port_open(port) for port in (BACKEND_PORT, FRONTEND_PORT)):
+        print("Prophet is already stopped.")
+        return
+    try:
+        record = json.loads(CONTROL_PATH.read_text(encoding="utf-8"))
+        instance = hex_identity(record.get("instance"), 32)
+        secret = hex_identity(record.get("secret"), 64)
+        port = record.get("port")
+        if (
+            not instance
+            or not secret
+            or type(port) is not int
+            or not 1 <= port <= 65535
+        ):
+            raise ValueError("Invalid rendezvous")
+        if any(
+            runtime_identity(url)[1] != instance
+            for url in (BACKEND_HEALTH_URL, FRONTEND_BUILD_URL)
+        ):
+            raise ValueError("Running services do not belong to the recorded launcher")
+        nonce = secrets.token_hex(16)
+        proof = control_proof(secret, f"stop:{instance}:{nonce}")
+        with socket.create_connection(("127.0.0.1", port), timeout=1.5) as connection:
+            connection.sendall(f"{nonce} {proof}\n".encode("ascii"))
+            result = read_control_line(connection)
+        if not hmac.compare_digest(
+            result, control_proof(secret, f"accepted:{instance}:{nonce}")
+        ):
+            raise ValueError("Launcher did not authenticate the shutdown")
+    except (OSError, ValueError, AttributeError) as exc:
+        raise StartupError(
+            "Cannot verify ownership of the running stack. Stop it from its original launcher, then run start. No process was signaled by this command."
+        ) from exc
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if not any(port_open(port) for port in (BACKEND_PORT, FRONTEND_PORT)):
+            print("Prophet stopped. PostgreSQL is unchanged.")
+            return
+        time.sleep(0.25)
+    raise StartupError(
+        "The owning launcher accepted shutdown, but application ports are still in use. Inspect status before starting again."
+    )
+
+
+def supervise(
+    children: Sequence[ChildProcess], control: LauncherControl | None = None
+) -> None:
+    print("Prophet is running. Press Ctrl+C in this launcher to stop it.")
     try:
         while True:
             failed = next(
@@ -623,7 +829,12 @@ def supervise(children: Sequence[ChildProcess]) -> None:
                 raise StartupError(
                     f"{failed.name} stopped unexpectedly.\n\n{log_tail(failed.log_path)}"
                 )
-            time.sleep(1)
+            if control:
+                if control.stop_requested():
+                    print("\nStopping Prophet at the owner's request...")
+                    return
+            else:
+                time.sleep(1)
     except KeyboardInterrupt:
         print("\nStopping Prophet...")
 
@@ -632,7 +843,9 @@ def start(*, development: bool, open_browser: bool) -> None:
     initial = current_probes()
     ensure_ports_available(initial)
     if all(probe.state is ServiceState.READY for probe in initial):
-        print(f"Prophet is already running at {APP_URL}")
+        print(
+            f"Services are already responding at {APP_URL}. Start reuses them; use status to check their builds."
+        )
         if open_browser:
             webbrowser.open(APP_URL)
         return
@@ -641,9 +854,11 @@ def start(*, development: bool, open_browser: bool) -> None:
     probes = current_probes()
     ensure_ports_available(probes)
 
-    npm = command_path("npm")
-    assert npm
+    node = command_path("node")
+    assert node
     children: list[ChildProcess] = []
+    instance = secrets.token_hex(16)
+    control: LauncherControl | None = None
     try:
         if probes[0].state is ServiceState.DOWN:
             print("Starting backend...")
@@ -653,15 +868,19 @@ def start(*, development: bool, open_browser: bool) -> None:
                     backend_command(),
                     cwd=BACKEND_DIR,
                     log_path=BACKEND_LOG,
+                    environment={
+                        **os.environ,
+                        "PROPHET_BACKEND_BUILD": backend_build_digest(),
+                        "PROPHET_LAUNCH_INSTANCE": instance,
+                    },
                 )
             )
         if probes[1].state is ServiceState.DOWN:
             print("Starting frontend...")
             frontend_command = [
-                npm,
-                "run",
+                node,
+                str(FRONTEND_DIR / "node_modules" / "next" / "dist" / "bin" / "next"),
                 "dev" if development else "start",
-                "--",
                 "--hostname",
                 "127.0.0.1",
                 "--port",
@@ -673,17 +892,33 @@ def start(*, development: bool, open_browser: bool) -> None:
                     frontend_command,
                     cwd=FRONTEND_DIR,
                     log_path=FRONTEND_LOG,
-                    environment=frontend_process_environment(),
+                    environment={
+                        **frontend_process_environment(),
+                        "PROPHET_LAUNCH_INSTANCE": instance,
+                    },
                 )
             )
         wait_for_services(children)
+        if len(children) == 2 and all(
+            runtime_identity(url)[1] == instance
+            for url in (BACKEND_HEALTH_URL, FRONTEND_BUILD_URL)
+        ):
+            control = LauncherControl(instance)
+        else:
+            print(
+                "Launcher ownership of both services could not be verified; stop and restart commands will be unavailable."
+            )
         print(f"Prophet is ready at {APP_URL}")
         if open_browser:
             webbrowser.open(APP_URL)
-        supervise(children)
+        supervise(children, control)
     finally:
-        for child in reversed(children):
-            terminate_child(child)
+        try:
+            for child in reversed(children):
+                terminate_child(child)
+        finally:
+            if control:
+                control.close()
 
 
 def print_status() -> int:
@@ -695,6 +930,23 @@ def print_status() -> int:
             ServiceState.PORT_OCCUPIED: "blocked by another listener",
         }[probe.state]
         print(f"{probe.name}: {label} ({probe.url})")
+        if probe.state is ServiceState.READY:
+            backend = probe.name == "Backend"
+            running, _ = runtime_identity(
+                BACKEND_HEALTH_URL if backend else FRONTEND_BUILD_URL
+            )
+            if running:
+                checkout = (
+                    backend_build_digest() if backend else frontend_build_digest()
+                )
+                verdict = (
+                    "matches checkout"
+                    if running == checkout
+                    else "differs from checkout; restart to load changes"
+                )
+                print(f"  Build {running[:12]} ({verdict})")
+            else:
+                print("  Running build unknown; readiness does not verify version.")
     if all(probe.state is ServiceState.READY for probe in probes):
         print("Prophet is ready.")
         return 0
@@ -759,7 +1011,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "command",
-        choices=("start", "status", "doctor"),
+        choices=("start", "status", "doctor", "stop", "restart"),
         nargs="?",
         default="start",
     )
@@ -783,10 +1035,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             return print_status()
         if args.command == "doctor":
             return print_doctor()
+        if args.command in {"stop", "restart"}:
+            request_owned_stop()
+            if args.command == "stop":
+                return 0
         start(development=args.dev, open_browser=not args.no_open)
         return 0
     except StartupError as exc:
-        print(f"\nProphet could not start:\n{exc}", file=sys.stderr)
+        print(f"\nProphet could not {args.command}:\n{exc}", file=sys.stderr)
         return 1
 
 

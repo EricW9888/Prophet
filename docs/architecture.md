@@ -33,6 +33,15 @@ all application routers under `/api` in
 clients by default and restricts browser state changes to configured frontend
 origins. This is a local safety boundary, not multi-user authentication.
 
+The launcher passes the backend source fingerprint at startup and embeds the
+frontend source fingerprint in the production build. Each service reports its
+fingerprint and non-secret launch identity; a standalone or older process can
+report an unknown build. A launcher publishes a private rendezvous only after
+both of its children report the same launch identity. Stop and restart verify
+that identity and authenticate a loopback request to the supervisor, which
+owns the child handles and performs shutdown. Browser routes cannot request
+launcher shutdown.
+
 ## End-to-End Data Flow
 
 ```mermaid

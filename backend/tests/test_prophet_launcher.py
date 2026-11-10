@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import socket
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -147,6 +150,80 @@ def test_running_stack_is_idempotent_and_skips_bootstrap(monkeypatch):
     prophet.start(development=False, open_browser=True)
 
     assert opened == [prophet.APP_URL]
+
+
+def test_owner_control_authenticates_shutdown_on_a_real_socket(tmp_path, monkeypatch):
+    path = tmp_path / "launcher.json"
+    instance = "a" * 32
+    monkeypatch.setattr(prophet, "CONTROL_PATH", path)
+    control = prophet.LauncherControl(instance)
+    record = json.loads(path.read_text(encoding="utf-8"))
+    monkeypatch.setattr(prophet, "runtime_identity", lambda _url: ("b" * 64, instance))
+    stopped = False
+    monkeypatch.setattr(prophet, "port_open", lambda _port: not stopped)
+
+    def accept():
+        nonlocal stopped
+        stopped = control.stop_requested()
+        return stopped
+
+    try:
+        with ThreadPoolExecutor() as pool:
+            wrong = pool.submit(accept)
+            with socket.create_connection(("127.0.0.1", record["port"])) as client:
+                client.sendall(("c" * 32 + " " + "d" * 64 + "\n").encode())
+            assert not wrong.result(timeout=2)
+
+            right = pool.submit(accept)
+            prophet.request_owned_stop()
+            assert right.result(timeout=2)
+    finally:
+        control.close()
+    assert not path.exists()
+
+
+def test_stale_record_cannot_contact_an_unowned_listener(tmp_path, monkeypatch):
+    path = tmp_path / "launcher.json"
+    path.write_text(
+        json.dumps({"instance": "a" * 32, "secret": "b" * 64, "port": 12345}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(prophet, "CONTROL_PATH", path)
+    monkeypatch.setattr(prophet, "port_open", lambda _port: True)
+    monkeypatch.setattr(prophet, "runtime_identity", lambda _url: (None, None))
+    monkeypatch.setattr(
+        prophet.socket,
+        "create_connection",
+        lambda *args, **kwargs: pytest.fail("Unknown listener was contacted"),
+    )
+
+    with pytest.raises(prophet.StartupError, match="Cannot verify ownership"):
+        prophet.request_owned_stop()
+
+
+def test_status_compares_live_identity_with_checkout_without_inventing_versions(
+    monkeypatch, capsys
+):
+    monkeypatch.setattr(
+        prophet,
+        "current_probes",
+        lambda: (
+            probe(prophet.ServiceState.READY),
+            probe(prophet.ServiceState.READY, name="Frontend"),
+        ),
+    )
+    monkeypatch.setattr(
+        prophet,
+        "runtime_identity",
+        lambda url: (
+            ("a" * 64, "b" * 32) if url == prophet.BACKEND_HEALTH_URL else (None, None)
+        ),
+    )
+    monkeypatch.setattr(prophet, "backend_build_digest", lambda: "c" * 64)
+    assert prophet.print_status() == 0
+    output = capsys.readouterr().out
+    assert "differs from checkout" in output
+    assert "Running build unknown" in output
 
 
 def test_launcher_has_no_implicit_local_model_prerequisite():
