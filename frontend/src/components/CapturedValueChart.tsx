@@ -1,16 +1,18 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { safeFormatCurrency } from "@/lib/formatting";
 
-export type ValuePoint = { id: string; at: string; value: number | null; detail?: string; href?: string };
-export type ChartEvent = { id: string; at: string; label: string; detail?: string; kind: "fill" | "decision" };
+type ReceiptLink = { href?: string; receiptLabel?: string; appReceipt?: boolean };
+export type ValuePoint = ReceiptLink & { id: string; at: string; value: number | null; detail?: string };
+export type ChartEvent = ReceiptLink & { id: string; at: string; label: string; detail?: string; kind: "fill" | "decision" | "ledger" };
 
 function timeLabel(time: number, compact = false) {
   return new Intl.DateTimeFormat(undefined, compact ? { month: "short", day: "numeric" } : { dateStyle: "medium", timeStyle: "short" }).format(time);
 }
 
-export default function CapturedValueChart({ label, points, events = [] }: { label: string; points: ValuePoint[]; events?: ChartEvent[] }) {
+export default function CapturedValueChart({ label, points, events = [], eventsLabel = "Actions and decisions" }: { label: string; points: ValuePoint[]; events?: ChartEvent[]; eventsLabel?: string }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const dated = points.map((point) => ({ ...point, time: Date.parse(point.at) })).filter((point) => Number.isFinite(point.time)).sort((a, b) => a.time - b.time);
   const datedEvents = events.map((event) => ({ ...event, time: Date.parse(event.at) })).filter((event) => Number.isFinite(event.time)).sort((a, b) => a.time - b.time);
@@ -64,12 +66,14 @@ export default function CapturedValueChart({ label, points, events = [] }: { lab
     <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-l-2 border-line pl-3 text-sm" aria-live="polite">
       <p><time dateTime={selected.at} className="text-muted">{timeLabel(selected.time)}</time>{" · "}<strong>{"value" in selected ? selected.value == null ? "Value unavailable" : safeFormatCurrency(selected.value, 2) : selected.label}</strong></p>
       {selected.detail && <p className="text-xs text-muted">{selected.detail}</p>}
-      {"href" in selected && selected.href && <a href={selected.href} className="text-xs text-action underline">Open capture receipt</a>}
+      {selected.href && (selected.appReceipt
+        ? <Link href={selected.href} prefetch={false} className="text-xs text-action underline">{selected.receiptLabel}</Link>
+        : <a href={selected.href} className="text-xs text-action underline">{selected.receiptLabel ?? "Open capture receipt"}</a>)}
     </div>
     {datedEvents.length > 0 && <details className="border-t border-line pt-2 text-xs">
-      <summary className="cursor-pointer text-muted">Actions and decisions ({datedEvents.length})</summary>
+      <summary className="cursor-pointer text-muted">{eventsLabel} ({datedEvents.length})</summary>
       <ol className="mt-2 max-h-56 divide-y divide-line overflow-auto">
-        {[...datedEvents].reverse().map((event) => <li key={event.id}><button type="button" onClick={() => setSelectedId(event.id)} aria-pressed={event.id === selected.id} className="w-full px-2 py-2 text-left hover:bg-panel aria-pressed:border-l-2 aria-pressed:border-action"><span className={event.kind === "fill" ? "text-emerald-500" : "text-amber-500"}>{event.kind === "fill" ? "Fill" : "Decision"}</span>{" · "}{event.label}<span className="ml-2 text-muted">{timeLabel(event.time)}</span></button></li>)}
+        {[...datedEvents].reverse().map((event) => <li key={event.id}><button type="button" onClick={() => setSelectedId(event.id)} aria-pressed={event.id === selected.id} className="w-full px-2 py-2 text-left hover:bg-panel aria-pressed:border-l-2 aria-pressed:border-action"><span className={event.kind === "fill" ? "text-emerald-500" : "text-amber-500"}>{event.kind === "fill" ? "Fill" : event.kind === "ledger" ? "Ledger" : "Decision"}</span>{" · "}{event.label}<span className="ml-2 text-muted">{timeLabel(event.time)}</span></button></li>)}
       </ol>
     </details>}
   </div>;

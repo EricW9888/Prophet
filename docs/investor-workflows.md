@@ -52,6 +52,16 @@ do not add another point. An incomplete valuation leaves the last mark in
 place. A ledger rebuild marks earlier valuations as superseded; manual marks
 are never used to calibrate an autonomous experiment.
 
+**Broker account equity** in Portfolio accepts a dated USD statement for the
+full account represented by the ledger. Preview and save its reported equity,
+cash and holdings. The chart plots equity where holdings and cash reconcile
+through that time. Missing cash, unsupported transactions and mismatches show
+gaps. Statement receipts preserve the original comparison. The current chart
+rechecks against settled ledger activity, so corrections can change the
+displayed coverage. Ledger markers open the recorded transaction or cash
+receipt. Holdings value and cash-flow-adjusted performance remain separate
+views.
+
 Every surface must distinguish its initial load from an observed empty result.
 A failed refresh retains the last loaded state with a visible stale/degraded
 message and a retry action. Secondary failures disclose which information is
