@@ -80,6 +80,8 @@ def freeze_packet(packet: dict) -> dict:
         "price_basis",
         "historical_availability_verified",
         "status",
+        "expected_session_date",
+        "observed_session",
     }
     for ticker, snapshot in frozen["snapshots"].items():
         acquired = (
@@ -92,7 +94,13 @@ def freeze_packet(packet: dict) -> dict:
                     **bar,
                     **{
                         key: clock(bar[key])
-                        for key in ("timestamp", "completed_at", "available_at")
+                        for key in (
+                            "timestamp",
+                            "completed_at",
+                            "available_at",
+                            "completion_observed_at",
+                        )
+                        if bar.get(key) is not None
                     },
                 }
                 for bar in snapshot.get("daily_observations", [])
@@ -145,6 +153,8 @@ def evaluate_packet(packet: dict, *, max_age_hours: int = 96) -> dict:
             or position.get("multiplier") != 1
         ):
             reason = "unsupported quantity or instrument payoff"
+        elif snapshot.get("status") == "missing_verified_session":
+            reason = "provider omitted a previously observed completed session"
         elif snapshot.get("reported_symbol") != ticker:
             reason = "missing or mismatched provider symbol"
         elif snapshot.get("currency") != "USD":
@@ -161,6 +171,10 @@ def evaluate_packet(packet: dict, *, max_age_hours: int = 96) -> dict:
                     all(
                         bar.get(key) and clock(bar[key]) <= cutoff
                         for key in ("timestamp", "completed_at", "available_at")
+                    )
+                    and (
+                        bar.get("completion_observed_at") is None
+                        or clock(bar["completion_observed_at"]) <= cutoff
                     )
                     and positive(bar.get("close"))
                     and positive(bar.get("adjusted_close"))
@@ -193,7 +207,13 @@ def evaluate_packet(packet: dict, *, max_age_hours: int = 96) -> dict:
                     **bar,
                     **{
                         key: clock(bar[key])
-                        for key in ("timestamp", "completed_at", "available_at")
+                        for key in (
+                            "timestamp",
+                            "completed_at",
+                            "available_at",
+                            "completion_observed_at",
+                        )
+                        if bar.get(key) is not None
                     },
                 }
                 for bar in bars
@@ -701,7 +721,13 @@ class PortfolioRiskService:
                     {
                         key: value
                         for key, value in bar.items()
-                        if key not in {"available_at", "open", "session_open_at"}
+                        if key
+                        not in {
+                            "available_at",
+                            "open",
+                            "session_open_at",
+                            "completion_observed_at",
+                        }
                     }
                     for bar in snap.get("daily_observations", [])
                 ]

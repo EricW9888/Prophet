@@ -249,6 +249,9 @@ async def test_equivalent_refresh_keeps_original_packet_and_updates_heartbeat():
         async with async_session_maker() as session:
             service = PortfolioRiskService(session)
             packet = frozen_packet()
+            for snapshot in packet["snapshots"].values():
+                for bar in snapshot["daily_observations"]:
+                    bar["completion_observed_at"] = snapshot["retrieved_at"]
             first = await service.capture(packet)
             refreshed = copy.deepcopy(packet)
             refreshed["cutoff"] = "2025-05-21T22:01:00+00:00"
@@ -256,6 +259,7 @@ async def test_equivalent_refresh_keeps_original_packet_and_updates_heartbeat():
                 snapshot["retrieved_at"] = "2025-05-21T22:00:30+00:00"
                 for bar in snapshot["daily_observations"]:
                     bar["available_at"] = snapshot["retrieved_at"]
+                    bar["completion_observed_at"] = snapshot["retrieved_at"]
             second = await service.capture(refreshed)
             assert first.assessment.id == second.assessment.id
             assert second.last_refresh_at >= first.last_refresh_at

@@ -132,6 +132,18 @@ def test_future_close_and_late_retrieval_cannot_change_pre_cutoff_risk():
     )
 
 
+def test_session_timing_evidence_observed_after_cutoff_is_excluded():
+    packet = frozen_packet()
+    for snapshot in packet["snapshots"].values():
+        snapshot["daily_observations"][-1][
+            "completion_observed_at"
+        ] = "2025-05-22T00:00:00+00:00"
+    frozen = freeze_packet(packet)
+    for snapshot in frozen["snapshots"].values():
+        assert len(snapshot["daily_observations"]) == 60
+    assert evaluate_packet(packet)["latest_session_date"] == "2025-05-20"
+
+
 @pytest.mark.parametrize(
     "fault",
     [

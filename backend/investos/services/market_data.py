@@ -6,14 +6,16 @@ import statistics
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from investos.models.entity import Security
+from investos.models.market_calendar import MarketSessionObservation
 from investos.models.portfolio import Position
 from investos.services.runtime_settings import RuntimeSettingsStore
 
@@ -274,6 +276,20 @@ class MarketDataService:
         range_value: str = "6mo",
         cutoff: datetime | None = None,
     ) -> dict[str, object]:
+        ticker = ticker.strip().upper()
+        snapshots = await self.fetch_signal_snapshots(
+            [ticker], range_value=range_value, concurrency=1, cutoff=cutoff
+        )
+        return snapshots.get(ticker, {})
+
+    async def _fetch_signal_snapshot(
+        self,
+        ticker: str,
+        *,
+        range_value: str,
+        cutoff: datetime | None,
+        known_sessions: list[dict],
+    ) -> dict[str, object]:
         """Capture completed daily bars, with acquisition and completion clocks.
 
         Yahoo's current historical revision cannot establish what was retrievable
@@ -318,6 +334,40 @@ class MarketDataService:
         regular = (meta.get("currentTradingPeriod") or {}).get("regular") or {}
         session_start = regular.get("start")
         session_end = regular.get("end")
+        identity = (
+            "yahoo_finance",
+            meta.get("symbol"),
+            meta.get("exchangeName") or "",
+            str(timezone),
+        )
+        remembered = {}
+        for period in known_sessions:
+            if (
+                tuple(
+                    period[key]
+                    for key in ("provider", "symbol", "exchange", "timezone")
+                )
+                == identity
+                and meta.get("exchangeTimezoneName") == str(timezone)
+                and period["observed_at"] <= retrieved_at
+            ):
+                day = period["opens_at"].astimezone(timezone).date()
+                remembered.setdefault(day, period)
+
+        def session_period(timestamp: int) -> dict | None:
+            day = datetime.fromtimestamp(timestamp, timezone).date()
+            if (
+                session_start
+                and session_end
+                and session_end > session_start
+                and datetime.fromtimestamp(session_start, timezone).date() == day
+            ):
+                return {
+                    "opens_at": datetime.fromtimestamp(session_start, UTC),
+                    "closes_at": datetime.fromtimestamp(session_end, UTC),
+                    "observed_at": retrieved_at,
+                }
+            return remembered.get(day)
 
         def regular_session(timestamp: int) -> bool:
             # A same-date daily label alone is not a verified opening time.
@@ -325,12 +375,9 @@ class MarketDataService:
 
         def completed_at(timestamp: int) -> datetime:
             day = datetime.fromtimestamp(timestamp, timezone).date()
-            if (
-                session_start
-                and session_end
-                and datetime.fromtimestamp(session_start, timezone).date() == day
-            ):
-                return datetime.fromtimestamp(session_end, UTC)
+            period = session_period(timestamp)
+            if period:
+                return period["closes_at"]
             # Older bars have no verified historical exchange schedule. Wait
             # until the next local date rather than inventing a session close.
             return datetime.combine(
@@ -355,6 +402,11 @@ class MarketDataService:
                     else None
                 ),
                 "completed_at": completed_at(timestamp),
+                "completion_observed_at": (
+                    session_period(timestamp)["observed_at"]
+                    if session_period(timestamp)
+                    else None
+                ),
                 "available_at": retrieved_at,
                 "volume": (
                     None
@@ -383,6 +435,40 @@ class MarketDataService:
                 "historical_availability_verified": False,
             }
         )
+        if (
+            meta.get("symbol") == ticker
+            and meta.get("exchangeTimezoneName") == str(timezone)
+            and session_start in timestamps
+            and session_end
+            and session_end > session_start
+            and session_end <= retrieved_at.timestamp()
+            and any(
+                bar["timestamp"].timestamp() == session_start
+                and self._finite_number(bar["close"]) is not None
+                and bar["close"] > 0
+                for bar in observations
+            )
+        ):
+            snapshot["observed_session"] = {
+                "id": str(uuid4()),
+                "provider": identity[0],
+                "symbol": identity[1],
+                "exchange": identity[2],
+                "timezone": identity[3],
+                "opens_at": datetime.fromtimestamp(session_start, UTC).isoformat(),
+                "closes_at": datetime.fromtimestamp(session_end, UTC).isoformat(),
+                "observed_at": retrieved_at.isoformat(),
+            }
+        if remembered:
+            expected = max(remembered)
+            latest = (
+                datetime.fromisoformat(snapshot["as_of"]).astimezone(timezone).date()
+                if snapshot.get("as_of")
+                else None
+            )
+            if latest is None or latest < expected:
+                snapshot["status"] = "missing_verified_session"
+                snapshot["expected_session_date"] = expected.isoformat()
         return snapshot
 
     async def fetch_signal_snapshots(
@@ -394,12 +480,77 @@ class MarketDataService:
         cutoff: datetime | None = None,
     ) -> dict[str, dict[str, object]]:
         semaphore = asyncio.Semaphore(max(1, min(int(concurrency or 4), 8)))
+        now = datetime.now(UTC)
+        normalized = sorted(
+            {
+                str(ticker or "").strip().upper()
+                for ticker in tickers
+                if str(ticker or "").strip()
+            }
+        )
+        if cutoff is not None and cutoff < now:
+            return {
+                ticker: {
+                    **self.build_signal_snapshot(ticker=ticker, observations=[]),
+                    "status": "historical_capture_required",
+                }
+                for ticker in normalized
+            }
+        known_sessions = []
+        if self.session is not None and normalized:
+            # Read the latest observed session per provider identity, including
+            # across weekends, without loading every polling observation.
+            periods = (
+                (
+                    await self.session.execute(
+                        select(MarketSessionObservation)
+                        .where(
+                            MarketSessionObservation.provider == "yahoo_finance",
+                            MarketSessionObservation.symbol.in_(normalized),
+                            MarketSessionObservation.observed_at <= now,
+                        )
+                        .distinct(
+                            MarketSessionObservation.symbol,
+                            MarketSessionObservation.exchange,
+                            MarketSessionObservation.timezone,
+                        )
+                        .order_by(
+                            MarketSessionObservation.symbol,
+                            MarketSessionObservation.exchange,
+                            MarketSessionObservation.timezone,
+                            MarketSessionObservation.opens_at.desc(),
+                            MarketSessionObservation.observed_at.desc(),
+                            MarketSessionObservation.id.desc(),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            known_sessions = [
+                {
+                    key: getattr(period, key)
+                    for key in (
+                        "provider",
+                        "symbol",
+                        "exchange",
+                        "timezone",
+                        "opens_at",
+                        "closes_at",
+                        "observed_at",
+                    )
+                }
+                for period in periods
+            ]
 
         async def fetch_one(ticker: str) -> tuple[str, dict[str, object] | None]:
             async with semaphore:
                 try:
-                    return ticker, await self.fetch_signal_snapshot(
-                        ticker, range_value=range_value, cutoff=cutoff
+                    return ticker, await self._fetch_signal_snapshot(
+                        ticker,
+                        range_value=range_value,
+                        cutoff=cutoff,
+                        known_sessions=known_sessions,
                     )
                 except Exception:
                     return ticker, {
@@ -408,14 +559,22 @@ class MarketDataService:
                         "status": "unavailable",
                     }
 
-        normalized = sorted(
-            {
-                str(ticker or "").strip().upper()
-                for ticker in tickers
-                if str(ticker or "").strip()
-            }
-        )
         rows = await asyncio.gather(*(fetch_one(ticker) for ticker in normalized))
+        schedules = [
+            {
+                **snapshot["observed_session"],
+                "id": UUID(snapshot["observed_session"]["id"]),
+                **{
+                    key: datetime.fromisoformat(snapshot["observed_session"][key])
+                    for key in ("opens_at", "closes_at", "observed_at")
+                },
+            }
+            for _, snapshot in rows
+            if snapshot and snapshot.get("observed_session")
+        ]
+        if self.session is not None and schedules:
+            # Network tasks finish before using the shared database session.
+            await self.session.execute(insert(MarketSessionObservation), schedules)
         return {ticker: snapshot for ticker, snapshot in rows if snapshot}
 
     @staticmethod
@@ -439,6 +598,14 @@ class MarketDataService:
                     and item[clock].tzinfo is not None
                     and item[clock] <= cutoff
                     for clock in ("timestamp", "completed_at", "available_at")
+                )
+            )
+            and (
+                cutoff is None
+                or item.get("completion_observed_at") is None
+                or (
+                    isinstance(item["completion_observed_at"], datetime)
+                    and item["completion_observed_at"] <= cutoff
                 )
             )
         ]
