@@ -41,6 +41,7 @@ from investos.services.dashboard import DashboardService
 from investos.services.entity_hygiene import EntityHygieneService
 from investos.services.graph_edge_state import GraphEdgeStateService
 from investos.services.market_data import MarketDataService
+from investos.services.operating_state import OperatingStateService
 from investos.services.portfolio import PortfolioService
 from investos.services.profile import ProfileService
 from investos.services.retrieval import RetrievalService
@@ -63,6 +64,80 @@ async def workflow_session():
             yield session
         await transaction.rollback()
     await engine.dispose()
+
+
+async def test_portfolio_monitor_counts_relevant_reviews_beyond_the_global_preview(
+    workflow_session,
+):
+    session = workflow_session
+    held = Entity(name="Synthetic monitored issuer", entity_type="company")
+    session.add(held)
+    await session.flush()
+    security = Security(
+        entity_id=held.id,
+        ticker=f"SYN{uuid4().hex[:8]}",
+        asset_class="equity",
+        instrument_type="common_stock",
+    )
+    session.add(security)
+    await session.flush()
+    position = Position(
+        security_id=security.id, direction="long", list_type="holding", quantity=1
+    )
+    session.add(position)
+    await session.flush()
+    session.add_all(
+        [
+            ReviewQueueItem(
+                item_type="entity",
+                item_id=uuid4(),
+                priority_score=100,
+                trigger_reason="Unrelated high priority review",
+            )
+            for _ in range(100)
+        ]
+        + [
+            ReviewQueueItem(
+                item_type="entity" if index % 2 else "position",
+                item_id=held.id if index % 2 else position.id,
+                priority_score=80 - index,
+                status="in_review" if index == 1 else "pending",
+                trigger_reason=f"Relevant review {index}",
+            )
+            for index in range(6)
+        ]
+        + [
+            ReviewQueueItem(
+                item_type="shadow_experiment",
+                item_id=uuid4(),
+                priority_score=79.5,
+                trigger_reason="Paper experiment review",
+            ),
+            ReviewQueueItem(
+                item_type="entity",
+                item_id=held.id,
+                priority_score=99,
+                status="resolved",
+                trigger_reason="Resolved review",
+            ),
+        ]
+    )
+    await session.flush()
+
+    monitor = await OperatingStateService(session).portfolio_monitor_payload()
+    assert monitor["priority_review_count"] == 7
+    assert [row["trigger_reason"] for row in monitor["priority_review_items"]] == [
+        "Relevant review 0",
+        "Paper experiment review",
+        "Relevant review 1",
+        "Relevant review 2",
+        "Relevant review 3",
+    ]
+    dashboard = await DashboardService(session)._portfolio_monitor()
+    assert dashboard.priority_review_count == monitor["priority_review_count"]
+    assert [
+        item.model_dump() for item in dashboard.priority_review_items
+    ] == monitor["priority_review_items"]
 
 
 async def test_broker_equity_reconciles_statement_dates_and_active_ledger_receipts(
