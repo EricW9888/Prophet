@@ -391,9 +391,14 @@ class AutomationCoordinator:
     async def _dispatch_job(
         self, name: str, func: Callable[[], object], *, trigger: str
     ) -> None:
-        if self._shutting_down or name in self._active_jobs:
-            return
         telemetry = self.telemetry.get(name)
+        if self._shutting_down:
+            if telemetry is not None:
+                telemetry.last_status = "cancelled"
+                telemetry.detail = "shutdown_cancelled"
+            return
+        if name in self._active_jobs:
+            return
         signal = self._pending_signals.pop(name, None)
         if telemetry is not None:
             telemetry.last_trigger = (
