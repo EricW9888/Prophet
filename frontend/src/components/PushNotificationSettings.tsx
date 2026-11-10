@@ -1,7 +1,7 @@
 "use client";
 
 import { Bell, BellOff, Send, Smartphone } from "lucide-react";
-import { useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/api";
 import {
@@ -9,6 +9,7 @@ import {
   disablePushNotifications,
   enablePushNotifications,
   pushNotificationsSupported,
+  pushSubscriptionMatches,
   PushNotificationServerStatus,
   sendTestPushNotification,
   syncPushSubscription,
@@ -30,6 +31,7 @@ export default function PushNotificationSettings() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [senderContact, setSenderContact] = useState("");
 
   async function refresh() {
     const supported = pushNotificationsSupported();
@@ -41,7 +43,8 @@ export default function PushNotificationSettings() {
     if (
       currentSubscription &&
       Notification.permission === "granted" &&
-      serverStatus.ready
+      serverStatus.ready &&
+      pushSubscriptionMatches(currentSubscription, serverStatus.application_server_key)
     ) {
       await syncPushSubscription(currentSubscription);
       serverStatus = await apiFetch<PushNotificationServerStatus>(
@@ -85,6 +88,30 @@ export default function PushNotificationSettings() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function saveSenderContact(value: string | null) {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const next = await apiFetch<PushNotificationServerStatus>("/notifications/contact", {
+        method: "PUT",
+        body: JSON.stringify({ sender_contact: value }),
+      });
+      setStatus(next);
+      setSenderContact("");
+      setMessage(value ? "Sender contact saved. Enable this device if needed, then send a test." : "Saved sender contact removed.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The sender contact could not be saved.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function submitSenderContact(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (senderContact.trim()) void saveSenderContact(senderContact.trim());
   }
 
   async function disable() {
@@ -144,11 +171,20 @@ export default function PushNotificationSettings() {
   }
 
   const supported = permission !== "unsupported";
-  const active = Boolean(subscription && permission === "granted" && status?.ready);
+  const active = Boolean(subscription && permission === "granted" && status?.ready && pushSubscriptionMatches(subscription, status.application_server_key));
   const canEnable = supported && permission !== "denied" && status?.ready && status.application_server_key;
+  const contactForm = <form onSubmit={submitSenderContact} className="mt-3 space-y-2">
+    <label htmlFor="push-sender-contact" className="block text-sm font-medium">Sender contact</label>
+    <p id="push-sender-help" className="text-xs text-muted">Use an email address or an HTTPS site origin you control. Prophet sends this contact to the browser’s push service when it delivers an alert.</p>
+    <div className="flex min-w-0 flex-wrap gap-2">
+      <input id="push-sender-contact" aria-describedby="push-sender-help" className="min-w-0 flex-[1_1_14rem] border border-line bg-background px-3 py-2 text-sm" type="text" value={senderContact} onChange={(event) => setSenderContact(event.target.value)} placeholder="Email or HTTPS site origin" autoCapitalize="none" spellCheck={false} maxLength={512} required />
+      <button type="submit" className="workspace-control disabled:opacity-50" disabled={busy || !senderContact.trim()}>Save sender contact</button>
+      {status?.sender_contact_saved && <button type="button" className="workspace-control disabled:opacity-50" disabled={busy} onClick={() => void saveSenderContact(null)}>Remove saved contact</button>}
+    </div>
+  </form>;
 
   return (
-    <section className="rounded-lg border border-line bg-panel p-6">
+    <section id="device-notifications" className="rounded-lg border border-line bg-panel p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
           <div className="rounded-md border border-slate-200 p-2 dark:border-slate-700">
@@ -174,7 +210,7 @@ export default function PushNotificationSettings() {
               : "border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400"
           }`}
         >
-          {active ? "On for this device" : status && !status.ready ? "Setup required" : "Off for this device"}
+          {active ? "On for this device" : status && !status.enabled ? "Off on host" : status && !status.ready ? "Setup required" : "Off for this device"}
         </span>
       </div>
 
@@ -219,6 +255,7 @@ export default function PushNotificationSettings() {
         <div className="mt-4 border-l-2 border-line pl-3 text-sm">
           <p className="font-medium">{status.enabled ? "The Prophet host needs a sender contact for push delivery." : "Push delivery is disabled on the Prophet host."}</p>
           <p className="mt-1 text-muted">You can still see watch and reminder updates inside Prophet.</p>
+          {status.enabled && contactForm}
           <details className="mt-2 text-xs text-muted">
             <summary className="cursor-pointer">Host setup details</summary>
             <p className="mt-2">{status.configuration_error ?? "Enable WEB_PUSH_ENABLED on the Prophet host to allow device subscriptions."} Restart the local launcher after changing its environment, then return here to enable this device.</p>
@@ -226,13 +263,18 @@ export default function PushNotificationSettings() {
         </div>
       )}
 
-      {error && <p className="mt-4 text-sm text-red-600 dark:text-red-300">{error}</p>}
+      {status?.ready && <details className="mt-4 text-sm">
+        <summary className="cursor-pointer text-muted">Change sender contact</summary>
+        {contactForm}
+      </details>}
+
+      {error && <p role="alert" className="mt-4 text-sm text-red-600 dark:text-red-300">{error}</p>}
       {message && (
-        <p className="mt-4 text-sm text-emerald-700 dark:text-emerald-300">{message}</p>
+        <p role="status" className="mt-4 text-sm text-emerald-700 dark:text-emerald-300">{message}</p>
       )}
 
       {(subscription || canEnable) && <div className="mt-5 flex flex-wrap gap-2">
-        {!subscription ? (
+        {!active && canEnable ? (
           <button
             type="button"
             onClick={() => void enable()}
@@ -241,9 +283,8 @@ export default function PushNotificationSettings() {
           >
             {busy ? "Working..." : "Enable on this device"}
           </button>
-        ) : (
-          <>
-            {active && <button
+        ) : null}
+        {active && <button
               type="button"
               onClick={() => void test()}
               disabled={busy}
@@ -251,17 +292,15 @@ export default function PushNotificationSettings() {
             >
               <Send className="h-4 w-4" />
               Send test
-            </button>}
-            <button
+        </button>}
+        {subscription && <button
               type="button"
               onClick={() => void disable()}
               disabled={busy}
               className="rounded-md border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200"
             >
               Turn off
-            </button>
-          </>
-        )}
+        </button>}
       </div>}
     </section>
   );

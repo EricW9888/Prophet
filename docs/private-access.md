@@ -52,10 +52,11 @@ This is owner access, not a general multi-user authentication system.
 
 ## Mobile notifications
 
-After opening the installed app over HTTPS, go to **Settings > System > Owner
-notifications** and enable the current device. Permission is requested only from
-that explicit action. On iPhone and iPad, Web Push requires a Home Screen web
-app; a normal browser tab does not expose the same permission path.
+After opening the installed app over HTTPS, go to **Settings > System > Device
+notifications**. Save a sender contact if prompted, then enable the current
+device. Permission is requested only from that explicit action. On iPhone and
+iPad, Web Push requires a Home Screen web app; a normal browser tab does not
+expose the same permission path.
 
 Prophet creates one private VAPID identity under its ignored storage directory
 and keeps each browser subscription in the local database. A durable delivery
@@ -63,11 +64,13 @@ outbox deduplicates watcher transitions, retries temporary push-service
 failures, and retires subscriptions rejected as permanently invalid. Use **Send
 test** in Settings to verify a device after enabling it.
 
-Web Push also requires a valid VAPID contact URI. Prophet uses the configured
-remote-access email as a `mailto:` contact by default. If that login is not an
-email address, set `WEB_PUSH_VAPID_SUBJECT` explicitly to a contact such as
-`mailto:owner@example.com`. Invalid sender configuration is reported in
-Settings and fails immediately rather than being retried as a network outage.
+Prophet uses a sender contact in its Web Push identity. Enter an email or an
+HTTPS site origin you control. Prophet keeps the saved contact locally and
+includes it in the authenticated request to the browser's push service. A saved
+contact takes effect immediately and overrides `WEB_PUSH_VAPID_SUBJECT` and the
+remote-access email fallback. Removing it restores those fallbacks. The
+environment setting remains available for host-managed setup. Invalid sender
+configuration fails immediately rather than being retried as a network outage.
 
 Lock-screen messages deliberately omit tickers, positions, values, objectives,
 and adjustment plans. They say only that a monitored condition needs review and

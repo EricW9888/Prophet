@@ -3,6 +3,7 @@ import { apiFetch } from "@/lib/api";
 export type PushNotificationServerStatus = {
   enabled: boolean;
   ready: boolean;
+  sender_contact_saved?: boolean;
   configuration_error?: string | null;
   application_server_key?: string | null;
   active_subscription_count: number;
@@ -25,6 +26,10 @@ function keysMatch(
     currentBytes.length === expected.length &&
     currentBytes.every((byte, index) => byte === expected[index])
   );
+}
+
+export function pushSubscriptionMatches(subscription: PushSubscription, publicKey: string | null | undefined): boolean {
+  return Boolean(publicKey && keysMatch(subscription.options.applicationServerKey, applicationServerKey(publicKey)));
 }
 
 export function pushNotificationsSupported(): boolean {
@@ -120,5 +125,7 @@ export async function sendTestPushNotification(
 export async function syncExistingPushSubscription(): Promise<void> {
   if (!pushNotificationsSupported() || Notification.permission !== "granted") return;
   const subscription = await currentPushSubscription();
-  if (subscription) await syncPushSubscription(subscription);
+  if (!subscription) return;
+  const status = await apiFetch<PushNotificationServerStatus>("/notifications/status");
+  if (status.ready && pushSubscriptionMatches(subscription, status.application_server_key)) await syncPushSubscription(subscription);
 }

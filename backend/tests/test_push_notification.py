@@ -9,10 +9,12 @@ from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, func, select
 
 from investos.config import settings
 from investos.db import async_session_maker, engine
+from investos.main import app
 from investos.models.notification import (
     PushNotificationDelivery,
     PushNotificationEvent,
@@ -89,6 +91,72 @@ def test_vapid_identity_is_private_and_stable(tmp_path, monkeypatch) -> None:
     assert private_key_path.is_file()
     if os.name != "nt":  # Windows permissions are ACLs, not POSIX mode bits.
         assert stat.S_IMODE(private_key_path.stat().st_mode) == 0o600
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_settings_contact_unlocks_subscription_and_stays_private(
+    tmp_path, monkeypatch
+):
+    await clean_push_state()
+    monkeypatch.setattr(settings, "WEB_PUSH_ENABLED", True)
+    monkeypatch.setattr(settings, "WEB_PUSH_VAPID_SUBJECT", None)
+    monkeypatch.setattr(
+        settings, "RUNTIME_SETTINGS_PATH", str(tmp_path / "runtime.json")
+    )
+    monkeypatch.setattr(settings, "STORAGE_DIR", str(tmp_path / "storage"))
+    monkeypatch.setattr(
+        "investos.services.push_notification.resolve_public_url", public_endpoint
+    )
+    sent: list[dict] = []
+    monkeypatch.setattr(
+        "investos.services.push_notification.webpush",
+        lambda **kwargs: sent.append(kwargs),
+    )
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            current = await client.get("/api/notifications/status")
+            assert current.status_code == 200
+            assert current.json()["ready"] is False
+            invalid = await client.put(
+                "/api/notifications/contact", json={"sender_contact": "https://[broken"}
+            )
+            assert invalid.status_code == 400
+            contact = "device-setup@example.test"
+            saved = await client.put(
+                "/api/notifications/contact", json={"sender_contact": contact}
+            )
+            assert saved.status_code == 200
+            assert saved.json()["ready"] is True
+            assert saved.json()["sender_contact_saved"] is True
+            assert contact not in saved.text
+            assert not sent
+
+            endpoint = "https://push.example.test/subscription/device-setup"
+            subscribed = await client.post(
+                "/api/notifications/subscriptions",
+                json={
+                    "endpoint": endpoint,
+                    "keys": {"p256dh": encoded_bytes(65), "auth": encoded_bytes(16)},
+                },
+            )
+            assert subscribed.status_code == 200
+            tested = await client.post(
+                "/api/notifications/test", json={"endpoint": endpoint}
+            )
+            assert tested.json() == {"status": "sent", "sent": True}
+            assert sent[0]["vapid_claims"] == {"sub": f"mailto:{contact}"}
+            assert contact not in sent[0]["data"]
+
+            cleared = await client.put(
+                "/api/notifications/contact", json={"sender_contact": None}
+            )
+            assert cleared.json()["ready"] is False
+            assert cleared.json()["sender_contact_saved"] is False
+            assert cleared.json()["active_subscription_count"] == 1
+    finally:
+        await clean_push_state()
 
 
 async def public_endpoint(*_args, **_kwargs):

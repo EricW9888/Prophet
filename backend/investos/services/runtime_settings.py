@@ -95,6 +95,7 @@ class PlaidRuntimeSettings(BaseModel):
 
 class RuntimeSettings(BaseModel):
     presentation_language: PresentationLanguage = "en"
+    push_sender_contact: str | None = None
     market_data: MarketDataRuntimeSettings = Field(
         default_factory=MarketDataRuntimeSettings
     )
