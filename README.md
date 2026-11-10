@@ -97,12 +97,18 @@ the next run. Diagnose setup or inspect a running stack with:
 ```bash
 python3 scripts/prophet.py doctor
 python3 scripts/prophet.py status
+python3 scripts/prophet.py restart --no-open
+python3 scripts/prophet.py stop
 ```
 
-Use `python3 scripts/prophet.py --dev` for frontend hot reload. The launcher will
-not kill an unknown process when ports 3000 or 8000 are occupied; it reports the
-conflict so the owning process can be handled deliberately. Logs live in the
-ignored `.prophet-local/runtime/` directory.
+`status` compares the running build fingerprints with the checkout. Settings
+shows the fingerprints reported by each running service. `restart` stops a
+verified stack through the original launcher, then starts the current checkout
+in the calling terminal. `stop` leaves PostgreSQL running. If either service
+has unknown ownership (including a launcher from before these commands), stop
+it through its original launcher once. Prophet never guesses process IDs from
+port numbers. Use `--dev` for frontend hot reload; it has no fixed frontend
+build fingerprint. Logs live in the ignored `.prophet-local/runtime/` directory.
 
 The production frontend includes an installable web-app manifest. Open
 **Settings → Desktop window** for the install action where supported. You can

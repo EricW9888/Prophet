@@ -1,4 +1,6 @@
 import logging
+import os
+import re
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -85,6 +87,22 @@ from investos.api.routes import api_router
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
 
+def runtime_identity() -> dict[str, str | None]:
+    build = os.environ.get("PROPHET_BACKEND_BUILD", "")
+    instance = os.environ.get("PROPHET_LAUNCH_INSTANCE", "")
+    return {
+        "build": build if re.fullmatch(r"[0-9a-f]{64}", build) else None,
+        "instance": instance if re.fullmatch(r"[0-9a-f]{32}", instance) else None,
+    }
+
+
+@app.get(f"{settings.API_V1_STR}/runtime-build")
+async def runtime_build():
+    return JSONResponse(runtime_identity(), headers={"Cache-Control": "no-store"})
+
+
 @app.get("/health")
 async def health_check():
-    return {"status": "ok"}
+    return JSONResponse(
+        {"status": "ok", **runtime_identity()}, headers={"Cache-Control": "no-store"}
+    )
