@@ -46,6 +46,9 @@ a cash-flow-adjusted return. Risk's what-if applies an explicit uniform shock
 only if the latest capture has full coverage. Shadow shows retained paper
 equity at checkpoints. Fill and decision markers use their own dates and do
 not imply an unobserved value at the event time.
+Hover over a chart to inspect the nearest dated observation. Click or tap to
+keep its details and receipt in view. Keyboard users can tab to the chart and
+use the arrow keys to change the selection.
 Manual paper accounts keep the opening cash mark when available and append
 observed account valuations with matching, dated USD quotes. Repeated inputs
 do not add another point. An incomplete valuation leaves the last mark in
