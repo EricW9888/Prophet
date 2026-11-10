@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from uuid import UUID
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,6 +55,28 @@ class CanonicalStateService:
                 .limit(1)
             )
         ).scalar_one_or_none()
+
+    async def conclusions_for_subjects(
+        self, subjects: list[tuple[str, UUID]]
+    ) -> dict[tuple[str, UUID], ConclusionState]:
+        rows = await self.session.scalars(
+            select(ConclusionState).where(
+                tuple_(ConclusionState.subject_type, ConclusionState.subject_id).in_(
+                    subjects
+                )
+            )
+        )
+        return {(row.subject_type, row.subject_id): row for row in rows}
+
+    async def coverage_maps_for_subjects(
+        self, subjects: list[tuple[str, UUID]]
+    ) -> dict[tuple[str, UUID], CoverageMap]:
+        rows = await self.session.scalars(
+            select(CoverageMap).where(
+                tuple_(CoverageMap.subject_type, CoverageMap.subject_id).in_(subjects)
+            )
+        )
+        return {(row.subject_type, row.subject_id): row for row in rows}
 
     async def ensure_conclusion_state(
         self,

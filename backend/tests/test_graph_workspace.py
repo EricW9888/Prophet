@@ -7,10 +7,13 @@ from fastapi import FastAPI
 
 from investos.api.routes.graph import router
 from investos.db import async_session_maker, get_session
+from investos.models.conclusion import ConclusionState
+from investos.models.coverage import CoverageMap
 from investos.models.entity import Entity, Security
 from investos.models.graph import Edge, GraphNodeLayout
 from investos.models.portfolio import Position
 from investos.models.profile import Profile
+from investos.models.reasoning import ReasoningRun
 from investos.services.graph import (
     EXPLICIT_NODE_EDGE_LIMIT,
     SYNTHETIC_PORTFOLIO_ID,
@@ -95,6 +98,23 @@ async def test_workspace_web_preserves_scope_edges_and_retained_layout():
             relationship_type="synthetic_missing_target",
         )
         session.add(edge)
+        run = ReasoningRun(run_type="test", model_used="synthetic")
+        session.add(run)
+        await session.flush()
+        conclusion = ConclusionState(
+            subject_type="entity",
+            subject_id=entity.id,
+            current_thesis_summary="Synthetic thesis",
+            current_stance="neutral",
+            confidence_band="low",
+            reasoning_run_id=run.id,
+        )
+        coverage = CoverageMap(
+            subject_type="entity",
+            subject_id=entity.id,
+            evidence_class_coverage_json={},
+        )
+        session.add_all([conclusion, coverage])
         await session.flush()
         position_key = f"position:{position.id}"
         session.add(GraphNodeLayout(node_key=position_key, x=180.0, y=260.0))
@@ -130,11 +150,28 @@ async def test_workspace_web_preserves_scope_edges_and_retained_layout():
             expanded = result.json()
             keys = {node["key"] for node in expanded["nodes"]}
             assert f"entity:{outside.id}" in keys
+            entity_links = {
+                (item["relationship_type"], item["target_key"])
+                for item in expanded["edges"]
+                if item["source_key"] == f"entity:{entity.id}"
+            }
+            assert ("has_accepted_state", f"conclusion:{conclusion.id}") in entity_links
+            assert f"coverage_map:{coverage.id}" not in keys
             assert all(
                 item["source_key"] in keys and item["target_key"] in keys
                 for item in expanded["edges"]
             )
             assert str(edge.id) not in {item["id"] for item in expanded["edges"]}
+            result = await client.get(
+                "/graph/workspace?scope=expanded&include_system=true"
+            )
+            result.raise_for_status()
+            assert any(
+                item["source_key"] == f"entity:{entity.id}"
+                and item["target_key"] == f"coverage_map:{coverage.id}"
+                and item["relationship_type"] == "monitored_by"
+                for item in result.json()["edges"]
+            )
             assert (
                 await client.get("/graph/workspace?scope=unknown")
             ).status_code == 422
