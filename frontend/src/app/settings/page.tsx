@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePlaidLink } from "react-plaid-link";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
 import AppNav from "@/components/AppNav";
+import DesktopAppSettings from "@/components/DesktopAppSettings";
 import LanguageSettings from "@/components/LanguageSettings";
 import FloatingNotice from "@/components/FloatingNotice";
 import FloatingSaveBar from "@/components/FloatingSaveBar";
@@ -320,6 +321,7 @@ export default function SettingsPage() {
         />
 
         <LanguageSettings value={settings.presentation_language ?? "en"} onChange={language => updateSettings(current => ({ ...current, presentation_language: language }))} />
+        <DesktopAppSettings />
 
         <div className="space-y-6 animate-in fade-in duration-300">
           {activeTab === "overview" && (

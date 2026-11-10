@@ -154,6 +154,7 @@ export default function DecisionsPage() {
             </div>
             {showManualEntry ? (
               <form onSubmit={createDecision} className="space-y-4 border-t border-slate-200 pt-4 dark:border-slate-800">
+                <p className="text-xs text-muted">Before acting on a decision, verify its sources and compare your recorded holdings with your broker.</p>
                 <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Manual operating-memory entry</h3>
                 <select value={form.position_id} onChange={(e) => setForm((current) => ({ ...current, position_id: e.target.value }))} className={inputClass}>
                   <option value="">No linked position</option>

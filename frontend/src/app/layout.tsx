@@ -50,10 +50,11 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full min-w-0 flex-col bg-background font-sans text-foreground">
-        <PwaRegistration />
-        <MobileRefreshControl />
-        <JobCompletionNoticeHost />
-        <PresentationLanguageProvider>{children}</PresentationLanguageProvider>
+        <PwaRegistration>
+          <MobileRefreshControl />
+          <JobCompletionNoticeHost />
+          <PresentationLanguageProvider>{children}</PresentationLanguageProvider>
+        </PwaRegistration>
       </body>
     </html>
   );
