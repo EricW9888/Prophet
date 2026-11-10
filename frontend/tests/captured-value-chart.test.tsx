@@ -52,6 +52,30 @@ test("a partial portfolio capture breaks the line rather than plotting a false l
   assert.equal(container.querySelector("a")?.getAttribute("href"), "/api_proxy/risk/portfolio/packets/receipt-22");
 });
 
+test("hover scrubs a resized plot through missing captures and clicks keep the selected receipt", async () => {
+  feed([capture(20, 3000), capture(21, null), capture(22, 3200)]);
+  await act(async () => root.render(<CapturedHoldingsPanel />));
+  const plot = container.querySelector('svg[viewBox="0 0 584 156"]')!;
+  plot.getBoundingClientRect = () => new window.DOMRect(100, 0, 1168, 160);
+  const hover = (clientX: number) => act(async () => {
+    plot.dispatchEvent(new window.PointerEvent("pointermove", { bubbles: true, pointerType: "mouse", clientX }));
+  });
+  const tooltip = () => plot.parentElement?.querySelector("div[aria-hidden]");
+  const readout = () => container.querySelector('[aria-live="polite"]')!.textContent!;
+
+  await hover(684);
+  assert.match(tooltip()?.textContent ?? "", /Value unavailable/);
+  assert.equal(plot.querySelector("path[stroke-dasharray]")?.getAttribute("d"), "M 292 13 V 145");
+  assert.match(readout(), /\$3,200.00/);
+  await hover(165);
+  assert.match(tooltip()?.textContent ?? "", /\$3,000.00/);
+  await act(async () => plot.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 165 })));
+  await act(async () => plot.dispatchEvent(new window.PointerEvent("pointerout", { bubbles: true, pointerType: "mouse" })));
+  assert.equal(tooltip(), null);
+  assert.match(readout(), /\$3,000.00/);
+  assert.equal(container.querySelector("a")?.getAttribute("href"), "/api_proxy/risk/portfolio/packets/receipt-20");
+});
+
 test("the what-if applies a user selected shock and refuses an incomplete current basis", async () => {
   feed([capture(20, 3000)]);
   await act(async () => root.render(<CapturedHoldingsPanel view="scenario" />));
