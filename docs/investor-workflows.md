@@ -46,6 +46,11 @@ a cash-flow-adjusted return. Risk's what-if applies an explicit uniform shock
 only if the latest capture has full coverage. Shadow shows retained paper
 equity at checkpoints. Fill and decision markers use their own dates and do
 not imply an unobserved value at the event time.
+Manual paper accounts keep the opening cash mark when available and append
+observed account valuations with matching, dated USD quotes. Repeated inputs
+do not add another point. An incomplete valuation leaves the last mark in
+place. A ledger rebuild marks earlier valuations as superseded; manual marks
+are never used to calibrate an autonomous experiment.
 
 Every surface must distinguish its initial load from an observed empty result.
 A failed refresh retains the last loaded state with a visible stale/degraded

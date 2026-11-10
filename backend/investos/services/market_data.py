@@ -171,15 +171,19 @@ class MarketDataService:
                 if market_state.startswith("PRE") and pre_market_price is not None:
                     price = pre_market_price
                     price_session = "pre_market"
+                    quote_epoch = meta.get("preMarketTime")
                 elif market_state.startswith("POST") and post_market_price is not None:
                     price = post_market_price
                     price_session = "post_market"
+                    quote_epoch = meta.get("postMarketTime")
                 elif market_state in {"REGULAR", "OPEN"}:
                     price = regular_market_price
                     price_session = "regular"
+                    quote_epoch = meta.get("regularMarketTime")
                 else:
                     price = regular_market_price
                     price_session = "historical_close"
+                    quote_epoch = meta.get("regularMarketTime")
                 if price is None:
                     closes = (
                         ((chart.get("indicators") or {}).get("quote") or [{}])[0]
@@ -188,6 +192,7 @@ class MarketDataService:
                     if closes:
                         price = closes[-1]
                         price_session = "historical_close"
+                        quote_epoch = None
                 if price is not None:
                     quotes[ticker.upper()] = {
                         "price": float(price),
@@ -195,9 +200,9 @@ class MarketDataService:
                         "market_state": market_state or None,
                         "quote_time": (
                             datetime.fromtimestamp(
-                                float(meta["regularMarketTime"]), tz=UTC
+                                float(quote_epoch), tz=UTC
                             ).isoformat()
-                            if meta.get("regularMarketTime")
+                            if quote_epoch
                             else None
                         ),
                         "name": meta.get("longName") or meta.get("shortName"),

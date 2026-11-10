@@ -7,6 +7,45 @@ import pytest
 from investos.services.market_data import MarketDataService
 
 
+@pytest.mark.asyncio
+async def test_quote_time_matches_the_price_session(monkeypatch):
+    meta = {
+        "symbol": "SYN",
+        "currency": "USD",
+        "marketState": "POST",
+        "regularMarketPrice": 19,
+        "regularMarketTime": 1_800_000_000,
+        "postMarketPrice": 20,
+        "postMarketTime": 1_800_001_000,
+    }
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            pass
+
+        async def get(self, *_args, **_kwargs):
+            return SimpleNamespace(
+                raise_for_status=lambda: None,
+                json=lambda: {"chart": {"result": [{"meta": meta}]}},
+            )
+
+    monkeypatch.setattr(
+        "investos.services.market_data.httpx.AsyncClient", lambda **_kwargs: Client()
+    )
+    service = MarketDataService(None)
+    first = await service.get_live_price("SYN")
+    assert first["price"] == 20 and first["session"] == "post_market"
+    assert (
+        datetime.fromisoformat(first["quote_time"]).timestamp()
+        == meta["postMarketTime"]
+    )
+    meta.pop("postMarketTime")
+    assert (await service.get_live_price("SYN"))["quote_time"] is None
+
+
 def test_market_signal_snapshot_preserves_point_in_time_observations():
     start = datetime(2026, 1, 1, tzinfo=UTC)
     observations = [
