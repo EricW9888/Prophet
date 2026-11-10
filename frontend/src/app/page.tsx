@@ -1,4 +1,5 @@
 import AppNav from "@/components/AppNav";
+import BrokerEquityPanel from "@/components/BrokerEquityPanel";
 import CapturedHoldingsPanel from "@/components/CapturedHoldingsPanel";
 import DashboardOverview from "@/components/DashboardOverview";
 import PageHeader from "@/components/PageHeader";
@@ -12,6 +13,7 @@ export default function Home() {
       <main className="workspace-frame space-y-6 py-6">
         <PageHeader title="Portfolio" description="Review what needs attention, then inspect your holdings and tracked positions." />
         <CapturedHoldingsPanel />
+        <BrokerEquityPanel />
         <DashboardOverview>
           <PositionsTable />
         </DashboardOverview>

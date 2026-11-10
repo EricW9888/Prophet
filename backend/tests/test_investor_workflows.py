@@ -2,12 +2,14 @@
 
 import importlib.util
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select, text
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -15,6 +17,8 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from investos.api.routes.graph import get_holding_subjects
 from investos.config import settings
+from investos.db import get_session
+from investos.main import app
 from investos.models.catalog import SourceClaimRecord
 from investos.models.entity import Entity, Security
 from investos.models.evidence import RawEvidence, SourceItem
@@ -26,6 +30,7 @@ from investos.models.profile import Profile
 from investos.models.review import ReviewQueueItem
 from investos.models.shadow import ShadowFill, ShadowOrder
 from investos.models.source import Source
+from investos.schemas.portfolio import TransactionCorrectionRequest, TransactionCreate
 from investos.schemas.shadow import (
     ShadowExperimentCreate,
     ShadowExperimentResponse,
@@ -58,6 +63,115 @@ async def workflow_session():
             yield session
         await transaction.rollback()
     await engine.dispose()
+
+
+async def test_broker_equity_reconciles_statement_dates_and_active_ledger_receipts(
+    workflow_session, monkeypatch
+):
+    session = workflow_session
+    service = PortfolioService(session)
+    start = datetime.now(UTC) - timedelta(days=5)
+    await service.add_transaction(
+        None,
+        TransactionCreate(action="deposit", quantity=1, price=100, executed_at=start),
+    )
+    deposit = await service.add_transaction(
+        None,
+        TransactionCreate(
+            action="deposit",
+            quantity=1,
+            price=900,
+            executed_at=start + timedelta(days=1),
+        ),
+    )
+    buy = await service.add_transaction_by_ticker(
+        "SYNEQUITY",
+        TransactionCreate(
+            action="buy", quantity=2, price=100, executed_at=start + timedelta(days=2)
+        ),
+    )
+    base = "/api/portfolio/broker-equity"
+
+    async def session_override():
+        yield session
+
+    monkeypatch.setitem(app.dependency_overrides, get_session, session_override)
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+
+        async def preview(day, equity, cash, holdings=""):
+            statement = {
+                "as_of": (start + timedelta(days=day, hours=1)).isoformat(),
+                "equity": equity,
+                "cash": cash,
+                "holdings_text": holdings,
+                "cash_only": not holdings,
+            }
+            compared = await client.post(base + "/preview", json=statement)
+            assert compared.status_code == 200, compared.text
+            comparison = compared.json()
+            return comparison["reconciliation"], {
+                "statement": statement,
+                "preview_token": comparison["preview_token"],
+            }
+
+        async def save(payload):
+            saved = await client.post(base, json=payload)
+            assert saved.status_code == 200, saved.text
+            return saved.json()["id"]
+
+        check, payload = await preview(0, 100, 100)
+        assert check["reasons"] == []
+        first = await save(payload)
+        check, payload = await preview(2, 1100, 800, "SYNEQUITY 2")
+        assert check["reasons"] == []
+        second = await save(payload)
+        assert await save(payload) == second
+        check, payload = await preview(3, 1150, None, "SYNEQUITY 2")
+        assert check["reasons"] == ["The statement has no cash balance."]
+        missing = await save(payload)
+
+        history = (await client.get(base)).json()
+        assert [p["id"] for p in history["points"]] == [first, second, missing]
+        assert [p["value"] for p in history["points"]] == ["100", "1100", None]
+        assert [e["id"] for e in history["events"]] == [str(deposit.id), str(buy.id)]
+        assert [Decimal(e["cash"]) for e in history["events"]] == [900, -200]
+        receipt = (await client.get(base + "/" + second)).json()
+        assert receipt["reconciliation_at_import"]["ledger_cash"] == "800"
+
+        await session.execute(
+            delete(CashLedgerEntry).where(CashLedgerEntry.transaction_id == buy.id)
+        )
+        check, _ = await preview(2, 1100, 800, "SYNEQUITY 2")
+        assert (
+            "The ledger has incomplete cash activity through this time."
+            in check["reasons"]
+        )
+
+        _, stale = await preview(2, 1100, 800, "SYNEQUITY 2")
+        replacement = await service.correct_transaction(
+            buy.id,
+            TransactionCorrectionRequest(quantity=3, reason="Synthetic correction"),
+        )
+        assert (await client.post(base, json=stale)).status_code == 409
+        history = (await client.get(base)).json()
+        assert [p["value"] for p in history["points"]] == ["100", None, None]
+        assert [e["id"] for e in history["events"]] == [
+            str(deposit.id),
+            str(replacement.id),
+        ]
+        prior = (await client.get(f"/api/portfolio/transactions/{buy.id}")).json()
+        assert prior["superseded_by_id"] == str(replacement.id)
+        assert (await client.get(base + "/" + second)).json() == receipt
+
+        check, payload = await preview(2, 1120, 700, "SYNEQUITY 3")
+        assert check["reasons"] == []
+        updated = await save(payload)
+        history = (await client.get(base)).json()
+        assert [p["id"] for p in history["points"]] == [first, updated, missing]
+        detail = (await client.get(base + "/" + updated)).json()
+        assert detail["other_receipts_at_this_time"][0]["id"] == second
 
 
 async def test_position_concern_resolves_profile_identity_and_keeps_its_scope(

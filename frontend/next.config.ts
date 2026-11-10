@@ -5,6 +5,9 @@ import { API_PROXY_TIMEOUT_MS } from "./src/lib/request-timeouts";
 // BACKEND_URL when starting development or building the production frontend.
 const backendUrl = process.env.BACKEND_URL ?? "http://127.0.0.1:8000";
 const launcherBuild = process.env.PROPHET_BUILD_INPUT ?? "";
+const distDir = process.env.PROPHET_BUILD_VALIDATION === "1"
+  ? ".next-verification"
+  : process.env.NODE_ENV === "development" ? ".next-dev" : ".next";
 
 const nextConfig: NextConfig = {
   // Private development guidance stays local; do not let Next.js generate
@@ -15,9 +18,12 @@ const nextConfig: NextConfig = {
   experimental: { proxyTimeout: API_PROXY_TIMEOUT_MS },
   // Keep hot-reload artifacts separate from production builds so validation can
   // run while the local app remains available.
-  distDir: process.env.PROPHET_BUILD_VALIDATION === "1"
-    ? ".next-verification"
-    : process.env.NODE_ENV === "development" ? ".next-dev" : ".next",
+  distDir,
+  // Each mode checks its own generated route types. Next rewrites the shared
+  // next-env.d.ts, so the projects reference the framework types directly.
+  typescript: {
+    tsconfigPath: distDir === ".next" ? "tsconfig.json" : `tsconfig${distDir}.json`,
+  },
   async rewrites() {
     return [
       {

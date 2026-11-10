@@ -53,6 +53,15 @@ def main() -> int:
             time.sleep(0.25)
         raise RuntimeError("The launched stack did not report its build and ownership.")
 
+    # A validation or dev build from another revision may leave route validators
+    # that import deleted source files. A production start must ignore them.
+    for output in (".next-verification/types", ".next-dev/dev/types"):
+        types = prophet.FRONTEND_DIR / output
+        types.mkdir(parents=True, exist_ok=True)
+        (types / "stale-route.ts").write_text(
+            "import { removed } from './deleted-route';\n", encoding="utf-8"
+        )
+
     child = launch("start")
     replacement = None
     marker = prophet.FRONTEND_DIR / "public" / "launcher-smoke-build-input.txt"

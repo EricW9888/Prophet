@@ -163,6 +163,21 @@ class PortfolioService:
             self._decorate_position(position)
         return position
 
+    async def get_transaction(self, transaction_id: UUID) -> Transaction | None:
+        row = (
+            await self.session.execute(
+                select(Transaction, Security, Entity)
+                .outerjoin(Position, Transaction.position_id == Position.id)
+                .outerjoin(Security, Position.security_id == Security.id)
+                .outerjoin(Entity, Security.entity_id == Entity.id)
+                .where(Transaction.id == transaction_id)
+            )
+        ).one_or_none()
+        if row is None:
+            return None
+        transaction, security, entity = row
+        return self._decorate_transaction(transaction, security=security, entity=entity)
+
     async def list_positions(self, list_type: str = "holding") -> list[Position]:
         stmt = select(Position).options(
             selectinload(Position.security).selectinload(Security.entity),

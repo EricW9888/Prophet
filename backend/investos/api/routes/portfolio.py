@@ -9,6 +9,12 @@ from investos.config import settings
 from investos.core.uploads import read_upload_limited
 from investos.db import get_session
 from investos.models.knowledge_mutation import KnowledgeMutation
+from investos.models.portfolio import BrokerEquityStatement, CashLedgerEntry
+from investos.schemas.broker_equity import (
+    BrokerEquityHistory,
+    BrokerStatementInput,
+    BrokerStatementSave,
+)
 from investos.schemas.portfolio import (
     MailboxTransactionReconcileRequest,
     MailboxTransactionReconcileResponse,
@@ -28,6 +34,7 @@ from investos.schemas.portfolio import (
     TransactionCreateByTicker,
     TransactionResponse,
 )
+from investos.services.broker_equity import BrokerEquityService, StaleStatementPreview
 from investos.services.market_data import MarketDataService
 from investos.services.portfolio import PortfolioService
 from investos.services.security_catalog import SecurityCatalogService
@@ -135,6 +142,87 @@ async def reconcile_positions(
         create_review_items=payload.create_review_items,
         listed_only=payload.listed_only,
     )
+
+
+@router.get("/broker-equity", response_model=BrokerEquityHistory)
+async def broker_equity_history(session: AsyncSession = Depends(get_session)):
+    return await BrokerEquityService(session).history()
+
+
+@router.post("/broker-equity/preview")
+async def preview_broker_equity(
+    payload: BrokerStatementInput, session: AsyncSession = Depends(get_session)
+):
+    try:
+        return await BrokerEquityService(session).preview(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/broker-equity")
+async def save_broker_equity(
+    payload: BrokerStatementSave, session: AsyncSession = Depends(get_session)
+):
+    try:
+        receipt = await BrokerEquityService(session).save(
+            payload.statement, payload.preview_token
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except StaleStatementPreview as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"id": receipt}
+
+
+@router.get("/broker-equity/{receipt_id}")
+async def broker_equity_receipt(
+    receipt_id: UUID, session: AsyncSession = Depends(get_session)
+):
+    receipt = await session.get(BrokerEquityStatement, receipt_id)
+    if receipt is None:
+        raise HTTPException(
+            status_code=404, detail="Broker statement receipt not found"
+        )
+    alternatives = (
+        await session.execute(
+            select(BrokerEquityStatement.id, BrokerEquityStatement.recorded_at)
+            .where(
+                BrokerEquityStatement.as_of == receipt.as_of,
+                BrokerEquityStatement.id != receipt.id,
+            )
+            .order_by(
+                BrokerEquityStatement.recorded_at.desc(),
+                BrokerEquityStatement.id.desc(),
+            )
+            .limit(20)
+        )
+    ).all()
+    return {
+        "id": receipt.id,
+        "recorded_at": receipt.recorded_at,
+        "statement_hash": receipt.statement_hash,
+        "statement": receipt.statement,
+        "reconciliation_at_import": receipt.reconciliation,
+        "other_receipts_at_this_time": [
+            {"id": row.id, "recorded_at": row.recorded_at} for row in alternatives
+        ],
+    }
+
+
+@router.get("/cash-entries/{entry_id}")
+async def portfolio_cash_receipt(
+    entry_id: UUID, session: AsyncSession = Depends(get_session)
+):
+    entry = await session.get(CashLedgerEntry, entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Cash ledger receipt not found")
+    return {
+        "id": entry.id,
+        "entry_type": entry.entry_type,
+        "amount": str(entry.amount),
+        "executed_at": entry.executed_at,
+        "transaction_id": entry.transaction_id,
+    }
 
 
 @router.post("/reconcile/text", response_model=ReconcileResponse)
@@ -264,6 +352,16 @@ async def list_transaction_corrections(
 ):
     """Read-only ledger of manual transaction supersessions."""
     return await PortfolioService(session).transaction_corrections(limit=limit)
+
+
+@router.get("/transactions/{transaction_id}", response_model=TransactionResponse)
+async def portfolio_transaction_receipt(
+    transaction_id: UUID, session: AsyncSession = Depends(get_session)
+):
+    transaction = await PortfolioService(session).get_transaction(transaction_id)
+    if transaction is None:
+        raise HTTPException(status_code=404, detail="Transaction receipt not found")
+    return transaction
 
 
 @router.post("/research-objects", response_model=ResearchObjectResponse)

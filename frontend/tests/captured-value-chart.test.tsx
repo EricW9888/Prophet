@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import BrokerEquityPanel from "../src/components/BrokerEquityPanel";
 import CapturedHoldingsPanel from "../src/components/CapturedHoldingsPanel";
 import CapturedValueChart from "../src/components/CapturedValueChart";
 import type { CapturedHoldingsValue } from "../src/lib/api";
@@ -76,4 +77,68 @@ test("selecting a fill exposes its record without attaching equity to the fill t
   const readout = container.querySelector('[aria-live="polite"]')!.textContent!;
   assert.match(readout, /Buy SYN-A.*Test trade rationale/);
   assert.doesNotMatch(readout, /\$/);
+});
+
+test("broker equity preserves a gap and requires a fresh preview before saving edited data", async () => {
+  const calls: Array<{ path: string; method: string; body?: unknown }> = [];
+  globalThis.fetch = async (input, options) => {
+    const path = String(input);
+    const method = options?.method ?? "GET";
+    calls.push({ path, method, body: options?.body ? JSON.parse(String(options.body)) : undefined });
+    const data = path.endsWith("/preview")
+      ? { preview_token: "preview", reconciliation: { reasons: [], holdings_differences: [], ledger_cash: "700" } }
+      : method === "POST"
+        ? { id: "stored" }
+        : {
+          points: [
+            { id: "opening", as_of: "2025-05-20T20:00:00Z", value: "1000", reasons: [] },
+            { id: "missing", as_of: "2025-05-21T20:00:00Z", value: null, reasons: ["Missing statement cash."] },
+          ],
+          events: [
+            { id: "deposit", at: "2025-05-21T16:00:00Z", action: "deposit", ticker: null, quantity: null, cash: "100", receipt_type: "transaction" },
+          ],
+          older_events_omitted: false,
+        };
+    return new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+
+  const originalFormData = globalThis.FormData;
+  globalThis.FormData = window.FormData;
+  try {
+    await act(async () => root.render(<BrokerEquityPanel />));
+    assert.match(container.textContent!, /Value unavailable.*Missing statement cash/);
+    const marker = [...container.querySelectorAll("button")].find((button) => button.textContent?.includes("Deposit"))!;
+    await click(marker);
+    const ledger = [...container.querySelectorAll("a")].find((anchor) => anchor.textContent === "Open ledger receipt");
+    assert.equal(ledger?.getAttribute("href"), "/history/receipt/transaction/deposit");
+
+    const form = container.querySelector("form")!;
+    form.querySelector<HTMLInputElement>('[name="as_of"]')!.value = "2025-05-22T12:30:00";
+    const equity = form.querySelector<HTMLInputElement>('[name="equity"]')!;
+    equity.value = "1200";
+    form.querySelector<HTMLInputElement>('[name="cash"]')!.value = "700";
+    form.querySelector<HTMLTextAreaElement>('[name="holdings"]')!.value = "SYN-A 2";
+    const compare = () => act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    const save = () => [...container.querySelectorAll("button")].find((button) => button.textContent === "Save statement receipt");
+    await compare();
+    assert.ok(save());
+
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(equity, "1300");
+      equity.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    assert.equal(save(), undefined);
+    assert.equal(calls.filter((call) => call.method === "POST").length, 1);
+    await compare();
+    await click(save()!);
+    assert.deepEqual(calls.find((call) => call.method === "POST" && call.path.endsWith("/broker-equity"))?.body, {
+      statement: {
+        as_of: new Date("2025-05-22T12:30:00").toISOString(),
+        equity: "1300", cash: "700", holdings_text: "SYN-A 2", cash_only: false,
+      },
+      preview_token: "preview",
+    });
+  } finally {
+    globalThis.FormData = originalFormData;
+  }
 });

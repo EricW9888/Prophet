@@ -11,13 +11,28 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin, utcnow
 
 if TYPE_CHECKING:
     from .entity import Security
+
+
+class BrokerEquityStatement(Base):
+    __tablename__ = "broker_equity_statements"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    statement_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    statement: Mapped[dict] = mapped_column(JSONB)
+    reconciliation: Mapped[dict] = mapped_column(JSONB)
 
 
 class CashLedgerEntry(TimestampMixin, Base):
