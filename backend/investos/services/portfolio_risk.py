@@ -16,7 +16,7 @@ import statistics
 from datetime import UTC, datetime, timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from sqlalchemy import desc, select, text
+from sqlalchemy import DateTime, and_, cast, desc, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -366,23 +366,45 @@ class PortfolioRiskService:
             .limit(1)
         )
 
-    async def captured_value_history(self) -> list[CapturedHoldingsValue]:
+    async def captured_value_history(
+        self, *, by_session: bool = False
+    ) -> list[CapturedHoldingsValue]:
         """Use recorded book/price pairs, leaving a gap for an incomplete book."""
         result = ScenarioAnalysis.portfolio_impact_json
+        cutoff = result["cutoff"].astext
+        price_session = result["latest_session_date"].astext
+        covered = result["covered_positions"].as_integer()
+        total = result["total_positions"].as_integer()
+        value = result["covered_value"].as_float()
+        currency = result["currency"].astext
+        query = select(
+            ScenarioAnalysis.id, cutoff, price_session, covered, total, value, currency
+        ).where(ScenarioAnalysis.name == SCENARIO_NAME)
+        if by_session:
+            # Reduce by price session before limiting history. A refresh burst
+            # must not evict earlier closes or overwrite a usable mark with a gap.
+            full_book = and_(
+                covered == total, total > 0, currency == "USD", value > 0
+            )
+            query = (
+                query.where(
+                    price_session.is_not(None),
+                    cutoff.is_not(None),
+                    covered.is_not(None),
+                    total.is_not(None),
+                )
+                .distinct(price_session)
+                .order_by(
+                    price_session.desc(),
+                    full_book.desc().nulls_last(),
+                    cast(cutoff, DateTime(timezone=True)).desc(),
+                )
+            )
         rows = (
             await self.session.execute(
-                select(
-                    ScenarioAnalysis.id,
-                    result["cutoff"].astext,
-                    result["latest_session_date"].astext,
-                    result["covered_positions"].as_integer(),
-                    result["total_positions"].as_integer(),
-                    result["covered_value"].as_float(),
-                    result["currency"].astext,
-                )
-                .where(ScenarioAnalysis.name == SCENARIO_NAME)
-                .order_by(desc(ScenarioAnalysis.computed_at), desc(ScenarioAnalysis.id))
-                .limit(180)
+                query.order_by(
+                    desc(ScenarioAnalysis.computed_at), desc(ScenarioAnalysis.id)
+                ).limit(180)
             )
         ).all()
         points = [
@@ -404,6 +426,8 @@ class PortfolioRiskService:
             for identifier, cutoff, price_session, covered, total, value, currency in rows
             if cutoff and covered is not None and total is not None
         ]
+        if by_session:
+            return list(reversed(points))
         return sorted(points, key=lambda point: point.captured_at)
 
     async def snapshots_at(self, tickers: list[str], cutoff: datetime) -> dict:

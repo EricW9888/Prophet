@@ -1,3 +1,4 @@
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -45,8 +46,13 @@ async def get_portfolio_risk_packet(
 
 
 @router.get("/portfolio/value-history", response_model=list[CapturedHoldingsValue])
-async def get_portfolio_value_history(session: AsyncSession = Depends(get_session)):
-    return await PortfolioRiskService(session).captured_value_history()
+async def get_portfolio_value_history(
+    basis: Literal["capture", "session"] = "capture",
+    session: AsyncSession = Depends(get_session),
+):
+    return await PortfolioRiskService(session).captured_value_history(
+        by_session=basis == "session"
+    )
 
 
 @router.get("/portfolio/advisory-trial")

@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, insert, select
 from test_portfolio_risk import frozen_packet
 
 from investos.config import settings
@@ -70,6 +70,63 @@ async def test_value_history_uses_dated_full_book_marks_and_keeps_partial_gaps()
             assert marks[0].value_usd == complete.assessment.result["covered_value"]
             assert (marks[1].covered_positions, marks[1].total_positions) == (2, 3)
             assert marks[1].value_usd is None
+    finally:
+        await clean()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_session_history_ranks_captures_before_limiting_and_preserves_gaps():
+    await clean()
+    try:
+        async with async_session_maker() as session:
+            start = datetime(2025, 5, 26, 21, tzinfo=UTC)
+
+            def record(day, offset, value=1000, covered=3):
+                captured_at = start + timedelta(minutes=offset)
+                return {
+                    "id": uuid4(),
+                    "name": SCENARIO_NAME,
+                    "scenario_description": "Synthetic holding marks",
+                    "shock_parameters_json": {},
+                    "portfolio_impact_json": {
+                        "cutoff": captured_at.isoformat(),
+                        "latest_session_date": day,
+                        "covered_positions": covered,
+                        "total_positions": 3,
+                        "covered_value": value,
+                        "currency": "USD",
+                    },
+                    "total_portfolio_impact": 0,
+                    "computed_at": captured_at,
+                }
+
+            opening = record("2025-05-21", 0)
+            gap = record("2025-05-22", 1, covered=2)
+            newest_full = record("2025-05-23", 183, value=1150)
+            latest = record("2025-05-23", 185, covered=2)
+            await session.execute(
+                insert(ScenarioAnalysis),
+                [
+                    opening,
+                    gap,
+                    *(record("2025-05-23", step) for step in range(2, 183)),
+                    newest_full,
+                    record(None, 184, covered=2),
+                    latest,
+                ],
+            )
+            service = PortfolioRiskService(session)
+            history = await service.captured_value_history(by_session=True)
+            assert [mark.assessment_id for mark in history] == [
+                opening["id"],
+                gap["id"],
+                newest_full["id"],
+            ]
+            assert [mark.value_usd for mark in history] == [1000, None, 1150]
+            captures = await service.captured_value_history()
+            assert captures[-1].assessment_id == latest["id"]
+            assert captures[-1].value_usd is None
+            assert opening["id"] not in {mark.assessment_id for mark in captures}
     finally:
         await clean()
 

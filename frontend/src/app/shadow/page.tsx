@@ -12,6 +12,7 @@ import { useWorkspaceReads } from "@/lib/workspace-reads";
 import WorkspaceState from "@/components/WorkspaceState";
 import { API_BASE, apiFetch, AutomationStatus, ShadowExperiment, ShadowFamily, ShadowLifecycleCounts } from "@/lib/api";
 import { isRecordId } from "@/lib/workflows";
+import { formatUserLabel, safeFormatCurrency } from "@/lib/formatting";
 
 
 
@@ -513,7 +514,6 @@ export default function ShadowPage() {
                       <h2 className="text-xl font-semibold tracking-tight">{experiment.name}</h2>
                       <StatusBadge status={experiment.lifecycle_state ?? experiment.run_status} />
                     </div>
-                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{experiment.policy_description}</p>
                   </div>
                   {experiment.execution_mode !== "manual" ? (
                     <button
@@ -527,36 +527,7 @@ export default function ShadowPage() {
                 </div>
 
                 <ExperimentJourney experiment={experiment} />
-                <ShadowRunHistory experiment={experiment} experiments={experiments} loadDetails={(id) => loadExperimentDetails(id, true)} refresh={() => loadState()} />
-
-                <div className="mt-5 grid gap-4 md:grid-cols-2">
-                  <InfoCard
-                    label="Why it exists"
-                    body={`trigger ${experiment.trigger_type ?? "unknown"} · initiated by ${experiment.initiated_by ?? "unknown"}`}
-                    detail={experiment.trigger_reason ?? "No trigger reason stored."}
-                    hint="This is why the system decided this live experiment was worth running."
-                  />
-                  <InfoCard
-                    label="Starting paper account"
-                    body={experiment.snapshot_summary.paper_starting_cash != null ? `${formatCurrency(experiment.snapshot_summary.paper_starting_cash)} in cash` : `Cloned ${experiment.snapshot_summary.holding_count ?? 0} live holdings`}
-                    detail={experiment.snapshot_summary.paper_starting_cash != null ? "No positions were cloned." : `Market value ${formatCurrency(experiment.snapshot_summary.total_market_value)} · buying power ${formatCurrency(experiment.snapshot_summary.remaining_buying_power)}`}
-                    hint="Captured when the account was created."
-                  />
-                  <InfoCard
-                    label="Guidance mode"
-                    body={experiment.execution_mode === "manual" ? "user directed" : experiment.guidance_mode ? experiment.guidance_mode.replaceAll("_", " ") : "follow existing policy"}
-                    detail={experiment.execution_mode === "manual" ? "Only orders submitted through the manual ticket can change this paper account." : experiment.guidance_summary ?? "No structured guidance summary stored."}
-                    hint={experiment.execution_mode === "manual" ? "The model does not create orders for this account." : "The shadow LLM compresses the policy and operator guidance into one bounded management mode."}
-                  />
-                  <InfoCard
-                    label="Horizon"
-                    body={experiment.horizon_label ?? "unspecified"}
-                    detail={`${describeStatus(experiment.run_status)} · created ${formatDate(experiment.created_at)}${experiment.completed_at ? ` · completed ${formatDate(experiment.completed_at)}` : ""}`}
-                    hint="This is the intended decision horizon for the experiment, not a retrospective backtest window."
-                  />
-                </div>
-
-                <OpportunitySummary profile={experiment.report?.opportunity_summary ?? experiment.discovery_profile} />
+                <ExperimentSetup experiment={experiment} />
 
                 <ExperimentOutcomeSummary experiment={experiment} />
 
@@ -569,6 +540,7 @@ export default function ShadowPage() {
                     </button>
                   )}
                 </details>
+                <ShadowRunHistory experiment={experiment} experiments={experiments} loadDetails={(id) => loadExperimentDetails(id, true)} refresh={() => loadState()} />
 
                 {experiment.execution_mode === "manual" ? (
                   <details className="mt-3 border border-line bg-panel p-3" onToggle={(event) => { if (event.currentTarget.open) void loadExperimentDetails(experiment.id); }}>
@@ -1311,6 +1283,49 @@ function AccountEventStatus({ status }: { status: string }) {
   );
 }
 
+function ExperimentSetup({ experiment }: { experiment: ShadowExperiment }) {
+  const profile = experiment.report?.opportunity_summary ?? experiment.discovery_profile;
+  const snapshot = experiment.snapshot_summary;
+  const manual = experiment.execution_mode === "manual";
+  const currency = (value?: number | null) => value == null ? "Unavailable" : safeFormatCurrency(value, 2);
+  const facts = [
+    ["Started by", [experiment.trigger_type, experiment.initiated_by].filter(Boolean).map(formatUserLabel).join(" · ") || "Unspecified"],
+    ["Starting paper account", snapshot.paper_starting_cash != null
+      ? `${currency(snapshot.paper_starting_cash)} in cash`
+      : snapshot.holding_count == null ? "Holdings count unavailable" : `${snapshot.holding_count} live holdings cloned`],
+    ["Guidance mode", manual ? "User directed" : experiment.guidance_mode ? formatUserLabel(experiment.guidance_mode) : "Follow existing policy"],
+    ["Decision horizon", experiment.horizon_label ?? "Unspecified"],
+  ];
+  return <section aria-label="Experiment setup" className="mt-5 min-w-0 space-y-3">
+    <dl className="grid gap-x-5 gap-y-3 border-y border-line py-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+      {facts.map(([label, value]) => <div key={label}><dt className="text-muted">{label}</dt><dd className="mt-1 font-medium">{value}</dd></div>)}
+    </dl>
+    <OpportunitySummary profile={profile} />
+    {!profile?.investable_thesis && experiment.trigger_reason && <p className="max-w-[76ch] whitespace-pre-wrap text-sm leading-relaxed">{experiment.trigger_reason}</p>}
+    <details className="border border-line p-3">
+      <summary className="cursor-pointer text-sm font-medium">Starting balances, policy, and setup record</summary>
+      <div className="mt-3 space-y-4 text-sm">
+        <dl className="flex flex-wrap gap-x-6 gap-y-2 tabular-nums">
+          {snapshot.paper_starting_cash == null && <>
+            <div><dt className="text-muted">Starting market value</dt><dd>{currency(snapshot.total_market_value)}</dd></div>
+            <div><dt className="text-muted">Starting buying power</dt><dd>{currency(snapshot.remaining_buying_power)}</dd></div>
+          </>}
+          <div><dt className="text-muted">Created</dt><dd>{formatDate(experiment.created_at)}</dd></div>
+          {experiment.completed_at && <div><dt className="text-muted">Completed</dt><dd>{formatDate(experiment.completed_at)}</dd></div>}
+        </dl>
+        <div className="max-w-[76ch] space-y-4">
+          {experiment.policy_description && <div><h3 className="mb-1 font-medium">Recorded policy</h3><p className="whitespace-pre-wrap leading-relaxed text-muted">{experiment.policy_description}</p></div>}
+          {(manual || experiment.guidance_summary) && <div><h3 className="mb-1 font-medium">Guidance in this run</h3><p className="whitespace-pre-wrap leading-relaxed text-muted">{manual ? "Orders submitted through the manual ticket change this paper account." : experiment.guidance_summary}</p></div>}
+          {profile?.investable_thesis && experiment.trigger_reason && <details>
+            <summary className="cursor-pointer font-medium">Original trigger record</summary>
+            <p className="mt-2 whitespace-pre-wrap leading-relaxed text-muted">{experiment.trigger_reason}</p>
+          </details>}
+        </div>
+      </div>
+    </details>
+  </section>;
+}
+
 function OpportunitySummary({
   profile,
 }: {
@@ -1327,27 +1342,22 @@ function OpportunitySummary({
   const stage = profile.signal_stage?.replaceAll("_", " ");
   const pricedIn = profile.priced_in_assessment?.replaceAll("_", " ");
   return (
-    <div className="mt-4 min-w-0 border-t-2 border-slate-300 pt-4 text-sm [overflow-wrap:anywhere] dark:border-slate-700">
+    <div className="min-w-0 space-y-3 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-          Opportunity thesis
-        </p>
-        <span className="max-w-full rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
-          {[stage, pricedIn ? `${pricedIn} priced in` : null, profile.opportunity_type?.replaceAll("_", " "), profile.priority_score == null ? null : `priority ${(profile.priority_score * 100).toFixed(0)}%`]
-            .filter(Boolean)
-            .join(" · ")}
-        </span>
+        <h3 className="font-semibold">Experiment hypothesis</h3>
+        <p className="text-muted">{[stage, profile.opportunity_type?.replaceAll("_", " "), profile.priority_score == null ? null : `Priority ${(profile.priority_score * 100).toFixed(0)}%`].filter(Boolean).join(" · ")}</p>
       </div>
-      <p className="mt-3 font-medium text-slate-800 dark:text-slate-100">{profile.investable_thesis}</p>
-      {profile.why_now ? (
-        <p className="mt-2 text-slate-700 dark:text-slate-200"><span className="font-medium">Why now:</span> {profile.why_now}</p>
-      ) : null}
-      {profile.portfolio_transmission ? (
-        <p className="mt-2 text-slate-600 dark:text-slate-300">Transmission: {profile.portfolio_transmission}</p>
-      ) : null}
-      {profile.expected_edge ? (
-        <p className="mt-2 text-slate-600 dark:text-slate-300">Expected edge: {profile.expected_edge}</p>
-      ) : null}
+      <dl className="grid gap-4 leading-relaxed lg:grid-cols-2">
+        <div className="max-w-[76ch]"><dt className="font-medium">Thesis</dt><dd className="text-muted">{profile.investable_thesis}</dd></div>
+        {profile.why_now && <div className="max-w-[76ch]"><dt className="font-medium">Why now</dt><dd className="text-muted">{profile.why_now}</dd></div>}
+      </dl>
+      <details className="border border-line p-3">
+        <summary className="cursor-pointer font-medium">Evidence, assumptions, and risk controls</summary>
+        <dl className="mt-3 grid gap-4 leading-relaxed lg:grid-cols-2">
+          {pricedIn && <div className="max-w-[76ch]"><dt className="font-medium">What may be priced in</dt><dd className="text-muted">{pricedIn}</dd></div>}
+          {profile.portfolio_transmission && <div className="max-w-[76ch]"><dt className="font-medium">Portfolio impact</dt><dd className="text-muted">{profile.portfolio_transmission}</dd></div>}
+          {profile.expected_edge && <div className="max-w-[76ch]"><dt className="font-medium">Expected edge</dt><dd className="text-muted">{profile.expected_edge}</dd></div>}
+        </dl>
       <div className="mt-3 grid gap-3 lg:grid-cols-3">
         {leading.length ? <CompactList title="Leading evidence" items={leading} /> : null}
         {lagging.length ? <CompactList title="Still unconfirmed" items={lagging} /> : null}
@@ -1368,7 +1378,7 @@ function OpportunitySummary({
                 <p className="font-medium text-slate-700 dark:text-slate-200">
                   {[item.ticker, item.kind?.replaceAll("_", " "), item.source].filter(Boolean).join(" · ") || item.ref}
                 </p>
-                <p className="mt-1 break-all">
+                <p className="mt-1 max-w-[76ch] leading-relaxed [overflow-wrap:anywhere]">
                   {typeof item.summary === "string" ? item.summary : item.summary ? JSON.stringify(item.summary) : item.ref}
                 </p>
                 <p className="mt-1">
@@ -1382,6 +1392,7 @@ function OpportunitySummary({
           </div>
         </details>
       ) : null}
+      </details>
     </div>
   );
 }
@@ -1532,30 +1543,6 @@ function Metric({ label, value }: { label: string; value: string }) {
     <div className="border-l-2 border-slate-200 py-1 pl-3 dark:border-slate-700">
       <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
       <p className="mt-1 text-xl font-semibold">{value}</p>
-    </div>
-  );
-}
-
-function InfoCard({
-  label,
-  body,
-  detail,
-  hint,
-}: {
-  label: string;
-  body: string;
-  detail: string;
-  hint?: string;
-}) {
-  return (
-    <div className="min-w-0 border-l-2 border-slate-200 py-1 pl-3 text-sm [overflow-wrap:anywhere] dark:border-slate-700">
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</p>
-
-      </div>
-      <p className="mt-2 font-medium text-slate-700 dark:text-slate-200">{body}</p>
-      <p className="mt-2 text-slate-500 dark:text-slate-400">{detail}</p>
-      {hint ? <p className="mt-3 text-xs text-slate-400 dark:text-slate-500">{hint}</p> : null}
     </div>
   );
 }

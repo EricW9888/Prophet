@@ -11,38 +11,42 @@ export default function CapturedHoldingsPanel({ view = "history" }: { view?: "hi
   const { read, status } = useWorkspaceReads<"value">();
   const [captures, setCaptures] = useState<CapturedHoldingsValue[]>([]);
   const [shock, setShock] = useState(-10);
-  const load = useCallback(() => read<CapturedHoldingsValue[]>("value", "/risk/portfolio/value-history", setCaptures, false), [read]);
+  const scenario = view === "scenario";
+  const path = scenario ? "/risk/portfolio/value-history" : "/risk/portfolio/value-history?basis=session";
+  const load = useCallback(() => read<CapturedHoldingsValue[]>("value", path, setCaptures, false), [path, read]);
   useEffect(() => { void load(); }, [load]);
   const latest = captures.at(-1);
   const error = status.value?.error;
   const loading = !status.value?.ready && !error;
-  const scenario = view === "scenario";
   const title = scenario ? "What-if value" : "Holdings value history";
 
   return <section className="min-w-0 border border-line bg-panel p-4 sm:p-5" aria-label={title}>
     <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
       <div>
         <h2 className="font-semibold">{title}</h2>
-        <p className="mt-1 text-xs text-muted">{scenario ? "Apply a uniform price shock when the latest capture covers every holding. Assumes unchanged positions and excludes cash. No probability or time horizon is implied."
-          : "Recorded holdings marked at completed closes. Excludes cash; changes can reflect trades as well as prices. Gaps indicate incomplete or unmatched prices."}</p>
+        <p className="mt-1 text-sm text-muted">{scenario ? "Apply a uniform price shock when the latest capture covers every holding. Assumes unchanged positions and excludes cash. No probability or time horizon is implied."
+          : "Captured holdings valued at market closes, excluding cash. Changes can reflect trades as well as prices."}</p>
       </div>
-      <button type="button" className="workspace-control" disabled={loading} onClick={() => void load()}>Reload captures</button>
+      <button type="button" className="workspace-control" disabled={loading} onClick={() => void load()}>{scenario ? "Reload captures" : "Reload history"}</button>
     </div>
     {error && <WorkspaceState compact kind={captures.length ? "degraded" : "error"} title="Captures could not be loaded" description={error} actionLabel="Retry" onAction={() => void load()} />}
     {loading ? <p className="text-sm text-muted" role="status">Loading retained captures…</p> : !latest && !error ? (
-      <p className="text-sm text-muted">Prophet hasn’t recorded a holdings valuation yet. Captures appear as market data and holdings become available.</p>
+      <p className="text-sm text-muted">{scenario ? "Prophet hasn’t recorded a holdings valuation yet." : "No captures have a shared market-close date yet. History appears as matching prices become available."}</p>
     ) : latest && scenario ? (
       latest.value_usd == null ? <p className="text-sm text-muted">The latest capture covered {latest.covered_positions} of {latest.total_positions} holdings. A same-session value for the full book is unavailable.</p> : (
         <ScenarioControls value={latest.value_usd} session={latest.price_session} shock={shock} onChange={setShock} />
       )
     ) : latest ? (
       <>
-        <p className="mb-2 text-xs text-muted">{captures.filter((capture) => capture.value_usd != null).length} complete of {captures.length} recent captures · Latest coverage: {latest.covered_positions}/{latest.total_positions}</p>
-        <CapturedValueChart label="Holdings value" points={captures.map((capture) => ({
-          id: capture.assessment_id, at: capture.captured_at, value: capture.value_usd,
-          detail: `${capture.covered_positions}/${capture.total_positions} holdings priced${capture.price_session ? ` · Price session ${capture.price_session}` : " · No common price session"}`,
+        <CapturedValueChart label="Holdings value" calendarDates points={captures.flatMap((capture) => capture.price_session ? [{
+          id: capture.assessment_id, at: capture.price_session, value: capture.value_usd,
+          detail: `${capture.covered_positions}/${capture.total_positions} holdings priced · Captured ${new Date(capture.captured_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`,
           href: `${API_BASE}/risk/portfolio/packets/${capture.assessment_id}`,
-        }))} />
+        }] : [])} />
+        <details className="mt-3 text-sm text-muted">
+          <summary className="cursor-pointer">How this history is built</summary>
+          <p className="mt-2">Each point uses the latest complete capture for that close. A close with only partial captures appears as a gap. Captures without a shared price date can’t be placed on this chart.</p>
+        </details>
       </>
     ) : null}
   </section>;

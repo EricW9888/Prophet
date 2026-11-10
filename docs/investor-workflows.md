@@ -39,16 +39,23 @@ The Portfolio watchlist includes open holdings and explicitly tracked names,
 one row per security. Its order is a workspace preference and does not change
 ledger positions, watch conditions, or research priority.
 
-Holdings value history reads retained, same-session closing marks for the
-captured book. It excludes cash, shows gaps when holdings are missing or have
-different price sessions, and links to each receipt. It is not broker equity or
-a cash-flow-adjusted return. Risk's what-if applies an explicit uniform shock
-only if the latest capture has full coverage. Shadow shows retained paper
-equity at checkpoints. Fill and decision markers use their own dates and do
-not imply an unobserved value at the event time.
+Holdings value history shows one point per observed price session, using
+the newest complete capture for that close. A known session with only partial
+captures appears as a gap. A capture with no common price date has no place on
+the close timeline. Each point links to its retained receipt and shows when the
+holdings were captured. Values exclude cash and use the positions known at
+capture time, so changes can reflect trades as well as price changes.
+Risk's what-if still requires full coverage in the latest capture.
+Shadow shows retained paper equity at checkpoints. Fill and decision markers
+use their own dates without assigning them an unobserved equity value.
 Hover over a chart to inspect the nearest dated observation. Click or tap to
 keep its details and receipt in view. Keyboard users can tab to the chart and
 use the arrow keys to change the selection.
+
+Simulate separates the run's recorded starting account, decision horizon and
+guidance mode from the hypothesis that prompted the test. Expand the setup
+record for starting balances and the original policy and trigger, or expand
+the evidence to inspect assumptions, risk controls, and point-in-time sources.
 Manual paper accounts keep the opening cash mark when available and append
 observed account valuations with matching, dated USD quotes. Repeated inputs
 do not add another point. An incomplete valuation leaves the last mark in
