@@ -383,9 +383,7 @@ class PortfolioRiskService:
         if by_session:
             # Reduce by price session before limiting history. A refresh burst
             # must not evict earlier closes or overwrite a usable mark with a gap.
-            full_book = and_(
-                covered == total, total > 0, currency == "USD", value > 0
-            )
+            full_book = and_(covered == total, total > 0, currency == "USD", value > 0)
             query = (
                 query.where(
                     price_session.is_not(None),
