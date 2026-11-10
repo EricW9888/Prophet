@@ -104,9 +104,11 @@ not kill an unknown process when ports 3000 or 8000 are occupied; it reports the
 conflict so the owning process can be handled deliberately. Logs live in the
 ignored `.prophet-local/runtime/` directory.
 
-The production frontend includes an installable web-app manifest. On a secure
-origin, use the browser's **Add to Home Screen** or **Install app** action to run
-Prophet in a standalone window. Offline navigation shows an explicit unavailable
+The production frontend includes an installable web-app manifest. Open
+**Settings → Desktop window** for the install action where supported. You can
+also use your browser's **Add to Home Screen** or **Install app** action. Open
+the installed Prophet app for a standalone window; keep the local launcher
+running for data and background work. Offline navigation shows an explicit unavailable
 state; Prophet does not cache portfolio, research, chat, or API data for offline
 use. The default launcher remains loopback-only, so installation on another
 device requires a separately secured private HTTPS access path rather than

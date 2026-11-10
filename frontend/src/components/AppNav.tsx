@@ -325,9 +325,6 @@ export default function AppNav({ active }: { active: NavKey }) {
           </div>
         ) : null}
 
-        <p className="break-words border-t border-line py-1.5 text-[11px] leading-4 text-muted [overflow-wrap:anywhere]">
-          AI can be incomplete or wrong. Verify cited evidence and reconcile portfolio data before acting.
-        </p>
       </nav>
     </header>
   );

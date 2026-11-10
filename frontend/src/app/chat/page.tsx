@@ -2323,6 +2323,7 @@ function ActualProcessSummary({
         ) : null}
       </summary>
       <div className="mt-3 space-y-3">
+      <p className="text-xs text-muted">Check the original evidence and its dates before relying on this answer.</p>
       <div className="space-y-1 text-slate-500 dark:text-slate-400">
         {message.meta.process_mode ? (
           <p>analysis path: {formatUserLabel(message.meta.process_mode)}</p>
