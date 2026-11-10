@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import httpx
@@ -10,7 +11,51 @@ from investos.models.entity import Entity, Security
 from investos.models.graph import Edge, GraphNodeLayout
 from investos.models.portfolio import Position
 from investos.models.profile import Profile
-from investos.services.graph import SYNTHETIC_PORTFOLIO_ID
+from investos.services.graph import (
+    EXPLICIT_NODE_EDGE_LIMIT,
+    SYNTHETIC_PORTFOLIO_ID,
+    GraphService,
+)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_batched_explicit_edges_keep_each_nodes_limit_and_direction():
+    first, second, empty = [("entity", uuid4()) for _ in range(3)]
+    started = datetime.now(UTC)
+    async with async_session_maker() as session:
+        session.add_all(
+            [
+                Edge(
+                    source_type=first[0],
+                    source_id=first[1],
+                    target_type="entity",
+                    target_id=uuid4(),
+                    relationship_type="synthetic",
+                    created_at=started + timedelta(seconds=index),
+                )
+                for index in range(EXPLICIT_NODE_EDGE_LIMIT + 1)
+            ]
+        )
+        incoming = Edge(
+            source_type="entity",
+            source_id=uuid4(),
+            target_type=second[0],
+            target_id=second[1],
+            relationship_type="synthetic",
+            created_at=started,
+        )
+        session.add(incoming)
+        await session.flush()
+        graph = GraphService(session)
+        grouped = await graph._explicit_edges_for_nodes([first, second, empty])
+
+        expected = await graph._edges_touching_node(
+            node_type=first[0], node_id=first[1]
+        )
+        assert len(grouped[first]) == EXPLICIT_NODE_EDGE_LIMIT
+        assert [edge.id for edge in grouped[first]] == [edge.id for edge in expected]
+        assert grouped[second] == [incoming]
+        assert grouped[empty] == []
 
 
 @pytest.mark.asyncio(loop_scope="session")
