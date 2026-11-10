@@ -43,7 +43,7 @@ from .knowledge import Claim, Event, Fact
 from .knowledge_mutation import KnowledgeMutation
 from .lesson import Lesson, LessonObservation
 from .mailbox import MailboxReceiptIdentity
-from .market_calendar import MarketCalendar
+from .market_calendar import MarketCalendar, MarketSessionObservation
 from .market_setup import MarketSetupSignal
 from .notification import (
     PushNotificationDelivery,
@@ -134,6 +134,7 @@ __all__ = [
     "LessonObservation",
     "MarketSetupSignal",
     "MarketCalendar",
+    "MarketSessionObservation",
     "PushSubscription",
     "PushNotificationEvent",
     "PushNotificationDelivery",

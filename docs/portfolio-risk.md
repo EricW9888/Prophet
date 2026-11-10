@@ -105,8 +105,13 @@ Changed economic inputs, freshness status or freshness policy create a new
 assessment. Exact capture retries have a deterministic record identity.
 
 Daily provider labels may identify session open. The adapter uses the provider's
-regular-session end when its date matches the bar. Older dates without verified
-schedules conservatively complete at the next exchange-local midnight. Unknown
+regular-session end when its date matches the bar. Completed session schedules
+are retained with provider identity and observation time, including schedules
+recoverable from earlier frozen packets. A later metadata rollover can reuse
+that completion clock while keeping newly fetched prices and acquisition times
+distinct. A response that omits the latest observed session reports a coverage
+gap. Older dates without verified schedules conservatively complete at the next
+exchange-local midnight. Unknown
 timezone falls back to UTC. This can delay availability and does not reconstruct
 historical exchange schedules. Acquisition must also precede the packet cutoff.
 
