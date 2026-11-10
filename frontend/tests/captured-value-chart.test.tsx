@@ -11,6 +11,8 @@ import type { CapturedHoldingsValue } from "../src/lib/api";
 let root: Root;
 let container: HTMLDivElement;
 const originalFetch = globalThis.fetch;
+const originalBounds = window.HTMLElement.prototype.getBoundingClientRect;
+const originalResizeObserver = globalThis.ResizeObserver;
 const capture = (day: number, value: number | null): CapturedHoldingsValue => ({
   assessment_id: `receipt-${day}`,
   captured_at: `2025-05-${day}T21:00:00Z`,
@@ -21,6 +23,14 @@ const capture = (day: number, value: number | null): CapturedHoldingsValue => ({
 });
 
 beforeEach(() => {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+  window.HTMLElement.prototype.getBoundingClientRect = function () {
+    return this.classList.contains("recharts-responsive-container") ? new window.DOMRect(0, 0, 1168, 256) : originalBounds.call(this);
+  };
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -30,6 +40,8 @@ afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
   globalThis.fetch = originalFetch;
+  globalThis.ResizeObserver = originalResizeObserver;
+  window.HTMLElement.prototype.getBoundingClientRect = originalBounds;
 });
 
 function feed(rows: CapturedHoldingsValue[]) {
@@ -45,34 +57,34 @@ async function click(button: HTMLButtonElement) {
 test("a partial portfolio capture breaks the line rather than plotting a false loss", async () => {
   feed([capture(20, 3000), capture(21, null), capture(22, 3200)]);
   await act(async () => root.render(<CapturedHoldingsPanel />));
-  assert.match(container.textContent!, /2 complete of 3 recent captures/);
-  const path = container.querySelector('path[stroke="currentColor"]')?.getAttribute("d") ?? "";
-  assert.equal(path.match(/M /g)?.length, 2);
-  assert.doesNotMatch(path, /L /);
+  const path = container.querySelector(".recharts-line-curve")?.getAttribute("d") ?? "";
+  assert.equal(path.match(/M/g)?.length, 2);
+  assert.doesNotMatch(path, /L/);
+  assert.equal(container.querySelectorAll("circle.recharts-line-dot").length, 2);
   assert.equal(container.querySelector("a")?.getAttribute("href"), "/api_proxy/risk/portfolio/packets/receipt-22");
 });
 
-test("hover scrubs a resized plot through missing captures and clicks keep the selected receipt", async () => {
-  feed([capture(20, 3000), capture(21, null), capture(22, 3200)]);
+test("hover scrubs closing dates through missing values and clicks keep the selected receipt", async () => {
+  feed([{ ...capture(20, 3000), captured_at: "2025-06-15T22:00:00Z" }, capture(21, null), capture(22, 3200)]);
   await act(async () => root.render(<CapturedHoldingsPanel />));
-  const plot = container.querySelector('svg[viewBox="0 0 584 156"]')!;
-  plot.getBoundingClientRect = () => new window.DOMRect(100, 0, 1168, 160);
+  const plot = container.querySelector<SVGRectElement>("[data-chart-plot]")!;
+  const width = Number(plot.getAttribute("width"));
+  plot.getBoundingClientRect = () => new window.DOMRect(100, 0, width * 2, 256);
+  plot.getBBox = () => new window.DOMRect(0, 0, width, 128);
   const hover = (clientX: number) => act(async () => {
     plot.dispatchEvent(new window.PointerEvent("pointermove", { bubbles: true, pointerType: "mouse", clientX }));
   });
-  const tooltip = () => plot.parentElement?.querySelector("div[aria-hidden]");
+  const headline = () => container.querySelector('div[aria-hidden="true"] > strong')?.parentElement?.textContent ?? "";
   const readout = () => container.querySelector('[aria-live="polite"]')!.textContent!;
 
-  await hover(684);
-  assert.match(tooltip()?.textContent ?? "", /Value unavailable/);
-  assert.equal(plot.querySelector("path[stroke-dasharray]")?.getAttribute("d"), "M 292 13 V 145");
+  await hover(100 + width);
+  assert.match(headline(), /Value unavailable.*May 21/);
   assert.match(readout(), /\$3,200.00/);
-  await hover(165);
-  assert.match(tooltip()?.textContent ?? "", /\$3,000.00/);
-  await act(async () => plot.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 165 })));
+  await hover(140);
+  assert.match(headline(), /\$3,000.00.*May 20/);
+  await act(async () => plot.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 140 })));
   await act(async () => plot.dispatchEvent(new window.PointerEvent("pointerout", { bubbles: true, pointerType: "mouse" })));
-  assert.equal(tooltip(), null);
-  assert.match(readout(), /\$3,000.00/);
+  assert.match(readout(), /May 20.*\$3,000.00.*Captured Jun 15/);
   assert.equal(container.querySelector("a")?.getAttribute("href"), "/api_proxy/risk/portfolio/packets/receipt-20");
 });
 
