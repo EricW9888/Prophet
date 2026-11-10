@@ -135,9 +135,9 @@ async def test_portfolio_monitor_counts_relevant_reviews_beyond_the_global_previ
     ]
     dashboard = await DashboardService(session)._portfolio_monitor()
     assert dashboard.priority_review_count == monitor["priority_review_count"]
-    assert [
-        item.model_dump() for item in dashboard.priority_review_items
-    ] == monitor["priority_review_items"]
+    assert [item.model_dump() for item in dashboard.priority_review_items] == monitor[
+        "priority_review_items"
+    ]
 
 
 async def test_broker_equity_reconciles_statement_dates_and_active_ledger_receipts(
