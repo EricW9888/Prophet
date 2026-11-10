@@ -234,39 +234,7 @@ export default function SettingsPage() {
     }
   }
 
-  if (!settings) {
-    return (
-      <div className="min-h-screen bg-background text-foreground">
-        <AppNav active="settings" />
-        <main className="workspace-frame py-8">
-          <PageHeader
-            className="mb-8"
-            eyebrow="Configuration"
-            title="Settings"
-            description="Manage portfolio inputs, data connections, research providers, model access, automation, and system state."
-          />
-          {loading ? (
-            <WorkspaceState
-              kind="loading"
-              title="Loading configuration"
-              description="Retrieving integration readiness, automation status, and portfolio defaults."
-            />
-          ) : (
-            <WorkspaceState
-              kind="error"
-              title="Settings are unavailable"
-              description={loadError ?? "Prophet could not load the required integration settings."}
-              actionLabel="Retry"
-              onAction={() => {
-                void loadState();
-              }}
-            />
-          )}
-        </main>
-      </div>
-    );
-  }
-  const activeLlmCapability = (settings.llm.available_providers ?? []).find(
+  const activeLlmCapability = settings?.llm.available_providers?.find(
     capability => capability.provider === settings.llm.provider,
   );
 
@@ -278,12 +246,12 @@ export default function SettingsPage() {
         {error && <FloatingNotice tone="error" message={error} onDismiss={() => setError(null)} />}
         {notice && <FloatingNotice tone="success" message={notice} onDismiss={() => setNotice(null)} />}
 
-        {(["setup", "automation", "portfolio", "risk"] as const).some(key => status[key]?.error) ? (
+        {settings && (["setup", "automation", "portfolio", "risk"] as const).some(key => status[key]?.error) ? (
           <WorkspaceState compact kind="degraded" title="Some status panels are unavailable"
             description={"Unavailable: " + (["setup", "automation", "portfolio", "risk"] as const).filter(key => status[key]?.error).join(", ")}
             actionLabel="Retry" onAction={() => void loadState()} />
         ) : null}
-        {loadError ? (
+        {settings && loadError ? (
           <WorkspaceState
             kind="degraded"
             compact
@@ -300,7 +268,7 @@ export default function SettingsPage() {
           eyebrow="Configuration"
           title="Settings"
           description="Manage portfolio inputs, data connections, research providers, model access, automation, and system state."
-          actions={(
+          actions={settings && (
             <div className="flex w-full items-start gap-2 md:w-auto">
             <div className="grid min-w-0 flex-1 grid-cols-2 border-b border-slate-200 sm:flex dark:border-slate-800">
               <TabButton active={activeTab === "overview"} onClick={() => setActiveTab("overview")} label="Overview" icon={<CheckCircle2 className="w-4 h-4" />} />
@@ -320,10 +288,10 @@ export default function SettingsPage() {
           )}
         />
 
-        <LanguageSettings value={settings.presentation_language ?? "en"} onChange={language => updateSettings(current => ({ ...current, presentation_language: language }))} />
         <DesktopAppSettings />
-
+        {settings ? (
         <div className="space-y-6 animate-in fade-in duration-300">
+          <LanguageSettings value={settings.presentation_language ?? "en"} onChange={language => updateSettings(current => ({ ...current, presentation_language: language }))} />
           {activeTab === "overview" && (
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.72fr)]">
               <section className="space-y-5">
@@ -1044,6 +1012,14 @@ export default function SettingsPage() {
             </div>
           )}
         </div>
+        ) : loading ? (
+          <WorkspaceState kind="loading" title="Loading configuration"
+            description="Retrieving integration readiness, automation status, and portfolio defaults." />
+        ) : (
+          <WorkspaceState kind="error" title="Settings are unavailable"
+            description={loadError ?? "Prophet could not load the required integration settings."}
+            actionLabel="Retry" onAction={() => void loadState()} />
+        )}
       </main>
 
       <FloatingSaveBar
