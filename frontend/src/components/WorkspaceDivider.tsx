@@ -1,35 +1,10 @@
 "use client";
 
-import { type CSSProperties, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-
-function createLayoutStore(key: string) {
-    const storageKey = `prophet:workspace:${key}`;
-    let fallback = "";
-    return {
-      read() {
-        try { return localStorage.getItem(storageKey) ?? fallback; } catch { return fallback; }
-      },
-      write(value: string) {
-        fallback = value;
-        try { localStorage.setItem(storageKey, value); } catch { /* Keep an in-memory preference. */ }
-        window.dispatchEvent(new Event(storageKey));
-      },
-      subscribe(listener: () => void) {
-        const onStorage = (event: StorageEvent) => {
-          if (event.key === storageKey || event.key === null) listener();
-        };
-        window.addEventListener(storageKey, listener);
-        window.addEventListener("storage", onStorage);
-        return () => {
-          window.removeEventListener(storageKey, listener);
-          window.removeEventListener("storage", onStorage);
-        };
-      },
-    };
-}
+import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { useWorkspacePreference } from "@/lib/workspace-preference";
 
 export function useWorkspacePane(key: string, defaultWidth: number) {
-  const store = useMemo(() => createLayoutStore(key), [key]);
+  const store = useWorkspacePreference(key);
 
   function parse(value: string) {
     try {
@@ -40,7 +15,7 @@ export function useWorkspacePane(key: string, defaultWidth: number) {
     } catch { /* Start with the default layout. */ }
     return { width: defaultWidth, open: true };
   }
-  const layout = parse(useSyncExternalStore(store.subscribe, store.read, () => ""));
+  const layout = parse(store.value);
   function update(next: Partial<typeof layout>) {
     store.write(JSON.stringify({ ...parse(store.read()), ...next }));
   }

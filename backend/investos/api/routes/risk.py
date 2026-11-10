@@ -4,7 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.db import get_session
-from investos.schemas.portfolio_risk import PortfolioRiskState, RiskWatchRequest
+from investos.schemas.portfolio_risk import (
+    CapturedHoldingsValue,
+    PortfolioRiskState,
+    RiskWatchRequest,
+)
 from investos.schemas.risk import PerformanceAttributionResponse, RiskSummaryResponse
 from investos.services.advisory_trial import AdvisoryTrialService
 from investos.services.portfolio_risk import PortfolioRiskService
@@ -38,6 +42,11 @@ async def get_portfolio_risk_packet(
     if packet is None:
         raise HTTPException(status_code=404, detail="Risk assessment not found")
     return packet
+
+
+@router.get("/portfolio/value-history", response_model=list[CapturedHoldingsValue])
+async def get_portfolio_value_history(session: AsyncSession = Depends(get_session)):
+    return await PortfolioRiskService(session).captured_value_history()
 
 
 @router.get("/portfolio/advisory-trial")

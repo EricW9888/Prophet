@@ -5,6 +5,7 @@ import Link from "next/link";
 
 import AddResearchObjectModal from "./AddResearchObjectModal";
 import AddTransactionModal from "./AddTransactionModal";
+import PortfolioWatchlist from "./PortfolioWatchlist";
 import WorkspaceState from "./WorkspaceState";
 import { apiFetch, PortfolioBuildPoint, PortfolioOverview } from "@/lib/api";
 import { safeFormatCurrency, safeFormatSignedCurrency, formatUserLabel } from "@/lib/formatting";
@@ -169,12 +170,7 @@ export default function PositionsTable() {
           </section>
 
           <section className="space-y-6">
-            <SidebarList
-              title="Watchlist"
-              description="Tracked names with profiles, questions, and evidence collection."
-              items={watchlist}
-              emptyState="No watchlist names yet."
-            />
+            <PortfolioWatchlist holdings={holdings} tracked={watchlist} />
             <SidebarList
               title="Considering"
               description="Ideas under active consideration before they become positions."

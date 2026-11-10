@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 
 import { useWorkspaceReads } from "@/lib/workspace-reads";
 import AppNav from "@/components/AppNav";
+import CapturedHoldingsPanel from "@/components/CapturedHoldingsPanel";
 import AdvisoryTrialPanel from "@/components/AdvisoryTrialPanel";
 import WorkspaceState from "@/components/WorkspaceState";
 import PageHeader from "@/components/PageHeader";
@@ -208,6 +209,7 @@ export default function RiskPage() {
           </>
         )}
 
+        <CapturedHoldingsPanel view="scenario" />
         <section className="grid grid-cols-1 xl:grid-cols-[0.9fr_1.1fr] gap-6">
           <Panel title="Benchmark Catalog" eyebrow="Managed comparison set">
             <div className="mb-4 flex items-start justify-between gap-4">

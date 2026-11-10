@@ -35,6 +35,18 @@ deferrals, and errors.
 | Learn from a paper outcome | Simulate | Inspect the frozen baseline, policy, paper receipts and measured result. Compare dated observations with the baseline, then inspect retained lessons. A retry starts a new run. |
 | Recover unavailable work | Activity, Settings, Agent Desk | Identify whether configuration, provider, storage or a processing stage is unavailable. Deterministic work can continue during model deferral; the shared structured-generation probe owns recovery. |
 
+The Portfolio watchlist includes open holdings and explicitly tracked names,
+one row per security. Its order is a workspace preference and does not change
+ledger positions, watch conditions, or research priority.
+
+Holdings value history reads retained, same-session closing marks for the
+captured book. It excludes cash, shows gaps when holdings are missing or have
+different price sessions, and links to each receipt. It is not broker equity or
+a cash-flow-adjusted return. Risk's what-if applies an explicit uniform shock
+only if the latest capture has full coverage. Shadow shows retained paper
+equity at checkpoints. Fill and decision markers use their own dates and do
+not imply an unobserved value at the event time.
+
 Every surface must distinguish its initial load from an observed empty result.
 A failed refresh retains the last loaded state with a visible stale/degraded
 message and a retry action. Secondary failures disclose which information is
