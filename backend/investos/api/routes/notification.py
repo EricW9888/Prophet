@@ -6,6 +6,7 @@ from investos.db import get_session
 from investos.schemas.notification import (
     PushNotificationStatusResponse,
     PushNotificationTestResponse,
+    PushSenderContactUpdate,
     PushSubscriptionCreate,
     PushSubscriptionEndpointRequest,
     PushSubscriptionResponse,
@@ -22,6 +23,19 @@ router = APIRouter(prefix="/notifications", tags=["notifications"])
 @router.get("/status", response_model=PushNotificationStatusResponse)
 async def notification_status(session: AsyncSession = Depends(get_session)):
     return await PushNotificationService(session).status()
+
+
+@router.put("/contact", response_model=PushNotificationStatusResponse)
+async def set_notification_contact(
+    payload: PushSenderContactUpdate,
+    session: AsyncSession = Depends(get_session),
+):
+    service = PushNotificationService(session)
+    try:
+        service.set_sender_contact(payload.sender_contact)
+    except PushConfigurationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await service.status()
 
 
 @router.post("/subscriptions", response_model=PushSubscriptionResponse)

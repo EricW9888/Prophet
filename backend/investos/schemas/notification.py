@@ -20,9 +20,14 @@ class PushSubscriptionEndpointRequest(BaseModel):
 class PushNotificationStatusResponse(BaseModel):
     enabled: bool
     ready: bool
+    sender_contact_saved: bool = False
     configuration_error: str | None = None
     application_server_key: str | None = None
     active_subscription_count: int
+
+
+class PushSenderContactUpdate(BaseModel):
+    sender_contact: str | None = Field(max_length=512)
 
 
 class PushSubscriptionResponse(BaseModel):

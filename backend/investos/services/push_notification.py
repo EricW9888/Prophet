@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 from uuid import UUID, uuid4
 
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
@@ -27,6 +27,7 @@ from investos.models.notification import (
     PushSubscription,
 )
 from investos.models.watcher import ActiveWatcher
+from investos.services.runtime_settings import RuntimeSettingsStore
 
 
 class PushSubscriptionError(ValueError):
@@ -72,37 +73,79 @@ class PushNotificationService:
         return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
     @staticmethod
-    def _vapid_subject() -> str:
-        configured = (settings.WEB_PUSH_VAPID_SUBJECT or "").strip()
+    def _normalize_subject(value: str, *, allow_email: bool = False) -> str:
+        configured = value.strip()
+        if allow_email and "@" in configured and ":" not in configured:
+            configured = f"mailto:{configured}"
+        clean = not any(
+            char.isspace() or ord(char) < 32 for char in unquote(configured)
+        )
+        try:
+            parsed = urlparse(configured)
+            local, separator, domain = parsed.path.rpartition("@")
+            valid_mailto = (
+                parsed.scheme == "mailto"
+                and bool(local and separator and domain)
+                and "@" not in local
+                and not parsed.netloc
+                and not parsed.query
+                and not parsed.fragment
+            )
+            valid_https_origin = (
+                parsed.scheme == "https"
+                and bool(parsed.hostname)
+                and (parsed.port is None or parsed.port > 0)
+                and parsed.username is None
+                and parsed.password is None
+                and parsed.path in {"", "/"}
+                and not parsed.params
+                and not parsed.query
+                and not parsed.fragment
+            )
+        except ValueError:
+            valid_mailto = valid_https_origin = False
+        if not clean or not (valid_mailto or valid_https_origin):
+            raise PushConfigurationError(
+                "Enter a sender email or an HTTPS site origin in Device notifications, "
+                "or set WEB_PUSH_VAPID_SUBJECT on the host."
+            )
+        return configured.rstrip("/") if valid_https_origin else configured
+
+    @classmethod
+    def _vapid_subject(cls, saved_contact: str | None = None) -> str:
+        if saved_contact is None:
+            saved_contact = RuntimeSettingsStore.load().push_sender_contact
+        configured = saved_contact or (settings.WEB_PUSH_VAPID_SUBJECT or "").strip()
         if not configured:
             owner = (settings.PROPHET_REMOTE_ACCESS_USER or "").strip()
             if "@" in owner and not any(character.isspace() for character in owner):
                 configured = f"mailto:{owner}"
+        return cls._normalize_subject(configured)
 
-        parsed = urlparse(configured)
-        valid_mailto = (
-            parsed.scheme == "mailto"
-            and bool(parsed.path)
-            and "@" in parsed.path
-            and not parsed.query
-            and not parsed.fragment
-        )
-        valid_https_origin = (
-            parsed.scheme == "https"
-            and bool(parsed.hostname)
-            and parsed.username is None
-            and parsed.password is None
-            and parsed.path in {"", "/"}
-            and not parsed.params
-            and not parsed.query
-            and not parsed.fragment
-        )
-        if not (valid_mailto or valid_https_origin):
+    @classmethod
+    def set_sender_contact(cls, value: str | None) -> None:
+        if not settings.WEB_PUSH_ENABLED:
             raise PushConfigurationError(
-                "Owner notifications need WEB_PUSH_VAPID_SUBJECT set to a contact "
-                "URI such as mailto:owner@example.com."
+                "Push delivery is disabled on the Prophet host."
             )
-        return configured.rstrip("/") if valid_https_origin else configured
+        contact = (
+            cls._normalize_subject(value, allow_email=True)
+            if value is not None
+            else None
+        )
+        if contact is not None:
+            try:
+                # Check the configured signer locally; no push request is made here.
+                cls._vapid_identity().sign(
+                    {"aud": "https://example.invalid", "sub": contact}
+                )
+            except VapidException as exc:
+                raise PushConfigurationError(
+                    "Use a valid sender email or HTTPS site origin."
+                ) from exc
+        runtime = RuntimeSettingsStore.load()
+        runtime.push_sender_contact = contact
+        RuntimeSettingsStore.save(runtime)
 
     async def status(self) -> dict[str, Any]:
         active_count = int(
@@ -115,15 +158,17 @@ class PushNotificationService:
         )
         configuration_error = None
         ready = False
+        saved_contact = RuntimeSettingsStore.load().push_sender_contact
         if settings.WEB_PUSH_ENABLED:
             try:
-                self._vapid_subject()
+                self._vapid_subject(saved_contact or "")
                 ready = True
             except PushConfigurationError as exc:
                 configuration_error = str(exc)
         return {
             "enabled": settings.WEB_PUSH_ENABLED,
             "ready": ready,
+            "sender_contact_saved": bool(saved_contact),
             "configuration_error": configuration_error,
             "application_server_key": self.application_server_key() if ready else None,
             "active_subscription_count": active_count,
