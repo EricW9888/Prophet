@@ -7,9 +7,9 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from sqlalchemy import desc, or_, select, tuple_
+from sqlalchemy import column, desc, or_, select, true, tuple_, values
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 
 from investos.models.catalog import (
     HistoricalEpisode,
@@ -55,6 +55,7 @@ PORTFOLIO_WEB_SEED_LIMIT = 40
 EXPANDED_WEB_SEED_LIMIT = 100
 WEB_NEIGHBORHOOD_DEPTH = 2
 WEB_NEIGHBORHOOD_LIMIT = 20
+EXPLICIT_NODE_EDGE_LIMIT = 40
 
 # Internal job/run labels that leaked into the entity table as if they were
 # real subjects. They are pipeline bookkeeping, not knowledge, and should never
@@ -81,6 +82,9 @@ class _NeighborhoodReads:
         self.layers: dict[str, str] = {}
         self.autonomy: dict[str, bool] = {}
         self.adjacency: dict[str, list[GraphWebEdgeResponse]] = {}
+        self.explicit_edges: dict[tuple[str, UUID], list[Edge]] = {}
+        self.conclusions: dict[tuple[str, UUID], ConclusionState | None] = {}
+        self.coverage_maps: dict[tuple[str, UUID], CoverageMap | None] = {}
         self.siblings: dict[UUID, list[tuple[str, UUID, str, float, str]]] = {}
 
     async def node(self, node_type: str, node_id: UUID | str):
@@ -137,13 +141,44 @@ class _NeighborhoodReads:
             self.autonomy[key] = await self.service._node_is_autonomous(node_type, node)
         return self.autonomy[key]
 
+    async def prefetch_edges(self, frontier: list[tuple[str, UUID | str]]) -> None:
+        pending = [
+            (node_type, node_id)
+            for node_type, node_id in frontier
+            if isinstance(node_id, UUID)
+            and (node_type, node_id) not in self.explicit_edges
+            and self.service._node_key(node_type, node_id) not in self.adjacency
+        ]
+        if len(pending) > 1:
+            self.explicit_edges.update(
+                await self.service._explicit_edges_for_nodes(pending)
+            )
+
+    async def prefetch_subject_state(self, subjects: list[tuple[str, UUID]]) -> None:
+        if not subjects:
+            return
+        conclusions = await self.service.canonical.conclusions_for_subjects(subjects)
+        coverage_maps = await self.service.canonical.coverage_maps_for_subjects(
+            subjects
+        )
+        self.conclusions = {key: conclusions.get(key) for key in subjects}
+        self.coverage_maps = {key: coverage_maps.get(key) for key in subjects}
+
     async def edges(
         self, node_type: str, node_id: UUID | str, node
     ) -> list[GraphWebEdgeResponse]:
         key = self.service._node_key(node_type, node_id)
         if key not in self.adjacency:
             self.adjacency[key] = await self.service._web_edges_touching_node(
-                node_type=node_type, node_id=node_id, node=node, reads=self
+                node_type=node_type,
+                node_id=node_id,
+                node=node,
+                reads=self,
+                explicit=(
+                    self.explicit_edges.pop((node_type, node_id), None)
+                    if isinstance(node_id, UUID)
+                    else None
+                ),
             )
         return self.adjacency[key]
 
@@ -359,10 +394,11 @@ class GraphService:
             is_autonomous=await reads.is_autonomous(node_type, root),
         )
         edge_map: OrderedDict[UUID, GraphWebEdgeResponse] = OrderedDict()
-        frontier: list[tuple[str, UUID]] = [(node_type, node_id)]
+        frontier: list[tuple[str, UUID | str]] = [(node_type, node_id)]
         effective_depth = max(1, min(depth, 4))
         for _level in range(effective_depth):
-            next_frontier: list[tuple[str, UUID]] = []
+            await reads.prefetch_edges(frontier)
+            next_frontier: list[tuple[str, UUID | str]] = []
             for current_type, current_id in frontier:
                 current_node = await reads.node(current_type, current_id)
                 if current_node is None:
@@ -485,8 +521,13 @@ class GraphService:
         )
 
         reads = _NeighborhoodReads(self)
+        seeds = list(dict.fromkeys(seeds))
+        await reads.prefetch_edges(seeds)
+        await reads.prefetch_subject_state(
+            [seed for seed in seeds if seed[0] in {"entity", "theme"}]
+        )
         neighborhoods = []
-        for node_type, node_id in dict.fromkeys(seeds):
+        for node_type, node_id in seeds:
             neighborhood = await self.get_neighborhood(
                 node_type=node_type,
                 node_id=node_id,
@@ -869,25 +910,48 @@ class GraphService:
         if real_id is None:
             return []
 
+        return list(
+            await self.session.scalars(self._explicit_edge_query(node_type, real_id))
+        )
+
+    @staticmethod
+    def _explicit_edge_query(node_type, node_id):
         return (
-            (
-                await self.session.execute(
-                    select(Edge)
-                    .where(
-                        or_(
-                            (Edge.source_type == node_type)
-                            & (Edge.source_id == real_id),
-                            (Edge.target_type == node_type)
-                            & (Edge.target_id == real_id),
-                        )
-                    )
-                    .order_by(desc(Edge.created_at))
-                    .limit(40)
+            select(Edge)
+            .where(
+                or_(
+                    (Edge.source_type == node_type) & (Edge.source_id == node_id),
+                    (Edge.target_type == node_type) & (Edge.target_id == node_id),
                 )
             )
-            .scalars()
-            .all()
+            .order_by(desc(Edge.created_at), desc(Edge.id))
+            .limit(EXPLICIT_NODE_EDGE_LIMIT)
         )
+
+    async def _explicit_edges_for_nodes(
+        self, nodes: list[tuple[str, UUID]]
+    ) -> dict[tuple[str, UUID], list[Edge]]:
+        frontier = values(
+            column("node_type", Edge.__table__.c.source_type.type),
+            column("node_id", Edge.__table__.c.source_id.type),
+            name="frontier",
+        ).data(nodes)
+        # Keep the existing per-node cap while fetching the frontier in one read.
+        neighbors = (
+            self._explicit_edge_query(frontier.c.node_type, frontier.c.node_id)
+            .correlate(frontier)
+            .lateral()
+        )
+        edge = aliased(Edge, neighbors)
+        rows = await self.session.execute(
+            select(frontier.c.node_type, frontier.c.node_id, edge)
+            .select_from(frontier.join(neighbors, true()))
+            .order_by(desc(edge.created_at), desc(edge.id))
+        )
+        grouped: dict[tuple[str, UUID], list[Edge]] = {key: [] for key in nodes}
+        for node_type, node_id, item in rows:
+            grouped[node_type, node_id].append(item)
+        return grouped
 
     async def _citations_for_node(
         self, node_type: str, node
@@ -2627,11 +2691,14 @@ class GraphService:
         node_id: UUID,
         node,
         reads: _NeighborhoodReads,
+        explicit: list[Edge] | None,
     ) -> list[GraphWebEdgeResponse]:
         output: OrderedDict[UUID, GraphWebEdgeResponse] = OrderedDict()
-        for edge in await self._edges_touching_node(
-            node_type=node_type, node_id=node_id
-        ):
+        if explicit is None:
+            explicit = await self._edges_touching_node(
+                node_type=node_type, node_id=node_id
+            )
+        for edge in explicit:
             output[edge.id] = GraphWebEdgeResponse(
                 id=edge.id,
                 source_key=self._node_key(edge.source_type, edge.source_id),
@@ -2782,7 +2849,7 @@ class GraphService:
         elif node_type in {"entity", "theme"}:
             specs.extend(
                 await self._subject_operating_specs(
-                    subject_type=node_type, subject_id=node_id
+                    subject_type=node_type, subject_id=node_id, reads=reads
                 )
             )
         elif node_type == "position":
@@ -2801,9 +2868,9 @@ class GraphService:
                 )
             )
         elif node_type == "conclusion":
-            specs.extend(await self._conclusion_specs(node))
+            specs.extend(await self._conclusion_specs(node, reads=reads))
         elif node_type == "coverage_map":
-            specs.extend(await self._coverage_specs(node))
+            specs.extend(await self._coverage_specs(node, reads=reads))
         elif node_type == "unresolved_question":
             specs.extend(await self._question_specs(node))
         elif node_type == "review_item":
@@ -2892,11 +2959,17 @@ class GraphService:
         return connections
 
     async def _subject_operating_specs(
-        self, *, subject_type: str, subject_id: UUID
+        self,
+        *,
+        subject_type: str,
+        subject_id: UUID,
+        reads: _NeighborhoodReads | None = None,
     ) -> list[tuple[str, UUID, str, float, str]]:
         specs: list[tuple[str, UUID, str, float, str]] = []
-        conclusion = await self._subject_conclusion(subject_type, subject_id)
-        coverage = await self._subject_coverage(subject_type, subject_id)
+        conclusion = await self._subject_conclusion(
+            subject_type, subject_id, reads=reads
+        )
+        coverage = await self._subject_coverage(subject_type, subject_id, reads=reads)
         if conclusion is not None:
             specs.append(
                 ("conclusion", conclusion.id, "has_accepted_state", 0.95, "outgoing")
@@ -3094,7 +3167,7 @@ class GraphService:
         return specs
 
     async def _conclusion_specs(
-        self, conclusion: ConclusionState
+        self, conclusion: ConclusionState, *, reads: _NeighborhoodReads | None = None
     ) -> list[tuple[str, UUID, str, float, str]]:
         specs: list[tuple[str, UUID, str, float, str]] = [
             (
@@ -3106,7 +3179,7 @@ class GraphService:
             )
         ]
         coverage = await self._subject_coverage(
-            conclusion.subject_type, conclusion.subject_id
+            conclusion.subject_type, conclusion.subject_id, reads=reads
         )
         if coverage is not None:
             specs.append(("coverage_map", coverage.id, "measured_by", 0.82, "outgoing"))
@@ -3161,7 +3234,7 @@ class GraphService:
         return specs
 
     async def _coverage_specs(
-        self, coverage: CoverageMap
+        self, coverage: CoverageMap, *, reads: _NeighborhoodReads | None = None
     ) -> list[tuple[str, UUID, str, float, str]]:
         specs: list[tuple[str, UUID, str, float, str]] = [
             (
@@ -3173,7 +3246,7 @@ class GraphService:
             )
         ]
         conclusion = await self._subject_conclusion(
-            coverage.subject_type, coverage.subject_id
+            coverage.subject_type, coverage.subject_id, reads=reads
         )
         if conclusion is not None:
             specs.append(("conclusion", conclusion.id, "scores", 0.8, "outgoing"))
@@ -3317,16 +3390,30 @@ class GraphService:
         ]
 
     async def _subject_coverage(
-        self, subject_type: str, subject_id: UUID
+        self,
+        subject_type: str,
+        subject_id: UUID,
+        *,
+        reads: _NeighborhoodReads | None = None,
     ) -> CoverageMap | None:
+        key = (subject_type, subject_id)
+        if reads is not None and key in reads.coverage_maps:
+            return reads.coverage_maps[key]
         return await self.canonical.get_coverage_map(
             subject_type=subject_type,
             subject_id=subject_id,
         )
 
     async def _subject_conclusion(
-        self, subject_type: str, subject_id: UUID
+        self,
+        subject_type: str,
+        subject_id: UUID,
+        *,
+        reads: _NeighborhoodReads | None = None,
     ) -> ConclusionState | None:
+        key = (subject_type, subject_id)
+        if reads is not None and key in reads.conclusions:
+            return reads.conclusions[key]
         return await self.canonical.get_conclusion_state(
             subject_type=subject_type,
             subject_id=subject_id,
