@@ -548,6 +548,10 @@ async def test_manual_paper_retry_and_delayed_fill_use_one_order_and_execution_t
         )
     )
     experiment_id = experiment.id
+    opening = experiment.initial_portfolio_state_json["run_details"][
+        "manual_equity_marks"
+    ]
+    assert len(opening) == 1 and opening[0]["equity"] == 10_000
     quote = {
         "price": 20,
         "session": "pre",
@@ -588,6 +592,31 @@ async def test_manual_paper_retry_and_delayed_fill_use_one_order_and_execution_t
     ).one()
     assert submitted_at < fill.quote_time <= fill.filled_at
     assert fill.quantity == 1.5
+
+    async def read_marks():
+        account = await service.get_experiment(experiment_id)
+        await session.refresh(account)
+        return account.final_portfolio_state_json["run_details"]
+
+    # A fill is an event, not evidence that the rest of the account was marked.
+    assert (await read_marks())["manual_equity_marks"] == opening
+    fetch.return_value["SYNPAPER"].update(currency="USD", reported_symbol="SYNPAPER")
+    assert await service.refresh_paper_account_marks() == 1
+    marked = (await read_marks())["manual_equity_marks"]
+    assert len(marked) == 2
+    latest = marked[-1]
+    assert datetime.fromisoformat(latest["captured_at"]) >= fill.filled_at
+    assert datetime.fromisoformat(latest["prices"][0]["quote_time"]) == quote_time
+    assert latest["equity"] == pytest.approx(
+        float(fill.cash_after) + 1.5 * 21, abs=0.01
+    )
+    await service.refresh_paper_account_marks()
+    assert (await read_marks())["manual_equity_marks"] == marked
+    fetch.return_value["SYNPAPER"]["currency"] = "KRW"
+    await service.refresh_paper_account_marks()
+    incomplete = await read_marks()
+    assert incomplete["manual_equity_status"]["status"] == "incomplete"
+    assert incomplete["manual_equity_marks"] == marked
 
 
 async def test_review_domain_migration_preserves_concerns_and_only_backfills_known_producers(

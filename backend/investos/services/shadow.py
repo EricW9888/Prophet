@@ -39,6 +39,10 @@ from investos.models.shadow import (
 from investos.models.source import Source
 from investos.schemas.shadow import ShadowExperimentCreate, ShadowOrderCreate
 from investos.services.fundamentals import FundamentalMetricService
+from investos.services.manual_paper_equity import (
+    record_manual_equity,
+    supersede_manual_equity,
+)
 from investos.services.market_data import MarketDataService
 from investos.services.market_setup import MarketSetupSignalService
 from investos.services.paper_broker import (
@@ -409,6 +413,14 @@ class ShadowService:
         initial_state["run_details"] = {
             "paper_account": self._paper_account_summary(initial_state["shadow_state"])
         }
+        if not payload.auto_run:
+            record_manual_equity(
+                initial_state["run_details"],
+                initial_state["shadow_state"],
+                {},
+                captured_at=datetime.now(UTC),
+                opening=True,
+            )
         experiment = ShadowExperiment(
             family_id=None if family_state is None else family_state.id,
             previous_run_id=previous_run_id,
@@ -3359,6 +3371,7 @@ class ShadowService:
                 state_container = deepcopy(state_container)
                 details = dict(state_container.get("run_details") or {})
                 details["performance_invalidated_reason"] = "account_history_rebuilt"
+                supersede_manual_equity(details, rebuilt_at=rebuilt_at.isoformat())
                 state_container["run_details"] = details
                 self._store_paper_account_state(
                     experiment=experiment,
@@ -3859,7 +3872,7 @@ class ShadowService:
                     if float(item.get("quantity") or 0.0) > 0
                     and item.get("security_id")
                 ]
-                if not held:
+                if not held and experiment.run_status != "manual":
                     await self.session.commit()
                     continue
                 security_ids = [UUID(str(item["security_id"])) for item in held]
@@ -3875,8 +3888,12 @@ class ShadowService:
                 ticker_by_id = {
                     str(item.id): item.ticker.upper() for item in securities
                 }
-                quotes = await MarketDataService(self.session).fetch_quotes(
-                    list(dict.fromkeys(ticker_by_id.values()))
+                quotes = (
+                    await MarketDataService(self.session).fetch_quotes(
+                        list(dict.fromkeys(ticker_by_id.values()))
+                    )
+                    if ticker_by_id
+                    else {}
                 )
                 for item in held:
                     ticker = ticker_by_id.get(str(item["security_id"]))
@@ -3884,10 +3901,23 @@ class ShadowService:
                     if not quote or not quote.get("price"):
                         continue
                     item["current_price"] = float(quote["price"])
-                    item["marked_at"] = (
-                        self._quote_time(quote.get("quote_time")) or datetime.now(UTC)
-                    ).isoformat()
+                    mark_time = self._quote_time(quote.get("quote_time"))
+                    item["marked_at"] = mark_time.isoformat() if mark_time else None
                     updated_positions += 1
+                if experiment.run_status == "manual":
+                    state_container = {
+                        **state_container,
+                        "run_details": dict(state_container.get("run_details") or {}),
+                    }
+                    record_manual_equity(
+                        state_container["run_details"],
+                        shadow_state,
+                        {
+                            security_id: (ticker, quotes.get(ticker, {}))
+                            for security_id, ticker in ticker_by_id.items()
+                        },
+                        captured_at=datetime.now(UTC),
+                    )
                 self._store_paper_account_state(
                     experiment=experiment,
                     shadow_state=shadow_state,
@@ -3996,12 +4026,20 @@ class ShadowService:
             or experiment.initial_portfolio_state_json
             or {}
         )
-        run_details = deepcopy(current_state.get("run_details") or {})
-        display_shadow_state = self._paper_state_for_serialization(experiment)
-        if include_details and display_shadow_state:
-            run_details["paper_account"] = {
-                **dict(run_details.get("paper_account") or {}),
-                **self._paper_account_summary(display_shadow_state),
+        stored_details = current_state.get("run_details") or {}
+        if include_details:
+            run_details = deepcopy(stored_details)
+            display_shadow_state = self._paper_state_for_serialization(experiment)
+            if display_shadow_state:
+                run_details["paper_account"] = {
+                    **dict(run_details.get("paper_account") or {}),
+                    **self._paper_account_summary(display_shadow_state),
+                }
+        else:
+            run_details = {
+                key: stored_details[key]
+                for key in ("progress", "guidance", "observation_window")
+                if key in stored_details
             }
         report = deepcopy(current_state.get("report") or {})
         if result is not None:
@@ -4013,11 +4051,6 @@ class ShadowService:
                 "performance_metrics": metrics,
             }
         if not include_details:
-            run_details = {
-                key: run_details[key]
-                for key in ("progress", "guidance", "observation_window")
-                if key in run_details
-            }
             report = {
                 key: report[key]
                 for key in (

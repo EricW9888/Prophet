@@ -653,6 +653,16 @@ export type ShadowExperiment = {
   run_details: {
     performance_observations?: Array<{ captured_at?: string | null; equity: number }>;
     performance_invalidated_reason?: string | null;
+    manual_equity_marks?: Array<{
+      receipt_hash: string;
+      captured_at: string;
+      equity: number;
+      cash: number;
+      basis: "opening_cash" | "cash_balance" | "quote_batch";
+      prices: Array<{ ticker: string; price: number; quantity: number; quote_time: string; session: string }>;
+      superseded_at?: string;
+    }>;
+    manual_equity_status?: { captured_at: string; covered_positions: number; total_positions: number; status: "complete" | "incomplete" };
     guidance?: {
       guidance_mode?: string;
       guidance_summary?: string;
