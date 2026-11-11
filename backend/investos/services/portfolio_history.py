@@ -129,112 +129,16 @@ class PortfolioHistoryService:
                     )
             except TimeoutError:
                 snapshots = {}
-        prices = defaultdict(dict)
-        valuation_times = {}
-        import exchange_calendars
-
-        for ticker, snapshot in snapshots.items():
-            if (
-                snapshot.get("reported_symbol") != ticker
-                or snapshot.get("currency") != "USD"
-                or snapshot.get("status") == "unavailable"
-            ):
-                continue
-            calendar_name = YAHOO_CALENDARS.get(snapshot.get("reported_exchange"))
-            if calendar_name is None:
-                continue
-            calendar = exchange_calendars.get_calendar(calendar_name)
-            if str(calendar.tz) != snapshot.get("exchange_timezone"):
-                continue
-            for session_day in calendar.sessions_in_range(
-                start.date().isoformat(), now.date().isoformat()
-            ):
-                close = calendar.session_close(session_day).to_pydatetime()
-                if start <= close <= now:
-                    day = session_day.date()
-                    valuation_times[day] = max(valuation_times.get(day, close), close)
-            for bar in snapshot.get("daily_observations", []):
-                day = datetime.fromisoformat(bar["timestamp"]).date()
-                if not calendar.is_session(day.isoformat()):
-                    continue
-                completed = (
-                    datetime.fromisoformat(bar["completed_at"])
-                    if bar.get("completion_observed_at") is not None
-                    else calendar.session_close(day.isoformat()).to_pydatetime()
-                )
-                if start <= completed <= now:
-                    prices[day][ticker] = (completed, Decimal(str(bar["close"])))
-                    if day not in valuation_times:
-                        valuation_times[day] = completed
-
-        # Keep current positions as an independent check on ledger completeness.
-        reasons = []
-        if any(
-            current[key] != full_replay.quantities[key]
-            for key in current.keys() | full_replay.quantities.keys()
-        ):
-            reasons.append(
-                "The recorded trades do not reconstruct the current holdings."
-            )
-        if not prices:
-            reasons.append("Dated market prices are unavailable.")
-        latest_split = {
-            row.security_id: row.at
-            for row in rows
-            if row.action == "split" and row.security_id
-        }
-        ticker_counts = defaultdict(int)
-        for security in securities.values():
-            ticker_counts[security.ticker] += 1
-        replay = LedgerReplay(rows)
-        points = []
-        first_trade = next((row.at for row in rows if row.action == "buy"), now)
-        for day, at in sorted(valuation_times.items()):
-            marks = prices.get(day, {})
-            if at < first_trade:
-                continue
-            replay.advance(at)
-            held = {key: value for key, value in replay.quantities.items() if value}
-            missing = []
-            value = Decimal(0)
-            for key, quantity in held.items():
-                security = securities.get(key)
-                ticker = (
-                    security.ticker if security else replay.tickers.get(key, str(key))
-                )
-                mark = marks.get(ticker)
-                supported = (
-                    security is not None
-                    and quantity > 0
-                    and security.instrument_type in {"common_stock", "adr", "etf"}
-                    and security.multiplier in {None, 1}
-                    and ticker_counts[ticker] == 1
-                    and not (key in latest_split and at < latest_split[key])
-                )
-                if not supported or mark is None:
-                    missing.append(ticker)
-                else:
-                    value += quantity * mark[1]
-            point_reasons = list(reasons)
-            if replay.unsupported:
-                point_reasons.append(
-                    "An unsupported or incomplete transaction affects these holdings."
-                )
-            if missing:
-                point_reasons.append(
-                    "Some holdings lack matching prices or a verified historical share basis."
-                )
-            points.append(
-                PortfolioHistoryPoint(
-                    at=at,
-                    value=None if point_reasons else float(value),
-                    covered_positions=len(held) - len(missing),
-                    total_positions=len(held),
-                    unavailable_tickers=sorted(missing),
-                    reasons=point_reasons,
-                )
-            )
-        self._performance(points, rows)
+        points, reasons, calendar_version = await asyncio.to_thread(
+            self._build_values,
+            snapshots,
+            securities,
+            rows,
+            current,
+            full_replay.quantities,
+            start,
+            now,
+        )
         events = [
             PortfolioHistoryEvent(
                 id=f"{row.receipt_type}-{row.id}",
@@ -357,7 +261,7 @@ class PortfolioHistoryService:
                         }
                         for row in rows
                     ],
-                    "calendar_version": exchange_calendars.__version__,
+                    "calendar_version": calendar_version,
                     "response": response.model_dump(mode="json"),
                     "prices": snapshots,
                 },
@@ -365,6 +269,118 @@ class PortfolioHistoryService:
         )
         await self.session.commit()
         return response
+
+    @staticmethod
+    def _build_values(
+        snapshots, securities, rows, current, reconciled_quantities, start, now
+    ):
+        prices = defaultdict(dict)
+        valuation_times = {}
+        import exchange_calendars
+
+        for ticker, snapshot in snapshots.items():
+            if (
+                snapshot.get("reported_symbol") != ticker
+                or snapshot.get("currency") != "USD"
+                or snapshot.get("status") == "unavailable"
+            ):
+                continue
+            calendar_name = YAHOO_CALENDARS.get(snapshot.get("reported_exchange"))
+            if calendar_name is None:
+                continue
+            calendar = exchange_calendars.get_calendar(calendar_name)
+            if str(calendar.tz) != snapshot.get("exchange_timezone"):
+                continue
+            for session_day in calendar.sessions_in_range(
+                start.date().isoformat(), now.date().isoformat()
+            ):
+                close = calendar.session_close(session_day).to_pydatetime()
+                if start <= close <= now:
+                    day = session_day.date()
+                    valuation_times[day] = max(valuation_times.get(day, close), close)
+            for bar in snapshot.get("daily_observations", []):
+                day = datetime.fromisoformat(bar["timestamp"]).date()
+                if not calendar.is_session(day.isoformat()):
+                    continue
+                completed = (
+                    datetime.fromisoformat(bar["completed_at"])
+                    if bar.get("completion_observed_at") is not None
+                    else calendar.session_close(day.isoformat()).to_pydatetime()
+                )
+                if start <= completed <= now:
+                    prices[day][ticker] = (completed, Decimal(str(bar["close"])))
+                    if day not in valuation_times:
+                        valuation_times[day] = completed
+
+        # Keep current positions as an independent check on ledger completeness.
+        reasons = []
+        if any(
+            current[key] != reconciled_quantities[key]
+            for key in current.keys() | reconciled_quantities.keys()
+        ):
+            reasons.append(
+                "The recorded trades do not reconstruct the current holdings."
+            )
+        if not prices:
+            reasons.append("Dated market prices are unavailable.")
+        latest_split = {
+            row.security_id: row.at
+            for row in rows
+            if row.action == "split" and row.security_id
+        }
+        ticker_counts = defaultdict(int)
+        for security in securities.values():
+            ticker_counts[security.ticker] += 1
+        replay = LedgerReplay(rows)
+        points = []
+        first_trade = next((row.at for row in rows if row.action == "buy"), now)
+        for day, at in sorted(valuation_times.items()):
+            marks = prices.get(day, {})
+            if at < first_trade:
+                continue
+            replay.advance(at)
+            held = {key: value for key, value in replay.quantities.items() if value}
+            missing = []
+            value = Decimal(0)
+            for key, quantity in held.items():
+                security = securities.get(key)
+                ticker = (
+                    security.ticker if security else replay.tickers.get(key, str(key))
+                )
+                mark = marks.get(ticker)
+                supported = (
+                    security is not None
+                    and quantity > 0
+                    and security.instrument_type in {"common_stock", "adr", "etf"}
+                    and security.multiplier in {None, 1}
+                    and ticker_counts[ticker] == 1
+                    and not (key in latest_split and at < latest_split[key])
+                )
+                if not supported or mark is None:
+                    missing.append(ticker)
+                else:
+                    value += quantity * mark[1]
+            point_reasons = list(reasons)
+            if replay.unsupported:
+                point_reasons.append(
+                    "An unsupported or incomplete transaction affects these holdings."
+                )
+            if missing:
+                point_reasons.append(
+                    "Some holdings lack matching prices or a verified historical share basis."
+                )
+            points.append(
+                PortfolioHistoryPoint(
+                    at=at,
+                    value=None if point_reasons else float(value),
+                    covered_positions=len(held) - len(missing),
+                    total_positions=len(held),
+                    unavailable_tickers=sorted(missing),
+                    reasons=point_reasons,
+                )
+            )
+        PortfolioHistoryService._performance(points, rows)
+        return points, reasons, exchange_calendars.__version__
 
     @staticmethod
     def _performance(points, rows):

@@ -1,6 +1,8 @@
 """Synthetic record identities exercise the actual PostgreSQL navigation path."""
 
+import asyncio
 import importlib.util
+import threading
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -65,6 +67,37 @@ async def workflow_session():
             yield session
         await transaction.rollback()
     await engine.dispose()
+
+
+async def test_history_calculation_keeps_the_health_endpoint_responsive(
+    workflow_session, monkeypatch
+):
+    started = threading.Event()
+    health_done = threading.Event()
+
+    def waiting_calculation(*_args):
+        started.set()
+        assert health_done.wait(5), "The API event loop was blocked by the valuation"
+        return [], [], "synthetic"
+
+    monkeypatch.setattr(
+        PortfolioHistoryService, "_build_values", staticmethod(waiting_calculation)
+    )
+    calculation = asyncio.create_task(
+        PortfolioHistoryService(workflow_session).history(refresh=True)
+    )
+    try:
+        assert await asyncio.to_thread(started.wait, 5)
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/health")
+            assert response.status_code == 200
+        health_done.set()
+        await calculation
+    finally:
+        health_done.set()
+        await asyncio.gather(calculation, return_exceptions=True)
 
 
 async def test_portfolio_history_uses_close_time_cash_flows_gaps_and_receipts(

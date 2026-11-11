@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import math
 import statistics
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
@@ -33,6 +34,15 @@ class MarketDataService:
 
     def __init__(self, session: AsyncSession):
         self.session = session
+
+    @staticmethod
+    @asynccontextmanager
+    async def _http_client():
+        # HTTPX loads TLS configuration synchronously at construction. Keep
+        # that work off the API loop and share the pool across each batch.
+        client = await asyncio.to_thread(httpx.AsyncClient, timeout=15.0)
+        async with client:
+            yield client
 
     async def refresh_live_prices(self) -> dict[str, object]:
         runtime = RuntimeSettingsStore.load().market_data
@@ -132,85 +142,81 @@ class MarketDataService:
 
     async def fetch_quotes(self, tickers: list[str]) -> dict[str, dict[str, Any]]:
         semaphore = asyncio.Semaphore(4)
+        normalized = sorted({str(t).strip().upper() for t in tickers if str(t).strip()})
+        if not normalized:
+            return {}
 
         async def fetch_one(ticker: str) -> dict[str, dict[str, Any]]:
             async with semaphore:
                 try:
-                    return await self._fetch_quotes([ticker])
+                    return await self._fetch_quotes([ticker], client=client)
                 except Exception:
                     return {}
 
-        rows = await asyncio.gather(
-            *(
-                fetch_one(ticker)
-                for ticker in sorted(
-                    {str(t).strip().upper() for t in tickers if str(t).strip()}
-                )
-            )
-        )
+        async with self._http_client() as client:
+            rows = await asyncio.gather(*(fetch_one(ticker) for ticker in normalized))
         return {ticker: quote for row in rows for ticker, quote in row.items()}
 
-    async def _fetch_quotes(self, tickers: list[str]) -> dict[str, dict[str, Any]]:
+    async def _fetch_quotes(
+        self, tickers: list[str], *, client: httpx.AsyncClient
+    ) -> dict[str, dict[str, Any]]:
         quotes: dict[str, dict[str, Any]] = {}
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            for ticker in tickers:
-                response = await client.get(
-                    self.CHART_URL_TEMPLATE.format(ticker=ticker),
-                    params={"interval": "1d", "range": "1d", "includePrePost": "true"},
-                    headers={"User-Agent": "Mozilla/5.0"},
-                )
-                response.raise_for_status()
-                payload = response.json()
-                result = (payload.get("chart") or {}).get("result") or []
-                if not result:
-                    continue
-                chart = result[0]
-                meta = chart.get("meta") or {}
-                market_state = str(meta.get("marketState") or "").strip().upper()
-                pre_market_price = meta.get("preMarketPrice")
-                post_market_price = meta.get("postMarketPrice")
-                regular_market_price = meta.get("regularMarketPrice")
-                if market_state.startswith("PRE") and pre_market_price is not None:
-                    price = pre_market_price
-                    price_session = "pre_market"
-                    quote_epoch = meta.get("preMarketTime")
-                elif market_state.startswith("POST") and post_market_price is not None:
-                    price = post_market_price
-                    price_session = "post_market"
-                    quote_epoch = meta.get("postMarketTime")
-                elif market_state in {"REGULAR", "OPEN"}:
-                    price = regular_market_price
-                    price_session = "regular"
-                    quote_epoch = meta.get("regularMarketTime")
-                else:
-                    price = regular_market_price
+        for ticker in tickers:
+            response = await client.get(
+                self.CHART_URL_TEMPLATE.format(ticker=ticker),
+                params={"interval": "1d", "range": "1d", "includePrePost": "true"},
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            response.raise_for_status()
+            payload = response.json()
+            result = (payload.get("chart") or {}).get("result") or []
+            if not result:
+                continue
+            chart = result[0]
+            meta = chart.get("meta") or {}
+            market_state = str(meta.get("marketState") or "").strip().upper()
+            pre_market_price = meta.get("preMarketPrice")
+            post_market_price = meta.get("postMarketPrice")
+            regular_market_price = meta.get("regularMarketPrice")
+            if market_state.startswith("PRE") and pre_market_price is not None:
+                price = pre_market_price
+                price_session = "pre_market"
+                quote_epoch = meta.get("preMarketTime")
+            elif market_state.startswith("POST") and post_market_price is not None:
+                price = post_market_price
+                price_session = "post_market"
+                quote_epoch = meta.get("postMarketTime")
+            elif market_state in {"REGULAR", "OPEN"}:
+                price = regular_market_price
+                price_session = "regular"
+                quote_epoch = meta.get("regularMarketTime")
+            else:
+                price = regular_market_price
+                price_session = "historical_close"
+                quote_epoch = meta.get("regularMarketTime")
+            if price is None:
+                closes = (
+                    ((chart.get("indicators") or {}).get("quote") or [{}])[0]
+                ).get("close") or []
+                closes = [item for item in closes if item is not None]
+                if closes:
+                    price = closes[-1]
                     price_session = "historical_close"
-                    quote_epoch = meta.get("regularMarketTime")
-                if price is None:
-                    closes = (
-                        ((chart.get("indicators") or {}).get("quote") or [{}])[0]
-                    ).get("close") or []
-                    closes = [item for item in closes if item is not None]
-                    if closes:
-                        price = closes[-1]
-                        price_session = "historical_close"
-                        quote_epoch = None
-                if price is not None:
-                    quotes[ticker.upper()] = {
-                        "price": float(price),
-                        "session": price_session,
-                        "market_state": market_state or None,
-                        "quote_time": (
-                            datetime.fromtimestamp(
-                                float(quote_epoch), tz=UTC
-                            ).isoformat()
-                            if quote_epoch
-                            else None
-                        ),
-                        "name": meta.get("longName") or meta.get("shortName"),
-                        "currency": meta.get("currency"),
-                        "reported_symbol": meta.get("symbol"),
-                    }
+                    quote_epoch = None
+            if price is not None:
+                quotes[ticker.upper()] = {
+                    "price": float(price),
+                    "session": price_session,
+                    "market_state": market_state or None,
+                    "quote_time": (
+                        datetime.fromtimestamp(float(quote_epoch), tz=UTC).isoformat()
+                        if quote_epoch
+                        else None
+                    ),
+                    "name": meta.get("longName") or meta.get("shortName"),
+                    "currency": meta.get("currency"),
+                    "reported_symbol": meta.get("symbol"),
+                }
         return quotes
 
     async def fetch_chart_series(
@@ -228,7 +234,7 @@ class MarketDataService:
         else:
             params["range"] = range_value
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with self._http_client() as client:
             response = await client.get(
                 self.CHART_URL_TEMPLATE.format(ticker=ticker),
                 params=params,
@@ -289,6 +295,7 @@ class MarketDataService:
         range_value: str,
         cutoff: datetime | None,
         known_sessions: list[dict],
+        client: httpx.AsyncClient,
     ) -> dict[str, object]:
         """Capture completed daily bars, with acquisition and completion clocks.
 
@@ -300,18 +307,17 @@ class MarketDataService:
                 **self.build_signal_snapshot(ticker=ticker, observations=[]),
                 "status": "historical_capture_required",
             }
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(
-                self.CHART_URL_TEMPLATE.format(ticker=ticker),
-                params={
-                    "interval": "1d",
-                    "range": range_value,
-                    "includeAdjustedClose": "true",
-                },
-                headers={"User-Agent": "Mozilla/5.0"},
-            )
-            response.raise_for_status()
-            payload = response.json()
+        response = await client.get(
+            self.CHART_URL_TEMPLATE.format(ticker=ticker),
+            params={
+                "interval": "1d",
+                "range": range_value,
+                "includeAdjustedClose": "true",
+            },
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        response.raise_for_status()
+        payload = response.json()
         retrieved_at = datetime.now(UTC)
 
         result = (payload.get("chart") or {}).get("result") or []
@@ -488,6 +494,8 @@ class MarketDataService:
                 if str(ticker or "").strip()
             }
         )
+        if not normalized:
+            return {}
         if cutoff is not None and cutoff < now:
             return {
                 ticker: {
@@ -551,6 +559,7 @@ class MarketDataService:
                         range_value=range_value,
                         cutoff=cutoff,
                         known_sessions=known_sessions,
+                        client=client,
                     )
                 except Exception:
                     return ticker, {
@@ -559,7 +568,8 @@ class MarketDataService:
                         "status": "unavailable",
                     }
 
-        rows = await asyncio.gather(*(fetch_one(ticker) for ticker in normalized))
+        async with self._http_client() as client:
+            rows = await asyncio.gather(*(fetch_one(ticker) for ticker in normalized))
         schedules = [
             {
                 **snapshot["observed_session"],
