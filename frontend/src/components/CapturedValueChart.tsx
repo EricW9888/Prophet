@@ -7,9 +7,16 @@ import { safeFormatCurrency } from "@/lib/formatting";
 
 type ReceiptLink = { href?: string; receiptLabel?: string; appReceipt?: boolean };
 export type ValuePoint = ReceiptLink & { id: string; at: string; value: number | null; detail?: string };
-export type ChartEvent = ReceiptLink & { id: string; at: string; label: string; detail?: string; kind: "fill" | "decision" | "ledger" };
+export type ChartEvent = ReceiptLink & { id: string; at: string; label: string; detail?: string; kind: "fill" | "decision" | "ledger" | "research" | "alert" };
 type Observation = (ValuePoint | ChartEvent) & { time: number };
 const noEvents: ChartEvent[] = [];
+const eventKinds: Record<ChartEvent["kind"], { label: string; color: string }> = {
+  ledger: { label: "Trades and cash flows", color: "var(--color-emerald-500)" },
+  fill: { label: "Paper fills", color: "var(--color-emerald-500)" },
+  decision: { label: "Decisions", color: "var(--color-amber-500)" },
+  research: { label: "Research", color: "var(--color-action)" },
+  alert: { label: "Alerts", color: "var(--color-rose-500)" },
+};
 
 function dated<T extends { at: string }>(items: T[]) {
   return items.map((item) => ({ ...item, time: Date.parse(item.at) }))
@@ -48,6 +55,8 @@ export default function CapturedValueChart({ label, points, events = noEvents, e
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [hiddenKinds, setHiddenKinds] = useState<Set<ChartEvent["kind"]>>(new Set());
+  const [eventSearch, setEventSearch] = useState("");
   const { marks, markers, observations, times, values } = useMemo(() => {
     const marks = dated(points).map((point) => ({ ...point, value: Number.isFinite(point.value) ? point.value : null }));
     const markers = dated(events);
@@ -55,8 +64,13 @@ export default function CapturedValueChart({ label, points, events = noEvents, e
     return { marks, markers, observations, times: [...new Set(observations.map((item) => item.time))],
       values: marks.flatMap((mark) => mark.value == null ? [] : [mark.value]) };
   }, [points, events]);
-  const selected = observations.find((item) => item.id === selectedId) ?? marks.at(-1) ?? observations.at(-1);
-  const hovered = observations.find((item) => item.id === hoveredId);
+  const query = eventSearch.trim().toLocaleLowerCase();
+  const visibleMarkers = markers.filter((event) => !hiddenKinds.has(event.kind)
+    && `${event.label} ${event.detail ?? ""}`.toLocaleLowerCase().includes(query));
+  const visibleEventIds = new Set(visibleMarkers.map((event) => event.id));
+  const selection = observations.filter((item) => "value" in item || visibleEventIds.has(item.id));
+  const selected = selection.find((item) => item.id === selectedId) ?? marks.at(-1) ?? observations.at(-1);
+  const hovered = selection.find((item) => item.id === hoveredId);
   if (!selected) return <p className="text-sm text-muted">No dated observations yet.</p>;
   const active = hovered ?? selected;
   const [start, end] = [times[0], times.at(-1)!];
@@ -66,6 +80,8 @@ export default function CapturedValueChart({ label, points, events = noEvents, e
   const bottom = min - pad;
   const timeZone = calendarDates ? "UTC" : undefined;
   const detailedDate = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: calendarDates ? undefined : "short", timeZone });
+  const eventDate = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+  const observationDate = (item: Observation) => ("value" in item ? detailedDate : eventDate).format(item.time);
   const useTimes = !calendarDates && start !== end && new Date(start).toDateString() === new Date(end).toDateString();
   const axisDate = new Intl.DateTimeFormat(undefined, useTimes ? { timeStyle: "short" } : { month: "short", day: "numeric", timeZone });
 
@@ -74,16 +90,34 @@ export default function CapturedValueChart({ label, points, events = noEvents, e
     setSelectedId(id);
   }
 
-  const timelineControl = observations.length > 1 && <input type="range" min={0} max={observations.length - 1} step={1} value={observations.indexOf(selected)}
-    aria-label={`Inspect ${label.toLowerCase()} timeline`} aria-valuetext={`${detailedDate.format(selected.time)} · ${description(selected)}`}
-    onChange={(event) => selectObservation(observations[Number(event.target.value)].id)}
+  const timelineControl = selection.length > 1 && <input type="range" min={0} max={selection.length - 1} step={1} value={selection.indexOf(selected)}
+    aria-label={`Inspect ${label.toLowerCase()} timeline`} aria-valuetext={`${observationDate(selected)} · ${description(selected)}`}
+    onChange={(event) => selectObservation(selection[Number(event.target.value)].id)}
     className={values.length ? "sr-only" : "min-w-20 flex-1 accent-current"} />;
 
   return <div className="min-w-0 space-y-3">
+    {markers.length > 0 && <fieldset className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+      <legend className="mb-2 font-medium">Events on the timeline</legend>
+      {Object.entries(eventKinds).filter(([kind]) => markers.some((marker) => marker.kind === kind)).map(([kind, info]) => (
+        <label key={kind} className="inline-flex cursor-pointer items-center gap-2">
+          <input type="checkbox" checked={!hiddenKinds.has(kind as ChartEvent["kind"])}
+            onChange={() => setHiddenKinds((previous) => {
+              const next = new Set(previous);
+              if (next.has(kind as ChartEvent["kind"])) next.delete(kind as ChartEvent["kind"]);
+              else next.add(kind as ChartEvent["kind"]);
+              return next;
+            })} className="accent-current" />
+          <span style={{ color: info.color }} aria-hidden="true">●</span>{info.label}
+        </label>
+      ))}
+      <input type="search" value={eventSearch} onChange={(event) => setEventSearch(event.target.value)}
+        aria-label="Filter timeline events" placeholder="Ticker or keyword"
+        className="workspace-control min-w-0 flex-1 sm:max-w-64" />
+    </fieldset>}
     {values.length > 0 ? <div className="min-w-0 border border-line bg-background px-2 pb-1 pt-3 focus-within:outline-2 focus-within:outline-action sm:px-3">
       <div className="mb-2 flex min-h-14 flex-wrap items-baseline gap-x-3 px-2" aria-hidden="true">
         <strong className="text-xl font-semibold tabular-nums">{description(active)}</strong>
-        <time dateTime={active.at} className="text-sm text-muted">{detailedDate.format(active.time)}</time>
+        <time dateTime={active.at} className="text-sm text-muted">{observationDate(active)}</time>
       </div>
       {timelineControl}
       <div className="h-52 sm:h-64" aria-hidden="true">
@@ -101,11 +135,11 @@ export default function CapturedValueChart({ label, points, events = noEvents, e
               dot={{ r: 2.5, fill: "var(--color-action)", strokeWidth: 0 }} activeDot={false} isAnimationActive={false} />
             {"value" in active && active.value != null && <ReferenceDot x={active.time} y={active.value} r={4.5}
               fill="var(--color-action)" stroke="var(--color-background)" strokeWidth={2} className="pointer-events-none" />}
-            <PlotInteraction observations={observations} onHover={setHoveredId} onSelect={selectObservation} />
+            <PlotInteraction observations={marks} onHover={setHoveredId} onSelect={selectObservation} />
             {marks.filter((mark) => mark.value == null).map((mark) => <ReferenceDot key={mark.id} x={mark.time} y={bottom} r={3}
               fill="var(--color-background)" stroke="var(--color-muted)" className="pointer-events-none" />)}
-            {markers.map((marker) => <ReferenceDot key={marker.id} x={marker.time} y={bottom} r={marker.id === active.id ? 5 : 3.5}
-              fill={marker.kind === "fill" ? "var(--color-emerald-500)" : "var(--color-amber-500)"} stroke="var(--color-background)"
+            {visibleMarkers.map((marker) => <ReferenceDot key={marker.id} x={marker.time} y={bottom} r={marker.id === active.id ? 5 : 3.5}
+              fill={eventKinds[marker.kind].color} stroke="var(--color-background)"
               className="cursor-pointer" onMouseEnter={() => setHoveredId(marker.id)} onMouseLeave={() => setHoveredId(null)} onClick={() => selectObservation(marker.id)} />)}
           </LineChart>
         </ResponsiveContainer>
@@ -114,18 +148,25 @@ export default function CapturedValueChart({ label, points, events = noEvents, e
     {!values.length && timelineControl && <label className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
       <span>Inspect timeline</span>{timelineControl}
     </label>}
-    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-l-2 border-line pl-3 text-sm" aria-live="polite">
-      <p><time dateTime={selected.at} className="text-muted">{detailedDate.format(selected.time)}</time>{" · "}<strong className="tabular-nums">{description(selected)}</strong></p>
+    {selection.length > 0 && <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-l-2 border-line pl-3 text-sm" aria-live="polite">
+      <p><time dateTime={selected.at} className="text-muted">{observationDate(selected)}</time>{" · "}<strong className="tabular-nums">{description(selected)}</strong></p>
       {selected.detail && <p className="text-muted">{selected.detail}</p>}
       {selected.href && (selected.appReceipt
         ? <Link href={selected.href} prefetch={false} className="text-action underline">{selected.receiptLabel}</Link>
         : <a href={selected.href} className="text-action underline">{selected.receiptLabel ?? "Open capture receipt"}</a>)}
-    </div>
-    {markers.length > 0 && <details className="border-t border-line pt-2 text-sm">
-      <summary className="cursor-pointer text-muted">{eventsLabel} ({markers.length})</summary>
+    </div>}
+    {markers.length > 0 && <details open className="border-t border-line pt-2 text-sm">
+      <summary className="cursor-pointer text-muted">{eventsLabel} ({visibleMarkers.length} of {markers.length})</summary>
       <ol className="mt-2 max-h-56 divide-y divide-line overflow-auto">
-        {[...markers].reverse().map((event) => <li key={event.id}><button type="button" onClick={() => selectObservation(event.id)} aria-pressed={event.id === selected.id} className="w-full px-2 py-2 text-left hover:bg-panel aria-pressed:border-l-2 aria-pressed:border-action"><span className={event.kind === "fill" ? "text-emerald-500" : "text-amber-500"}>{event.kind === "fill" ? "Fill" : event.kind === "ledger" ? "Ledger" : "Decision"}</span>{" · "}{event.label}<span className="ml-2 text-muted">{detailedDate.format(event.time)}</span></button></li>)}
+        {[...visibleMarkers].reverse().map((event) => <li key={event.id}>
+          <button type="button" onClick={() => selectObservation(event.id)} aria-pressed={event.id === selected.id}
+            className="grid w-full gap-1 px-2 py-2 text-left hover:bg-panel aria-pressed:border-l-2 aria-pressed:border-action md:grid-cols-[minmax(0,1fr)_auto] md:gap-4">
+            <span><span style={{ color: eventKinds[event.kind].color }}>{eventKinds[event.kind].label}</span>{" · "}{event.label}</span>
+            <time dateTime={event.at} className="text-xs text-muted">{eventDate.format(event.time)}</time>
+          </button>
+        </li>)}
       </ol>
+      {visibleMarkers.length === 0 && <p className="mt-2 text-muted">No events match these filters. Change the selected types or search.</p>}
     </details>}
   </div>;
 }

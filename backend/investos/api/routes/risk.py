@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.db import get_session
+from investos.schemas.portfolio_history import PortfolioHistoryResponse
 from investos.schemas.portfolio_risk import (
     CapturedHoldingsValue,
     PortfolioRiskState,
@@ -12,10 +13,35 @@ from investos.schemas.portfolio_risk import (
 )
 from investos.schemas.risk import PerformanceAttributionResponse, RiskSummaryResponse
 from investos.services.advisory_trial import AdvisoryTrialService
+from investos.services.portfolio_history import PortfolioHistoryService
 from investos.services.portfolio_risk import PortfolioRiskService
 from investos.services.risk import RiskService
 
 router = APIRouter(prefix="/risk", tags=["risk"])
+
+
+@router.get("/portfolio/history", response_model=PortfolioHistoryResponse)
+async def get_portfolio_history(
+    window_days: int = Query(default=31, ge=1, le=366),
+    refresh: bool = False,
+    session: AsyncSession = Depends(get_session),
+):
+    return await PortfolioHistoryService(session).history(window_days, refresh=refresh)
+
+
+@router.get("/portfolio/history/{receipt_id}")
+async def get_portfolio_history_receipt(
+    receipt_id: UUID, session: AsyncSession = Depends(get_session)
+):
+    from investos.models.quant import AttributionResult
+
+    record = await session.get(AttributionResult, receipt_id)
+    if (
+        record is None
+        or record.factor_contributions_json.get("kind") != "portfolio_history"
+    ):
+        raise HTTPException(status_code=404, detail="History calculation not found")
+    return record.factor_contributions_json
 
 
 @router.get("/portfolio", response_model=PortfolioRiskState)

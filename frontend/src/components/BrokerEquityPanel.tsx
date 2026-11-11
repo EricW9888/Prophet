@@ -5,6 +5,7 @@ import { apiFetch } from "@/lib/api";
 import { formatUserLabel, safeFormatCurrency, safeFormatSignedCurrency } from "@/lib/formatting";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
 import CapturedValueChart from "./CapturedValueChart";
+import HintMarker from "./HintMarker";
 
 type Statement = {
   as_of: string;
@@ -93,9 +94,9 @@ export default function BrokerEquityPanel() {
 
   const comparison = preview?.result.reconciliation;
   return <section className="min-w-0 space-y-3 border border-line bg-panel p-4 sm:p-5" aria-label="Broker account equity">
-    <div>
+    <div className="flex items-center gap-2">
       <h2 className="font-semibold">Broker account equity</h2>
-      <p className="mt-1 text-xs text-muted">Statement equity includes cash. Each point checks your statement against the ledger at that time. Missing or mismatched records leave a gap.</p>
+      <HintMarker label="About broker account equity">Statement equity includes cash. Each point checks your statement against the ledger at that time. Missing or mismatched records leave a gap.</HintMarker>
     </div>
     {status.history?.error && <div className="flex items-center gap-2 text-sm text-muted" role="status">
       {history ? "Showing the last loaded history. Refresh failed." : "Broker equity history could not be loaded."}

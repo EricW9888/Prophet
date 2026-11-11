@@ -115,6 +115,35 @@ test("selecting a fill exposes its record without attaching equity to the fill t
   assert.doesNotMatch(readout, /\$/);
 });
 
+test("event filters update markers and timeline together without changing the value curve", async () => {
+  await act(async () => root.render(<CapturedValueChart label="Holdings" points={[
+    { id: "start", at: "2025-05-20T18:00:00Z", value: 3000 },
+    { id: "end", at: "2025-05-21T18:00:00Z", value: 3200 },
+  ]} events={[
+    { id: "trade", at: "2025-05-20T19:00:00Z", label: "Buy SYN-A", kind: "ledger" },
+    { id: "research", at: "2025-05-20T20:00:00Z", label: "SYN-A evidence", kind: "research" },
+  ]} />));
+  const path = container.querySelector(".recharts-line-curve")!.getAttribute("d");
+  const checkbox = [...container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find((input) => input.parentElement!.textContent!.includes("Research"))!;
+  await act(async () => checkbox.click());
+  assert.doesNotMatch(container.querySelector("ol")!.textContent!, /SYN-A evidence/);
+  assert.match(container.querySelector("ol")!.textContent!, /Buy SYN-A/);
+  assert.equal(container.querySelector(".recharts-line-curve")!.getAttribute("d"), path);
+  await act(async () => checkbox.click());
+  assert.match(container.querySelector("ol")!.textContent!, /SYN-A evidence/);
+});
+
+test("an event-only timeline keeps its filters reachable when every type is hidden", async () => {
+  await act(async () => root.render(<CapturedValueChart label="Activity" points={[]} events={[
+    { id: "alert", at: "2025-05-20T19:00:00Z", label: "Synthetic alert", kind: "alert" },
+  ]} />));
+  await act(async () => container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+  assert.match(container.textContent!, /No events match these filters/);
+  assert.equal(container.querySelector('[aria-live="polite"]'), null);
+  await act(async () => container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+  assert.match(container.querySelector("ol")!.textContent!, /Synthetic alert/);
+});
+
 test("broker equity preserves a gap and requires a fresh preview before saving edited data", async () => {
   const calls: Array<{ path: string; method: string; body?: unknown }> = [];
   globalThis.fetch = async (input, options) => {

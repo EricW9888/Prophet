@@ -96,6 +96,29 @@ export type CapturedHoldingsValue = {
   value_usd: number | null;
 };
 
+export type PortfolioHistory = {
+  receipt_id: string;
+  computed_at: string;
+  cache_hit: boolean;
+  window_days: number;
+  points: Array<{
+    at: string;
+    value: number | null;
+    gain: number | null;
+    return_pct: number | null;
+    covered_positions: number;
+    total_positions: number;
+    unavailable_tickers: string[];
+    reasons: string[];
+  }>;
+  events: Array<{
+    id: string; at: string; kind: "ledger" | "research" | "alert";
+    label: string; detail: string | null; href: string;
+  }>;
+  events_truncated: boolean;
+  reasons: string[];
+};
+
 export type PortfolioOverview = {
   holdings: Position[];
   watchlist: Position[];

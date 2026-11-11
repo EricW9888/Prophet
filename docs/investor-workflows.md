@@ -39,7 +39,23 @@ The Portfolio watchlist includes open holdings and explicitly tracked names,
 one row per security. Its order is a workspace preference and does not change
 ledger positions, watch conditions, or research priority.
 
-Holdings value history shows one point per observed price session, using
+Portfolio performance replays active ledger transactions at exchange-calendar
+closes and applies the current downloaded price vintage. Its range controls
+cover up to one year, with separate holdings value and gain/loss views. Gain
+uses the existing Modified Dietz cash-flow treatment from the first complete
+value in the range. Trades and cash flows, received research evidence, and
+triggered watches share a searchable timeline and event-type filters. Selecting
+an entry selects its chart marker and exposes the original record. The event
+date records activity and does not establish the cause of a market move.
+
+Each calculation keeps its response, prices, ledger inputs, calendar version
+and source hash in an immutable attribution receipt. The UI displays a saved
+calculation while refreshing prices. Unsupported instruments, missing quotes,
+ledger mismatches and unverified historical share basis produce gaps. Cash is
+excluded from this curve. Independent broker statements supply account equity.
+Info buttons expose short explanations on hover, keyboard focus and touch.
+
+Recorded holdings value history shows one point per observed price session, using
 the newest complete capture for that close. A known session with only partial
 captures appears as a gap. A capture with no common price date has no place on
 the close timeline. Each point links to its retained receipt and shows when the
