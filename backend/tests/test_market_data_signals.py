@@ -1,3 +1,5 @@
+import asyncio
+import threading
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
@@ -5,6 +7,92 @@ from types import SimpleNamespace
 import pytest
 
 from investos.services.market_data import MarketDataService
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["quotes", "signals", "series"])
+async def test_market_requests_keep_api_responsive_and_reuse_one_pool(
+    monkeypatch, operation
+):
+    constructing = threading.Event()
+    loop_responsive = threading.Event()
+    opened = []
+    closed = []
+    requests = []
+    active = 0
+    peak = 0
+
+    class Client:
+        def __init__(self, **_kwargs):
+            opened.append(threading.get_ident())
+            constructing.set()
+            assert loop_responsive.wait(5), "HTTP client setup blocked the API loop"
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            closed.append(self)
+
+        async def get(self, url, **_kwargs):
+            nonlocal active, peak
+            ticker = url.rsplit("/", 1)[-1]
+            requests.append(ticker)
+            active += 1
+            peak = max(peak, active)
+            try:
+                await asyncio.sleep(0)
+                if ticker == "SYN-3":
+                    raise ValueError("Synthetic provider failure")
+                return SimpleNamespace(
+                    raise_for_status=lambda: None,
+                    json=lambda: {
+                        "chart": {
+                            "result": [
+                                {
+                                    "meta": {
+                                        "symbol": ticker,
+                                        "currency": "USD",
+                                        "regularMarketPrice": 42,
+                                    },
+                                    "timestamp": [1_700_000_000],
+                                    "indicators": {"quote": [{"close": [42]}]},
+                                }
+                            ]
+                        }
+                    },
+                )
+            finally:
+                active -= 1
+
+    monkeypatch.setattr("investos.services.market_data.httpx.AsyncClient", Client)
+    service = MarketDataService(None)
+    tickers = [f"SYN-{i}" for i in range(8)]
+    request = {
+        "quotes": lambda: service.fetch_quotes(tickers),
+        "signals": lambda: service.fetch_signal_snapshots(tickers),
+        "series": lambda: service.fetch_chart_series("SYN-0"),
+    }[operation]
+    task = asyncio.create_task(request())
+    try:
+        assert await asyncio.to_thread(constructing.wait, 5)
+        loop_responsive.set()
+        result = await task
+        assert len(opened) == len(closed) == 1
+        assert opened[0] != threading.get_ident()
+        assert 1 <= peak <= 4
+        if operation == "quotes":
+            assert set(result) == set(tickers) - {"SYN-3"}
+            assert all(quote["price"] == 42 for quote in result.values())
+        elif operation == "signals":
+            assert result["SYN-3"]["status"] == "unavailable"
+            assert result["SYN-0"]["current_price"] == 42
+        else:
+            assert result["current_price"] == 42
+        assert len(requests) == (1 if operation == "series" else len(tickers))
+    finally:
+        loop_responsive.set()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 @pytest.mark.asyncio
@@ -259,7 +347,7 @@ async def test_partial_live_quote_refresh_preserves_missing_value_and_normalizes
 
 @pytest.mark.asyncio
 async def test_one_failed_symbol_does_not_discard_other_live_quotes(monkeypatch):
-    async def fetch(self, tickers):
+    async def fetch(self, tickers, *, client):
         if tickers == ["SYN-B"]:
             raise ValueError("Synthetic provider failure")
         return {tickers[0]: {"price": 10}}
