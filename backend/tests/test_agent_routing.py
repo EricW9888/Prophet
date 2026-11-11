@@ -60,8 +60,24 @@ async def test_classifier_freshness_decision_overrides_fallback_phrase_gate():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("message", "scope"),
+    [
+        ("what happened recently", None),
+        (
+            "Give me a daily portfolio review: what changed recently, which holdings have current source-backed evidence, what material risks are unsupported, and what is the next useful check?",
+            None,
+        ),
+        (
+            "Walk through the book and prioritize what deserves investigation.",
+            "portfolio_wide",
+        ),
+    ],
+)
 async def test_vague_portfolio_update_checks_market_industry_and_loss_driver(
     monkeypatch,
+    message,
+    scope,
 ):
     async def discover(_self, *, query, **kwargs):
         generic = {"title": "World news today", "url": "https://example.test/generic"}
@@ -102,7 +118,7 @@ async def test_vague_portfolio_update_checks_market_industry_and_loss_driver(
         }
     )
     result = await AgentService(None)._maybe_fresh_research_context(
-        message="what happened recently",
+        message=message,
         subject_name="Portfolio",
         subject_type="portfolio",
         packet_context={
@@ -122,6 +138,7 @@ async def test_vague_portfolio_update_checks_market_industry_and_loss_driver(
         question_research_plan={
             "external_research_required": True,
             "retrieval_query": "what happened recently",
+            **({"coverage_scope": scope} if scope else {}),
         },
     )
     assert [item["lane"] for item in result["checks"]] == [
@@ -134,6 +151,36 @@ async def test_vague_portfolio_update_checks_market_industry_and_loss_driver(
     assert [item["url"] for item in result["results"]] == [
         f"https://example.test/{path}" for path in ("market", "industry", "holding")
     ]
+
+
+@pytest.mark.asyncio
+async def test_explicit_question_scope_keeps_macro_research_focused(monkeypatch):
+    search = AsyncMock(
+        return_value=ResearchSearchResult(True, "ok", "credit spreads", [])
+    )
+    monkeypatch.setattr(ResearchService, "search", search)
+    service = AgentService(None)
+    portfolio_checks = AsyncMock(
+        side_effect=AssertionError(
+            "A focused question must not become a whole-book recap"
+        )
+    )
+    monkeypatch.setattr(service, "_portfolio_fresh_checks", portfolio_checks)
+    await service._maybe_fresh_research_context(
+        message="What changed recently in credit spreads, and how does that affect my portfolio?",
+        subject_name="Portfolio",
+        subject_type="portfolio",
+        freshness_requirement={"requires_fresh_research": True},
+        question_research_plan={
+            "coverage_scope": "question_specific",
+            "external_research_required": True,
+            "portfolio_context_role": "secondary_read_through",
+            "retrieval_query": "US investment grade high yield credit spreads recent change transmission",
+        },
+    )
+    search.assert_awaited_once()
+    assert search.await_args.kwargs["query"].startswith("US investment grade")
+    portfolio_checks.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -872,6 +872,38 @@ def test_question_plan_fallback_preserves_capability_routes_during_provider_outa
     assert comparison["research_mode"] == "focused_external"
     assert comparison["external_research_required"] is True
     assert comparison["use_historical_analogies"] is True
+    assert comparison["coverage_scope"] == "question_specific"
+    assert opportunity["coverage_scope"] == "question_specific"
+
+
+def test_planner_coverage_scope_is_semantic_and_cannot_expand_an_entity_question():
+    service = AgentService.__new__(AgentService)
+    planned = {
+        "coverage_scope": "portfolio_wide",
+        "research_mode": "focused_external",
+        "external_research_required": True,
+        "portfolio_context_role": "primary_evidence",
+        "retrieval_query": "investment book material changes source coverage",
+    }
+    portfolio = service._normalize_question_research_plan(
+        planned,
+        message="Walk through the book; prioritize what deserves investigation.",
+        subject_name="Portfolio",
+        subject_type="portfolio",
+        freshness_requirement=None,
+    )
+    assert portfolio["coverage_scope"] == "portfolio_wide"
+    assert AgentService._is_broad_portfolio_update(
+        portfolio["original_question"], portfolio
+    )
+    issuer = service._normalize_question_research_plan(
+        planned,
+        message="What changed recently at Example Co?",
+        subject_name="Example Co.",
+        subject_type="entity",
+        freshness_requirement=None,
+    )
+    assert issuer["coverage_scope"] == "question_specific"
 
 
 def test_inadequate_blind_scope_review_supersedes_off_topic_candidate():
