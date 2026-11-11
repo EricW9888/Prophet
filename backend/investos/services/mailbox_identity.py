@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from email.message import Message
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.models.evidence import RawEvidence
@@ -323,37 +323,128 @@ class MailboxIdentityService:
                 )
             ).all()
         )
-        results = []
-        for evidence in evidence_rows:
-            review = evidence.metadata_json["identity_review"]
-            candidates = []
-            for evidence_id in review["candidate_evidence_ids"]:
-                candidate = await self.session.get(RawEvidence, UUID(evidence_id))
-                if candidate is not None:
-                    candidates.append(
-                        dict(
-                            evidence_id=str(candidate.id),
-                            title=candidate.title,
-                            public_time=candidate.public_time,
-                            external_id=candidate.external_id,
-                            mailbox_identity=(candidate.metadata_json or {}).get(
-                                "mailbox_identity"
-                            ),
-                            **await self._review_content(candidate),
-                        )
-                    )
-            results.append(
+        return [await self._serialize_review(evidence) for evidence in evidence_rows]
+
+    @staticmethod
+    def _pending_review():
+        return (
+            RawEvidence.metadata_json["identity_review"]["status"].astext == "pending"
+        )
+
+    async def review_page(self, *, limit: int = 25, offset: int = 0, query: str = ""):
+        conditions = [self._pending_review()]
+        if query.strip():
+            conditions.append(
+                RawEvidence.title.icontains(query.strip(), autoescape=True)
+            )
+        priorities = (
+            select(
+                ReviewQueueItem.item_id,
+                func.max(ReviewQueueItem.priority_score).label("score"),
+            )
+            .where(
+                ReviewQueueItem.item_type == "mailbox_identity",
+                ReviewQueueItem.status.in_(["pending", "in_review"]),
+            )
+            .group_by(ReviewQueueItem.item_id)
+            .subquery()
+        )
+        linked = (
+            select(Transaction.id)
+            .where(
+                Transaction.provenance_json["raw_evidence_id"].astext
+                == cast(RawEvidence.id, String)
+            )
+            .exists()
+        )
+        rows = await self.session.execute(
+            select(
+                RawEvidence.id,
+                RawEvidence.title,
+                RawEvidence.public_time,
+                RawEvidence.metadata_json["identity_review"].label("review"),
+                priorities.c.score,
+                linked.label("linked"),
+            )
+            .outerjoin(priorities, priorities.c.item_id == RawEvidence.id)
+            .where(*conditions)
+            .order_by(
+                priorities.c.score.desc().nullslast(),
+                RawEvidence.public_time.desc().nullslast(),
+                RawEvidence.ingest_time.desc(),
+                RawEvidence.id,
+            )
+            .limit(limit)
+            .offset(offset)
+        )
+        total = await self.session.scalar(
+            select(func.count()).select_from(RawEvidence).where(*conditions)
+        )
+        return dict(
+            total=total,
+            limit=limit,
+            offset=offset,
+            query=query.strip(),
+            items=[
                 dict(
-                    evidence_id=str(evidence.id),
-                    title=evidence.title,
-                    public_time=evidence.public_time,
-                    reason=review["reason"],
-                    mailbox_identity=evidence.metadata_json["mailbox_identity"],
-                    candidates=candidates,
-                    **await self._review_content(evidence),
+                    evidence_id=str(row.id),
+                    title=row.title,
+                    public_time=row.public_time,
+                    reason=row.review.get("reason"),
+                    candidate_count=len(row.review.get("candidate_evidence_ids") or []),
+                    attention_score=row.score,
+                    can_reconcile=not row.linked,
+                )
+                for row in rows
+            ],
+        )
+
+    async def review(self, evidence_id: UUID):
+        evidence = await self.session.scalar(
+            select(RawEvidence).where(
+                RawEvidence.id == evidence_id, self._pending_review()
+            )
+        )
+        return await self._serialize_review(evidence) if evidence else None
+
+    async def _serialize_review(self, evidence):
+        review = evidence.metadata_json["identity_review"]
+        candidates = []
+        unavailable = 0
+        for evidence_id in review.get("candidate_evidence_ids") or []:
+            try:
+                candidate_id = UUID(str(evidence_id))
+            except (TypeError, ValueError):
+                unavailable += 1
+                continue
+            candidate = await self.session.get(RawEvidence, candidate_id)
+            if candidate is None:
+                unavailable += 1
+                continue
+            candidates.append(
+                dict(
+                    evidence_id=str(candidate.id),
+                    title=candidate.title,
+                    public_time=candidate.public_time,
+                    external_id=candidate.external_id,
+                    mailbox_identity=(candidate.metadata_json or {}).get(
+                        "mailbox_identity"
+                    ),
+                    **await self._review_content(candidate),
                 )
             )
-        return results
+        content = await self._review_content(evidence)
+        return dict(
+            evidence_id=str(evidence.id),
+            title=evidence.title,
+            public_time=evidence.public_time,
+            reason=review.get("reason"),
+            mailbox_identity=evidence.metadata_json.get("mailbox_identity"),
+            candidates=candidates,
+            unavailable_candidate_count=unavailable,
+            can_reconcile=not content["transactions"],
+            **content,
+        )
 
     async def _review_content(self, evidence):
         content = None
@@ -385,6 +476,10 @@ class MailboxIdentityService:
         return dict(
             content_excerpt=content[:5000] if content else None,
             content_truncated=bool(content and len(content) > 5000),
+            identity_pending=(evidence.metadata_json or {})
+            .get("identity_review", {})
+            .get("status")
+            == "pending",
             transactions=[
                 dict(
                     id=str(row.id),

@@ -1,13 +1,15 @@
 import asyncio
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.db import async_session_maker, get_session
 from investos.schemas.integrations import (
     IntegrationSettingsResponse,
     IntegrationSettingsUpdate,
+    MailboxIdentityReviewDetail,
+    MailboxIdentityReviewPage,
     MailboxIdentityReviewRequest,
     PlaidPublicTokenExchangeRequest,
     ResearchUsageSnapshot,
@@ -111,6 +113,32 @@ async def sync_gmail(session: AsyncSession = Depends(get_session)):
 @router.get("/gmail/identity-reviews")
 async def list_mailbox_identity_reviews(session: AsyncSession = Depends(get_session)):
     return await GmailMailboxService(session).identities.reviews()
+
+
+@router.get("/gmail/identity-reviews/page", response_model=MailboxIdentityReviewPage)
+async def mailbox_identity_review_page(
+    limit: int = Query(25, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    query: str = Query("", max_length=200),
+    session: AsyncSession = Depends(get_session),
+):
+    return await GmailMailboxService(session).identities.review_page(
+        limit=limit, offset=offset, query=query
+    )
+
+
+@router.get(
+    "/gmail/identity-reviews/{evidence_id}", response_model=MailboxIdentityReviewDetail
+)
+async def mailbox_identity_review(
+    evidence_id: UUID, session: AsyncSession = Depends(get_session)
+):
+    review = await GmailMailboxService(session).identities.review(evidence_id)
+    if review is None:
+        raise HTTPException(
+            status_code=404, detail="Receipt no longer has a pending identity review."
+        )
+    return review
 
 
 @router.post("/gmail/identity-reviews/{evidence_id}")

@@ -182,6 +182,13 @@ The Review surface progressively loads concerns in priority order with an
 explicit total, including concerns beyond the first API page. A linked concern
 is resolved independently of that page. Mailbox identity concerns explain
 the posting hold and direct the owner to receipt comparison in Data Connections.
+Receipt comparison lists every pending identity through counted, searchable
+pages ordered by attention and recency. Original message content loads only
+for the selected comparison. Ledger-linked incoming receipts cannot be rebound;
+their recorded transactions remain directly accessible. Attention refresh can
+reconstruct a missing concern from a pending receipt hold, but an existing
+resolved or dismissed concern prevents reconstruction. Ranking and pagination
+never resolve identity or post ledger activity.
 Holdings and tracked names open fresh, unsent research drafts for their positions.
 Profile facts and claims link through their source item to the unchanged receipt;
 nodes without that provenance say so explicitly.

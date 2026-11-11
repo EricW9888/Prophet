@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 
 from investos.models.evidence import RawEvidence
 from investos.models.portfolio import Transaction
@@ -58,6 +58,61 @@ async def held_receipt(
         select(ReviewQueueItem).where(ReviewQueueItem.item_id == incoming.id)
     )
     return incoming, legacy, item, classify
+
+
+async def test_missing_identity_concern_is_restored_without_reopening_resolved_review(
+    mailbox_service, monkeypatch
+):
+    service = mailbox_service
+    classification = {"document_type": "newsletter", "confidence": 0.0}
+    incoming, _, missing, _ = await held_receipt(
+        service, monkeypatch, classification, candidate=classification
+    )
+    resolved, _, retained, _ = await held_receipt(
+        service, monkeypatch, classification, candidate=classification
+    )
+    retained.status = "resolved"
+    before = copy.deepcopy(incoming.metadata_json)
+    await service.session.execute(
+        delete(ReviewQueueItem).where(ReviewQueueItem.id == missing.id)
+    )
+    await service.session.flush()
+    transaction_count = await service.session.scalar(
+        select(func.count()).select_from(Transaction)
+    )
+    attention = ReceiptAttentionService(service.session)
+    for _ in range(2):
+        await attention.refresh()
+    items = list(
+        (
+            await service.session.scalars(
+                select(ReviewQueueItem).where(
+                    ReviewQueueItem.item_type == "mailbox_identity",
+                    ReviewQueueItem.item_id == incoming.id,
+                )
+            )
+        ).all()
+    )
+    assert len(items) == 1
+    assert items[0].status == "pending"
+    assert items[0].queue_owner == "retained"
+    assert items[0].review_domain == "portfolio_data"
+    assert items[0].evidence_id == incoming.id
+    assert items[0].priority_score == 30
+    assert retained.status == "resolved"
+    assert (
+        await service.session.scalar(
+            select(func.count())
+            .select_from(ReviewQueueItem)
+            .where(ReviewQueueItem.item_id == resolved.id)
+        )
+        == 1
+    )
+    assert incoming.metadata_json == before
+    assert (
+        await service.session.scalar(select(func.count()).select_from(Transaction))
+        == transaction_count
+    )
 
 
 @pytest.mark.parametrize(

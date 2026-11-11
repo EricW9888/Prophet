@@ -1,9 +1,12 @@
 """Synthetic mail and real PostgreSQL exercise receipt identity and ledger links."""
 
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 
 from investos.models.evidence import RawEvidence
@@ -12,6 +15,149 @@ from investos.models.portfolio import Transaction
 from investos.models.review import ReviewQueueItem
 from investos.services.mailbox_identity import MailboxScope
 from tests.test_mailbox_recovery import mailbox_service, receipt
+
+
+async def test_review_pages_count_all_holds_without_reading_content(
+    mailbox_service, monkeypatch
+):
+    from unittest.mock import AsyncMock
+
+    from investos.api.routes.integrations import router
+    from investos.db import get_session
+    from investos.models.source import Source
+
+    service = mailbox_service
+    source = Source(name=f"Synthetic identity pages {uuid4()}", source_type="email")
+    service.session.add(source)
+    await service.session.flush()
+    prefix = f"Synthetic receipts {uuid4()}"
+    start = datetime(2025, 1, 1, tzinfo=UTC)
+    candidate = RawEvidence(
+        source_id=source.id,
+        source_item_type="email",
+        title="Preserved original",
+        metadata_json={},
+    )
+    service.session.add(candidate)
+    await service.session.flush()
+    pending = []
+    for index in range(130):
+        row = RawEvidence(
+            source_id=source.id,
+            source_item_type="email",
+            title=f"{prefix} {index}",
+            ingest_time=start + timedelta(seconds=index),
+            public_time=start + timedelta(days=index),
+            raw_content_ref=f"synthetic-{index}.eml",
+            metadata_json={
+                "identity_review": {
+                    "status": "pending",
+                    "reason": "ambiguous_legacy_identity",
+                    "candidate_evidence_ids": [str(candidate.id)],
+                },
+                "mailbox_identity": {"folder": "Synthetic"},
+            },
+        )
+        service.session.add(row)
+        pending.append(row)
+    await service.session.flush()
+    service.session.add(
+        ReviewQueueItem(
+            item_type="mailbox_identity",
+            item_id=pending[0].id,
+            evidence_id=pending[0].id,
+            review_domain="portfolio_data",
+            priority_score=100,
+            status="pending",
+            trigger_reason="Synthetic ledger identity comparison",
+        )
+    )
+    pending[-1].metadata_json = {
+        **pending[-1].metadata_json,
+        "identity_review": {
+            "status": "pending",
+            "reason": "ambiguous_legacy_identity",
+            "candidate_evidence_ids": [str(candidate.id), str(uuid4()), "invalid"],
+        },
+    }
+    await service.session.flush()
+    storage_read = AsyncMock(side_effect=FileNotFoundError)
+    monkeypatch.setattr(service.ingestion.storage, "get_object", storage_read)
+    first = await service.identities.review_page(query=prefix)
+    assert first["total"] == 130
+    assert len(first["items"]) == 25
+    assert first["items"][0]["evidence_id"] == str(pending[0].id)
+    assert "content_excerpt" not in first["items"][0]
+    ids = set()
+    for offset in range(0, 130, 25):
+        page = await service.identities.review_page(query=prefix, offset=offset)
+        ids.update(row["evidence_id"] for row in page["items"])
+    assert ids == {str(row.id) for row in pending}
+    storage_read.assert_not_awaited()
+
+    async def use_session():
+        yield service.session
+
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_session] = use_session
+    # The route uses the same session; only the direct review path reads bodies.
+    monkeypatch.setattr(
+        "investos.services.mailbox_identity.MailboxIdentityService._review_content",
+        AsyncMock(
+            return_value={
+                "content_excerpt": "Synthetic retained body",
+                "transactions": [],
+            }
+        ),
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        result = await client.get(
+            "/integrations/gmail/identity-reviews/page",
+            params={"query": prefix, "offset": 100},
+        )
+        assert result.status_code == 200 and result.json()["total"] == 130
+        detail = await client.get(
+            f"/integrations/gmail/identity-reviews/{pending[-1].id}"
+        )
+        assert detail.status_code == 200
+        assert detail.json()["unavailable_candidate_count"] == 2
+        assert detail.json()["candidates"][0]["evidence_id"] == str(candidate.id)
+        assert detail.json()["content_excerpt"] == "Synthetic retained body"
+        assert (
+            await client.get("/integrations/gmail/identity-reviews/page?limit=101")
+        ).status_code == 422
+        assert (
+            await client.get("/integrations/gmail/identity-reviews/page?offset=-1")
+        ).status_code == 422
+
+
+async def test_posted_identity_review_is_readable_but_cannot_be_rebound(
+    mailbox_service,
+):
+    service = mailbox_service
+    posted = await service._process_message(
+        "1", receipt(), scope(), provider_message_id="88881"
+    )
+    evidence = await service.session.get(RawEvidence, UUID(posted["evidence_id"]))
+    evidence.metadata_json = {
+        **evidence.metadata_json,
+        "identity_review": {
+            "status": "pending",
+            "reason": "ambiguous_legacy_identity",
+            "candidate_evidence_ids": [],
+        },
+    }
+    await service.session.flush()
+    detail = await service.identities.review(evidence.id)
+    assert detail["can_reconcile"] is False
+    assert detail["transactions"][0]["id"] == posted["transaction_id"]
+    with pytest.raises(ValueError, match="posted receipt"):
+        await service.identities.reconcile(
+            evidence.id, decision="create_distinct", existing_evidence_id=None
+        )
 
 
 def scope(*, username="synthetic@example.test", folder="Statements", validity="11"):
