@@ -18,13 +18,13 @@ export function useWorkspaceReads<Key extends string>() {
     };
   }, []);
 
-  const read = useCallback(async <T>(key: Key, path: string, accept: (data: T) => void, replace = true) => {
+  const read = useCallback(async <T>(key: Key, path: string, accept: (data: T) => void, replace = true, timeoutMs?: number) => {
     if (!replace && active.current.has(key)) return;
     active.current.get(key)?.abort();
     const request = new AbortController();
     active.current.set(key, request);
     try {
-      const data = await apiFetch<T>(path, { signal: request.signal });
+      const data = await apiFetch<T>(path, { signal: request.signal }, timeoutMs);
       if (request.signal.aborted) return;
       accept(data);
       setStatus((current) => current[key]?.ready && !current[key]?.error

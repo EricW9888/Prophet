@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,24 +33,39 @@ def locked_requirements(
 
 def main() -> int:
     requirements = locked_requirements()
+    batches: list[list[str]] = [[]]
+    occurrences: dict[str, int] = defaultdict(int)
+    for requirement in requirements:
+        name = requirement.partition("==")[0].lower()
+        index = occurrences[name]
+        if index == len(batches):
+            batches.append([])
+        batches[index].append(requirement)
+        occurrences[name] += 1
+    status = 0
     with tempfile.TemporaryDirectory(prefix="prophet-locked-") as directory:
-        requirements_path = Path(directory) / "requirements.txt"
-        requirements_path.write_text("\n".join(requirements) + "\n", encoding="utf-8")
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pip_audit",
-                "--requirement",
-                str(requirements_path),
-                "--no-deps",
-                "--disable-pip",
-                "--progress-spinner",
-                "off",
-            ],
-            check=False,
-        )
-    return result.returncode
+        for index, batch in enumerate(batches):
+            # pip-audit rejects two versions of one name in a requirements file.
+            # Audit every locked variant, including other supported interpreters.
+            requirements_path = Path(directory) / f"requirements-{index}.txt"
+            requirements_path.write_text("\n".join(batch) + "\n", encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip_audit",
+                    "--requirement",
+                    str(requirements_path),
+                    "--no-deps",
+                    "--disable-pip",
+                    "--progress-spinner",
+                    "off",
+                ],
+                check=False,
+            )
+            if result.returncode:
+                status = result.returncode
+    return status
 
 
 if __name__ == "__main__":

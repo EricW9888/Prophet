@@ -43,6 +43,7 @@ from investos.services.graph_edge_state import GraphEdgeStateService
 from investos.services.market_data import MarketDataService
 from investos.services.operating_state import OperatingStateService
 from investos.services.portfolio import PortfolioService
+from investos.services.portfolio_history import PortfolioHistoryService
 from investos.services.profile import ProfileService
 from investos.services.retrieval import RetrievalService
 from investos.services.review import ReviewService
@@ -64,6 +65,165 @@ async def workflow_session():
             yield session
         await transaction.rollback()
     await engine.dispose()
+
+
+async def test_portfolio_history_uses_close_time_cash_flows_gaps_and_receipts(
+    workflow_session, monkeypatch
+):
+    from types import SimpleNamespace
+
+    import exchange_calendars
+
+    from investos.models.quant import AttributionResult
+    from investos.models.watcher import ActiveWatcher
+    from investos.services.runtime_settings import RuntimeSettingsStore
+
+    session = workflow_session
+    calendar = exchange_calendars.get_calendar("XNYS")
+    now = datetime.now(UTC)
+    dates = calendar.sessions_in_range(
+        (now - timedelta(days=12)).date().isoformat(),
+        (now - timedelta(days=1)).date().isoformat(),
+    )[-3:]
+    closes = [calendar.session_close(day).to_pydatetime() for day in dates]
+    portfolio = PortfolioService(session)
+    await portfolio.add_transaction_by_ticker(
+        "SYNTIMELINE",
+        TransactionCreate(
+            action="buy",
+            quantity=2,
+            price=100,
+            executed_at=calendar.session_open(dates[0]).to_pydatetime(),
+        ),
+    )
+    # An after-hours purchase belongs after this day's closing valuation.
+    purchase = await portfolio.add_transaction_by_ticker(
+        "SYNTIMELINE",
+        TransactionCreate(
+            action="buy",
+            quantity=1,
+            price=100,
+            executed_at=closes[1] + timedelta(hours=1),
+        ),
+    )
+    source = Source(name="Synthetic timeline evidence", source_type="manual")
+    session.add(source)
+    await session.flush()
+    evidence = RawEvidence(
+        source_id=source.id,
+        source_item_type="manual",
+        title="Synthetic research",
+        ingest_time=closes[1],
+        is_processed=True,
+    )
+    watch = ActiveWatcher(
+        source="owner",
+        condition_type="price_below",
+        objective="Synthetic alert",
+        condition_params_json={},
+        adjustment_plan="Inspect",
+        status="triggered",
+        is_active=False,
+        triggered_at=closes[1],
+    )
+    session.add_all([evidence, watch])
+    await session.flush()
+    bars = [
+        {
+            "timestamp": calendar.session_open(day).isoformat(),
+            "completed_at": close.isoformat(),
+            "available_at": now.isoformat(),
+            "close": price,
+            "adjusted_close": price,
+        }
+        for day, close, price in zip(dates, closes, (100, 110, 120))
+    ]
+    calls = []
+
+    async def snapshots(_service, tickers, **_kwargs):
+        calls.append(tickers)
+        return {
+            "SYNTIMELINE": {
+                "reported_symbol": "SYNTIMELINE",
+                "currency": "USD",
+                "reported_exchange": "NYQ",
+                "exchange_timezone": "America/New_York",
+                "daily_observations": bars,
+            }
+        }
+
+    monkeypatch.setattr(MarketDataService, "fetch_signal_snapshots", snapshots)
+    monkeypatch.setattr(
+        RuntimeSettingsStore,
+        "load",
+        lambda: SimpleNamespace(
+            market_data=SimpleNamespace(enabled=True, provider="yahoo_finance")
+        ),
+    )
+    service = PortfolioHistoryService(session)
+    result = await service.history()
+    valid = [point for point in result.points if point.value is not None]
+    assert [point.value for point in valid] == [200, 220, 360]
+    assert [point.gain for point in valid] == [0, 20, 60]
+    assert valid[1].at == closes[1]
+    assert {event.kind for event in result.events} == {"ledger", "research", "alert"}
+    assert any(
+        event.href == f"/history/receipt/transaction/{purchase.id}"
+        for event in result.events
+    )
+    saved = await session.get(AttributionResult, result.receipt_id)
+    assert saved.factor_contributions_json["prices"]["SYNTIMELINE"][
+        "daily_observations"
+    ]
+    assert saved.factor_contributions_json["ledger"]
+    assert (await service.history()).cache_hit
+    assert len(calls) == 1
+
+    async def session_override():
+        yield session
+
+    monkeypatch.setitem(app.dependency_overrides, get_session, session_override)
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        receipt = await client.get(f"/api/risk/portfolio/history/{result.receipt_id}")
+        assert receipt.status_code == 200
+        assert receipt.json()["response"]["receipt_id"] == str(result.receipt_id)
+        alert = await client.get(f"/api/watcher/{watch.id}")
+        assert alert.status_code == 200
+        assert alert.json()["status"] == "triggered"
+
+    bars.pop(1)
+    refreshed = await service.history(refresh=True)
+    gap = next(point for point in refreshed.points if point.at == closes[1])
+    assert gap.value is None and gap.unavailable_tickers == ["SYNTIMELINE"]
+    assert any(point.gain == 60 for point in refreshed.points)
+
+    position = await session.get(Position, purchase.position_id)
+    position.quantity += 1
+    await session.flush()
+    inconsistent = await service.history()
+    assert not inconsistent.cache_hit
+    assert all(point.value is None for point in inconsistent.points)
+    assert inconsistent.reasons == [
+        "The recorded trades do not reconstruct the current holdings."
+    ]
+    position.quantity -= 1
+    await session.flush()
+    await portfolio.add_transaction_by_ticker(
+        "SYNTIMELINE",
+        TransactionCreate(
+            action="split",
+            quantity=2,
+            price=0,
+            executed_at=closes[1] + timedelta(hours=2),
+        ),
+    )
+    after_split = await service.history(refresh=True)
+    assert all(
+        point.value is None for point in after_split.points if point.at <= closes[1]
+    )
+    assert any(point.value == 720 for point in after_split.points)
 
 
 async def test_portfolio_monitor_counts_relevant_reviews_beyond_the_global_preview(

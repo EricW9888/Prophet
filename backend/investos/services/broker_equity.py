@@ -114,10 +114,13 @@ class LedgerReplay:
                 if not (row.cash_count is None and expected_cash == 0):
                     self.missing_cash = True
 
-    def reconcile(self, as_of: datetime, statement: dict) -> dict:
+    def advance(self, as_of: datetime) -> None:
         while self.next is not None and self.next.at <= as_of:
             self._apply(self.next)
             self.next = next(self.rows, None)
+
+    def reconcile(self, as_of: datetime, statement: dict) -> dict:
+        self.advance(as_of)
         book = [
             {"ticker": self.tickers[security], "quantity": quantity}
             for security, quantity in self.quantities.items()

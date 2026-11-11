@@ -21,6 +21,14 @@ async def list_active_reminders(session: AsyncSession = Depends(get_session)):
     return await WatcherService(session).list_reminders()
 
 
+@router.get("/{watcher_id}", response_model=ActiveWatcherResponse)
+async def get_watcher(watcher_id: UUID, session: AsyncSession = Depends(get_session)):
+    watcher = await session.get(ActiveWatcher, watcher_id)
+    if watcher is None:
+        raise HTTPException(status_code=404, detail="Watch not found")
+    return watcher
+
+
 @router.post("/{watcher_id}/deactivate")
 async def deactivate_watcher(
     watcher_id: UUID, session: AsyncSession = Depends(get_session)

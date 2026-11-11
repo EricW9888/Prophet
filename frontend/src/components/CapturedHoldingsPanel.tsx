@@ -6,6 +6,7 @@ import { safeFormatCurrency, safeFormatSignedCurrency } from "@/lib/formatting";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
 import CapturedValueChart from "./CapturedValueChart";
 import WorkspaceState from "./WorkspaceState";
+import HintMarker from "./HintMarker";
 
 export default function CapturedHoldingsPanel({ view = "history" }: { view?: "history" | "scenario" }) {
   const { read, status } = useWorkspaceReads<"value">();
@@ -23,9 +24,13 @@ export default function CapturedHoldingsPanel({ view = "history" }: { view?: "hi
   return <section className="min-w-0 border border-line bg-panel p-4 sm:p-5" aria-label={title}>
     <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
       <div>
-        <h2 className="font-semibold">{title}</h2>
-        <p className="mt-1 text-sm text-muted">{scenario ? "Apply a uniform price shock when the latest capture covers every holding. Assumes unchanged positions and excludes cash. No probability or time horizon is implied."
-          : "Captured holdings valued at market closes, excluding cash. Changes can reflect trades as well as prices."}</p>
+        <div className="flex items-center gap-2">
+          <h2 className="font-semibold">{title}</h2>
+          <HintMarker label={scenario ? "About this price scenario" : "How captured value history is built"}>
+            {scenario ? "Apply a uniform price shock when the latest capture covers every holding. Assumes unchanged positions and excludes cash. No probability or time horizon is implied."
+              : "Each point uses the latest complete capture for that market close, excluding cash. Changes can reflect trades as well as prices. A close with only partial captures appears as a gap. Captures without a shared price date can’t be placed on this chart."}
+          </HintMarker>
+        </div>
       </div>
       <button type="button" className="workspace-control" disabled={loading} onClick={() => void load()}>{scenario ? "Reload captures" : "Reload history"}</button>
     </div>
@@ -43,10 +48,6 @@ export default function CapturedHoldingsPanel({ view = "history" }: { view?: "hi
           detail: `${capture.covered_positions}/${capture.total_positions} holdings priced · Captured ${new Date(capture.captured_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`,
           href: `${API_BASE}/risk/portfolio/packets/${capture.assessment_id}`,
         }] : [])} />
-        <details className="mt-3 text-sm text-muted">
-          <summary className="cursor-pointer">How this history is built</summary>
-          <p className="mt-2">Each point uses the latest complete capture for that close. A close with only partial captures appears as a gap. Captures without a shared price date can’t be placed on this chart.</p>
-        </details>
       </>
     ) : null}
   </section>;

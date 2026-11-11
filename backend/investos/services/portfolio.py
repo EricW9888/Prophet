@@ -405,6 +405,16 @@ class PortfolioService:
                     position.avg_cost_basis = Decimal("0")
                     position.list_type = "closed"
 
+        elif txn.action in {"split", "expire"}:
+            if not position:
+                raise ValueError("Split and expiry transactions require a position")
+            if txn.action == "split" and _to_decimal(txn.quantity) <= 0:
+                raise ValueError("A split requires a positive post/pre share ratio")
+            # The chronological replay owns lot/share transformations, including
+            # backdated actions and later trades. Use it for direct entries too.
+            await self.recalculate_all_positions()
+            await self.session.refresh(txn)
+            return txn
         elif txn.action == "dividend" and txn.price:
             if not position:
                 raise ValueError("Dividend transactions require a position")

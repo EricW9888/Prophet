@@ -1,6 +1,7 @@
 import type { ShadowExperiment } from "@/lib/api";
 import { formatUserLabel, safeFormatCurrency } from "@/lib/formatting";
 import CapturedValueChart, { type ChartEvent } from "./CapturedValueChart";
+import HintMarker from "./HintMarker";
 
 export default function ShadowEquityTimeline({ experiment }: { experiment: ShadowExperiment }) {
   const details = experiment.run_details;
@@ -33,7 +34,12 @@ export default function ShadowEquityTimeline({ experiment }: { experiment: Shado
     }),
   ];
   return <div className="mt-3 min-w-0 space-y-3">
-    <p className="text-xs text-muted">Paper equity is cash plus marked holdings at each recorded {manual ? "valuation" : "checkpoint"}. Fill and decision markers show when they happened; they don’t supply equity values between marks.</p>
+    <div className="flex items-center gap-2">
+      <h3 className="text-sm font-medium">Paper equity</h3>
+      <HintMarker label="About paper equity and event markers">
+        Paper equity is cash plus marked holdings at each recorded {manual ? "valuation" : "checkpoint"}. Fill and decision markers show their actual times. Values between recorded valuations are unavailable.
+      </HintMarker>
+    </div>
     {manual && details.manual_equity_status?.status === "incomplete" && <p className="text-sm text-muted">No new mark: the latest valuation lacked matching USD prices for the full paper account ({details.manual_equity_status.covered_positions}/{details.manual_equity_status.total_positions} priced).</p>}
     {manual && superseded > 0 && <p className="text-xs text-muted">{superseded} earlier {superseded === 1 ? "mark was" : "marks were"} superseded after a ledger correction.</p>}
     {invalidated ? <p className="text-sm text-muted">Stored equity was superseded ({formatUserLabel(invalidated).toLowerCase()}). It is not plotted.</p>
