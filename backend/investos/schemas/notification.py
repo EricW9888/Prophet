@@ -38,3 +38,17 @@ class PushSubscriptionResponse(BaseModel):
 class PushNotificationTestResponse(BaseModel):
     status: str
     sent: bool
+
+
+class ForegroundNotificationEvent(BaseModel):
+    title: str
+    body: str
+    url: str
+    tag: str
+
+
+class ForegroundNotificationPage(BaseModel):
+    enabled: bool
+    items: list[ForegroundNotificationEvent]
+    next_cursor: str | None
+    has_more: bool

@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from py_vapid import Vapid, VapidException
 from pywebpush import WebPushException, webpush
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -174,6 +174,76 @@ class PushNotificationService:
             "active_subscription_count": active_count,
         }
 
+    @staticmethod
+    def _event_cursor(at: datetime, event_id: UUID) -> str:
+        return f"{at.isoformat()}|{event_id}"
+
+    async def foreground_events(self, *, cursor: str | None = None, limit: int = 50):
+        """Read the existing generic outbox without creating a push subscription.
+
+        An initial read establishes a baseline, so opting in never replays the
+        retained history. Device-specific tests are excluded from this feed.
+        """
+        after = None
+        if cursor is not None:
+            try:
+                stamp, identity = cursor.split("|")
+                at = datetime.fromisoformat(stamp)
+                if at.tzinfo is None:
+                    raise ValueError("Timestamp must include a timezone.")
+                after = (at, UUID(identity))
+            except (ValueError, TypeError) as exc:
+                raise PushSubscriptionError("Invalid notification cursor.") from exc
+        if not settings.WEB_PUSH_ENABLED:
+            return dict(enabled=False, items=[], next_cursor=cursor, has_more=False)
+        eligible = PushNotificationEvent.category == "watcher_transition"
+        if after is None:
+            latest = await self.session.scalar(
+                select(PushNotificationEvent)
+                .where(eligible)
+                .order_by(
+                    PushNotificationEvent.created_at.desc(),
+                    PushNotificationEvent.id.desc(),
+                )
+                .limit(1)
+            )
+            baseline = self._event_cursor(
+                latest.created_at if latest else datetime.now(UTC),
+                latest.id if latest else UUID(int=0),
+            )
+            return dict(enabled=True, items=[], next_cursor=baseline, has_more=False)
+        rows = list(
+            await self.session.scalars(
+                select(PushNotificationEvent)
+                .where(
+                    eligible,
+                    tuple_(PushNotificationEvent.created_at, PushNotificationEvent.id)
+                    > after,
+                )
+                .order_by(PushNotificationEvent.created_at, PushNotificationEvent.id)
+                .limit(limit + 1)
+            )
+        )
+        items = rows[:limit]
+        return dict(
+            enabled=True,
+            items=[
+                dict(
+                    title=row.title,
+                    body=row.body,
+                    url=row.navigate_path,
+                    tag=row.event_key,
+                )
+                for row in items
+            ],
+            next_cursor=(
+                self._event_cursor(items[-1].created_at, items[-1].id)
+                if items
+                else cursor
+            ),
+            has_more=len(rows) > limit,
+        )
+
     async def subscribe(
         self,
         *,
@@ -256,9 +326,6 @@ class PushNotificationService:
                 )
             ).all()
         )
-        if not subscription_ids:
-            return 0
-
         event_key = f"watcher:{watcher.id}:{watcher.status}"
         event_id = await self.session.scalar(
             insert(PushNotificationEvent)
@@ -282,6 +349,9 @@ class PushNotificationService:
             .returning(PushNotificationEvent.id)
         )
         if event_id is None:
+            return 0
+
+        if not subscription_ids:
             return 0
 
         now = datetime.now(UTC)

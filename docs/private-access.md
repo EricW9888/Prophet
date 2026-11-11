@@ -53,10 +53,24 @@ This is owner access, not a general multi-user authentication system.
 ## Mobile notifications
 
 After opening the installed app over HTTPS, go to **Settings > System > Device
-notifications**. Save a sender contact if prompted, then enable the current
-device. Permission is requested only from that explicit action. On iPhone and
+notifications** and enable the current device. Permission is requested only
+from that explicit action. On iPhone and
 iPad, Web Push requires a Home Screen web app; a normal browser tab does not
 expose the same permission path.
+
+When Web Push is not configured, the same button enables browser notifications
+while Prophet is open, without a sender contact or push subscription. This
+opt-in uses the existing generic watch-event outbox, establishes a baseline
+without replaying old alerts, and checks for updates every 15 seconds while the
+page is running. The browser stores only the opt-in and an event cursor.
+Same-origin tabs coordinate through Web Locks when available and use the same
+notification tags as Web Push. Turning alerts off cancels pending reads.
+Browser suspension, host outages and notification permission changes can delay
+or prevent these best-effort alerts; open-page polling is not closed-app delivery.
+
+For closed-app delivery, expand **Background delivery setup**, save a sender
+contact if the host needs one, then enable background delivery. The settings
+distinguish an open-app opt-in from an active Web Push subscription.
 
 Prophet creates one private VAPID identity under its ignored storage directory
 and keeps each browser subscription in the local database. A durable delivery

@@ -1,9 +1,14 @@
 "use client";
 
 import { Bell, BellOff, Send, Smartphone } from "lucide-react";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState, useSyncExternalStore } from "react";
 
 import { apiFetch } from "@/lib/api";
+import {
+  browserNotificationsSupported, disableForegroundNotifications, enableForegroundNotifications,
+  foregroundDeliveryHealth, foregroundNotificationsEnabled, subscribeForegroundHealth,
+  subscribeForegroundPreference, testForegroundNotification,
+} from "@/lib/foreground-notifications";
 import {
   currentPushSubscription,
   disablePushNotifications,
@@ -32,9 +37,11 @@ export default function PushNotificationSettings() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [senderContact, setSenderContact] = useState("");
+  const foregroundEnabled = useSyncExternalStore(subscribeForegroundPreference, foregroundNotificationsEnabled, () => false);
+  const deliveryHealth = useSyncExternalStore(subscribeForegroundHealth, foregroundDeliveryHealth, foregroundDeliveryHealth);
 
   async function refresh() {
-    const supported = pushNotificationsSupported();
+    const supported = browserNotificationsSupported();
     setPermission(supported ? Notification.permission : "unsupported");
     let serverStatus = await apiFetch<PushNotificationServerStatus>(
       "/notifications/status",
@@ -66,21 +73,24 @@ export default function PushNotificationSettings() {
   }, []);
 
   async function enable() {
-    if (!status?.application_server_key) return;
+    if (!status?.enabled) return;
     setBusy(true);
     setError(null);
-    setMessage(null);
+    setMessage("Allow notifications in your browser’s permission prompt. Dismissing it leaves this device off.");
     try {
-      const nextSubscription = await enablePushNotifications(
-        status.application_server_key,
-      );
-      setSubscription(nextSubscription);
+      if (status.ready && status.application_server_key && pushNotificationsSupported()) {
+        const nextSubscription = await enablePushNotifications(status.application_server_key);
+        setSubscription(nextSubscription);
+        setMessage("Background delivery enabled for this device. Keep the Prophet host running.");
+      } else {
+        await enableForegroundNotifications();
+        setMessage("Notifications enabled while Prophet is open. Background delivery can be set up below.");
+      }
       setPermission(Notification.permission);
-      setMessage("This device will receive material watch and reminder alerts.");
       await refresh();
     } catch (reason) {
       setPermission(
-        pushNotificationsSupported() ? Notification.permission : "unsupported",
+        browserNotificationsSupported() ? Notification.permission : "unsupported",
       );
       setError(
         reason instanceof Error ? reason.message : "Notifications could not be enabled.",
@@ -115,12 +125,12 @@ export default function PushNotificationSettings() {
   }
 
   async function disable() {
-    if (!subscription) return;
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
-      await disablePushNotifications(subscription);
+      disableForegroundNotifications();
+      if (subscription) await disablePushNotifications(subscription);
       setSubscription(null);
       setMessage("Notifications are off on this device.");
       await refresh();
@@ -136,11 +146,16 @@ export default function PushNotificationSettings() {
   }
 
   async function test() {
-    if (!subscription) return;
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
+      if (!activePush) {
+        await testForegroundNotification();
+        setMessage("Test notification passed to your browser.");
+        return;
+      }
+      if (!subscription) return;
       const result = await sendTestPushNotification(subscription);
       if (result.sent) {
         setMessage("Test notification sent.");
@@ -171,8 +186,10 @@ export default function PushNotificationSettings() {
   }
 
   const supported = permission !== "unsupported";
-  const active = Boolean(subscription && permission === "granted" && status?.ready && pushSubscriptionMatches(subscription, status.application_server_key));
-  const canEnable = supported && permission !== "denied" && status?.ready && status.application_server_key;
+  const activePush = Boolean(subscription && permission === "granted" && status?.ready && pushSubscriptionMatches(subscription, status.application_server_key));
+  const activeForeground = Boolean(foregroundEnabled && permission === "granted" && status?.enabled);
+  const active = activePush || activeForeground;
+  const canEnable = supported && permission !== "denied" && status?.enabled;
   const contactForm = <form onSubmit={submitSenderContact} className="mt-3 space-y-2">
     <label htmlFor="push-sender-contact" className="block text-sm font-medium">Sender contact</label>
     <p id="push-sender-help" className="text-xs text-muted">Use an email address or an HTTPS site origin you control. Prophet sends this contact to the browser’s push service when it delivers an alert.</p>
@@ -210,7 +227,7 @@ export default function PushNotificationSettings() {
               : "border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400"
           }`}
         >
-          {active ? "On for this device" : status && !status.enabled ? "Off on host" : status && !status.ready ? "Setup required" : "Off for this device"}
+          {activePush ? "Background delivery on" : activeForeground ? "On while Prophet is open" : status && !status.enabled ? "Off on host" : "Off for this device"}
         </span>
       </div>
 
@@ -222,22 +239,22 @@ export default function PushNotificationSettings() {
         <div className="bg-slate-50 p-3 dark:bg-slate-900">
           <p className="text-xs text-slate-500">This device</p>
           <p className="mt-1 text-sm font-medium">
-            {subscription ? "Subscribed" : "Not subscribed"}
+            {activePush ? "Web Push subscribed" : activeForeground ? "Alerts while open" : "Off"}
           </p>
         </div>
         <div className="bg-slate-50 p-3 dark:bg-slate-900">
-          <p className="text-xs text-slate-500">Active devices</p>
+          <p className="text-xs text-slate-500">Background subscriptions</p>
           <p className="mt-1 text-sm font-medium tabular-nums">
             {status?.active_subscription_count ?? "-"}
           </p>
         </div>
       </div>
 
-      {status?.ready && !supported && (
+      {!supported && (
         <div className="mt-4 flex items-start gap-3 border-l-2 border-amber-400 pl-3 text-sm text-slate-600 dark:text-slate-300">
           <Smartphone className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
-            Push is unavailable in this browser context. On iPhone or iPad, add
+            Notifications are unavailable in this browser context. On iPhone or iPad, add
             Prophet to the Home Screen, open the installed app over HTTPS, then enable
             notifications here.
           </p>
@@ -251,21 +268,19 @@ export default function PushNotificationSettings() {
         </p>
       )}
 
-      {status && !status.ready && (
-        <div className="mt-4 border-l-2 border-line pl-3 text-sm">
-          <p className="font-medium">{status.enabled ? "The Prophet host needs a sender contact for push delivery." : "Push delivery is disabled on the Prophet host."}</p>
-          <p className="mt-1 text-muted">You can still see watch and reminder updates inside Prophet.</p>
-          {status.enabled && contactForm}
-          <details className="mt-2 text-xs text-muted">
-            <summary className="cursor-pointer">Host setup details</summary>
-            <p className="mt-2">{status.configuration_error ?? "Enable WEB_PUSH_ENABLED on the Prophet host to allow device subscriptions."} Restart the local launcher after changing its environment, then return here to enable this device.</p>
-          </details>
-        </div>
-      )}
-
-      {status?.ready && <details className="mt-4 text-sm">
-        <summary className="cursor-pointer text-muted">Change sender contact</summary>
-        {contactForm}
+      <p className="mt-4 text-sm text-muted">Alerts while open need only browser permission. Closed-app delivery uses Web Push. Mobile browsers may suspend open pages, so use background delivery for alerts while away.</p>
+      {activeForeground && !activePush && <p role="status" className="mt-2 text-sm text-muted">
+        {deliveryHealth.state === "error" || deliveryHealth.state === "host_disabled" ? deliveryHealth.message : deliveryHealth.state === "ready" ? "Watch updates checked. The open app will keep checking." : "Checking for watch updates while Prophet is open."}
+      </p>}
+      {status && <details className="mt-4 text-sm">
+        <summary className="cursor-pointer text-muted">Background delivery setup</summary>
+        <p className="mt-2 text-muted">Install Prophet to the Home Screen on iPhone or iPad and open it over HTTPS. The Prophet host must stay running.</p>
+        {!status.enabled ? <p className="mt-2 text-muted">Notifications are disabled on the Prophet host.</p> : <>
+          <p className="mt-2 text-muted">{status.ready ? "Sender setup is ready." : "This host’s Web Push sender needs an email or HTTPS site origin for the push service. Alerts while open work without this setup."}</p>
+          {contactForm}
+          {status.configuration_error && <details className="mt-2 text-xs text-muted"><summary className="cursor-pointer">Host setup details</summary><p className="mt-2">{status.configuration_error}</p></details>}
+          {!activePush && activeForeground && status.ready && pushNotificationsSupported() && <button type="button" disabled={busy} onClick={() => void enable()} className="workspace-control mt-3">Enable background delivery</button>}
+        </>}
       </details>}
 
       {error && <p role="alert" className="mt-4 text-sm text-red-600 dark:text-red-300">{error}</p>}
@@ -273,7 +288,7 @@ export default function PushNotificationSettings() {
         <p role="status" className="mt-4 text-sm text-emerald-700 dark:text-emerald-300">{message}</p>
       )}
 
-      {(subscription || canEnable) && <div className="mt-5 flex flex-wrap gap-2">
+      {(subscription || foregroundEnabled || canEnable) && <div className="mt-5 flex flex-wrap gap-2">
         {!active && canEnable ? (
           <button
             type="button"
@@ -293,7 +308,7 @@ export default function PushNotificationSettings() {
               <Send className="h-4 w-4" />
               Send test
         </button>}
-        {subscription && <button
+        {(subscription || foregroundEnabled) && <button
               type="button"
               onClick={() => void disable()}
               disabled={busy}

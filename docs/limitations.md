@@ -33,6 +33,12 @@ background dispatcher running. A notification is a prompt to inspect current
 state, not proof that a condition was interpreted correctly or delivered at an
 exact time.
 
+Browser alerts while Prophet is open do not require a Web Push sender contact.
+They reuse the generic watch-event outbox and a local device opt-in. The browser
+must keep the page running; suspended or closed mobile pages cannot rely on
+this polling path. Background Web Push remains a separate subscription and
+host setup. Neither mode guarantees delivery or replaces the Monitor view.
+
 ## Data and Connector Coverage
 
 Gmail or IMAP ingestion depends on the configured mailbox scope and the formats
