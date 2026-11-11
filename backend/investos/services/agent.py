@@ -98,9 +98,6 @@ LOW_INFORMATION_RESEARCH_QUERIES = {
     "what happened",
     "what happened lately",
 }
-PORTFOLIO_UPDATE_WORDS = set(
-    "what is are was were did do does has have had been the my our to in with for on of how and why happened happen happening changed change changing moved moving recently recent lately latest today yesterday this past week month days update updates news developments going portfolio holdings investments positions market markets stocks me tell about right now".split()
-)
 LOW_INFORMATION_RESEARCH_STOPWORDS = {
     "a",
     "an",
@@ -424,6 +421,10 @@ QUESTION_RESEARCH_PLAN_SCHEMA = {
             "type": "string",
             "enum": ["primary_evidence", "secondary_read_through", "not_needed"],
         },
+        "coverage_scope": {
+            "type": "string",
+            "enum": ["portfolio_wide", "question_specific"],
+        },
         "use_historical_analogies": {"type": "boolean"},
         "reason": {"type": "string"},
     },
@@ -434,6 +435,7 @@ QUESTION_RESEARCH_PLAN_SCHEMA = {
         "external_research_required",
         "research_mode",
         "portfolio_context_role",
+        "coverage_scope",
         "use_historical_analogies",
         "reason",
     ],
@@ -1043,7 +1045,7 @@ class AgentService:
         retrieval = RetrievalService(self.session)
         broad_portfolio_update = (
             resolved.subject_type == "portfolio"
-            and self._is_broad_portfolio_update(payload.message)
+            and self._is_broad_portfolio_update(payload.message, question_research_plan)
         )
         await self._emit_progress(
             progress_callback,
@@ -4579,6 +4581,8 @@ class AgentService:
             "Use focused_external for a bounded company, industry, macro, event, or historical question that needs outside evidence. "
             "Use stored_context only when durable stored evidence can reasonably answer the question without pretending that retrieval coverage is complete. "
             "Describe whether portfolio data is the primary evidence, a secondary read-through after the question is answered, or unnecessary. "
+            "Set coverage_scope to portfolio_wide for a whole-book update, daily portfolio review, or a request to check changes across holdings, regardless of how detailed the question is. "
+            "Use question_specific for a focused company, macro, comparison, static accounting, or opportunity-universe question; a portfolio subject alone does not make it a whole-book update. "
             "Enable historical analogies only when the user asks for a historical comparison or a causal historical channel is part of the actual research objective. "
             "Do not force a fixed investor checklist. Derive dimensions from this question and leave irrelevant dimensions out. "
             "Do not answer the question or reveal chain of thought. Output the structured plan only."
@@ -4640,6 +4644,11 @@ class AgentService:
             external_required = True
             if mode == "stored_context":
                 mode = "focused_external"
+        coverage_scope = result.get("coverage_scope", fallback["coverage_scope"])
+        if coverage_scope not in {"portfolio_wide", "question_specific"}:
+            coverage_scope = fallback["coverage_scope"]
+        if subject_type != "portfolio" or mode == "opportunity_universe":
+            coverage_scope = "question_specific"
         return {
             "research_objective": objective or fallback["research_objective"],
             "retrieval_query": query or fallback["retrieval_query"],
@@ -4647,6 +4656,7 @@ class AgentService:
             "external_research_required": external_required,
             "research_mode": mode,
             "portfolio_context_role": portfolio_role,
+            "coverage_scope": coverage_scope,
             "use_historical_analogies": bool(result.get("use_historical_analogies")),
             "reason": str(result.get("reason") or fallback["reason"]),
             "planner_fallback": False,
@@ -4719,6 +4729,14 @@ class AgentService:
                 )
             ),
             "use_historical_analogies": use_history,
+            "coverage_scope": (
+                "portfolio_wide"
+                if subject_type == "portfolio"
+                and not opportunity_request
+                and not use_history
+                and self._is_broad_portfolio_update(message)
+                else "question_specific"
+            ),
             "reason": (
                 "The explicit opportunity request was routed to Prophet's existing universe-discovery capability while the planner was unavailable."
                 if opportunity_request
@@ -4881,7 +4899,8 @@ class AgentService:
         ) == "opportunity_universe":
             return None
         broad_portfolio_update = (
-            subject_type == "portfolio" and self._is_broad_portfolio_update(message)
+            subject_type == "portfolio"
+            and self._is_broad_portfolio_update(message, question_research_plan)
         )
         if (
             not requirement["required"]
@@ -4968,32 +4987,44 @@ class AgentService:
         }
 
     @staticmethod
-    def _is_broad_portfolio_update(message: str) -> bool:
+    def _is_broad_portfolio_update(message: str, plan: dict | None = None) -> bool:
+        if (plan or {}).get("research_mode") == "opportunity_universe":
+            return False
+        scope = (plan or {}).get("coverage_scope")
+        if scope in {"portfolio_wide", "question_specific"}:
+            return scope == "portfolio_wide"
+        if (plan or {}).get("portfolio_context_role") in {
+            "secondary_read_through",
+            "not_needed",
+        }:
+            return False
+        # During planner unavailability, explicit portfolio scope can carry
+        # ordinary detail. A detailed question must not fail a vocabulary test.
         terms = set(re.findall(r"[a-z]+", message.lower()))
-        return (
-            bool(
-                terms
-                & {
-                    "happened",
-                    "happening",
-                    "changed",
-                    "change",
-                    "recently",
-                    "recent",
-                    "latest",
-                    "lately",
-                    "today",
-                    "yesterday",
-                    "update",
-                    "updates",
-                    "news",
-                    "developments",
-                    "moved",
-                    "moving",
-                    "now",
-                }
-            )
-            and not terms - PORTFOLIO_UPDATE_WORDS
+        return bool(
+            terms
+            & {
+                "happened",
+                "happening",
+                "changed",
+                "change",
+                "recently",
+                "recent",
+                "latest",
+                "lately",
+                "today",
+                "yesterday",
+                "update",
+                "updates",
+                "news",
+                "developments",
+                "moved",
+                "moving",
+                "now",
+            }
+        ) and (
+            bool(terms & {"portfolio", "holdings", "investments", "positions"})
+            or len(terms) <= 6
         )
 
     async def _portfolio_fresh_checks(

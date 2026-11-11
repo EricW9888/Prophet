@@ -107,6 +107,12 @@ profile. A broad portfolio update checks recent stored evidence by holding and
 makes bounded external checks of the market, relevant industries and material
 holdings. The answer's coverage receipt distinguishes the holdings roster,
 explicit links in the selected evidence, and provisional external candidates.
+The question planner declares whether coverage should span the current portfolio
+or stay specific to the question. That scope controls both stored retrieval and
+external checks. Detailed wording does not narrow a whole-book review through
+a fixed vocabulary test. If planning is unavailable, an explicit portfolio
+update retains bounded market, industry and material-holding checks; historical
+comparisons and opportunity discovery retain their separate routes.
 An issuer label with a ticker resolves to a catalog entity only when the name
 and symbol agree. The audited entity cleanup uses the same check for old labels.
 When identities are consolidated, equivalent links keep their canonical
