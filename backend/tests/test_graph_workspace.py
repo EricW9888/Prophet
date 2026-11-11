@@ -4,21 +4,95 @@ from uuid import uuid4
 import httpx
 import pytest
 from fastapi import FastAPI
+from sqlalchemy import event
 
 from investos.api.routes.graph import router
-from investos.db import async_session_maker, get_session
+from investos.db import async_session_maker, engine, get_session
 from investos.models.conclusion import ConclusionState
 from investos.models.coverage import CoverageMap
 from investos.models.entity import Entity, Security
+from investos.models.evidence import RawEvidence, SourceItem
 from investos.models.graph import Edge, GraphNodeLayout
+from investos.models.knowledge import Fact
 from investos.models.portfolio import Position
 from investos.models.profile import Profile
 from investos.models.reasoning import ReasoningRun
+from investos.models.source import Source
 from investos.services.graph import (
     EXPLICIT_NODE_EDGE_LIMIT,
     SYNTHETIC_PORTFOLIO_ID,
     GraphService,
+    _NeighborhoodReads,
 )
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_graph_batches_node_provenance_and_autonomous_profiles():
+    async with async_session_maker() as session:
+        source = Source(name="Synthetic graph provenance", source_type="web_research")
+        session.add(source)
+        await session.flush()
+        raw = RawEvidence(source_id=source.id, source_item_type="web_research")
+        session.add(raw)
+        await session.flush()
+        item = SourceItem(raw_evidence_id=raw.id, source_id=source.id)
+        session.add(item)
+        entities = [
+            Entity(name=f"Synthetic batch {i}", entity_type="company")
+            for i in range(35)
+        ]
+        session.add_all(entities)
+        await session.flush()
+        facts = [
+            Fact(
+                statement=f"Synthetic fact {i}",
+                source_item_id=item.id,
+                fact_type="test",
+                confidence=1,
+                tier="hard_fact",
+                importance="high",
+                directness="primary",
+                novelty="incremental",
+                contradiction_role="neutral",
+                promotion_eligible=True,
+            )
+            for i in range(35)
+        ]
+        session.add_all(facts)
+        session.add_all(
+            [
+                Profile(
+                    subject_type="entity",
+                    subject_id=node.id,
+                    is_autonomous=index % 2 == 0,
+                )
+                for index, node in enumerate(entities)
+            ]
+        )
+        await session.flush()
+        query_count = 0
+
+        def count_query(*_args):
+            nonlocal query_count
+            query_count += 1
+
+        event.listen(engine.sync_engine, "before_cursor_execute", count_query)
+        try:
+            reads = _NeighborhoodReads(GraphService(session))
+            await reads.prefetch_nodes(
+                [f"entity:{node.id}" for node in entities]
+                + [f"fact:{node.id}" for node in facts]
+            )
+            for index, entity in enumerate(entities):
+                assert await reads.node("entity", entity.id) is entity
+                assert await reads.is_autonomous("entity", entity) is (index % 2 == 0)
+            assert await reads.layer("source_item", item) == "source"
+            assert reads.nodes[f"raw_evidence:{raw.id}"] is raw
+            assert reads.nodes[f"source:{source.id}"] is source
+            assert query_count <= 9
+        finally:
+            event.remove(engine.sync_engine, "before_cursor_execute", count_query)
+        await session.rollback()
 
 
 @pytest.mark.asyncio(loop_scope="session")

@@ -210,6 +210,12 @@ edge-state, alias, integrity, pruning, and mutation-audit services keep graph
 changes inspectable. The graph does not grant truth status to a connected node;
 state promotion still passes through evidence policy.
 
+Workspace graph reads batch node and provenance dependencies within each
+request while retaining per-node admission limits. D3 runs layout and collision
+resolution in a browser worker. Camera movement updates the SVG transform;
+React updates label detail only at zoom thresholds and memoizes individual
+glyphs so unrelated inspector or hover work does not redraw the whole scene.
+
 ## Automation
 
 `AutomationCoordinator` starts with the FastAPI lifespan and registers the
