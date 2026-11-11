@@ -108,6 +108,7 @@ class _NeighborhoodReads:
             pending.setdefault(node_type, set()).add(node_id)
 
         models = durable_graph_model_map()
+        dependencies = []
         for node_type, ids in pending.items():
             model = Position if node_type == "position" else models.get(node_type)
             if model is None:
@@ -126,6 +127,35 @@ class _NeighborhoodReads:
                 self.nodes[self.service._node_key(node_type, node_id)] = rows.get(
                     node_id
                 )
+            for node in rows.values():
+                if node_type == "source_item":
+                    dependencies.append(f"raw_evidence:{node.raw_evidence_id}")
+                elif node_type == "raw_evidence":
+                    dependencies.append(f"source:{node.source_id}")
+                elif getattr(node, "source_item_id", None):
+                    dependencies.append(f"source_item:{node.source_item_id}")
+            if node_type == "entity":
+                profiles = await self.service.session.scalars(
+                    select(Profile).where(
+                        Profile.subject_type == "entity", Profile.subject_id.in_(ids)
+                    )
+                )
+                autonomous = {}
+                ambiguous = set()
+                for profile in profiles:
+                    if profile.subject_id in autonomous:
+                        ambiguous.add(profile.subject_id)
+                    autonomous[profile.subject_id] = profile.is_autonomous
+                # Duplicate profiles retain the existing single-row validation
+                # when admitted, rather than selecting an arbitrary profile.
+                for node_id in ids - ambiguous:
+                    self.autonomy[f"entity:{node_id}"] = bool(autonomous.get(node_id))
+            if node_type in {"entity", "theme"}:
+                await self.prefetch_subject_state(
+                    [(node_type, node_id) for node_id in ids]
+                )
+        if dependencies:
+            await self.prefetch_nodes(dependencies)
 
     async def layer(self, node_type: str, node) -> str:
         key = self.service._node_key(node_type, node.id)
@@ -155,14 +185,15 @@ class _NeighborhoodReads:
             )
 
     async def prefetch_subject_state(self, subjects: list[tuple[str, UUID]]) -> None:
+        subjects = [subject for subject in subjects if subject not in self.conclusions]
         if not subjects:
             return
         conclusions = await self.service.canonical.conclusions_for_subjects(subjects)
         coverage_maps = await self.service.canonical.coverage_maps_for_subjects(
             subjects
         )
-        self.conclusions = {key: conclusions.get(key) for key in subjects}
-        self.coverage_maps = {key: coverage_maps.get(key) for key in subjects}
+        self.conclusions.update({key: conclusions.get(key) for key in subjects})
+        self.coverage_maps.update({key: coverage_maps.get(key) for key in subjects})
 
     async def edges(
         self, node_type: str, node_id: UUID | str, node
@@ -398,6 +429,21 @@ class GraphService:
         effective_depth = max(1, min(depth, 4))
         for _level in range(effective_depth):
             await reads.prefetch_edges(frontier)
+            neighbors = []
+            for current_type, current_id in frontier:
+                current = await reads.node(current_type, current_id)
+                if current is not None:
+                    neighbors.extend(
+                        await reads.edges(current_type, current_id, current)
+                    )
+            if len(node_map) < limit:
+                await reads.prefetch_nodes(
+                    [
+                        key
+                        for edge in neighbors
+                        for key in (edge.source_key, edge.target_key)
+                    ]
+                )
             next_frontier: list[tuple[str, UUID | str]] = []
             for current_type, current_id in frontier:
                 current_node = await reads.node(current_type, current_id)
@@ -522,9 +568,18 @@ class GraphService:
 
         reads = _NeighborhoodReads(self)
         seeds = list(dict.fromkeys(seeds))
+        await reads.prefetch_nodes([self._node_key(*seed) for seed in seeds])
         await reads.prefetch_edges(seeds)
         await reads.prefetch_subject_state(
             [seed for seed in seeds if seed[0] in {"entity", "theme"}]
+        )
+        seed_edges = []
+        for node_type, node_id in seeds:
+            node = await reads.node(node_type, node_id)
+            if node is not None:
+                seed_edges.extend(await reads.edges(node_type, node_id, node))
+        await reads.prefetch_nodes(
+            [key for edge in seed_edges for key in (edge.source_key, edge.target_key)]
         )
         neighborhoods = []
         for node_type, node_id in seeds:

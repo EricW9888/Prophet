@@ -129,56 +129,17 @@ function separateOverlappingNodes(
   rootKeys: Set<string>,
   iterations: number,
 ) {
-  const radii = nodes.map((node) => nodeVisualRadius(node, { selected: false, compare: false }));
+  const collision = d3.forceSimulation<PositionedNode>(nodes)
+    .force("collision", d3.forceCollide<PositionedNode>()
+      .radius((node) => nodeVisualRadius(node, { selected: false, compare: false }) + NODE_COLLISION_PADDING / 2)
+      .strength(1))
+    .stop();
   for (let iteration = 0; iteration < iterations; iteration += 1) {
-    let moved = false;
-    for (let aIndex = 0; aIndex < nodes.length; aIndex += 1) {
-      for (let bIndex = aIndex + 1; bIndex < nodes.length; bIndex += 1) {
-        const a = nodes[aIndex];
-        const b = nodes[bIndex];
-        const minDistance = radii[aIndex] + radii[bIndex] + NODE_COLLISION_PADDING;
-        let dx = (b.x ?? CENTER_X) - (a.x ?? CENTER_X);
-        let dy = (b.y ?? CENTER_Y) - (a.y ?? CENTER_Y);
-        const distanceSquared = dx * dx + dy * dy;
-        if (distanceSquared >= minDistance * minDistance) continue;
-        let distance = Math.sqrt(distanceSquared);
-        if (distance < 0.001) {
-          const angle = stableUnit(`${a.key}:${b.key}`, "overlap-angle") * Math.PI * 2;
-          dx = Math.cos(angle);
-          dy = Math.sin(angle);
-          distance = 1;
-        }
-        const overlap = minDistance - distance;
-        const nx = dx / distance;
-        const ny = dy / distance;
-        const aPinned = rootKeys.has(a.key);
-        const bPinned = rootKeys.has(b.key);
-        if (aPinned && bPinned) {
-          continue;
-        }
-        if (aPinned) {
-          b.x = (b.x ?? CENTER_X) + nx * overlap;
-          b.y = (b.y ?? CENTER_Y) + ny * overlap;
-        } else if (bPinned) {
-          a.x = (a.x ?? CENTER_X) - nx * overlap;
-          a.y = (a.y ?? CENTER_Y) - ny * overlap;
-        } else {
-          const push = overlap / 2;
-          a.x = (a.x ?? CENTER_X) - nx * push;
-          a.y = (a.y ?? CENTER_Y) - ny * push;
-          b.x = (b.x ?? CENTER_X) + nx * push;
-          b.y = (b.y ?? CENTER_Y) + ny * push;
-        }
-        moved = true;
-      }
-    }
+    collision.tick();
     for (const node of nodes) {
       if (!rootKeys.has(node.key)) {
-        moved = keepNodeWithinLayoutBounds(node) || moved;
+        keepNodeWithinLayoutBounds(node);
       }
-    }
-    if (!moved) {
-      break;
     }
   }
 }
@@ -207,36 +168,16 @@ function resolveNodeOverlaps(
       node.fy = CENTER_Y;
     }
   }
-  const graphSize = Math.max(1, resolved.length);
-  const chargeStrength =
-    graphSize >= 350
-      ? -24
-      : graphSize >= 220
-        ? -36
-        : graphSize >= 120
-          ? -56
-          : -84;
-  const relaxation = d3.forceSimulation<PositionedNode>(resolved)
-    .force("collision", d3.forceCollide<PositionedNode>().radius((node) => {
-      const radius = nodeVisualRadius(node, { selected: false, compare: false });
-      return radius + NODE_COLLISION_PADDING;
-    }).strength(0.95).iterations(10))
-    .force("charge", d3.forceManyBody<PositionedNode>().strength(chargeStrength))
-    .force("x", d3.forceX<PositionedNode>(CENTER_X).strength(0.002))
-    .force("y", d3.forceY<PositionedNode>(CENTER_Y).strength(0.002))
-    .alphaDecay(0.045)
-    .stop();
-  while (relaxation.alpha() >= relaxation.alphaMin()) {
-    relaxation.tick();
-  }
   for (const node of resolved) {
-    node.fx = null;
-    node.fy = null;
     if (!rootKeys.has(node.key)) {
       keepNodeWithinLayoutBounds(node);
     }
   }
   separateOverlappingNodes(resolved, rootKeys, OVERLAP_RESOLUTION_ITERATIONS);
+  for (const node of resolved) {
+    node.fx = null;
+    node.fy = null;
+  }
 
   const normalized = normalizeGraphLayout(resolved, rootKey);
   const positioned = normalized.filter(
@@ -319,7 +260,7 @@ export function calculateGraphLayout({ graph, positions, manual, targetAspect }:
       .force("collision", d3.forceCollide<PositionedNode>().radius(d => {
         const r = nodeVisualRadius(d, { selected: false, compare: false });
         return r + NODE_COLLISION_PADDING;
-      }).iterations(6))
+      }))
       .alphaDecay(0.07);
 
 

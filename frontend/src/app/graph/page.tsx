@@ -7,6 +7,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Maximize2, PanelRightClose, PanelRightOpen, RotateCcw, Search, ZoomIn, ZoomOut } from "lucide-react";
+import { GraphEdgeGlyph, GraphNodeGlyph, getNodeStyle } from "@/components/GraphGlyphs";
 import AppNav from "@/components/AppNav";
 import WorkspaceDivider, { useWorkspacePane } from "@/components/WorkspaceDivider";
 import WorkspaceState from "@/components/WorkspaceState";
@@ -25,8 +26,8 @@ import {
 import { formatUserLabel } from "@/lib/formatting";
 import { CENTER_X, CENTER_Y, HEIGHT, WIDTH, nodeVisualRadius, type PositionedNode } from "@/lib/graph-layout-geometry";
 import type { GraphLayoutRequest } from "@/lib/graph-layout";
+import { useGraphCamera } from "@/lib/use-graph-camera";
 
-type GestureEventWithScale = Event & { scale?: number };
 type GraphViewBox = {
   x: number;
   y: number;
@@ -42,8 +43,6 @@ const MIN_GRAPH_LAYOUT_TARGET_ASPECT = 0.65;
 const NODE_DRAG_THRESHOLD_PX = 6;
 const FOCUSED_NEIGHBORHOOD_DEPTH = 2;
 const FOCUSED_NEIGHBORHOOD_LIMIT = 56;
-const LABEL_DETAIL_ZOOM = 1.35;
-const LABEL_DENSE_ZOOM = 1.9;
 const HIDDEN_DETAIL_PROPERTY_KEYS = new Set([
   "portfolio_significance",
   "why_in_graph",
@@ -116,183 +115,6 @@ function propertyList(value: unknown): string[] {
   return value.map((item) => String(item).trim()).filter(Boolean);
 }
 
-const NODE_STYLES: Record<
-  string,
-  {
-    fill: string;
-    stroke: string;
-    text: string;
-    glow: string;
-  }
-> = {
-  fact: {
-    fill: "#2563eb",
-    stroke: "#bfdbfe",
-    text: "#ffffff",
-    glow: "rgba(37,99,235,0.3)",
-  },
-  claim: {
-    fill: "#f97316",
-    stroke: "#fdba74",
-    text: "#ffffff", // White text for better visibility on dark orange
-    glow: "rgba(249,115,22,0.35)",
-  },
-  event: {
-    fill: "#0ea5e9",
-    stroke: "#bae6fd",
-    text: "#ffffff",
-    glow: "rgba(14,165,233,0.26)",
-  },
-  entity: {
-    fill: "#10b981",
-    stroke: "#a7f3d0",
-    text: "#ffffff",
-    glow: "rgba(16,185,129,0.24)",
-  },
-  position: {
-    fill: "#0284c7",
-    stroke: "#7dd3fc",
-    text: "#ffffff",
-    glow: "rgba(8,145,178,0.24)",
-  },
-  theme: {
-    fill: "#0f766e",
-    stroke: "#99f6e4",
-    text: "#ffffff",
-    glow: "rgba(15,118,110,0.24)",
-  },
-  source_item: {
-    fill: "#d97706",
-    stroke: "#fde68a",
-    text: "#ffffff",
-    glow: "rgba(217,119,6,0.24)",
-  },
-  raw_evidence: {
-    fill: "#64748b",
-    stroke: "#cbd5e1",
-    text: "#ffffff",
-    glow: "rgba(100,116,139,0.24)",
-  },
-  source: {
-    fill: "#16a34a",
-    stroke: "#86efac",
-    text: "#ffffff",
-    glow: "rgba(34,197,94,0.24)",
-  },
-  conclusion: {
-    fill: "#0369a1",
-    stroke: "#bae6fd",
-    text: "#ffffff",
-    glow: "rgba(3,105,161,0.24)",
-  },
-  lesson: {
-    fill: "#65a30d",
-    stroke: "#bef264",
-    text: "#ffffff",
-    glow: "rgba(132,204,22,0.24)",
-  },
-  review_item: {
-    fill: "#ef4444",
-    stroke: "#fecaca",
-    text: "#ffffff",
-    glow: "rgba(239,68,68,0.24)",
-  },
-  unresolved_question: {
-    fill: "#ea580c",
-    stroke: "#ffedd5",
-    text: "#ffffff",
-    glow: "rgba(234,88,12,0.3)",
-  },
-  shadow_experiment: {
-    fill: "#0f766e",
-    stroke: "#5eead4",
-    text: "#ffffff",
-    glow: "rgba(15,118,110,0.24)",
-  },
-  experiment_result: {
-    fill: "#2563eb",
-    stroke: "#bfdbfe",
-    text: "#ffffff",
-    glow: "rgba(37,99,235,0.22)",
-  },
-  coverage_map: {
-    fill: "#64748b",
-    stroke: "#cbd5e1",
-    text: "#ffffff",
-    glow: "rgba(100,116,139,0.22)",
-  },
-  market_setup_signal: {
-    fill: "#c2410c",
-    stroke: "#fed7aa",
-    text: "#ffffff",
-    glow: "rgba(194,65,12,0.24)",
-  },
-  fundamental_metric: {
-    fill: "#0891b2",
-    stroke: "#bae6fd",
-    text: "#ffffff",
-    glow: "rgba(8,145,178,0.24)",
-  },
-};
-
-function getNodeStyle(nodeType: string) {
-  return (
-    NODE_STYLES[nodeType] ?? {
-      fill: "#475569",
-      stroke: "#cbd5e1",
-      text: "#ffffff",
-      glow: "rgba(71,85,105,0.24)",
-    }
-  );
-}
-
-function compactNodeLabel(label: string, radius: number) {
-  const clean = label.replace(/\s+/g, " ").trim();
-  const maxCharsPerLine = radius >= 52 ? 16 : radius >= 44 ? 14 : radius >= 36 ? 12 : 10;
-  if (!clean) return ["Node"];
-  if (clean.length <= maxCharsPerLine) return [clean];
-  const words = clean.split(" ");
-  const lines: string[] = [];
-  let current = "";
-  for (const word of words) {
-    const next = current ? `${current} ${word}` : word;
-    if (next.length <= maxCharsPerLine) {
-      current = next;
-    } else {
-      if (current) lines.push(current);
-      current = word;
-      if (lines.length >= 2) break;
-    }
-  }
-  if (current && lines.length < 3) lines.push(current);
-
-  return lines.slice(0, 3).map(line =>
-    line.length > maxCharsPerLine ? `${line.slice(0, maxCharsPerLine - 1)}…` : line
-  );
-}
-
-function shouldShowNodeLabel(
-  node: PositionedNode,
-  state: { selected: boolean; connected: boolean; hovered: boolean; zoom: number },
-) {
-  if (state.hovered || state.selected || node.is_root) {
-    return true;
-  }
-  if (node.tier === "critical" || node.tier === "high") {
-    return true;
-  }
-  if (state.connected && (node.layer !== "source" || (node.degree ?? 0) > 1)) {
-    return true;
-  }
-  if (state.zoom >= LABEL_DENSE_ZOOM) {
-    return node.node_type !== "raw_evidence";
-  }
-  if (state.zoom >= LABEL_DETAIL_ZOOM) {
-    return node.layer === "knowledge" || node.node_type === "position";
-  }
-  return false;
-}
-
 function isSystemDiagnosticNode(node: GraphWebNode) {
   return node.layer === "system";
 }
@@ -362,20 +184,6 @@ function normalizeNodeLabel(label: string) {
     .replace(/[$%.,:;!?()[\]{}"'`]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function shouldUseNativeGestureEvents() {
-  if (typeof navigator === "undefined") {
-    return false;
-  }
-  const vendor = navigator.vendor ?? "";
-  const userAgent = navigator.userAgent ?? "";
-  const isSafari = vendor.includes("Apple") && !/CriOS|Chrome|Chromium|Edg\//.test(userAgent);
-  return isSafari;
-}
-
-function svgSafeId(value: string) {
-  return value.replace(/[^a-zA-Z0-9_-]/g, "-");
 }
 
 function nodeTypeSortOrder(nodeType: string) {
@@ -505,8 +313,6 @@ export default function GraphPage() {
   const containerRef = useRef<SVGGElement>(null);
   const renderedNodesRef = useRef<PositionedNode[]>([]);
   const [layoutNonce, setLayoutNonce] = useState(0);
-  const [viewTransform, setViewTransform] = useState({ x: 0, y: 0, k: 1 });
-  const viewTransformRef = useRef(viewTransform);
   const [graphViewBox, setGraphViewBox] = useState<GraphViewBox>(DEFAULT_GRAPH_VIEW_BOX);
   const graphViewBoxRef = useRef<GraphViewBox>(DEFAULT_GRAPH_VIEW_BOX);
   const layoutTargetAspectRef = useRef(MAX_GRAPH_LAYOUT_TARGET_ASPECT);
@@ -522,79 +328,13 @@ export default function GraphPage() {
     nodeId: string;
   } | null>(null);
   const isDraggingNodeRef = useRef(false);
-  const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
-
-
-  // Attach D3 zoom when the graph surface exists. Keep this separate from
-  // viewTransform state so selection/detail renders cannot rebind zoom or snap
-  // the viewport.
-  useEffect(() => {
-    if (!svgRef.current || !containerRef.current) return;
-
-    const svgEl = svgRef.current;
-    const svg = d3.select(svgEl);
-    const zoom = d3.zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.05, 5])
-      .filter((event) => {
-        if (event.type === "wheel") {
-          return true;
-        }
-        const target = event.target;
-        if (!(target instanceof Element)) {
-          return true;
-        }
-        return !target.closest(".graph-node, .graph-edge-hit, button, a, textarea, input, select");
-      })
-      .on("zoom", (event) => {
-        const { transform } = event;
-        d3.select(containerRef.current).attr("transform", transform.toString());
-        setViewTransform({ x: transform.x, y: transform.y, k: transform.k });
-        viewTransformRef.current = { x: transform.x, y: transform.y, k: transform.k };
-      });
-
-    svg.call(zoom);
-    zoomRef.current = zoom;
-
-    // specialized handling for Safari and trackpad pinch-to-zoom
-    const handleWheel = (e: WheelEvent) => {
-      if (e.ctrlKey) {
-        // This is a pinch gesture on trackpads (macOS) or ctrl+wheel
-        // We prevent default to stop the browser from zooming the whole page
-        e.preventDefault();
-        // D3 zoom usually handles the wheel event automatically when svg.call(zoom) is used,
-        // but it needs the event NOT to be defaultPrevented unless we're in Safari
-        // where we might need specialized handling.
-      }
-    };
-
-    svgEl.addEventListener("wheel", handleWheel, { passive: false });
-
-    // Safari specific gesture events
-    const handleGesture = (e: Event) => {
-      e.preventDefault();
-      if (e.type === "gesturechange") {
-        const gesture = e as GestureEventWithScale;
-        const transform = viewTransformRef.current;
-        viewTransformRef.current = { ...transform, k: transform.k * (gesture.scale ?? 1) };
-        // This is a simplification; D3 zoom is better if we can just pipe it.
-      }
-    };
-
-    if (shouldUseNativeGestureEvents()) {
-      svgEl.addEventListener("gesturestart", handleGesture);
-      svgEl.addEventListener("gesturechange", handleGesture);
-      svgEl.addEventListener("gestureend", handleGesture);
-    }
-
-    return () => {
-      svgEl.removeEventListener("wheel", handleWheel);
-      if (shouldUseNativeGestureEvents()) {
-        svgEl.removeEventListener("gesturestart", handleGesture);
-        svgEl.removeEventListener("gesturechange", handleGesture);
-        svgEl.removeEventListener("gestureend", handleGesture);
-      }
-    };
-  }, [hasGraphSurface]);
+  const clearGraphHover = useCallback(() => {
+    setHoveredNodeKey(null);
+    setHoveredEdgeId(null);
+  }, []);
+  const { transformRef: viewTransformRef, zoomRef, detailZoom } = useGraphCamera(
+    svgRef, containerRef, hasGraphSurface, clearGraphHover,
+  );
 
   const toSvgPoint = useCallback((clientX: number, clientY: number) => {
     if (!svgRef.current) return { x: CENTER_X, y: CENTER_Y };
@@ -613,7 +353,7 @@ export default function GraphPage() {
       x: (point.x - transform.x) / transform.k,
       y: (point.y - transform.y) / transform.k,
     };
-  }, [toSvgPoint]);
+  }, [toSvgPoint, viewTransformRef]);
 
   const viewportAnchor = useCallback(() => {
     return { x: CENTER_X, y: CENTER_Y };
@@ -630,7 +370,7 @@ export default function GraphPage() {
         .scale(newK)
         .translate(-centerX, -centerY)
     );
-  }, []);
+  }, [zoomRef]);
 
   const fitNodesToViewport = useCallback((targetNodes: PositionedNode[], animate = false) => {
     if (!targetNodes.length || !svgRef.current) return;
@@ -667,7 +407,6 @@ export default function GraphPage() {
 
     const nextViewTransform = { x: nextTransform.x, y: nextTransform.y, k: nextTransform.k };
     viewTransformRef.current = nextViewTransform;
-    setViewTransform(nextViewTransform);
 
     if (zoomRef.current) {
       const svg = d3.select(svgRef.current).interrupt();
@@ -679,7 +418,7 @@ export default function GraphPage() {
     } else {
       d3.select(containerRef.current).attr("transform", nextTransform.toString());
     }
-  }, []);
+  }, [viewTransformRef, zoomRef]);
 
   useEffect(() => {
     const viewport = graphViewportRef.current;
@@ -1065,8 +804,9 @@ export default function GraphPage() {
   );
   const hoverPreview = useMemo(() => {
     const toViewportPercent = (x: number, y: number) => {
-      const transformedX = x * viewTransform.k + viewTransform.x;
-      const transformedY = y * viewTransform.k + viewTransform.y;
+      const camera = viewTransformRef.current;
+      const transformedX = x * camera.k + camera.x;
+      const transformedY = y * camera.k + camera.y;
       const horizontalPercent = ((transformedX - graphViewBox.x) / graphViewBox.width) * 100;
       const verticalPercent = ((transformedY - graphViewBox.y) / graphViewBox.height) * 100;
       return {
@@ -1110,7 +850,7 @@ export default function GraphPage() {
     }
 
     return null;
-  }, [displayedEdges, graphViewBox, hoveredEdgeId, hoveredNodeKey, nodeByKey, viewTransform]);
+  }, [displayedEdges, graphViewBox, hoveredEdgeId, hoveredNodeKey, nodeByKey, viewTransformRef]);
   const connectedKeys = useMemo(() => {
     if (!selectedKey) return new Set<string>();
     const keys = new Set<string>();
@@ -1157,6 +897,12 @@ export default function GraphPage() {
       setSelectedDetail(null);
     }
   }, [isBackgroundInteractionTarget]);
+
+  const selectGraphEdge = useCallback((key: string) => {
+    setHoveredEdgeId(null);
+    setSelectedKey(null);
+    setSelectedEdgeId(key);
+  }, []);
 
   const handleCanvasPointerMove = useCallback((event: React.PointerEvent) => {
     if (activeNodeDragRef.current) {
@@ -1404,7 +1150,7 @@ export default function GraphPage() {
                   type="button"
                   onClick={() => {
                     viewTransformRef.current = { x: 0, y: 0, k: 1 };
-                    setViewTransform({ x: 0, y: 0, k: 1 });
+
                     nodePositionsRef.current.clear();
                     manualNodePositionsRef.current = {};
                     setLayoutNonce((current) => current + 1);
@@ -1564,158 +1310,22 @@ export default function GraphPage() {
                     viewBox={`${graphViewBox.x} ${graphViewBox.y} ${graphViewBox.width} ${graphViewBox.height}`}
                     className="h-full w-full touch-pan-y sm:touch-none"
                   >
-                    <defs>
-                      <filter id="graph-glow" x="-50%" y="-50%" width="200%" height="200%">
-                        <feGaussianBlur stdDeviation="8" result="blur" />
-                        <feMerge>
-                          <feMergeNode in="blur" />
-                          <feMergeNode in="SourceGraphic" />
-                        </feMerge>
-                      </filter>
-                    </defs>
                     <g ref={containerRef}>
                       {displayedEdges.map((edge) => {
-	                        const source = nodeByKey[edge.source_key];
-	                        const target = nodeByKey[edge.target_key];
-	                        if (!source || !target) return null;
-	                        const edgeKey = graphEdgeIdentity(edge);
-	                        const hovered = hoveredEdgeId === edgeKey;
-	                        const highlighted = Boolean(
-	                          hovered || (selectedKey && (edge.source_key === selectedKey || edge.target_key === selectedKey)),
-	                        );
-	                        const selected = selectedEdgeId === edgeKey;
-	                        return (
-	                          <g key={edgeKey}>
-                            <title>{describeEdge(edge)}</title>
-                            <line
-                              className={[
-                                "graph-edge-visible",
-                                selected ? "text-amber-400" : highlighted ? "text-sky-400" : "text-slate-700"
-                              ].join(" ")}
-                              x1={source.x ?? 0} y1={source.y ?? 0}
-                              x2={target.x ?? 0} y2={target.y ?? 0}
-                              stroke="currentColor"
-                              strokeWidth={selected ? 4 : highlighted ? 2.8 : 1.35}
-                              strokeOpacity={selected ? 1 : highlighted ? 0.88 : 0.28}
-                            />
-                            <line
-                              className="graph-edge-hit cursor-pointer"
-	                              x1={source.x ?? 0} y1={source.y ?? 0}
-	                              x2={target.x ?? 0} y2={target.y ?? 0}
-	                              stroke="transparent" strokeWidth={15}
-	                              onMouseEnter={() => setHoveredEdgeId(edgeKey)}
-	                              onMouseLeave={() => setHoveredEdgeId((current) => current === edgeKey ? null : current)}
-	                              onClick={(e) => {
-                                  e.stopPropagation();
-                                  setHoveredEdgeId(null);
-                                  setSelectedKey(null);
-                                  setSelectedEdgeId(edgeKey);
-                                }}
-	                            />
-                          </g>
-                        );
+                        const source = nodeByKey[edge.source_key];
+                        const target = nodeByKey[edge.target_key];
+                        if (!source || !target) return null;
+                        const edgeKey = graphEdgeIdentity(edge);
+                        return <GraphEdgeGlyph key={edgeKey} edgeKey={edgeKey} source={source} target={target}
+                          description={describeEdge(edge)} selected={selectedEdgeId === edgeKey}
+                          highlighted={hoveredEdgeId === edgeKey || Boolean(selectedKey && (edge.source_key === selectedKey || edge.target_key === selectedKey))}
+                          onHover={setHoveredEdgeId} onSelect={selectGraphEdge} />;
                       })}
 
-                      {displayedNodes.map((node: PositionedNode) => {
-                        const isSelected = selectedKey === node.key;
-                        const isHovered = hoveredNodeKey === node.key;
-                        const isConnected = selectedKey ? connectedKeys.has(node.key) : node.is_root;
-                        const isCompareNode = false;
-                        const radius = nodeVisualRadius(node, {
-                          selected: isSelected,
-                          compare: isCompareNode,
-                        });
-                        const style = getNodeStyle(node.node_type);
-                        const labelVisible =
-                          (radius >= 20 || isSelected || isHovered || node.is_root) &&
-                          shouldShowNodeLabel(node, {
-                            selected: isSelected,
-                            connected: Boolean(isConnected),
-                            hovered: isHovered,
-                            zoom: viewTransform.k,
-                          });
-                        const labelLines = labelVisible ? compactNodeLabel(node.label, radius) : [];
-                        const fontSize = radius >= 46 ? 8.25 : radius >= 38 ? 7.5 : 6.75;
-                        const clipId = `node-clip-${svgSafeId(node.key)}`;
-                        return (
-                          <g
-                            key={node.key}
-                            data-node-key={node.key}
-                            onPointerDown={(event) => handleNodePointerDown(event, node)}
-                            onMouseEnter={() => setHoveredNodeKey(node.key)}
-                            onMouseLeave={() => setHoveredNodeKey((current) => current === node.key ? null : current)}
-                            className="graph-node cursor-pointer"
-                            transform={`translate(${node.x ?? 0}, ${node.y ?? 0})`}
-                          >
-                            <title>{node.label}</title>
-                            <circle
-                              cx={0}
-                              cy={0}
-                              r={radius}
-                              filter={isSelected || isHovered || node.is_autonomous ? "url(#graph-glow)" : undefined}
-                              fill={style.fill}
-                              fillOpacity={
-                                isSelected
-                                  ? 0.98
-                                  : isHovered
-                                    ? 0.94
-                                    : isConnected || node.is_root
-                                    ? 0.9
-                                    : selectedKey
-                                      ? 0.5
-                                      : 0.74
-                              }
-                              stroke={node.is_autonomous ? "#38bdf8" : style.stroke}
-                              strokeWidth={node.is_root || isSelected || isHovered ? 2.8 : node.is_autonomous ? 2.5 : 2}
-                              strokeDasharray={node.is_autonomous ? "4 2" : undefined}
-                            />
-                            {isSelected ? (
-                              <circle
-                                cx={0}
-                                cy={0}
-                                r={radius + 6}
-                                fill="none"
-                                stroke={style.stroke}
-                                strokeOpacity={0.95}
-                                strokeWidth={2}
-                              />
-                            ) : null}
-                            {labelVisible ? (
-                              <>
-                                <defs>
-                                  <clipPath id={clipId}>
-                                    <circle cx={0} cy={0} r={Math.max(12, radius - 4)} />
-                                  </clipPath>
-                                </defs>
-                                <g clipPath={`url(#${clipId})`}>
-                                  {labelLines.map((line: string, index: number) => {
-                                    const lineHeight = 12;
-                                    const totalHeight = labelLines.length * lineHeight;
-                                    const yOffset = (index * lineHeight) - (totalHeight / 2) + (lineHeight / 2);
-                                    return (
-                                      <text
-                                        key={`${node.key}-${index}`}
-                                        x={0}
-                                        y={yOffset}
-                                        textAnchor="middle"
-                                        dominantBaseline="middle"
-                                        className="pointer-events-none font-bold"
-                                        fontSize={fontSize}
-                                        fill={style.text}
-                                        stroke={style.fill === "#111827" ? "rgba(255,255,255,0.45)" : "rgba(15,23,42,0.25)"}
-                                        strokeWidth={3}
-                                        paintOrder="stroke fill"
-                                      >
-                                        {line}
-                                      </text>
-                                    );
-                                  })}
-                                </g>
-                              </>
-                            ) : null}
-                          </g>
-                        );
-                      })}
+                      {displayedNodes.map((node) => <GraphNodeGlyph key={node.key}
+                        node={node} isSelected={selectedKey === node.key} isHovered={hoveredNodeKey === node.key}
+                        isConnected={selectedKey ? connectedKeys.has(node.key) : node.is_root} hasSelection={Boolean(selectedKey)}
+                        zoom={detailZoom} onHover={setHoveredNodeKey} onPointerDown={handleNodePointerDown} />)}
                     </g>
                   </svg>
                   {hoverPreview ? (
