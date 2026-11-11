@@ -45,7 +45,8 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const target = new URL(event.notification.data?.url || "/timeline", self.location.origin).href;
+  const requested = new URL(event.notification.data?.url || "/timeline", self.location.origin);
+  const target = requested.origin === self.location.origin ? requested.href : new URL("/timeline", self.location.origin).href;
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
       for (const client of clients) {

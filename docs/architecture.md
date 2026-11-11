@@ -93,6 +93,14 @@ deterministic path is separate from the benchmark regime and does not require
 the LLM. See [Portfolio daily-risk advisories](portfolio-risk.md) for its
 calculation, timing and validation boundaries.
 
+The notification outbox retains generic watch transitions even with no Web Push
+subscriptions. Opted-in open pages read ordered, bounded event pages through
+`GET /notifications/events`; the first read establishes a baseline rather than
+replaying history. Device-specific test events are excluded. This read path
+shares event tags with Web Push, creates no delivery/subscription records and
+respects the host notification switch. Browser permission, local opt-in and
+closed-app push readiness remain separate states.
+
 External web discovery runs through a provider registry. A configured SearXNG
 endpoint is the free-first path; configured Tavily is a metered fallback when
 the earlier provider fails or returns no usable candidates. A successful first

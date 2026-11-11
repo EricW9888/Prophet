@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.core.url_security import UrlFetchError
 from investos.db import get_session
 from investos.schemas.notification import (
+    ForegroundNotificationPage,
     PushNotificationStatusResponse,
     PushNotificationTestResponse,
     PushSenderContactUpdate,
@@ -18,6 +19,20 @@ from investos.services.push_notification import (
 )
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
+
+
+@router.get("/events", response_model=ForegroundNotificationPage)
+async def foreground_notification_events(
+    cursor: str | None = Query(None, max_length=128),
+    limit: int = Query(50, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        return await PushNotificationService(session).foreground_events(
+            cursor=cursor, limit=limit
+        )
+    except PushSubscriptionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/status", response_model=PushNotificationStatusResponse)

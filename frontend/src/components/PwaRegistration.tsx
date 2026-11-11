@@ -3,6 +3,7 @@
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { syncExistingPushSubscription } from "@/lib/push-notifications";
+import { browserNotificationsSupported, foregroundNotificationsEnabled, startForegroundNotifications, subscribeForegroundPreference } from "@/lib/foreground-notifications";
 
 type InstallPrompt = Event & {
   prompt: () => Promise<void>;
@@ -32,6 +33,12 @@ export default function PwaRegistration({ children }: { children: ReactNode }) {
   const [canInstall, setCanInstall] = useState(false);
   const [state, setState] = useState<InstallState>("idle");
   const standalone = useSyncExternalStore(subscribeToDisplayMode, () => window.matchMedia(standaloneQuery).matches, () => false);
+  const foregroundEnabled = useSyncExternalStore(subscribeForegroundPreference, foregroundNotificationsEnabled, () => false);
+
+  useEffect(() => {
+    if (!foregroundEnabled || !browserNotificationsSupported()) return;
+    return startForegroundNotifications();
+  }, [foregroundEnabled]);
 
   useEffect(() => {
     function offerInstall(event: Event) {

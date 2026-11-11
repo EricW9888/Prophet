@@ -49,7 +49,8 @@ test("saving sender setup does not ask for device permission or subscribe", asyn
   const button = (name: string) => [...container.querySelectorAll("button")].find((item) => item.textContent === name);
   try {
     await act(async () => root.render(<PushNotificationSettings />));
-    assert.equal(button("Enable on this device"), undefined);
+    assert.ok(button("Enable on this device"));
+    assert.equal(permissionsRequested, 0);
     const contact = container.querySelector("input")!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(contact, "fixture@example.test");

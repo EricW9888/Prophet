@@ -54,6 +54,7 @@ class PushNotificationEvent(Base):
     __tablename__ = "push_notification_events"
     __table_args__ = (
         UniqueConstraint("event_key", name="uq_push_notification_events_event_key"),
+        Index("ix_push_notification_events_feed", "category", "created_at", "id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
