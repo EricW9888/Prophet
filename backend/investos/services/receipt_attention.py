@@ -1,8 +1,9 @@
 """Order identity holds by attributable ledger relevance, never resolve them."""
 
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 
 from investos.models.evidence import RawEvidence
 from investos.models.portfolio import Transaction
@@ -79,6 +80,7 @@ class ReceiptAttentionService:
         self.session = session
 
     async def refresh(self, *, evidence_id: UUID | None = None):
+        await self._restore_missing_reviews(evidence_id=evidence_id)
         conditions = [
             ReviewQueueItem.item_type == "mailbox_identity",
             ReviewQueueItem.status.in_(["pending", "in_review"]),
@@ -150,6 +152,49 @@ class ReceiptAttentionService:
             item.priority_score = score
             item.trigger_reason = f"{reason} {HOLD_REASON}"
         await self.session.flush()
+
+    async def _restore_missing_reviews(self, *, evidence_id: UUID | None):
+        # A legacy queue refresh could remove a concern while leaving the
+        # receipt's identity hold intact. Any existing review, including an
+        # explicitly resolved one, remains authoritative over reconstruction.
+        existing = (
+            select(ReviewQueueItem.id)
+            .where(
+                ReviewQueueItem.item_type == "mailbox_identity",
+                ReviewQueueItem.item_id == RawEvidence.id,
+            )
+            .exists()
+        )
+        statement = select(RawEvidence.id).where(
+            RawEvidence.metadata_json["identity_review"]["status"].astext == "pending",
+            ~existing,
+        )
+        if evidence_id is not None:
+            statement = statement.where(RawEvidence.id == evidence_id)
+        missing = list(await self.session.scalars(statement))
+        for offset in range(0, len(missing), 1000):
+            await self.session.execute(
+                insert(ReviewQueueItem)
+                .values(
+                    [
+                        dict(
+                            id=uuid5(
+                                NAMESPACE_URL, f"prophet:mailbox-identity-review:{key}"
+                            ),
+                            item_type="mailbox_identity",
+                            item_id=key,
+                            evidence_id=key,
+                            review_domain="portfolio_data",
+                            queue_owner="retained",
+                            priority_score=80,
+                            status="pending",
+                            trigger_reason=HOLD_REASON,
+                        )
+                        for key in missing[offset : offset + 1000]
+                    ]
+                )
+                .on_conflict_do_nothing(index_elements=[ReviewQueueItem.id])
+            )
 
     async def _evidence(self, ids):
         result = {}

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -7,6 +8,43 @@ from pydantic import BaseModel, Field
 class MailboxIdentityReviewRequest(BaseModel):
     decision: Literal["link_existing", "create_distinct"]
     existing_evidence_id: UUID | None = None
+
+
+class MailboxIdentityReviewSummary(BaseModel):
+    evidence_id: UUID
+    title: str | None
+    public_time: datetime | None
+    reason: str | None
+    candidate_count: int
+    attention_score: float | None
+    can_reconcile: bool
+
+
+class MailboxIdentityReviewPage(BaseModel):
+    items: list[MailboxIdentityReviewSummary]
+    total: int
+    limit: int
+    offset: int
+    query: str
+
+
+class MailboxIdentityReceipt(BaseModel):
+    evidence_id: UUID
+    title: str | None
+    public_time: datetime | None
+    external_id: str | None = None
+    mailbox_identity: dict[str, Any] | None = None
+    content_excerpt: str | None = None
+    content_truncated: bool = False
+    identity_pending: bool = False
+    transactions: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class MailboxIdentityReviewDetail(MailboxIdentityReceipt):
+    reason: str | None
+    candidates: list[MailboxIdentityReceipt]
+    unavailable_candidate_count: int
+    can_reconcile: bool
 
 
 class MarketDataIntegrationSettings(BaseModel):
