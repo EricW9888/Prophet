@@ -94,6 +94,49 @@ def test_unknown_success_result_defaults_to_ok():
     )
 
 
+async def test_deferred_opportunity_run_is_woken_on_recovery_but_completed_run_is_not(
+    monkeypatch,
+):
+    from apscheduler.schedulers.base import STATE_RUNNING
+
+    from investos.config import settings
+
+    monkeypatch.setattr(settings, "AUTOMATION_ENABLED", True)
+    coordinator = AutomationCoordinator()
+    monkeypatch.setattr(coordinator.scheduler, "state", STATE_RUNNING)
+    coordinator.telemetry["opportunity_discovery"] = JobTelemetry(
+        "opportunity_discovery", 3600, enabled=True
+    )
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    monkeypatch.setattr(
+        "investos.services.automation.async_session_maker", lambda: session
+    )
+    result = {
+        "status": "deferred",
+        "inspected_count": 1,
+        "universe_size": 2,
+        "detail": "Synthetic provider cooldown",
+    }
+    monkeypatch.setattr(
+        "investos.services.automation.OpportunityDiscoveryService.run_discovery",
+        AsyncMock(return_value=result),
+    )
+    monkeypatch.setattr(coordinator, "_log_job_action", Mock())
+    expedite = Mock()
+    monkeypatch.setattr(coordinator, "_expedite_pending_job", expedite)
+    await coordinator._run_opportunity_discovery()
+    assert coordinator.telemetry["opportunity_discovery"].last_status == "deferred"
+    coordinator.signal_ready_work("provider_recovered")
+    expedite.assert_called_once_with("opportunity_discovery")
+    coordinator._pending_signals.clear()
+    expedite.reset_mock()
+    result["status"] = "completed"
+    await coordinator._run_opportunity_discovery()
+    coordinator.signal_ready_work("provider_recovered")
+    expedite.assert_not_called()
+
+
 def test_internal_automation_state_does_not_displace_visible_activity(
     monkeypatch, tmp_path
 ):
