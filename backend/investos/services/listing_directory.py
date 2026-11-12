@@ -146,6 +146,9 @@ class ListingDirectoryService:
                     or_(
                         ListingDirectory.next_refresh_at.is_(None),
                         ListingDirectory.next_refresh_at <= now,
+                        ListingDirectory.metadata_json["parser_revision"].is_(None),
+                        ListingDirectory.metadata_json["parser_revision"].as_integer()
+                        != PARSER_REVISION,
                     ),
                     or_(
                         ListingDirectory.lease_until.is_(None),

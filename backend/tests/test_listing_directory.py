@@ -246,6 +246,27 @@ async def test_complete_snapshot_retires_only_directory_presence_and_preserves_e
     assert await session.scalar(select(func.count()).select_from(ResearchListing)) == 25
 
 
+async def test_parser_upgrade_reprocesses_an_unchanged_snapshot_before_its_next_poll(
+    workflow_session, approved_scope, monkeypatch
+):
+    session = workflow_session
+    directory = await stored_directory(session)
+    directory.next_refresh_at = datetime.now(UTC) + timedelta(hours=1)
+    directory.metadata_json = {**directory.metadata_json, "parser_revision": 0}
+    listing = await session.scalar(select(ResearchListing).limit(1))
+    listing.research_eligible = False
+    await session.commit()
+    monkeypatch.setattr(settings, "US_LISTING_DIRECTORY_URLS", [directory.url])
+    monkeypatch.setattr(
+        ListingDirectoryService,
+        "_fetch",
+        AsyncMock(return_value=parse_listing_directory(directory_text())),
+    )
+    result = await ListingDirectoryService(session).refresh()
+    await session.refresh(listing)
+    assert result["directories_changed"] == 1 and listing.research_eligible is True
+
+
 async def test_directory_api_paginates_and_keeps_research_controls_reversible(
     workflow_session, approved_scope
 ):
