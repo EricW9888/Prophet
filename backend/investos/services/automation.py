@@ -339,7 +339,17 @@ class AutomationCoordinator:
     @staticmethod
     def _result_telemetry_status(result: dict) -> str:
         status = str(result.get("status") or "ok").strip().lower()
-        if status in {"error", "warning", "waiting_for_config", "cancelled"}:
+        if status == "failed":
+            return "error"
+        if status == "partial":
+            return "warning"
+        if status in {
+            "error",
+            "warning",
+            "waiting_for_config",
+            "cancelled",
+            "deferred",
+        }:
             return status
         return "ok"
 

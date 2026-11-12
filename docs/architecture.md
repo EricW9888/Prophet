@@ -197,7 +197,11 @@ The main state groups are:
   latest stored benchmark snapshots; resumable coverage/cost runs; reviewable
   source-linked candidates whose assumptions remain separate from evidence; and
   immutable discovery observations evaluated later against dated benchmark and
-  cash controls.
+  cash controls. Provider interruption retains the bounded run's unfinished
+  subjects and original capture rather than marking them inspected or replacing
+  its plan. Recovery resumes that run, respects newly paused subjects, and
+  evaluates all successful inspections including those completed before the
+  interruption. Deferred work is exposed as deferred in automation telemetry.
 - **Listing frontier:** optional exchange-directory intake stores listing rows
   separately from entities and securities. Complete, hashed directory snapshots
   update presence without changing holdings, quantities or operator exclusions.

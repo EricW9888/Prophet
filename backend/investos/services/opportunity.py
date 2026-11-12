@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 from collections import defaultdict
@@ -7,12 +8,15 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
+import httpx
 from sqlalchemy import and_, desc, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.config import settings
 from investos.core.llm import call_llm_json
+from investos.core.provider_health import LLMProviderCooldownError, ProviderHealthStore
+from investos.core.providers import StructuredGenerationError
 from investos.models.benchmark import Benchmark, BenchmarkConstituent
 from investos.models.entity import Entity, Security
 from investos.models.opportunity import (
@@ -527,34 +531,36 @@ class OpportunityDiscoveryService:
             }
 
         try:
-            outcome_summary = await self.evaluate_due_outcomes(
-                now=run.captured_at,
-                limit=self.runtime.max_subjects_per_run,
-            )
-            run.limits_json = {
-                **(run.limits_json or {}),
-                "outcome_evaluation": outcome_summary,
-            }
+            if "outcome_evaluation" not in (run.limits_json or {}):
+                outcome_summary = await self.evaluate_due_outcomes(
+                    now=run.captured_at,
+                    limit=self.runtime.max_subjects_per_run,
+                )
+                run.limits_json = {
+                    **(run.limits_json or {}),
+                    "outcome_evaluation": outcome_summary,
+                }
             from investos.services.listing_directory import ListingDirectoryService
 
             directory = ListingDirectoryService(self.session)
-            materialized = await directory.materialize(
-                limit=self.runtime.max_subjects_per_run
-            )
-            if self.runtime.universe_scope == "us_listed":
-                run.universe_size = int(
-                    await self.session.scalar(
-                        select(func.count())
-                        .select_from(OpportunityUniverseMember)
-                        .where(OpportunityUniverseMember.enabled.is_(True))
-                    )
-                    or 0
+            if not run.planned_count:
+                materialized = await directory.materialize(
+                    limit=self.runtime.max_subjects_per_run
                 )
-            run.limits_json = {
-                **run.limits_json,
-                "directory_frontier": materialized,
-                "universe_scope": self.runtime.universe_scope,
-            }
+                if self.runtime.universe_scope == "us_listed":
+                    run.universe_size = int(
+                        await self.session.scalar(
+                            select(func.count())
+                            .select_from(OpportunityUniverseMember)
+                            .where(OpportunityUniverseMember.enabled.is_(True))
+                        )
+                        or 0
+                    )
+                run.limits_json = {
+                    **run.limits_json,
+                    "directory_frontier": materialized,
+                    "universe_scope": self.runtime.universe_scope,
+                }
             members = await self._run_members(run)
             for member, security, entity in members:
                 await self._inspect_member(
@@ -564,7 +570,31 @@ class OpportunityDiscoveryService:
                     entity=entity,
                 )
 
-            await self._evaluate_run(run=run, members=members)
+            # A resumed run must include earlier successful inspections, even
+            # when only evaluation was interrupted and no subjects remain.
+            evaluated_members = list(
+                (
+                    await self.session.execute(
+                        select(OpportunityUniverseMember, Security, Entity)
+                        .join(
+                            Security,
+                            OpportunityUniverseMember.security_id == Security.id,
+                        )
+                        .join(Entity, OpportunityUniverseMember.entity_id == Entity.id)
+                        .where(
+                            OpportunityUniverseMember.id.in_(
+                                [
+                                    UUID(value)
+                                    for value in run.inspected_member_ids_json or []
+                                ]
+                            ),
+                            OpportunityUniverseMember.enabled.is_(True),
+                            Security.is_active.is_(True),
+                        )
+                    )
+                ).all()
+            )
+            await self._evaluate_run(run=run, members=evaluated_members)
             if run.universe_size == 0 and run.planned_count == 0:
                 run.status = (
                     "deferred"
@@ -583,15 +613,33 @@ class OpportunityDiscoveryService:
                     if run.planned_count
                     else "no_due_opportunity_subjects"
                 )
+        except (LLMProviderCooldownError, asyncio.CancelledError) as exc:
+            run.status = "deferred"
+            run.detail = (
+                "interrupted_before_completion"
+                if isinstance(exc, asyncio.CancelledError)
+                else str(exc)[:800]
+            )
+            if isinstance(exc, asyncio.CancelledError):
+                raise
         except Exception as exc:
-            run.status = "failed"
-            run.detail = f"{type(exc).__name__}: {str(exc)[:800]}"
-            raise
+            try:
+                if isinstance(
+                    exc, (httpx.HTTPError, TimeoutError, StructuredGenerationError)
+                ):
+                    ProviderHealthStore.require_available()
+            except LLMProviderCooldownError as cooldown:
+                run.status, run.detail = "deferred", str(cooldown)[:800]
+            else:
+                run.status = "failed"
+                run.detail = f"{type(exc).__name__}: {str(exc)[:800]}"
+                raise
         finally:
-            run.active_key = None
+            if run.status != "deferred":
+                run.active_key = None
+                run.completed_at = datetime.now(UTC)
             run.owner_token = None
-            run.completed_at = datetime.now(UTC)
-            run.heartbeat_at = run.completed_at
+            run.heartbeat_at = datetime.now(UTC)
             await self.session.commit()
         return self._serialize_run(run)
 
@@ -1006,7 +1054,10 @@ class OpportunityDiscoveryService:
                 )
             )
         ).scalar_one()
-        if active.heartbeat_at > now - self.ACTIVE_RUN_STALE_AFTER:
+        if (
+            active.status != "deferred"
+            and active.heartbeat_at > now - self.ACTIVE_RUN_STALE_AFTER
+        ):
             return active, False
 
         claimed = await self.session.execute(
@@ -1016,7 +1067,7 @@ class OpportunityDiscoveryService:
                 OpportunityDiscoveryRun.owner_token == active.owner_token,
                 OpportunityDiscoveryRun.heartbeat_at == active.heartbeat_at,
             )
-            .values(owner_token=owner_token, heartbeat_at=now)
+            .values(status="running", owner_token=owner_token, heartbeat_at=now)
             .returning(OpportunityDiscoveryRun.id)
         )
         claimed_id = claimed.scalar_one_or_none()
@@ -1035,7 +1086,7 @@ class OpportunityDiscoveryService:
         self,
         run: OpportunityDiscoveryRun,
     ) -> list[tuple[OpportunityUniverseMember, Security, Entity]]:
-        if run.remaining_member_ids_json:
+        if run.planned_count or run.remaining_member_ids_json:
             member_ids = [UUID(value) for value in run.remaining_member_ids_json]
             rows = (
                 await self.session.execute(
@@ -1044,12 +1095,33 @@ class OpportunityDiscoveryService:
                         Security, OpportunityUniverseMember.security_id == Security.id
                     )
                     .join(Entity, OpportunityUniverseMember.entity_id == Entity.id)
-                    .where(OpportunityUniverseMember.id.in_(member_ids))
+                    .where(
+                        OpportunityUniverseMember.id.in_(member_ids),
+                        OpportunityUniverseMember.enabled.is_(True),
+                        Security.is_active.is_(True),
+                    )
                     .order_by(
                         OpportunityUniverseMember.priority.desc(), Security.ticker
                     )
                 )
             ).all()
+            eligible_ids = {str(member.id) for member, _, _ in rows}
+            removed = set(run.remaining_member_ids_json or []) - eligible_ids
+            if removed:
+                run.skipped_count += len(removed)
+                run.skipped_json = [
+                    *(run.skipped_json or []),
+                    *(
+                        {"member_id": value, "reason": "subject_no_longer_eligible"}
+                        for value in sorted(removed)
+                    ),
+                ]
+                run.remaining_member_ids_json = [
+                    value
+                    for value in run.remaining_member_ids_json
+                    if value in eligible_ids
+                ]
+                await self.session.commit()
             return list(rows)
 
         now = run.captured_at
@@ -1088,6 +1160,7 @@ class OpportunityDiscoveryService:
         entity: Entity,
     ) -> None:
         inspected = False
+        interrupted = False
         try:
             query, research_goal = await self._research_query(
                 security=security,
@@ -1125,7 +1198,18 @@ class OpportunityDiscoveryService:
                     *(run.inspected_member_ids_json or []),
                     str(member.id),
                 ]
+        except (LLMProviderCooldownError, asyncio.CancelledError):
+            interrupted = True
+            raise
         except Exception as exc:
+            try:
+                if isinstance(
+                    exc, (httpx.HTTPError, TimeoutError, StructuredGenerationError)
+                ):
+                    ProviderHealthStore.require_available()
+            except LLMProviderCooldownError:
+                interrupted = True
+                raise
             run.failed_count += 1
             run.failures_json = [
                 *(run.failures_json or []),
@@ -1141,11 +1225,12 @@ class OpportunityDiscoveryService:
                 member.next_inspection_at = member.last_inspected_at + timedelta(
                     hours=self.runtime.revisit_hours
                 )
-            run.remaining_member_ids_json = [
-                value
-                for value in (run.remaining_member_ids_json or [])
-                if value != str(member.id)
-            ]
+            if not interrupted:
+                run.remaining_member_ids_json = [
+                    value
+                    for value in (run.remaining_member_ids_json or [])
+                    if value != str(member.id)
+                ]
             run.heartbeat_at = datetime.now(UTC)
             await self._refresh_provider_telemetry(run)
             await self.session.commit()
