@@ -1732,6 +1732,13 @@ export type ShadowOpportunityProfile = {
 export type AgentResearchReceipt = {
   holdings_count?: number | null;
   holdings_with_linked_evidence: string[];
+  holding_search_coverage?: {
+    ticker: string;
+    status: string;
+    searched: boolean;
+    candidate_count: number;
+    candidate_urls: string[];
+  }[];
   checks: { lane: string; query: string; status: string; result_count: number }[];
   candidate_sources: { title?: string | null; url: string; published_date?: string | null; lane?: string | null }[];
 };

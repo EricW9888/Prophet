@@ -30,6 +30,7 @@ from investos.core.prompting import (
     compact_reasoning_result,
     estimate_tokens_from_payload,
 )
+from investos.core.provider_health import LLMProviderCooldownError
 from investos.core.storage import LocalStorage
 from investos.models.conclusion import ConclusionState
 from investos.models.coverage import UnresolvedQuestion
@@ -465,6 +466,7 @@ TURN_INTENT_SCHEMA = {
         "assistant_message": {"type": ["string", "null"]},
         "requires_fresh_research": {"type": "boolean"},
         "freshness_reason": {"type": "string"},
+        "subject_hint": SUBJECT_HINT_SCHEMA,
         "reason": {"type": "string"},
     },
     "required": [
@@ -472,6 +474,7 @@ TURN_INTENT_SCHEMA = {
         "assistant_message",
         "requires_fresh_research",
         "freshness_reason",
+        "subject_hint",
         "reason",
     ],
 }
@@ -755,6 +758,7 @@ class AgentService:
             subject_type=payload.subject_type,
             session_id=session_id,
             intent_route=str(turn_intent.get("route") or ""),
+            subject_hint=turn_intent.get("subject_hint") or {"subject_kind": "none"},
         )
         await self._emit_progress(
             progress_callback,
@@ -1390,6 +1394,7 @@ class AgentService:
                     for row in portfolio_scope.get("selected_holding_evidence", [])
                     if row["linked_evidence_count"]
                 ],
+                "holding_search_coverage": fresh.get("holding_search_coverage", []),
                 "checks": fresh.get("checks")
                 or (
                     [
@@ -1863,23 +1868,38 @@ class AgentService:
                         "Set requires_fresh_research when the answer depends on facts that may have changed or an external event/access state, including current listings, availability, prices, filings, deals, earnings, guidance, regulation, or recent developments. "
                         "Do not set it merely because a question is about investing. Put the concrete temporal dependency in freshness_reason, or an empty string when fresh research is unnecessary. "
                         "Prefer analyze for investment judgment. Prefer operate only when the user is asking for operating-system state or an explicit tool action. "
+                        "Resolve subject_hint in the same pass: identify the primary requested scope, not every named example. "
+                        "Use portfolio for a whole-book request even when it names individual holdings as examples; entity for a focused issuer, theme for a cross-company topic, and none when unresolved. "
+                        "A mention of portfolio impact alone does not make a focused issuer question portfolio-wide. Use an exact ticker when known; do not invent one. "
                         "If route is conversation or clarify, include a concise assistant_message; otherwise assistant_message should be null. "
                         "Output JSON only."
                     ),
                     user_prompt=json.dumps({"message": normalized}, ensure_ascii=True),
                     schema=TURN_INTENT_SCHEMA,
-                    timeout_seconds=3,
+                    timeout_seconds=settings.LLM_TIMEOUT_SECONDS,
                 ),
-                timeout=3,
+                timeout=settings.LLM_TIMEOUT_SECONDS,
             )
         except Exception as exc:
             import logging
 
+            fallback = self._fallback_turn_intent(normalized)
+            if fallback["route"] in {"conversation", "clarify", "operate"}:
+                return fallback
             logging.getLogger(__name__).warning(
-                "Turn intent classifier fell back after LLM failure: %s",
+                "Question interpretation unavailable: %s",
                 self._compact_exception(exc),
             )
-            return self._fallback_turn_intent(normalized)
+            error_type = (
+                LLMProviderCooldownError
+                if isinstance(exc, LLMProviderCooldownError)
+                else RuntimeError
+            )
+            raise error_type(
+                "Prophet could not establish the question's scope and evidence requirements. "
+                "No investment analysis was performed. Retry when model capacity is available."
+                + (f" {exc}" if isinstance(exc, LLMProviderCooldownError) else "")
+            ) from exc
 
     def _fallback_turn_intent(self, message: str) -> dict[str, Any]:
         normalized = " ".join((message or "").lower().split())
@@ -2026,6 +2046,7 @@ class AgentService:
         subject_type: str | None,
         session_id: UUID | None = None,
         intent_route: str | None = None,
+        subject_hint: dict | None = None,
     ) -> AgentResolveResponse:
         if subject_id is not None and subject_type:
             return AgentResolveResponse(
@@ -2068,7 +2089,9 @@ class AgentService:
         if self._ambiguous_standalone_token(message) and not candidates:
             hinted: list[AgentContextCandidateResponse] = []
         else:
-            hinted = await self._subject_candidates_from_hint(message)
+            hinted = await self._subject_candidates_from_hint(
+                message, hint=subject_hint
+            )
         merged = self._merge_context_candidates(candidates, hinted)
         if not merged:
             if session_id is not None and should_continue_session:
@@ -3608,15 +3631,33 @@ class AgentService:
             current = merged.get(key)
             if current is None or candidate.score > current.score:
                 merged[key] = candidate
+        hinted_keys = {(h.subject_id, h.subject_type) for h in hinted}
         return sorted(
             merged.values(),
-            key=lambda item: (item.score, item.subject_name),
+            # A semantic scope decision precedes lexical identity ranking.
+            # Holding size/name matches rank candidates within that scope.
+            key=lambda item: (
+                (item.subject_id, item.subject_type) in hinted_keys,
+                item.score,
+                item.subject_name,
+            ),
             reverse=True,
         )
 
     async def _subject_candidates_from_hint(
-        self, message: str
+        self, message: str, *, hint: dict | None = None
     ) -> list[AgentContextCandidateResponse]:
+        if hint is not None:
+            result = hint
+        else:
+            result = await self._infer_subject_hint(message)
+        subject_kind = str(result.get("subject_kind") or "none")
+        if subject_kind not in {"entity", "theme", "portfolio"}:
+            return []
+
+        return await self._candidates_for_subject_hint(result)
+
+    async def _infer_subject_hint(self, message: str) -> dict:
         try:
             result = await asyncio.wait_for(
                 call_llm_json(
@@ -3645,12 +3686,13 @@ class AgentService:
                 "Subject hint skipped after LLM failure: %s",
                 self._compact_exception(exc),
             )
-            return []
+            return {"subject_kind": "none"}
+        return result
 
-        subject_kind = str(result.get("subject_kind") or "none")
-        if subject_kind not in {"entity", "theme", "portfolio"}:
-            return []
-
+    async def _candidates_for_subject_hint(
+        self, result: dict
+    ) -> list[AgentContextCandidateResponse]:
+        subject_kind = result["subject_kind"]
         ticker = str(result.get("ticker") or "").strip().upper()
         search_text = str(result.get("search_text") or "").strip()
 
@@ -5069,22 +5111,46 @@ class AgentService:
         }
         priority = sorted(
             holdings, key=lambda item: impacts.get(item.get("ticker"), 0), reverse=True
-        )[:3]
-        if priority:
+        )
+        holding_batches = {}
+        holding_coverage = {
+            h["ticker"]: {
+                "ticker": h["ticker"],
+                "status": "request_limit",
+                "searched": False,
+                "candidate_urls": [],
+            }
+            for h in priority
+            if h.get("ticker")
+        }
+        batch_size = settings.CHAT_RESEARCH_HOLDINGS_PER_QUERY
+        holding_limit = (
+            batch_size * settings.CHAT_RESEARCH_MAX_HOLDING_QUERIES
+            if settings.CHAT_RESEARCH_MAX_HOLDING_QUERIES
+            else len(priority)
+        )
+        for offset in range(
+            0,
+            min(len(priority), holding_limit),
+            batch_size,
+        ):
+            batch = priority[offset : offset + batch_size]
             names = [
                 f'{item.get("name") or item["ticker"]} ({item["ticker"]})'
-                for item in priority
+                for item in batch
             ]
             anchors = tuple(
                 str(item[key])
-                for item in priority
+                for item in batch
                 for key in ("ticker", "name")
                 if item.get(key)
             )
+            query = f"{' OR '.join(names)} stock earnings guidance recent news"
+            holding_batches[query] = batch
             checks.append(
                 (
                     "Holdings",
-                    f"{' OR '.join(names)} stock earnings guidance recent news",
+                    query,
                     anchors,
                 )
             )
@@ -5123,6 +5189,16 @@ class AgentService:
             )
             searched = searched or result.searched
             provider_statuses.append(result.reason)
+            batch = holding_batches.get(query, [])
+            for holding in batch:
+                holding_coverage[holding["ticker"]].update(
+                    searched=result.searched,
+                    status=(
+                        "no_matching_candidate"
+                        if result.reason == "ok"
+                        else result.reason
+                    ),
+                )
             accepted = 0
             for item in result.results:
                 title, url = (
@@ -5149,6 +5225,27 @@ class AgentService:
                     as_of - timedelta(hours=24) <= published <= as_of
                 ):
                     continue
+                matched_tickers = []
+                for holding in batch:
+                    if any(
+                        re.search(
+                            rf"(?<!\w){re.escape(str(anchor))}(?!\w)",
+                            text,
+                            flags=(
+                                0
+                                if str(anchor).isupper() and len(str(anchor)) <= 5
+                                else re.I
+                            ),
+                        )
+                        for anchor in (holding.get("ticker"), holding.get("name"))
+                        if anchor
+                    ):
+                        ticker = holding["ticker"]
+                        matched_tickers.append(ticker)
+                        coverage = holding_coverage[ticker]
+                        coverage["status"] = "candidate_found"
+                        if url not in coverage["candidate_urls"]:
+                            coverage["candidate_urls"].append(url)
                 results_by_url.setdefault(
                     url,
                     {
@@ -5158,10 +5255,11 @@ class AgentService:
                         "published_date": published_date,
                         "score": item.get("score"),
                         "lane": lane,
+                        "matched_tickers": matched_tickers,
                     },
                 )
                 accepted += 1
-                if accepted >= (5 if lane == "Market" else 2):
+                if accepted >= (5 if lane == "Market" else max(2, 2 * len(batch))):
                     break
             check_receipts.append(
                 {
@@ -5179,6 +5277,7 @@ class AgentService:
                     "result_count": accepted,
                     "window_hours": 24,
                     "coverage": "bounded_search_not_exhaustive",
+                    "tickers": [h["ticker"] for h in batch],
                 }
             )
         status = (
@@ -5200,6 +5299,10 @@ class AgentService:
             "checked_at": as_of.isoformat(),
             "window_hours": 24,
             "coverage": "bounded_search_not_exhaustive",
+            "holding_search_coverage": [
+                {**row, "candidate_count": len(row["candidate_urls"])}
+                for row in holding_coverage.values()
+            ],
             "results": list(results_by_url.values()),
             "variants_tried": [],
         }

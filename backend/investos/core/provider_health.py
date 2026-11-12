@@ -23,6 +23,7 @@ from investos.core.providers import (
 
 _call_depth = ContextVar("provider_call_depth", default=0)
 _probe_call = ContextVar("provider_probe_call", default=False)
+_recovery_owner = ContextVar("provider_recovery_owner", default=None)
 
 
 class LLMProviderCooldownError(RuntimeError):
@@ -31,7 +32,9 @@ class LLMProviderCooldownError(RuntimeError):
 
 class ProviderHealthRecord(BaseModel):
     provider: str
-    state: Literal["unobserved", "healthy", "open", "probing"] = "unobserved"
+    state: Literal["unobserved", "healthy", "open", "probing", "recovering"] = (
+        "unobserved"
+    )
     revision: int = Field(default=0, ge=0)
     failure_count: int = Field(default=0, ge=0)
     failure_code: str | None = None
@@ -40,6 +43,7 @@ class ProviderHealthRecord(BaseModel):
     lease_until: AwareDatetime | None = None
     probe_token: str | None = None
     last_success_at: AwareDatetime | None = None
+    last_probe_success_at: AwareDatetime | None = None
 
 
 class ProviderHealthRegistry(BaseModel):
@@ -150,15 +154,59 @@ class ProviderHealthStore:
                 "failure_code": "health_storage_unavailable",
             }
 
+    @staticmethod
+    def can_admit_work(health):
+        if health["state"] in {"healthy", "unobserved"}:
+            return True
+        if health["state"] != "recovering":
+            return False
+        lease = health.get("lease_until")
+        return not lease or datetime.fromisoformat(
+            lease.replace("Z", "+00:00")
+        ) <= datetime.now(UTC)
+
     @classmethod
     def require_available(cls, provider=None, model=None):
         record = cls.read(provider, model)
-        if record.state in {"open", "probing"}:
+        key, _ = cls.configuration(provider, model)
+        trial_busy = (
+            record.state == "recovering"
+            and record.lease_until is not None
+            and record.lease_until > datetime.now(UTC)
+            and _recovery_owner.get() != (key, record.revision)
+        )
+        if record.state in {"open", "probing"} or trial_busy:
             raise LLMProviderCooldownError(
                 f"{record.provider} work deferred ({record.failure_code or record.state}); "
                 f"next shared health probe: {record.next_probe_at.isoformat() if record.next_probe_at else 'pending'}."
             )
         return record.revision
+
+    @classmethod
+    def claim_work(cls, key, provider, model=None):
+        """After a connectivity probe, admit one real request before reopening."""
+        with cls._lock:
+            cls.require_available(provider, model)
+            registry = cls._read()
+            record = registry.records.setdefault(
+                key, ProviderHealthRecord(provider=provider)
+            )
+            if record.state == "recovering":
+                record.revision += 1
+                record.lease_until = datetime.now(UTC) + timedelta(
+                    seconds=max(1, settings.LLM_TIMEOUT_SECONDS) + 30
+                )
+                cls._write(registry)
+            return record.revision
+
+    @classmethod
+    def release_trial(cls, key, revision):
+        with cls._lock:
+            registry = cls._read()
+            record = registry.records.get(key)
+            if record and record.state == "recovering" and record.revision == revision:
+                record.lease_until = None
+                cls._write(registry)
 
     @classmethod
     def succeeded(cls, key, provider, revision):
@@ -171,6 +219,10 @@ class ProviderHealthStore:
             if record.revision != revision or record.state in {"open", "probing"}:
                 return
             record.state = "healthy"
+            record.failure_count = 0
+            record.failure_code = None
+            record.failure_detail = None
+            record.next_probe_at = record.lease_until = None
             record.last_success_at = datetime.now(UTC)
             cls._write(registry)
 
@@ -239,7 +291,7 @@ class ProviderHealthStore:
                 return None
             if record.next_probe_at and record.next_probe_at > now:
                 return None
-            if record.state == "healthy":
+            if record.state in {"healthy", "recovering"}:
                 return None
             record.state = "probing"
             record.revision += 1
@@ -257,13 +309,10 @@ class ProviderHealthStore:
             record = registry.records[key]
             if record.probe_token != token:
                 return False
-            record.state = "healthy"
-            record.failure_count = 0
-            record.failure_code = None
-            record.failure_detail = None
+            record.state = "recovering"
             record.next_probe_at = record.lease_until = None
             record.probe_token = None
-            record.last_success_at = datetime.now(UTC)
+            record.last_probe_success_at = datetime.now(UTC)
             cls._write(registry)
             return True
 
@@ -276,7 +325,8 @@ def guarded_provider_call(function):
         provider = kwargs.get("provider_override")
         model = kwargs.get("model")
         key, provider = ProviderHealthStore.configuration(provider, model)
-        revision = ProviderHealthStore.require_available(provider, model)
+        revision = ProviderHealthStore.claim_work(key, provider, model)
+        owner = _recovery_owner.set((key, revision))
         depth = _call_depth.set(1)
         try:
             result = await function(*args, **kwargs)
@@ -290,7 +340,11 @@ def guarded_provider_call(function):
             ProviderHealthStore.succeeded(key, provider, revision)
             return result
         finally:
-            _call_depth.reset(depth)
+            try:
+                ProviderHealthStore.release_trial(key, revision)
+            finally:
+                _recovery_owner.reset(owner)
+                _call_depth.reset(depth)
 
     return guarded
 

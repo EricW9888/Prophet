@@ -1,6 +1,7 @@
 """Persistent degradation, actual probe leases and domain counter reconciliation."""
 
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -98,7 +99,7 @@ def test_changed_request_protocol_has_its_own_health_and_preserves_previous_fail
     assert ProviderHealthStore._read().records[key].state == "open"
 
 
-def test_structured_failure_exposes_only_protocol_metadata_and_clears_on_recovery():
+def test_structured_failure_clears_only_after_real_work_recovers():
     key, provider = ProviderHealthStore.configuration()
     ProviderHealthStore.failed(
         key,
@@ -118,6 +119,12 @@ def test_structured_failure_exposes_only_protocol_metadata_and_clears_on_recover
     make_probe_due()
     _, _, token = ProviderHealthStore.claim_probe()
     assert ProviderHealthStore.complete_probe(key, token)
+    assert (
+        ProviderHealthStore.public_status()["failure_detail"]["kind"]
+        == "truncated_output"
+    )
+    revision = ProviderHealthStore.claim_work(key, provider)
+    ProviderHealthStore.succeeded(key, provider, revision)
     assert ProviderHealthStore.public_status()["failure_detail"] is None
 
 
@@ -225,7 +232,9 @@ async def test_only_one_actual_generation_probe_resumes_work(monkeypatch):
     await asyncio.gather(probe_llm_provider(), probe_llm_provider())
     assert len(calls) == 1
     assert calls[0]["timeout_seconds"] == settings.LLM_TIMEOUT_SECONDS
-    assert ProviderHealthStore.read().state == "healthy"
+    assert ProviderHealthStore.read().state == "recovering"
+    assert ProviderHealthStore.read().last_probe_success_at is not None
+    assert ProviderHealthStore.read().last_success_at is None
     assert ProviderHealthStore.require_available() >= 1
 
 
@@ -253,7 +262,130 @@ def test_persisted_lease_and_stale_probe_cannot_replace_new_health():
     assert ProviderHealthStore.complete_probe(key, second)
     assert not ProviderHealthStore.complete_probe(key, token)
     ProviderHealthStore.failed(key, provider, TimeoutError(), probe_token=token)
-    assert ProviderHealthStore.read().state == "healthy"
+    assert ProviderHealthStore.read().state == "recovering"
+
+
+async def test_recovery_admits_one_real_request_and_defers_competitors(monkeypatch):
+    open_health()
+    make_probe_due()
+    key, _, token = ProviderHealthStore.claim_probe()
+    ProviderHealthStore.complete_probe(key, token)
+    started, release = asyncio.Event(), asyncio.Event()
+    calls = []
+
+    async def request(**kwargs):
+        # The admitted request must also pass the transport's admission check.
+        ProviderHealthStore.require_available()
+        calls.append(kwargs)
+        started.set()
+        await release.wait()
+        return {"ok": True}
+
+    monkeypatch.setattr("investos.core.llm._call_nvidia_json", request)
+    task = asyncio.create_task(call_llm_json("system", "user", {"type": "object"}))
+    await started.wait()
+    try:
+        with pytest.raises(LLMProviderCooldownError):
+            await call_llm_json("system", "competing", {"type": "object"})
+        assert len(calls) == 1
+        assert ProviderHealthStore().claim_probe() is None
+        coordinator = AutomationCoordinator()
+        coordinator.telemetry["research_loop"] = JobTelemetry("research_loop", 300)
+        monkeypatch.setattr(coordinator, "_log_job_action", lambda **kwargs: None)
+        assert coordinator._provider_defers("research_loop")
+    finally:
+        release.set()
+        await task
+    record = ProviderHealthStore.read()
+    assert record.state == "healthy"
+    assert record.failure_count == 0
+    assert record.last_success_at is not None
+    assert record.lease_until is None
+
+
+async def test_small_probes_cannot_erase_repeated_full_request_throttling(monkeypatch):
+    key, provider = ProviderHealthStore.configuration()
+    response = httpx.Response(
+        429, request=httpx.Request("POST", "https://example.test")
+    )
+    failure = httpx.HTTPStatusError(
+        "synthetic limit", request=response.request, response=response
+    )
+    ProviderHealthStore.failed(key, provider, failure)
+    request = AsyncMock(side_effect=failure)
+    monkeypatch.setattr("investos.core.llm._call_nvidia_json", request)
+    for count in range(2, 5):
+        make_probe_due()
+        _, _, token = ProviderHealthStore.claim_probe()
+        ProviderHealthStore.complete_probe(key, token)
+        with pytest.raises(httpx.HTTPStatusError):
+            await call_llm_json("system", "real work", {"type": "object"})
+        assert ProviderHealthStore.read().failure_count == count
+    assert request.await_count == 3
+    assert (
+        ProviderHealthStore.read().next_probe_at - datetime.now(UTC)
+    ).total_seconds() > 470
+
+
+async def test_cancelled_recovery_trial_releases_lease_without_resetting_failures(
+    monkeypatch,
+):
+    open_health()
+    make_probe_due()
+    key, _, token = ProviderHealthStore.claim_probe()
+    ProviderHealthStore.complete_probe(key, token)
+    started = asyncio.Event()
+
+    async def request(**kwargs):
+        started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr("investos.core.llm._call_nvidia_json", request)
+    task = asyncio.create_task(call_llm_json("system", "user", {"type": "object"}))
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert ProviderHealthStore.read().state == "recovering"
+    assert ProviderHealthStore.read().lease_until is None
+    assert ProviderHealthStore.read().failure_count == 1
+
+
+@pytest.mark.parametrize(
+    "error,status",
+    [
+        (LLMProviderCooldownError("synthetic shared recovery"), "deferred"),
+        (RuntimeError("synthetic processing failure"), "error"),
+    ],
+)
+async def test_extraction_worker_reports_capacity_deferral_separately_from_failure(
+    monkeypatch, error, status
+):
+    @asynccontextmanager
+    async def session():
+        yield object()
+
+    monkeypatch.setattr("investos.services.automation.async_session_maker", session)
+    monkeypatch.setattr(
+        EvidenceProcessingService,
+        "next_due_evidence",
+        AsyncMock(return_value=SimpleNamespace(id="synthetic-evidence")),
+    )
+    monkeypatch.setattr(
+        ExtractionWorker, "process_evidence", AsyncMock(side_effect=error)
+    )
+    coordinator = AutomationCoordinator()
+    coordinator.telemetry["evidence_processing"] = JobTelemetry(
+        "evidence_processing", 30
+    )
+    logged = []
+    monkeypatch.setattr(
+        coordinator, "_log_job_action", lambda **kwargs: logged.append(kwargs)
+    )
+    await coordinator._run_evidence_processing()
+    assert coordinator.telemetry["evidence_processing"].last_status == status
+    assert logged[-1]["status"] == status
+    assert ("deferred" in logged[-1]["summary"]) == (status == "deferred")
 
 
 def test_corrupt_health_storage_defers_instead_of_claiming_healthy():
@@ -261,6 +393,24 @@ def test_corrupt_health_storage_defers_instead_of_claiming_healthy():
     assert ProviderHealthStore.public_status()["state"] == "storage_unavailable"
     with pytest.raises(LLMProviderCooldownError):
         ProviderHealthStore.require_available()
+
+
+def test_expired_trial_lease_is_fenced_after_restart():
+    open_health()
+    make_probe_due()
+    key, provider, token = ProviderHealthStore.claim_probe()
+    ProviderHealthStore.complete_probe(key, token)
+    old_revision = ProviderHealthStore.claim_work(key, provider)
+    registry = ProviderHealthStore._read()
+    registry.records[key].lease_until = datetime.now(UTC) - timedelta(seconds=1)
+    ProviderHealthStore._write(registry)
+    new_revision = ProviderHealthStore().claim_work(key, provider)
+    ProviderHealthStore.succeeded(key, provider, old_revision)
+    ProviderHealthStore.release_trial(key, old_revision)
+    assert ProviderHealthStore.read().state == "recovering"
+    assert ProviderHealthStore.read().lease_until > datetime.now(UTC)
+    ProviderHealthStore.succeeded(key, provider, new_revision)
+    assert ProviderHealthStore.read().state == "healthy"
 
 
 async def test_dependent_automation_defers_but_deterministic_job_runs(monkeypatch):
