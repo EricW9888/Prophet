@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import * as d3 from "d3";
+import { refreshGraphLabels } from "./graph-labels";
 
 export const LABEL_DETAIL_ZOOM = 1.35;
 export const LABEL_DENSE_ZOOM = 1.9;
@@ -21,11 +22,21 @@ export function useGraphCamera(
   const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const [detailZoom, setDetailZoom] = useState(1);
   const detailZoomRef = useRef(1);
+  const scheduleLabelsRef = useRef<(() => void) | null>(null);
+  useLayoutEffect(() => { scheduleLabelsRef.current?.(); });
 
   useEffect(() => {
     if (!enabled || !svgRef.current || !containerRef.current) return;
     const element = svgRef.current;
     const svg = d3.select(element);
+    let frame = 0;
+    const scheduleLabels = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => refreshGraphLabels(element, transformRef.current.k));
+    };
+    scheduleLabelsRef.current = scheduleLabels;
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(scheduleLabels) : null;
+    observer?.observe(element);
     const zoom = d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.05, 5])
       .filter((event) => event.type === "wheel" || !(event.target instanceof Element) || !event.target.closest(".graph-node, .graph-edge-hit, button, a, textarea, input, select"))
@@ -33,6 +44,7 @@ export function useGraphCamera(
       .on("zoom", ({ transform }) => {
         d3.select(containerRef.current).attr("transform", transform.toString());
         transformRef.current = { x: transform.x, y: transform.y, k: transform.k };
+        scheduleLabels();
         const nextDetail = labelZoom(transform.k);
         if (nextDetail !== detailZoomRef.current) {
           detailZoomRef.current = nextDetail;
@@ -41,9 +53,13 @@ export function useGraphCamera(
       });
     svg.call(zoom);
     zoomRef.current = zoom;
+    scheduleLabels();
     return () => {
       svg.interrupt().on(".zoom", null);
       zoomRef.current = null;
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+      scheduleLabelsRef.current = null;
     };
   }, [clearHover, containerRef, enabled, svgRef]);
 

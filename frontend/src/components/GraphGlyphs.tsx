@@ -3,6 +3,7 @@
 import { memo, type Dispatch, type SetStateAction } from "react";
 import { nodeVisualRadius, type PositionedNode } from "@/lib/graph-layout-geometry";
 import { LABEL_DETAIL_ZOOM, LABEL_DENSE_ZOOM } from "@/lib/use-graph-camera";
+import { graphLabelPriority } from "@/lib/graph-labels";
 
 const NODE_STYLES: Record<
   string,
@@ -134,29 +135,9 @@ export function getNodeStyle(nodeType: string) {
   );
 }
 
-function compactNodeLabel(label: string, radius: number) {
+function compactNodeLabel(label: string) {
   const clean = label.replace(/\s+/g, " ").trim();
-  const maxCharsPerLine = radius >= 52 ? 16 : radius >= 44 ? 14 : radius >= 36 ? 12 : 10;
-  if (!clean) return ["Node"];
-  if (clean.length <= maxCharsPerLine) return [clean];
-  const words = clean.split(" ");
-  const lines: string[] = [];
-  let current = "";
-  for (const word of words) {
-    const next = current ? `${current} ${word}` : word;
-    if (next.length <= maxCharsPerLine) {
-      current = next;
-    } else {
-      if (current) lines.push(current);
-      current = word;
-      if (lines.length >= 2) break;
-    }
-  }
-  if (current && lines.length < 3) lines.push(current);
-
-  return lines.slice(0, 3).map(line =>
-    line.length > maxCharsPerLine ? `${line.slice(0, maxCharsPerLine - 1)}…` : line
-  );
+  return clean || "Node";
 }
 
 function shouldShowNodeLabel(
@@ -181,10 +162,6 @@ function shouldShowNodeLabel(
   return false;
 }
 
-function svgSafeId(value: string) {
-  return value.replace(/[^a-zA-Z0-9_-]/g, "-");
-}
-
 type NodeProps = {
   node: PositionedNode;
   isSelected: boolean;
@@ -192,32 +169,36 @@ type NodeProps = {
   isConnected: boolean;
   hasSelection: boolean;
   zoom: number;
+  labelCandidate?: boolean;
+  onSelect?: (node: PositionedNode) => void;
   onHover: Dispatch<SetStateAction<string | null>>;
   onPointerDown: (event: React.PointerEvent<SVGGElement>, node: PositionedNode) => void;
 };
 
-export const GraphNodeGlyph = memo(function GraphNodeGlyph({ node, isSelected, isHovered, isConnected, hasSelection, zoom, onHover, onPointerDown }: NodeProps) {
+export const GraphNodeGlyph = memo(function GraphNodeGlyph({ node, isSelected, isHovered, isConnected, hasSelection, zoom, labelCandidate, onSelect, onHover, onPointerDown }: NodeProps) {
   const radius = nodeVisualRadius(node, {
     selected: isSelected,
     compare: false,
   });
   const style = getNodeStyle(node.node_type);
   const labelVisible =
-    (radius >= 20 || isSelected || isHovered || node.is_root) &&
-    shouldShowNodeLabel(node, {
+    isSelected || isHovered || node.is_root || labelCandidate === true || (labelCandidate === undefined && shouldShowNodeLabel(node, {
       selected: isSelected,
       connected: Boolean(isConnected),
       hovered: isHovered,
       zoom,
-    });
-  const labelLines = labelVisible ? compactNodeLabel(node.label, radius) : [];
-  const fontSize = radius >= 46 ? 8.25 : radius >= 38 ? 7.5 : 6.75;
-  const clipId = `node-clip-${svgSafeId(node.key)}`;
+    }));
+  const label = labelVisible ? compactNodeLabel(node.label) : "";
 
   return (
     <g
       key={node.key}
       data-node-key={node.key}
+      role="button"
+      tabIndex={isSelected || node.is_root ? 0 : -1}
+      aria-label={node.label}
+      aria-pressed={isSelected}
+      onKeyDown={event => {if ((event.key === "Enter" || event.key === " ") && onSelect) {event.preventDefault(); onSelect(node);}}}
       onPointerDown={(event) => onPointerDown(event, node)}
       onMouseEnter={() => onHover(node.key)}
       onMouseLeave={() => onHover((current) => current === node.key ? null : current)}
@@ -225,6 +206,7 @@ export const GraphNodeGlyph = memo(function GraphNodeGlyph({ node, isSelected, i
       transform={`translate(${node.x ?? 0}, ${node.y ?? 0})`}
     >
       <title>{node.label}</title>
+      <circle className="graph-node-hit" r={radius} fill="transparent" />
       <circle
         cx={0}
         cy={0}
@@ -256,39 +238,16 @@ export const GraphNodeGlyph = memo(function GraphNodeGlyph({ node, isSelected, i
           strokeWidth={2}
         />
       ) : null}
-      {labelVisible ? (
-        <>
-          <defs>
-            <clipPath id={clipId}>
-              <circle cx={0} cy={0} r={Math.max(12, radius - 4)} />
-            </clipPath>
-          </defs>
-          <g clipPath={`url(#${clipId})`}>
-            {labelLines.map((line: string, index: number) => {
-              const lineHeight = 12;
-              const totalHeight = labelLines.length * lineHeight;
-              const yOffset = (index * lineHeight) - (totalHeight / 2) + (lineHeight / 2);
-              return (
-                <text
-                  key={`${node.key}-${index}`}
-                  x={0}
-                  y={yOffset}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  className="pointer-events-none font-bold"
-                  fontSize={fontSize}
-                  fill={style.text}
-                  stroke={style.fill === "#111827" ? "rgba(255,255,255,0.45)" : "rgba(15,23,42,0.25)"}
-                  strokeWidth={3}
-                  paintOrder="stroke fill"
-                >
-                  {line}
-                </text>
-              );
-            })}
-          </g>
-        </>
-      ) : null}
+      {labelVisible ? <text
+        className="graph-node-label font-medium text-foreground"
+        data-label-key={node.key}
+        data-label-priority={graphLabelPriority(node, isSelected, isHovered, isConnected && hasSelection)}
+        data-label-pinned={isSelected}
+        x={radius} dx="0.65em" y={0} dominantBaseline="middle"
+        style={{fontSize: "calc(13px / var(--graph-effective-scale, 1))"}}
+        fill="currentColor" stroke="var(--background)" strokeWidth={4}
+        vectorEffect="non-scaling-stroke" paintOrder="stroke fill"
+      >{label.length > 34 ? `${label.slice(0, 33).trimEnd()}…` : label}</text> : null}
     </g>
   );
 });
@@ -311,19 +270,20 @@ export const GraphEdgeGlyph = memo(function GraphEdgeGlyph({ edgeKey, source, ta
       <line
         className={[
           "graph-edge-visible",
-          selected ? "text-amber-400" : highlighted ? "text-sky-400" : "text-slate-700"
+          selected ? "text-amber-400" : highlighted ? "text-sky-400" : "text-slate-500"
         ].join(" ")}
         x1={source.x ?? 0} y1={source.y ?? 0}
         x2={target.x ?? 0} y2={target.y ?? 0}
         stroke="currentColor"
-        strokeWidth={selected ? 4 : highlighted ? 2.8 : 1.35}
-        strokeOpacity={selected ? 1 : highlighted ? 0.88 : 0.28}
+        vectorEffect="non-scaling-stroke"
+        strokeWidth={selected ? 2.5 : highlighted ? 1.8 : 1}
+        strokeOpacity={selected ? 1 : highlighted ? 0.9 : 0.5}
       />
       <line
         className="graph-edge-hit cursor-pointer"
           x1={source.x ?? 0} y1={source.y ?? 0}
           x2={target.x ?? 0} y2={target.y ?? 0}
-          stroke="transparent" strokeWidth={15}
+          stroke="transparent" strokeWidth={12} vectorEffect="non-scaling-stroke"
           onMouseEnter={() => onHover(edgeKey)}
           onMouseLeave={() => onHover((current) => current === edgeKey ? null : current)}
           onClick={(event) => { event.stopPropagation(); onSelect(edgeKey); }}
