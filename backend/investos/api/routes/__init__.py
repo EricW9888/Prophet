@@ -14,6 +14,7 @@ from .ingestion import router as ingestion_router
 from .integrations import router as integrations_router
 from .integrity import router as integrity_router
 from .lesson import router as lesson_router
+from .news_intake import router as news_intake_router
 from .notification import router as notification_router
 from .opportunity import router as opportunity_router
 from .portfolio import router as portfolio_router
@@ -30,6 +31,7 @@ from .verification import router as verification_router
 from .watcher import router as watcher_router
 
 api_router = APIRouter()
+api_router.include_router(news_intake_router)
 api_router.include_router(portfolio_router)
 api_router.include_router(ingestion_router)
 api_router.include_router(timeline_router)

@@ -28,6 +28,7 @@ youtube-transcript-api = "^1.2.4"
 fastjsonschema = "^2.22.2"
 pywebpush = "^2.5.0"
 exchange-calendars = "^4.13.2"
+feedparser = "^6.0.14"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.1.1"

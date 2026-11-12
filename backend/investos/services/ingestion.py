@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import io
 import json
@@ -175,6 +176,10 @@ class IngestionService:
 
     async def fetch_url_document(self, url: str) -> FetchedUrlDocument:
         html = await self._fetch_url_text(url)
+        return await asyncio.to_thread(self._parse_url_document, url, html)
+
+    @staticmethod
+    def _parse_url_document(url: str, html: str) -> FetchedUrlDocument:
         text_content = _html_to_text(html)
         if not text_content.strip():
             raise ValueError("Fetched URL did not contain extractable text content.")
@@ -231,8 +236,6 @@ class IngestionService:
 
 
 TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
-SCRIPT_STYLE_RE = re.compile(r"<(script|style)[^>]*>.*?</\\1>", re.I | re.S)
-TAG_RE = re.compile(r"<[^>]+>")
 WHITESPACE_RE = re.compile(r"\s+")
 PUBLICATION_META_KEYS = {
     "article:published_time",
@@ -373,7 +376,29 @@ def _extract_title(html: str) -> str | None:
     return WHITESPACE_RE.sub(" ", match.group(1)).strip()
 
 
+class _TextParser(HTMLParser):
+    """Use HTML's raw-text handling instead of backtracking over script bodies."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.hidden_tag: str | None = None
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in {"script", "style"}:
+            self.hidden_tag = tag
+
+    def handle_endtag(self, tag):
+        if tag == self.hidden_tag:
+            self.hidden_tag = None
+
+    def handle_data(self, data):
+        if self.hidden_tag is None:
+            self.parts.append(data)
+
+
 def _html_to_text(html: str) -> str:
-    without_scripts = SCRIPT_STYLE_RE.sub(" ", html)
-    without_tags = TAG_RE.sub(" ", without_scripts)
-    return WHITESPACE_RE.sub(" ", without_tags).strip()
+    parser = _TextParser()
+    parser.feed(html)
+    parser.close()
+    return WHITESPACE_RE.sub(" ", " ".join(parser.parts)).strip()

@@ -1220,6 +1220,7 @@ function formatStatusText(value?: string | null): string {
 }
 
 const AUTOMATION_JOB_COPY: Record<string, { label: string; description: string }> = {
+  news_intake: { label: "Current news intake", description: "Collects new publisher headlines and fetches source pages without waiting for an LLM. Captured articles still require normal evidence and relevance checks." },
   provider_health_probe: { label: "Provider health probe", description: "Verifies structured generation when recovery is eligible, then wakes waiting model-dependent work." },
   database_backup: { label: "Database backup", description: "Creates a recoverable database snapshot." },
   integrity_audit: { label: "Integrity and graph repair", description: "Validates stored rows, preserves unknown graph types for review, and restores missing metric or market-signal links from canonical records." },

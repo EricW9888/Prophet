@@ -37,6 +37,7 @@ from investos.services.investment_object_backfill import InvestmentObjectBackfil
 from investos.services.market_data import MarketDataService
 from investos.services.market_setup import MarketSetupSignalService
 from investos.services.media_workspace import MediaIngestionPolicy
+from investos.services.news_intake import NewsIntakeService
 from investos.services.opportunity import OpportunityDiscoveryService
 from investos.services.pattern_discovery import PatternDiscoveryService
 from investos.services.push_notification import PushNotificationService
@@ -72,6 +73,7 @@ class JobTelemetry:
 
 class AutomationCoordinator:
     SIGNAL_JOBS = {
+        "news_feed_changed": ("news_intake",),
         "evidence_arrived": ("evidence_processing",),
         "evidence_ready": ("question_resolution", "agent_reflection"),
         "question_actionable": ("research_loop",),
@@ -180,6 +182,12 @@ class AutomationCoordinator:
         )
         self._register_job("integrity_audit", self._run_integrity_audit, 3600, True)
         self._register_job(
+            "news_intake",
+            self._run_news_intake,
+            settings.NEWS_INTAKE_POLL_SECONDS,
+            settings.NEWS_INTAKE_ENABLED,
+        )
+        self._register_job(
             "research_loop",
             self._run_research_loop,
             settings.AUTOMATION_POLL_SECONDS,
@@ -278,6 +286,7 @@ class AutomationCoordinator:
             listen_for_work_signals(self.signal_ready_work)
         )
         self._schedule_startup_run("integrity_audit", self._run_integrity_audit)
+        self._schedule_startup_run("news_intake", self._run_news_intake)
         self._schedule_startup_run("market_data_refresh", self._run_market_data_refresh)
         self._schedule_startup_run("risk_refresh", self._run_risk_refresh)
         self._schedule_startup_run("gmail_sync", self._run_gmail_sync)
@@ -326,6 +335,7 @@ class AutomationCoordinator:
     async def run_job(self, name: str) -> None:
         self.sync_runtime_jobs()
         mapping = {
+            "news_intake": self._run_news_intake,
             "provider_health_probe": self._run_provider_health_probe,
             "database_backup": self._run_database_backup,
             "integrity_audit": self._run_integrity_audit,
@@ -612,6 +622,31 @@ class AutomationCoordinator:
     @staticmethod
     def _is_artifact_question(question: UnresolvedQuestion) -> bool:
         return is_artifact_question_text(question.question_text)
+
+    async def _run_news_intake(self) -> None:
+        telemetry = self.telemetry["news_intake"]
+        telemetry.last_run_at = datetime.now(UTC)
+        telemetry.last_status = "running"
+        async with async_session_maker() as session:
+            try:
+                result = await NewsIntakeService(session).run()
+                telemetry.last_status = result["status"]
+                telemetry.detail = " ".join(
+                    f"{key}={value}" for key, value in result.items() if key != "status"
+                )
+                self._log_job_action(
+                    job_name="news_intake",
+                    status=telemetry.last_status,
+                    summary="Publisher feeds checked; discovered headlines remain provisional until source processing completes.",
+                    metadata=result,
+                )
+            except Exception as exc:
+                await session.rollback()
+                telemetry.last_status = "error"
+                telemetry.detail = f"{type(exc).__name__}: {str(exc)[:300]}"
+                self._log_job_action(
+                    job_name="news_intake", status="error", summary=telemetry.detail
+                )
 
     async def _run_research_loop(self) -> None:
         telemetry = self.telemetry["research_loop"]

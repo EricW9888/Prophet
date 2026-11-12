@@ -45,6 +45,7 @@ from .lesson import Lesson, LessonObservation
 from .mailbox import MailboxReceiptIdentity
 from .market_calendar import MarketCalendar, MarketSessionObservation
 from .market_setup import MarketSetupSignal
+from .news import PublisherFeed
 from .notification import (
     PushNotificationDelivery,
     PushNotificationEvent,
@@ -82,6 +83,7 @@ from .verification import VerificationRun
 from .watcher import ActiveWatcher, WatcherEvidenceEvaluation
 
 __all__ = [
+    "PublisherFeed",
     "EvidenceTranslation",
     "Base",
     "TimestampMixin",

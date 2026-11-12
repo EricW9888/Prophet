@@ -112,6 +112,24 @@ its query, rank, snippet or provider-content kind, fetch outcome, and eventual
 evidence link. These observations support provenance and later pattern review;
 they are not `RawEvidence` and cannot satisfy corroboration or accepted-state
 promotion.
+Publisher RSS/Atom intake uses `feedparser` over bytes fetched through the same
+bounded public-URL guard. Durable `PublisherFeed` subscriptions retain their
+pause choice, coverage checkpoint and fetch lease. The default feed set is
+configurable and claims no complete market coverage. Intake runs independently
+of the model circuit: new and changed headlines are batch-retained as provisional
+discovery, and bounded source-page fetches enter the normal extraction queue.
+An editorial-priority lane and an oldest-lead slot share fetch capacity; retry
+backoff, fenced leases and raw-receipt recovery preserve interrupted work.
+Failed or unverifiably dated items remain inspectable rather than becoming
+accepted claims. A changed live-page headline gets a new discovery timestamp;
+its original publisher date never implies earlier system availability.
+Recently checked, dated publisher summaries also enter the normal broad
+portfolio question's fresh context. They remain clearly provisional, with
+source receipts and recorded coverage limits. Sources exposes feed controls,
+retained observations, fetch state and unsent research drafts.
+URL documents use Python's HTML parser to omit executable script and style
+content; document parsing runs off the API event loop. Navigation and publisher
+boilerplate can still remain, so a fetched page is not a verified article claim.
 Neither search provider is Prophet's retrieval system or a market-news
 completeness guarantee. Whole-portfolio current-news checks
 request the providers' news category and publication filters, then independently

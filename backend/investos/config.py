@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from investos.core.providers import LLM_PROVIDER_CAPABILITIES
@@ -123,6 +123,15 @@ class Settings(BaseSettings):
     CODEX_TIMEOUT_SECONDS: int = 120
     AUTOMATION_ENABLED: bool = True
     AUTOMATION_POLL_SECONDS: int = 300
+    NEWS_INTAKE_ENABLED: bool = True
+    NEWS_INTAKE_POLL_SECONDS: int = Field(default=300, ge=60, le=86400)
+    NEWS_INTAKE_FETCH_BATCH_SIZE: int = Field(default=3, ge=1, le=20)
+    NEWS_INTAKE_LOOKBACK_HOURS: int = Field(default=72, ge=1, le=720)
+    NEWS_FEED_URLS: list[str] = [
+        "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+        "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain",
+        "https://feeds.bbci.co.uk/news/business/rss.xml",
+    ]
     AUTOMATION_STARTUP_CATCHUP_DELAY_SECONDS: int = 30
     INVESTMENT_OBJECT_BACKFILL_ENABLED: bool = True
     INVESTMENT_OBJECT_BACKFILL_INTERVAL_SECONDS: int = 43200
