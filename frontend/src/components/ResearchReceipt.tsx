@@ -4,11 +4,12 @@ import { formatUserLabel } from "../lib/formatting";
 export default function ResearchReceipt({ receipt }: { receipt: AgentResearchReceipt }) {
   const linkedCount = receipt.holdings_with_linked_evidence.length;
   const coverage = receipt.holding_search_coverage || [];
-  const searchedCount = coverage.filter((row) => row.searched).length;
+  const completedCount = coverage.filter((row) => row.searched && ["candidate_found", "no_matching_candidate"].includes(row.status)).length;
+  const incompleteCount = coverage.length - completedCount;
   return (
     <details className="mt-4 border border-line bg-panel p-3 text-sm">
       <summary className="cursor-pointer font-medium">
-        Evidence coverage{coverage.length ? ` · ${searchedCount} of ${coverage.length} holdings searched` : receipt.holdings_count != null ? ` · ${linkedCount} of ${receipt.holdings_count} holdings with linked evidence` : ""}
+        Evidence coverage{coverage.length ? ` · ${completedCount} of ${coverage.length} holding checks complete${incompleteCount ? ` · ${incompleteCount} incomplete` : ""}` : receipt.holdings_count != null ? ` · ${linkedCount} of ${receipt.holdings_count} holdings with linked evidence` : ""}
       </summary>
       {coverage.length ? (
         <div className="mt-3">
@@ -17,7 +18,7 @@ export default function ResearchReceipt({ receipt }: { receipt: AgentResearchRec
             {coverage.map((row) => (
               <li key={row.ticker} className="flex flex-wrap justify-between gap-2 border border-line p-2">
                 <span className="font-medium">{row.ticker}</span>
-                <span className="text-muted">{row.status === "candidate_found" ? `${row.candidate_count} candidate${row.candidate_count === 1 ? "" : "s"}` : row.status === "no_matching_candidate" ? "No matching candidate" : row.status === "request_limit" ? "Not searched · request limit" : formatUserLabel(row.status)}</span>
+                <span className="text-muted">{row.status === "candidate_found" ? `${row.candidate_count} candidate${row.candidate_count === 1 ? "" : "s"}` : row.status === "no_matching_candidate" ? "No matching candidate" : row.status === "request_limit" ? "Not searched · request limit" : `${row.searched ? "Incomplete" : "Not searched"} · ${formatUserLabel(row.status)}`}</span>
               </li>
             ))}
           </ul>

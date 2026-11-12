@@ -168,6 +168,30 @@ def test_repeated_compaction_keeps_holding_coverage_and_check_omissions():
     assert compacted["omitted_check_count"] == 2
 
 
+@pytest.mark.parametrize("processed", [False, True])
+def test_research_annotations_preserve_answer_paragraphs_lists_and_code_fences(
+    processed,
+):
+    service = AgentService(None)
+    original = "A measured result.\n\nA separate explanation.\n\n- First check\n- Second check\n\n```text\nA  B\n```"
+    fresh = service._merge_fresh_research_context_into_answer(
+        original,
+        {
+            "status": "ok",
+            "results": [{"title": "Synthetic source", "url": "https://example.test"}],
+        },
+    )
+    follow_up = service._merge_research_follow_up_into_answer(
+        fresh, processed=processed
+    )
+    final = service._merge_research_status_into_answer(
+        follow_up, "A status update.\n\nA separate limitation."
+    )
+    assert final.startswith(original + "\n\nFresh source check:")
+    assert "\n\nI also started" in final
+    assert final.endswith("\n\nA status update.\n\nA separate limitation.")
+
+
 @pytest.mark.parametrize(
     "message",
     [
