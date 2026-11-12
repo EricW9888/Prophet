@@ -13,6 +13,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.config import settings
+from investos.core.dates import parse_publication_datetime
 from investos.core.llm import call_llm_json, compact_exception_message
 from investos.core.research_providers import (
     RESEARCH_PROVIDER_CAPABILITIES,
@@ -220,6 +221,8 @@ class ResearchService:
                     "score": result.get("score"),
                     "published_date": result.get("published_date"),
                     "engines": result.get("engines") or [],
+                    "news_window_hours": metadata.get("news_window_hours"),
+                    "operation_id": metadata.get("operation_id"),
                 },
             )
             self.session.add(observation)
@@ -924,9 +927,15 @@ class ResearchService:
         provider_order: list[str] | None = None,
         query_variants: list[str] | None = None,
         initial_fallback_reason: str | None = None,
+        news_window_hours: int | None = None,
     ) -> ResearchSearchResult:
         metadata = dict(metadata)
         metadata.setdefault("operation_id", uuid4().hex)
+        if news_window_hours is not None:
+            if not 1 <= news_window_hours <= 720:
+                raise ValueError("News window must be between 1 and 720 hours.")
+            metadata["news_window_hours"] = news_window_hours
+        checked_at = datetime.now(timezone.utc)
         research = RuntimeSettingsStore.load().research
         configured = configured_research_providers(research)
         if provider_order is not None:
@@ -983,6 +992,7 @@ class ResearchService:
                                 search_depth=search_depth,
                                 include_raw_content=include_raw_content,
                                 tavily_api_key=research.api_key,
+                                news_window_hours=news_window_hours,
                             )
                     else:
                         response = await search_research_provider(
@@ -992,14 +1002,52 @@ class ResearchService:
                             search_depth=search_depth,
                             include_raw_content=include_raw_content,
                             searxng_base_url=research.searxng_base_url,
+                            news_window_hours=news_window_hours,
                         )
 
+                    observation_ids = {}
+                    candidate_count = len(response.results)
+                    if response.status == "ok" and response.results:
+                        observation_ids = await self._record_discovery_results(
+                            provider=provider,
+                            request_id=response.request_id,
+                            input_query=query,
+                            effective_query=candidate_query,
+                            title=title,
+                            results=response.results,
+                            metadata=metadata,
+                        )
+                        if news_window_hours is not None:
+                            qualified = []
+                            for item in response.results:
+                                published = parse_publication_datetime(
+                                    item.get("published_date")
+                                )
+                                if published is not None and (
+                                    checked_at - timedelta(hours=news_window_hours)
+                                    <= published
+                                    <= checked_at
+                                ):
+                                    qualified.append(item)
+                                else:
+                                    await self._update_discovery_outcome(
+                                        observation_ids.get(item.get("url")),
+                                        outcome=(
+                                            "publication_outside_window"
+                                            if published
+                                            else "publication_unverified"
+                                        ),
+                                    )
+                            response.results = qualified
+                            if not qualified:
+                                response.status = "no_recent_results"
                     last_response = response
                     attempt = {
                         "provider": provider,
                         "query": candidate_query,
                         "status": response.status,
                         "result_count": len(response.results),
+                        "candidate_count": candidate_count,
                         "request_id": response.request_id,
                         "estimated_credits": response.estimated_credits,
                         "fallback_reason": fallback_reason,
@@ -1028,15 +1076,6 @@ class ResearchService:
                         }
                     )
                     if response.status == "ok" and response.results:
-                        observation_ids = await self._record_discovery_results(
-                            provider=provider,
-                            request_id=response.request_id,
-                            input_query=query,
-                            effective_query=candidate_query,
-                            title=title,
-                            results=response.results,
-                            metadata=metadata,
-                        )
                         return ResearchSearchResult(
                             searched=True,
                             reason="ok",
@@ -1071,6 +1110,7 @@ class ResearchService:
         include_raw_content: bool = False,
         metadata_json: dict | None = None,
         timeout_seconds: float = 20.0,
+        news_window_hours: int | None = None,
     ) -> ResearchSearchResult:
         """Run provider search without ingesting, using the same connector boundary.
 
@@ -1126,6 +1166,7 @@ class ResearchService:
             include_raw_content=include_raw_content,
             metadata=metadata,
             timeout_seconds=timeout_seconds,
+            news_window_hours=news_window_hours,
         )
         if self.session is not None:
             await self.session.commit()
@@ -1327,7 +1368,7 @@ class ResearchService:
                         await self.session.commit()
                         self._log_research_action(
                             status="duplicate_recent_research",
-                            summary=f"External research skipped for {title}. The discovered source was ingested recently.",
+                            summary=f"A source for {title} was already ingested; continuing through unseen candidates.",
                             query=discovery.query,
                             title=title,
                             metadata_json={
@@ -1337,13 +1378,15 @@ class ResearchService:
                                 "duplicate_url": duplicate.url,
                             },
                         )
-                        return ResearchRunResult(
-                            started=False,
-                            reason="duplicate_recent_research",
-                            evidence_id=duplicate.id,
-                            query=discovery.query,
-                            title=title,
-                        )
+                        if last_noneligible_result is None:
+                            last_noneligible_result = ResearchRunResult(
+                                started=False,
+                                reason="duplicate_recent_research",
+                                evidence_id=duplicate.id,
+                                query=discovery.query,
+                                title=title,
+                            )
+                        continue
 
                     content_origin = "direct_page"
                     fetch_error: str | None = None

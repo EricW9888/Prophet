@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime, timedelta
+from email.utils import parsedate_to_datetime
 
 MONTHS = {
     "jan": 1,
@@ -41,6 +42,18 @@ def parse_iso_datetime(value: str | None) -> datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)
     return parsed
+
+
+def parse_publication_datetime(value: str | None) -> datetime | None:
+    """Parse provider publication metadata, including RFC 2822 news dates."""
+    parsed = parse_iso_datetime(value)
+    if parsed is not None or not value:
+        return parsed
+    try:
+        parsed = parsedate_to_datetime(str(value))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def parse_explicit_calendar_datetime(

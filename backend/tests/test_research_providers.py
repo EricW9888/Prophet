@@ -1,3 +1,5 @@
+import json
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -31,6 +33,161 @@ def _research(**overrides):
     }
     values.update(overrides)
     return SimpleNamespace(**values)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["searxng", "tavily"])
+async def test_current_news_uses_provider_publication_and_news_filters(provider):
+    async def handler(request):
+        options = (
+            dict(request.url.params)
+            if provider == "searxng"
+            else json.loads(request.content)
+        )
+        assert options["time_range"] == "day"
+        if provider == "searxng":
+            assert options["categories"] == "news"
+        else:
+            assert options["topic"] == "news"
+            assert options["include_published_date"] is True
+            assert options["filter_by_published_date"] is True
+            assert options["max_age_hours"] == 24
+        return httpx.Response(200, json={"results": []})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await search_research_provider(
+            provider=provider,
+            client=client,
+            query="market developments",
+            search_depth="advanced",
+            include_raw_content=False,
+            searxng_base_url="https://search.example.test",
+            news_window_hours=24,
+        )
+
+
+@pytest.mark.asyncio
+async def test_undated_stale_or_future_news_does_not_block_fresh_provider_fallback(
+    monkeypatch,
+):
+    now = datetime.now(UTC)
+    calls = []
+    stale = [
+        {"url": "https://example.test/unknown", "published_date": None},
+        {
+            "url": "https://example.test/old",
+            "published_date": (now - timedelta(days=10)).isoformat(),
+        },
+        {
+            "url": "https://example.test/future",
+            "published_date": (now + timedelta(days=1)).isoformat(),
+        },
+    ]
+    fresh = {
+        "url": "https://example.test/fresh",
+        "published_date": (now - timedelta(minutes=10)).strftime(
+            "%a, %d %b %Y %H:%M:%S GMT"
+        ),
+    }
+
+    async def fake_search(**kwargs):
+        calls.append(kwargs["provider"])
+        assert kwargs["news_window_hours"] == 24
+        return ProviderSearchResponse(
+            kwargs["provider"],
+            "ok",
+            kwargs["query"],
+            stale if kwargs["provider"] == "searxng" else [fresh],
+        )
+
+    monkeypatch.setattr(
+        "investos.services.research.RuntimeSettingsStore.load",
+        lambda: SimpleNamespace(research=_research()),
+    )
+    monkeypatch.setattr(
+        "investos.services.research.search_research_provider", fake_search
+    )
+    monkeypatch.setattr(ResearchService, "_append_usage_log", lambda *_: None)
+    service = ResearchService(None)
+    service._record_discovery_results = AsyncMock(
+        side_effect=lambda **kw: {i["url"]: uuid4() for i in kw["results"]}
+    )
+    service._update_discovery_outcome = AsyncMock()
+    result = await service.search(
+        query="market developments", title="Current news", news_window_hours=24
+    )
+    assert calls == ["searxng", "tavily"]
+    assert result.results == [fresh]
+    assert result.provider_attempts[0]["status"] == "no_recent_results"
+    assert [
+        c.kwargs["outcome"] for c in service._update_discovery_outcome.await_args_list
+    ] == [
+        "publication_unverified",
+        "publication_outside_window",
+        "publication_outside_window",
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fresh_second", [True, False])
+async def test_known_first_candidate_does_not_hide_unseen_source(
+    monkeypatch, fresh_second
+):
+    service = ResearchService(None)
+    service.session = SimpleNamespace(commit=AsyncMock())
+    duplicate = SimpleNamespace(id=uuid4(), url="https://example.test/known")
+    service._find_recent_duplicate_research = AsyncMock(
+        side_effect=[None, duplicate, None if fresh_second else duplicate]
+    )
+    service._discover = AsyncMock(
+        return_value=ResearchSearchResult(
+            True,
+            "ok",
+            "memory pricing",
+            results=[
+                {"title": "Known", "url": duplicate.url},
+                {"title": "New", "url": "https://example.test/new"},
+            ],
+        )
+    )
+    service._update_discovery_outcome = AsyncMock()
+    service.ingestion.fetch_url_document = AsyncMock(
+        return_value=FetchedUrlDocument(
+            url="https://example.test/new",
+            canonical_url="https://example.test/new",
+            title="New",
+            content="New attributable source text.",
+        )
+    )
+    service.source_learning.get_or_create_source_for_url = AsyncMock(
+        return_value=SimpleNamespace(
+            source=SimpleNamespace(id=uuid4()), inferred_type="web_research"
+        )
+    )
+    created = SimpleNamespace(id=uuid4())
+    service.ingestion.ingest_text = AsyncMock(return_value=created)
+    monkeypatch.setattr(
+        "investos.services.research.RuntimeSettingsStore.load",
+        lambda: SimpleNamespace(research=_research(provider_order=["searxng"])),
+    )
+    monkeypatch.setattr(ResearchService, "_append_usage_log", lambda *_: None)
+    monkeypatch.setattr(ResearchService, "_log_research_action", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        ResearchService, "_search_query_variants", lambda *_: ["memory pricing"]
+    )
+    result = await service.run_ad_hoc_request(
+        query="memory pricing", title="Memory pricing", process_after_ingest=False
+    )
+    if fresh_second:
+        assert result.started is True
+        assert result.evidence_id == created.id
+        service.ingestion.fetch_url_document.assert_awaited_once_with(
+            "https://example.test/new"
+        )
+    else:
+        assert result.reason == "duplicate_recent_research"
+        assert result.evidence_id == duplicate.id
+        service.ingestion.fetch_url_document.assert_not_awaited()
 
 
 def test_legacy_tavily_runtime_settings_gain_free_first_provider_order():
