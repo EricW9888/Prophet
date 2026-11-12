@@ -112,7 +112,20 @@ its query, rank, snippet or provider-content kind, fetch outcome, and eventual
 evidence link. These observations support provenance and later pattern review;
 they are not `RawEvidence` and cannot satisfy corroboration or accepted-state
 promotion.
-Neither search provider is Prophet's retrieval system. YouTube ingestion is
+Neither search provider is Prophet's retrieval system or a market-news
+completeness guarantee. Whole-portfolio current-news checks
+request the providers' news category and publication filters, then independently
+reject missing, future, or out-of-window publication metadata. The default
+window is 24 hours. Rejected observations retain their disposition and the
+search window; dated snippets remain provisional, not corroborated facts.
+Market searches can surface material unheld companies without requiring a held
+ticker in the headline. Holding-specific searches remain anchored and bounded;
+the returned coverage receipt does not claim every exposure was checked.
+In ingestion, a known candidate is reused without terminating the scan of the
+remaining bounded candidates. Historical and static-fact research keeps its
+ordinary unrestricted search path.
+
+YouTube ingestion is
 caption-first. A structured assessment of the available representation records
 resolved points, material gaps, and requested follow-up capabilities. It may run
 one bounded audio pass through explicitly enabled `yt-dlp`, `ffmpeg`, and OpenAI

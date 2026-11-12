@@ -16,6 +16,7 @@ from sqlalchemy import desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.config import settings
+from investos.core.dates import parse_publication_datetime
 from investos.core.llm import (
     available_llm_json_recovery_providers,
     call_llm_json,
@@ -5042,7 +5043,7 @@ class AgentService:
         checks = [
             (
                 "Market",
-                f"{benchmark} stock market major equity indexes rates market moves".strip(),
+                "US stock market latest major company breaking news",
                 tuple(
                     filter(
                         None,
@@ -5119,7 +5120,7 @@ class AgentService:
                 {"query": query},
             )
             result = await ResearchService(self.session).search(
-                query=f"{query} as of {as_of.date().isoformat()}",
+                query=query,
                 title=f"Portfolio update: {lane}",
                 search_depth="advanced",
                 include_raw_content=False,
@@ -5130,6 +5131,7 @@ class AgentService:
                     "research_lane": lane,
                 },
                 timeout_seconds=7.0,
+                news_window_hours=24,
             )
             searched = searched or result.searched
             provider_statuses.append(result.reason)
@@ -5141,25 +5143,24 @@ class AgentService:
                 )
                 snippet = str(item.get("content") or "")
                 text = f"{title} {snippet}"
-                if not url or not any(
-                    re.search(
-                        rf"(?<!\w){re.escape(anchor)}(?!\w)",
-                        text,
-                        flags=0 if anchor.isupper() and len(anchor) <= 5 else re.I,
+                if not url or (
+                    lane != "Market"
+                    and not any(
+                        re.search(
+                            rf"(?<!\w){re.escape(anchor)}(?!\w)",
+                            text,
+                            flags=0 if anchor.isupper() and len(anchor) <= 5 else re.I,
+                        )
+                        for anchor in anchors
                     )
-                    for anchor in anchors
                 ):
                     continue
                 published_date = item.get("published_date")
-                if published_date:
-                    try:
-                        day = date.fromisoformat(str(published_date)[:10])
-                    except ValueError:
-                        day = None
-                    if day is not None and not (
-                        as_of.date() - timedelta(days=21) <= day <= as_of.date()
-                    ):
-                        continue
+                published = parse_publication_datetime(published_date)
+                if published is None or not (
+                    as_of - timedelta(hours=24) <= published <= as_of
+                ):
+                    continue
                 results_by_url.setdefault(
                     url,
                     {
@@ -5172,7 +5173,7 @@ class AgentService:
                     },
                 )
                 accepted += 1
-                if accepted >= 2:
+                if accepted >= (5 if lane == "Market" else 2):
                     break
             check_receipts.append(
                 {
@@ -5188,6 +5189,8 @@ class AgentService:
                         )
                     ),
                     "result_count": accepted,
+                    "window_hours": 24,
+                    "coverage": "bounded_search_not_exhaustive",
                 }
             )
         status = (
@@ -5207,6 +5210,8 @@ class AgentService:
             "query": "; ".join(item["query"] for item in check_receipts),
             "checks": check_receipts,
             "checked_at": as_of.isoformat(),
+            "window_hours": 24,
+            "coverage": "bounded_search_not_exhaustive",
             "results": list(results_by_url.values()),
             "variants_tried": [],
         }

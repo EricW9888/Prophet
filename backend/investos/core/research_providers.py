@@ -132,13 +132,29 @@ async def search_research_provider(
     include_raw_content: bool,
     searxng_base_url: str = "",
     tavily_api_key: str | None = None,
+    news_window_hours: int | None = None,
 ) -> ProviderSearchResponse:
+    if news_window_hours is not None and not 1 <= news_window_hours <= 720:
+        raise ValueError("News window must be between 1 and 720 hours.")
+    time_range = (
+        "day"
+        if (news_window_hours or 0) <= 24
+        else "week" if news_window_hours <= 168 else "month"
+    )
     if provider == "searxng":
         endpoint = f"{searxng_base_url.rstrip('/')}/search"
         try:
             response = await client.get(
                 endpoint,
-                params={"q": query, "format": "json"},
+                params={
+                    "q": query,
+                    "format": "json",
+                    **(
+                        {"categories": "news", "time_range": time_range}
+                        if news_window_hours is not None
+                        else {}
+                    ),
+                },
             )
             response.raise_for_status()
             payload = response.json()
@@ -176,6 +192,17 @@ async def search_research_provider(
                     "query": query,
                     "search_depth": search_depth,
                     "include_raw_content": include_raw_content,
+                    **(
+                        {
+                            "topic": "news",
+                            "time_range": time_range,
+                            "include_published_date": True,
+                            "filter_by_published_date": True,
+                            "max_age_hours": news_window_hours,
+                        }
+                        if news_window_hours is not None
+                        else {}
+                    ),
                 },
             )
             if response.status_code == 429:

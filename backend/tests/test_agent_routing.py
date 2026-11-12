@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -14,6 +15,42 @@ def test_fallback_router_preserves_explicit_follow_up_correction():
     )
 
     assert intent["route"] == "continue"
+
+
+@pytest.mark.asyncio
+async def test_market_check_keeps_dated_unheld_company_news_and_rejects_stale_matches(
+    monkeypatch,
+):
+    now = datetime.now(UTC)
+
+    async def discover(_self, **kwargs):
+        assert kwargs["news_window_hours"] == 24
+        rows = (
+            [
+                {
+                    "title": "A major supplier replaces its CEO",
+                    "url": "https://example.test/new",
+                    "published_date": (now - timedelta(minutes=5)).isoformat(),
+                },
+                {
+                    "title": "Nasdaq index wrap",
+                    "url": "https://example.test/old",
+                    "published_date": (now - timedelta(days=90)).isoformat(),
+                },
+                {"title": "Nasdaq index wrap", "url": "https://example.test/unknown"},
+            ]
+            if kwargs["title"] == "Portfolio update: Market"
+            else []
+        )
+        return ResearchSearchResult(True, "ok", kwargs["query"], rows)
+
+    monkeypatch.setattr(ResearchService, "search", discover)
+    result = await AgentService(None)._portfolio_fresh_checks(
+        {}, "Current developments"
+    )
+    assert [i["url"] for i in result["results"]] == ["https://example.test/new"]
+    assert result["coverage"] == "bounded_search_not_exhaustive"
+    assert result["checks"][0]["window_hours"] == 24
 
 
 def test_listing_access_question_requires_fresh_research():
@@ -80,6 +117,7 @@ async def test_vague_portfolio_update_checks_market_industry_and_loss_driver(
     scope,
 ):
     async def discover(_self, *, query, **kwargs):
+        assert kwargs["news_window_hours"] == 24
         generic = {"title": "World news today", "url": "https://example.test/generic"}
         matches = {
             "Portfolio update: Market": {
@@ -96,7 +134,18 @@ async def test_vague_portfolio_update_checks_market_industry_and_loss_driver(
             },
         }
         return ResearchSearchResult(
-            True, "ok", query, [generic, matches[kwargs["title"]]]
+            True,
+            "ok",
+            query,
+            [
+                generic,
+                {
+                    **matches[kwargs["title"]],
+                    "published_date": (
+                        datetime.now(UTC) - timedelta(minutes=5)
+                    ).isoformat(),
+                },
+            ],
         )
 
     monkeypatch.setattr(ResearchService, "search", discover)

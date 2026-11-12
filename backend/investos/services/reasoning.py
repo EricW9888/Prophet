@@ -735,6 +735,8 @@ class ReasoningService:
             "only from those returned source snippets or from durable evidence that explicitly covers the same event. "
             "Name source titles or URLs when relying on fresh snippets. If fresh search failed, returned no results, or was "
             "rate-limited, say the current-event claim is unverified instead of filling with stale local context. "
+            "A bounded search is incomplete coverage, not proof that nothing happened or that no action needs consideration. "
+            "Distinguish not found from does not exist; preserve the returned publication window and coverage limits. "
             "Do not treat ephemeral fresh-search snippets as accepted thesis evidence until they have been ingested and extracted. "
             "When explaining portfolio performance, separate measured contributions, hypotheses about causes, and open questions. "
             "A broad price move or market-only snippets cannot by themselves establish a specific sector or company catalyst. "
