@@ -202,7 +202,7 @@ The main state groups are:
   separately from entities and securities. Complete, hashed directory snapshots
   update presence without changing holdings, quantities or operator exclusions.
   Explicit common/ordinary-share and depositary-share labels can enter a bounded
-  preparation buffer; unresolved types, funds and test issues remain inspectable.
+  preparation buffer; unresolved types, ETFs and test issues remain inspectable.
   Materialization reuses the canonical security catalog and existing discovery
   runner, retains the selected row's source basis, and preserves existing pause
   and priority choices. Directory refresh needs no inference provider. A newly

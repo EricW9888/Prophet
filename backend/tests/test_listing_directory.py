@@ -70,7 +70,7 @@ def test_directory_classification_is_conservative_and_retains_unknown_types():
     parsed = parse_listing_directory(
         directory_text(
             [
-                ("SYNCOM", "Synthetic Common Stock", "N", "N"),
+                ("SYNCOM", "Synthetic Ordinary Share", "N", "N"),
                 ("SYNADR", "Synthetic American Depositary Shares", "N", "N"),
                 ("SYNWAR", "Synthetic warrants to purchase common stock", "N", "N"),
                 ("SYNETF", "Synthetic Common Stock Fund ETF", "N", "Y"),
@@ -97,6 +97,18 @@ def test_directory_classification_is_conservative_and_retains_unknown_types():
     ):
         with pytest.raises(ValueError):
             parse_listing_directory(bad)
+
+
+def test_other_listed_venues_follow_the_publisher_contract_and_retain_raw_codes():
+    parsed = parse_listing_directory(
+        "ACT Symbol|Security Name|Exchange|Test Issue|ETF\n"
+        "SYN|Synthetic Common Stock|N|N|N\n"
+        "SYN2|Synthetic Ordinary Shares|UNKNOWN|N|N\n"
+        "File Creation Time: 0520202521:31||||\n"
+    )
+    assert parsed["rows"][0]["exchange"] == "NYSE"
+    assert parsed["rows"][0]["metadata_json"]["directory_fields"]["Exchange"] == "N"
+    assert parsed["rows"][1]["exchange"] == "UNKNOWN"
 
 
 async def test_directory_metadata_is_idempotent_paged_and_outside_the_graph(

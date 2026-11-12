@@ -473,7 +473,7 @@ export default function OpportunitiesPage() {
                   <div className="min-w-0 border border-dashed border-slate-300 px-4 py-8 text-center dark:border-slate-700">
                     <CircleDot className="mx-auto h-5 w-5 text-slate-400" />
                     <p className="mt-2 text-sm font-medium">No candidates in this state</p>
-                    <p className="mt-1 break-words text-xs text-slate-500">Run discovery after adding securities to the universe.</p>
+                    <p className="mt-1 break-words text-xs text-muted">Inspect Run history for completed coverage and any failures. A prepared subject becomes a candidate only after investigation.</p>
                   </div>
                 ) : (
                   filteredCandidates.map((candidate) => (

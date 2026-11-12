@@ -25,6 +25,17 @@ from investos.models.profile import Profile
 from investos.services.runtime_settings import RuntimeSettingsStore
 from investos.services.security_catalog import SecurityCatalogService
 
+PARSER_REVISION = 1
+# Publisher-defined venue codes; keep the original row as provenance.
+# https://www.nasdaqtrader.com/trader.aspx?id=symboldirdefs
+OTHER_LISTED_EXCHANGES = {
+    "A": "NYSE MKT",
+    "N": "NYSE",
+    "P": "NYSE ARCA",
+    "Z": "BATS",
+    "V": "IEXG",
+}
+
 
 def parse_listing_directory(body: str) -> dict:
     reader = csv.DictReader(io.StringIO(body), delimiter="|")
@@ -63,9 +74,8 @@ def parse_listing_directory(body: str) -> dict:
             pass
         elif "american depositary" in normalized or "american depository" in normalized:
             kind = "adr"
-        elif any(
-            label in normalized
-            for label in ("common stock", "common shares", "ordinary shares")
+        elif re.search(
+            r"\b(?:common stock|common shares?|ordinary shares?)\b", normalized
         ):
             kind = "common_stock"
         rows.append(
@@ -75,7 +85,10 @@ def parse_listing_directory(body: str) -> dict:
                 "exchange": (
                     "NASDAQ"
                     if symbol_field == "Symbol"
-                    else str(raw.get("Exchange") or "")
+                    else OTHER_LISTED_EXCHANGES.get(
+                        str(raw.get("Exchange") or ""),
+                        str(raw.get("Exchange") or ""),
+                    )
                 ),
                 "instrument_type": kind,
                 "research_eligible": kind in {"common_stock", "adr"},
@@ -170,7 +183,11 @@ class ListingDirectoryService:
                 row.status, row.error = "error", str(result)[:400]
                 row.next_refresh_at = observed + timedelta(minutes=15)
             else:
-                if (row.metadata_json or {}).get("sha256") != result["sha256"]:
+                previous = row.metadata_json or {}
+                if (
+                    previous.get("sha256") != result["sha256"]
+                    or previous.get("parser_revision") != PARSER_REVISION
+                ):
                     await self._store(row, result, observed=observed)
                     changed += 1
                 succeeded += 1
@@ -239,6 +256,7 @@ class ListingDirectoryService:
             .values(is_current=False)
         )
         directory.metadata_json = {
+            "parser_revision": PARSER_REVISION,
             "publisher_clock": result["publisher_clock"],
             "sha256": result["sha256"],
             "row_count": len(result["rows"]),
