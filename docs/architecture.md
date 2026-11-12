@@ -274,6 +274,13 @@ request while retaining per-node admission limits. D3 runs layout and collision
 resolution in a browser worker. Camera movement updates the SVG transform;
 React updates label detail only at zoom thresholds and memoizes individual
 glyphs so unrelated inspector or hover work does not redraw the whole scene.
+Labels sit outside node circles and compensate for both camera and SVG viewBox
+scaling. A bounded, priority-ranked label layer resolves text overlap in screen
+coordinates once per animation frame; it does not filter graph records. Full
+names remain available through the paged local node navigator and inspector.
+Node and edge hit targets retain screen-sized geometry when the overview is
+zoomed out. This retains the existing D3 layout, camera and stable node identity
+rather than introducing another renderer to correct a text-coordinate defect.
 
 ## Structured model execution
 

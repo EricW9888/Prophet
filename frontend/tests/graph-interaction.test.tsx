@@ -9,11 +9,16 @@ import { useGraphCamera } from "../src/lib/use-graph-camera";
 import { calculateGraphLayout } from "../src/lib/graph-layout";
 import { CENTER_X, CENTER_Y, nodeVisualRadius, type PositionedNode } from "../src/lib/graph-layout-geometry";
 import type { GraphNeighborhood } from "../src/lib/api";
+import { graphLabelCandidates, nonOverlappingLabels, refreshGraphLabels } from "../src/lib/graph-labels";
 
 let root: Root;
 let container: HTMLDivElement;
 beforeEach(() => {
   Object.assign(globalThis, { Element: window.Element, SVGElement: window.SVGElement });
+  Object.assign(globalThis, {
+    requestAnimationFrame: (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 0),
+    cancelAnimationFrame: (id: number) => window.clearTimeout(id),
+  });
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -69,7 +74,7 @@ test("unrelated workspace updates leave node glyphs alone while selection still 
   assert.equal(labelReads, 0);
   await act(async () => root.render(view(3, true)));
   assert.ok(labelReads > 0);
-  assert.equal(container.querySelectorAll("g.graph-node > circle").length, 2);
+  assert.equal(container.querySelectorAll("g.graph-node > circle:not(.graph-node-hit)").length, 2);
   assert.equal(container.querySelector("g.graph-node")!.getAttribute("transform"), "translate(10, 20)");
 });
 
@@ -93,4 +98,35 @@ test("large graph layout preserves identity, deterministic positions and readabl
       assert.ok(Math.hypot(a.x! - b.x!, a.y! - b.y!) >= radii - 1, `Overlapping nodes ${a.key} and ${b.key}`);
     }
   }
+});
+
+test("overview labels retain selection and stay bounded without dropping graph nodes", () => {
+  const nodes = Array.from({length: 700}, (_, index) => ({key: `entity:${index}`, id: String(index), node_type: "entity", label: `Synthetic ${index}`, layer: "knowledge", is_root: index === 0, is_autonomous: false}));
+  const keys = graphLabelCandidates(nodes, "entity:699", "entity:698", new Set());
+  assert.ok(keys.size <= 96 && keys.has("entity:0") && keys.has("entity:699") && keys.has("entity:698"));
+  assert.equal(nodes.length, 700);
+  const visible = nonOverlappingLabels([
+    {key:"selected",priority:100,pinned:true,left:10,top:10,right:150,bottom:25},
+    {key:"overlap",priority:10,pinned:false,left:20,top:15,right:120,bottom:30},
+    {key:"clear",priority:1,pinned:false,left:200,top:10,right:300,bottom:25},
+  ], {left:0,top:0,right:500,bottom:300});
+  assert.deepEqual([...visible], ["selected", "clear"]);
+});
+
+test("label sizing accounts for both the viewBox scale and camera zoom with one bounds read per label", async () => {
+  const node: PositionedNode = {key:"entity:screen",id:"screen",node_type:"entity",label:"Synthetic readable issuer",layer:"knowledge",is_root:true,is_autonomous:false};
+  await act(async () => root.render(<svg><GraphNodeGlyph node={node} isSelected isHovered={false} isConnected={false} hasSelection zoom={0.2} onHover={()=>{}} onPointerDown={()=>{}} /></svg>));
+  const svg = container.querySelector("svg")!;
+  const label = container.querySelector<SVGTextElement>(".graph-node-label")!;
+  let reads = 0;
+  Object.defineProperty(svg, "getScreenCTM", {value:()=>({a:0.2,b:0})});
+  svg.getBoundingClientRect=()=>({left:0,top:0,right:500,bottom:300} as DOMRect);
+  label.getBoundingClientRect=()=>{reads+=1;return {left:10,top:10,right:200,bottom:25} as DOMRect;};
+  refreshGraphLabels(svg, 0.5);
+  assert.equal(svg.style.getPropertyValue("--graph-effective-scale"), "0.1");
+  assert.equal(reads, 1);
+  assert.equal(label.style.visibility, "visible");
+  assert.equal(container.querySelector("clipPath"), null);
+  assert.equal(label.textContent, node.label);
+  assert.equal(container.querySelector('[role="button"]')!.getAttribute("aria-label"), node.label);
 });

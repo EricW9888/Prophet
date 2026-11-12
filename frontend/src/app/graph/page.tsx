@@ -8,6 +8,8 @@ import remarkGfm from "remark-gfm";
 
 import { Maximize2, PanelRightClose, PanelRightOpen, RotateCcw, Search, ZoomIn, ZoomOut } from "lucide-react";
 import { GraphEdgeGlyph, GraphNodeGlyph, getNodeStyle } from "@/components/GraphGlyphs";
+import GraphNodeNavigator from "@/components/GraphNodeNavigator";
+import { graphLabelCandidates } from "@/lib/graph-labels";
 import AppNav from "@/components/AppNav";
 import WorkspaceDivider, { useWorkspacePane } from "@/components/WorkspaceDivider";
 import WorkspaceState from "@/components/WorkspaceState";
@@ -295,6 +297,7 @@ export default function GraphPage() {
   const selectionGenerationRef = useRef(0);
   const graphRequestRef = useRef<AbortController | null>(null);
   const inspector = useWorkspacePane("knowledge-inspector", INSPECTOR_DEFAULT_WIDTH);
+  const setInspectorOpen = inspector.setOpen;
   const [detailError, setDetailError] = useState<string | null>(null);
   const [graphAskJob, setGraphAskJob] = useState<AgentTurnJob | null>(null);
   const [graphAskResult, setGraphAskResult] = useState<AgentTurn | null>(null);
@@ -876,10 +879,23 @@ export default function GraphPage() {
       setSelectedKey(node.key);
       setSelectedEdgeId(null);
       setSelectedDetail(null);
+      setInspectorOpen(true);
       void loadDetail(node.node_type, node.id, generation);
     },
-    [loadDetail],
+    [loadDetail, setInspectorOpen],
   );
+
+  const labelCandidates = useMemo(() => graphLabelCandidates(displayedNodes, selectedKey, hoveredNodeKey, connectedKeys),
+    [displayedNodes, selectedKey, hoveredNodeKey, connectedKeys]);
+  const jumpToNode = useCallback((node: PositionedNode) => {
+    handleNodeClick(node);
+    const neighborhood = new Set([node.key]);
+    for (const edge of displayedEdges) {
+      if (edge.source_key === node.key) neighborhood.add(edge.target_key);
+      if (edge.target_key === node.key) neighborhood.add(edge.source_key);
+    }
+    fitNodesToViewport(displayedNodes.filter(candidate => neighborhood.has(candidate.key)), true);
+  }, [displayedEdges, displayedNodes, fitNodesToViewport, handleNodeClick]);
 
   const isBackgroundInteractionTarget = useCallback((target: EventTarget | null) => {
     if (!(target instanceof Element)) return true;
@@ -1178,6 +1194,7 @@ export default function GraphPage() {
               </div>
             </div>
 
+            <GraphNodeNavigator nodes={displayedNodes} onSelect={jumpToNode} />
             <details className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
               <summary className="cursor-pointer text-xs font-semibold text-slate-600 dark:text-slate-300">
                 Filters{activeNodeTypes.length > 0 ? ` · ${activeNodeTypes.length} active` : ""}
@@ -1291,7 +1308,7 @@ export default function GraphPage() {
                   onPointerCancel={handleCanvasPointerUp}
                 >
                   <div className="pointer-events-none absolute left-3 top-3 z-10 border border-line bg-panel px-2.5 py-1.5 text-xs text-muted">
-                    Scroll or pinch to zoom · select a node to inspect it
+                    Scroll or pinch to zoom · select a node or connection · search above for full names
                   </div>
                   {activeLayoutError ? (
                     <div className="absolute inset-0 z-20 grid place-items-center p-4">
@@ -1325,7 +1342,8 @@ export default function GraphPage() {
                       {displayedNodes.map((node) => <GraphNodeGlyph key={node.key}
                         node={node} isSelected={selectedKey === node.key} isHovered={hoveredNodeKey === node.key}
                         isConnected={selectedKey ? connectedKeys.has(node.key) : node.is_root} hasSelection={Boolean(selectedKey)}
-                        zoom={detailZoom} onHover={setHoveredNodeKey} onPointerDown={handleNodePointerDown} />)}
+                        zoom={detailZoom} labelCandidate={labelCandidates.has(node.key)} onSelect={handleNodeClick}
+                        onHover={setHoveredNodeKey} onPointerDown={handleNodePointerDown} />)}
                     </g>
                   </svg>
                   {hoverPreview ? (

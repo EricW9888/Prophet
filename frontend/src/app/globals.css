@@ -1,4 +1,7 @@
 @import "tailwindcss";
+
+/* Keep tiny overview marks selectable while the world camera zooms out. */
+.graph-node-hit { r: calc(9px / var(--graph-effective-scale, 1)); }
 @plugin "@tailwindcss/typography";
 
 :root {
