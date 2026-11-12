@@ -9,6 +9,7 @@ import remarkGfm from "remark-gfm";
 import { Maximize2, PanelRightClose, PanelRightOpen, RotateCcw, Search, ZoomIn, ZoomOut } from "lucide-react";
 import { GraphEdgeGlyph, GraphNodeGlyph, getNodeStyle } from "@/components/GraphGlyphs";
 import GraphNodeNavigator from "@/components/GraphNodeNavigator";
+import HintMarker from "@/components/HintMarker";
 import { graphLabelCandidates } from "@/lib/graph-labels";
 import AppNav from "@/components/AppNav";
 import WorkspaceDivider, { useWorkspacePane } from "@/components/WorkspaceDivider";
@@ -1056,6 +1057,7 @@ export default function GraphPage() {
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
             <div className="flex min-w-0 flex-wrap items-center gap-3">
               <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Knowledge Web</h1>
+              <HintMarker label="How to use the knowledge graph">Scroll or pinch to zoom, drag the background to pan, and select a node or connection to inspect it. Search or browse the node list for full names and center a node’s connections. Overview labels prioritize holdings, important subjects and your selection; hidden labels do not remove graph records.</HintMarker>
               <div className="inline-flex gap-1">
                 <button
                   type="button"
@@ -1307,9 +1309,6 @@ export default function GraphPage() {
                   onPointerUp={handleCanvasPointerUp}
                   onPointerCancel={handleCanvasPointerUp}
                 >
-                  <div className="pointer-events-none absolute left-3 top-3 z-10 border border-line bg-panel px-2.5 py-1.5 text-xs text-muted">
-                    Scroll or pinch to zoom · select a node or connection · search above for full names
-                  </div>
                   {activeLayoutError ? (
                     <div className="absolute inset-0 z-20 grid place-items-center p-4">
                       <WorkspaceState kind="error" title="Graph layout unavailable" description={activeLayoutError} actionLabel="Retry" onAction={() => { setLayoutError(null); setLayoutNonce((value) => value + 1); }} />
