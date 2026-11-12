@@ -437,6 +437,27 @@ async def test_research_query_falls_back_when_model_drops_the_subject(
     assert goal == "Find a material change."
 
 
+async def test_query_drafting_receives_the_frozen_run_clock(monkeypatch):
+    prompts = []
+
+    async def draft(**kwargs):
+        prompts.append(kwargs)
+        return {
+            "query": "SYNCLK current change",
+            "research_goal": "Test dated evidence",
+        }
+
+    monkeypatch.setattr(opportunity_module, "call_llm_json", draft)
+    captured = datetime(2025, 5, 20, 18, 30, tzinfo=UTC)
+    await OpportunityDiscoveryService(None)._research_query(
+        security=Security(ticker="SYNCLK"),
+        entity=Entity(name="Synthetic clock", entity_type="company"),
+        captured_at=captured,
+    )
+    assert "As of (UTC): 2025-05-20T18:30:00+00:00" in prompts[0]["user_prompt"]
+    assert "do not substitute a remembered year" in prompts[0]["system_prompt"]
+
+
 async def test_provider_capacity_skip_keeps_universe_member_due(monkeypatch) -> None:
     entity, security, member = await _seed_universe_member()
     run_id = None

@@ -1165,6 +1165,7 @@ class OpportunityDiscoveryService:
             query, research_goal = await self._research_query(
                 security=security,
                 entity=entity,
+                captured_at=run.captured_at,
             )
             result = await ResearchService(self.session).run_ad_hoc_request(
                 query=query,
@@ -1240,15 +1241,20 @@ class OpportunityDiscoveryService:
         *,
         security: Security,
         entity: Entity,
+        captured_at: datetime | None = None,
     ) -> tuple[str, str]:
+        as_of = captured_at or datetime.now(UTC)
         result = await call_llm_json(
             system_prompt=(
                 "Draft one neutral web source-discovery query for an investment analyst. "
                 "The query should look for a recent material change in the named company's economics, expectations, risks, or opportunity without assuming a bullish or bearish conclusion. "
                 "Choose the useful angle from the supplied company context; do not apply a fixed checklist. "
-                "Use the company name or ticker so the query cannot drift to another subject."
+                "Use the company name or ticker so the query cannot drift to another subject. "
+                "Use the supplied as-of time to anchor recency; do not substitute a remembered year. "
+                "A historical date is useful only when deliberately investigating a labeled historical comparison."
             ),
             user_prompt=(
+                f"As of (UTC): {as_of.astimezone(UTC).isoformat()}\n"
                 f"Ticker: {security.ticker}\nCompany: {entity.name}\n"
                 f"Sector: {entity.sector or 'unknown'}\nIndustry: {entity.industry or 'unknown'}"
             ),

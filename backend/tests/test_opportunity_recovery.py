@@ -48,12 +48,13 @@ async def test_deferred_scan_resumes_its_plan_and_evaluates_all_completed_subjec
     await session.commit()
     service = OpportunityDiscoveryService(session)
     service.ACTIVE_KEY = f"synthetic-recovery-{uuid4()}"
-    calls, evaluations = [], []
+    calls, evaluations, clocks = [], [], []
     interrupted = provider_open = False
 
-    async def query(*, security, **_):
+    async def query(*, security, captured_at, **_):
         nonlocal interrupted, provider_open
         calls.append(security.ticker)
+        clocks.append(captured_at)
         if not interrupted and len(calls) == 2 and interruption != "evaluation":
             interrupted = True
             if interruption == "unrelated_error":
@@ -95,6 +96,7 @@ async def test_deferred_scan_resumes_its_plan_and_evaluates_all_completed_subjec
     )
 
     first = await service.run_discovery()
+    assert clocks and all(clock == first["captured_at"] for clock in clocks)
     if interruption == "unrelated_error":
         assert first["status"] == "partial" and first["failed_count"] == 1
         assert first["completed_at"] is not None
@@ -118,6 +120,7 @@ async def test_deferred_scan_resumes_its_plan_and_evaluates_all_completed_subjec
         await session.commit()
     provider_open = False
     second = await service.run_discovery()
+    assert all(clock == first["captured_at"] for clock in clocks)
     assert second["id"] == first["id"] and second["captured_at"] == first["captured_at"]
     assert second["status"] == "completed" and second["remaining_member_ids"] == []
     assert second["planned_count"] == 2 and second["failed_count"] == 0
