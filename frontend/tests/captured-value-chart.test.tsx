@@ -133,6 +133,36 @@ test("event filters update markers and timeline together without changing the va
   assert.match(container.querySelector("ol")!.textContent!, /SYN-A evidence/);
 });
 
+test("scrubbing a busy chart does not reformat the entire activity history", async () => {
+  const format = Object.getOwnPropertyDescriptor(Intl.DateTimeFormat.prototype, "format")!;
+  let formats = 0;
+  Object.defineProperty(Intl.DateTimeFormat.prototype, "format", { ...format, get() {
+    const original = format.get!.call(this);
+    return (date: number) => { formats++; return original(date); };
+  } });
+  try {
+    await act(async () => root.render(<CapturedValueChart label="Busy portfolio" points={[
+      { id: "start", at: "2025-05-20T18:00:00Z", value: 3000 },
+      { id: "end", at: "2025-05-21T18:00:00Z", value: 3200 },
+    ]} events={Array.from({ length: 300 }, (_, i) => ({ id: `e${i}`,
+      at: new Date(Date.UTC(2025, 4, 20, 18) + i * 60_000).toISOString(),
+      label: `Synthetic event ${i}`, kind: "research" as const }))} />));
+    const plot = container.querySelector<SVGRectElement>("[data-chart-plot]")!;
+    const width = Number(plot.getAttribute("width"));
+    plot.getBoundingClientRect = () => new window.DOMRect(0, 0, width, 256);
+    plot.getBBox = () => new window.DOMRect(0, 0, width, 256);
+    formats = 0;
+    await act(async () => plot.dispatchEvent(new window.PointerEvent("pointermove", {
+      bubbles: true, pointerType: "mouse", clientX: 1,
+    })));
+    assert.match(container.querySelector('div[aria-hidden="true"] > strong')!.textContent!, /3,000/);
+    assert.equal(container.querySelectorAll("ol li").length, 300);
+    assert.ok(formats < 20, `One hover formatted ${formats} dates for 300 unchanged events`);
+  } finally {
+    Object.defineProperty(Intl.DateTimeFormat.prototype, "format", format);
+  }
+});
+
 test("an event-only timeline keeps its filters reachable when every type is hidden", async () => {
   await act(async () => root.render(<CapturedValueChart label="Activity" points={[]} events={[
     { id: "alert", at: "2025-05-20T19:00:00Z", label: "Synthetic alert", kind: "alert" },

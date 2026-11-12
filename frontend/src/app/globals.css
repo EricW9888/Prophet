@@ -12,6 +12,8 @@
   --action: #0284c7;
   --action-strong: #0369a1;
   --focus: #38bdf8;
+  --positive: #047857;
+  --negative: #be123c;
   --workspace-gutter: clamp(0.75rem, 2vw, 2rem);
 }
 
@@ -26,6 +28,8 @@
   --color-action: var(--action);
   --color-action-strong: var(--action-strong);
   --color-focus: var(--focus);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --radius-*: initial;
@@ -121,6 +125,8 @@
     --action: #38bdf8;
     --action-strong: #7dd3fc;
     --focus: #38bdf8;
+    --positive: #34d399;
+    --negative: #fb7185;
   }
 }
 

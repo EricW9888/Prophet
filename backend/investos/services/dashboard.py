@@ -69,6 +69,10 @@ class DashboardService:
         total_unrealized_pnl = sum(
             (float(h.unrealized_pnl or 0.0) for h in portfolio_overview.holdings), 0.0
         )
+        total_open_cost = sum(
+            float(h.quantity or 0) * float(h.avg_cost_basis or 0)
+            for h in portfolio_overview.holdings
+        )
         portfolio_build_series = portfolio_overview.build_series
 
         profile_count = await self._scalar_count(select(Profile))
@@ -126,6 +130,13 @@ class DashboardService:
             considering_count=considering_count,
             total_market_value=total_market_value,
             total_unrealized_pnl=total_unrealized_pnl,
+            open_holdings_return_pct=(
+                total_unrealized_pnl / total_open_cost * 100
+                if total_open_cost > 0
+                else None
+            ),
+            risk_as_of=risk_summary.as_of,
+            risk_measurement_start=risk_summary.measurement_start,
             total_value=portfolio_overview.total_value,
             buying_power=portfolio_overview.buying_power,
             top_winners=portfolio_overview.top_winners,
