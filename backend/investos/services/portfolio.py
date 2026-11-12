@@ -8,7 +8,7 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from sqlalchemy import desc, func, or_, select
+from sqlalchemy import desc, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
@@ -470,21 +470,35 @@ class PortfolioService:
         description: str | None = None,
         executed_at: datetime,
     ) -> CashLedgerEntry:
+        # Imports and manual entries can arrive out of execution order. Serialize
+        # cash writers and insert into the historical balance sequence.
+        await self.session.execute(
+            select(func.pg_advisory_xact_lock(func.hashtext("portfolio_cash_ledger")))
+        )
         latest = (
             await self.session.execute(
                 select(CashLedgerEntry)
+                .where(CashLedgerEntry.executed_at <= executed_at)
                 .order_by(
-                    desc(CashLedgerEntry.executed_at), desc(CashLedgerEntry.created_at)
+                    desc(CashLedgerEntry.executed_at),
+                    desc(CashLedgerEntry.created_at),
+                    desc(CashLedgerEntry.id),
                 )
                 .limit(1)
             )
         ).scalar_one_or_none()
-        current_balance = float(latest.balance_after) if latest else 0.0
-        new_balance = current_balance + amount
+        current_balance = _to_decimal(latest.balance_after) if latest else Decimal(0)
+        cash_amount = _to_decimal(amount)
+        new_balance = current_balance + cash_amount
+        await self.session.execute(
+            update(CashLedgerEntry)
+            .where(CashLedgerEntry.executed_at > executed_at)
+            .values(balance_after=CashLedgerEntry.balance_after + cash_amount)
+        )
 
         entry = CashLedgerEntry(
             entry_type=entry_type,
-            amount=amount,
+            amount=cash_amount,
             balance_after=new_balance,
             transaction_id=transaction_id,
             description=description,
@@ -2432,6 +2446,9 @@ class PortfolioService:
 
         from sqlalchemy import delete
 
+        await self.session.execute(
+            select(func.pg_advisory_xact_lock(func.hashtext("portfolio_cash_ledger")))
+        )
         await self.session.execute(delete(CashLedgerEntry))
         await self.session.flush()
 

@@ -148,8 +148,14 @@ class DashboardSummaryResponse(BaseModel):
     open_holdings_return_pct: Optional[float] = None
     risk_as_of: Optional[datetime] = None
     risk_measurement_start: Optional[datetime] = None
-    total_value: float = 0.0
-    buying_power: float = 0.0
+    total_value: float = Field(
+        default=0.0,
+        description="Estimated marked holdings plus recorded cash; not independently reconciled broker equity.",
+    )
+    buying_power: float = Field(
+        default=0.0,
+        description="Legacy field name for recorded cash; not independently observed broker buying power.",
+    )
     top_winners: list[PositionResponse] = []
     top_losers: list[PositionResponse] = []
     portfolio_build_series: list[PortfolioBuildPoint] = []

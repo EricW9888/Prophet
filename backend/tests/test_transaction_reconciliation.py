@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import ModuleType
@@ -110,6 +110,33 @@ async def test_migrated_schema_has_transaction_source_identity_constraint() -> N
 
     assert "source_identity" in columns
     assert constraints["uq_transactions_source_identity"] == ("source_identity",)
+
+
+async def test_backdated_cash_arrival_updates_later_balances(portfolio_service):
+    service = portfolio_service
+    later = EXECUTED_AT
+    earlier = later - timedelta(days=2)
+    middle = later - timedelta(days=1)
+    for action, amount, at in [
+        ("deposit", 1000, later),
+        ("deposit", 250, earlier),
+        ("withdrawal", 40, middle),
+    ]:
+        await service.add_transaction_by_ticker(
+            "CASH",
+            TransactionCreate(action=action, quantity=1, price=amount, executed_at=at),
+        )
+    entries = list(
+        await service.session.scalars(
+            select(CashLedgerEntry).order_by(CashLedgerEntry.executed_at)
+        )
+    )
+    assert [entry.balance_after for entry in entries] == [
+        Decimal("250"),
+        Decimal("210"),
+        Decimal("1210"),
+    ]
+    assert (await service.overview()).buying_power == 1210
 
 
 async def test_source_identity_matches_migration_and_prefers_provider_identity() -> (

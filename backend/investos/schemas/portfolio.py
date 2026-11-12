@@ -201,8 +201,14 @@ class PortfolioOverviewResponse(BaseModel):
     recent_transactions: list[TransactionResponse] = Field(default_factory=list)
     top_winners: list[PositionResponse] = Field(default_factory=list)
     top_losers: list[PositionResponse] = Field(default_factory=list)
-    total_value: float = 0.0
-    buying_power: float = 0.0
+    total_value: float = Field(
+        default=0.0,
+        description="Estimated marked holdings plus recorded cash; not independently reconciled broker equity.",
+    )
+    buying_power: float = Field(
+        default=0.0,
+        description="Legacy field name for reconstructed cash, or the configured cash fallback. Does not establish broker buying power, settlement or margin availability.",
+    )
     build_series: list[PortfolioBuildPoint] = Field(default_factory=list)
 
 

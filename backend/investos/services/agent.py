@@ -1848,14 +1848,6 @@ class AgentService:
                 "freshness_reason": "",
                 "reason": "Empty turn.",
             }
-        if PortfolioLookaheadService.looks_like_lookahead_request(normalized):
-            return {
-                "route": "operate",
-                "assistant_message": None,
-                "requires_fresh_research": False,
-                "freshness_reason": "",
-                "reason": "Deterministic router matched a portfolio lookahead/calendar request.",
-            }
         try:
             return await asyncio.wait_for(
                 call_llm_json(
@@ -1866,7 +1858,7 @@ class AgentService:
                         "- conversation: pure greeting, thanks, acknowledgement, or interface chatter with no analysis request.\n"
                         "- clarify: too ambiguous to analyze safely as a standalone turn, such as an unexplained acronym or single token.\n"
                         "- continue: short follow-up that likely depends on the active conversation context.\n"
-                        "- operate: asks Prophet to inspect or act on its own system state, such as portfolio snapshot, transactions, settings, trusted sources, knowledge graph/search/storage, lessons, research status, review queue, benchmarks, shadow experiments, Gmail, YouTube, or starting a research pass.\n"
+                        "- operate: asks Prophet to inspect or act on its own system state, such as portfolio snapshot, transactions, settings, trusted sources, knowledge graph/search/storage, lessons, research status, review queue, benchmarks, shadow experiments, upcoming portfolio events/calendar/reminders, Gmail, YouTube, or starting a research pass.\n"
                         "- analyze: asks for investment reasoning, market implications, thesis work, valuation, long-run return, what matters, critique, or what to do about a holding/event.\n"
                         "Set requires_fresh_research when the answer depends on facts that may have changed or an external event/access state, including current listings, availability, prices, filings, deals, earnings, guidance, regulation, or recent developments. "
                         "Do not set it merely because a question is about investing. Put the concrete temporal dependency in freshness_reason, or an empty string when fresh research is unnecessary. "
@@ -1979,8 +1971,17 @@ class AgentService:
             "set",
             "open",
         }
-        return any(term in normalized_message for term in operating_terms) and any(
-            term in normalized_message for term in command_terms
+        # Outage fallback is deliberately conservative. A later explanatory
+        # clause or a substring such as "get" in "budget" is not a command.
+        command = re.match(
+            r"^(?:please\s+)?(?:can you\s+|could you\s+)?(?:"
+            + "|".join(re.escape(term) for term in command_terms)
+            + r")\b",
+            normalized_message,
+        )
+        return bool(command) and any(
+            re.search(r"\b" + re.escape(term) + r"\b", normalized_message)
+            for term in operating_terms
         )
 
     def _build_conversation_context(
@@ -3805,27 +3806,6 @@ class AgentService:
         Instead of hardcoded buckets, we let the LLM decide which tools to call
         to answer from the deterministic operating state.
         """
-        if PortfolioLookaheadService.looks_like_lookahead_request(message):
-            payload = {
-                "query_type": "portfolio_lookahead",
-                "user_message": message,
-                "portfolio_lookahead": await PortfolioLookaheadService(
-                    self.session
-                ).build_payload(
-                    message=message,
-                    run_live_scan=allow_actions,
-                ),
-            }
-            result = await self._llm_operating_answer(payload)
-            result["operating_query_type"] = "portfolio_lookahead"
-            result["subject_id"] = resolved_subject_id
-            result["subject_type"] = resolved_subject_type
-            result["subject_name"] = resolved_subject_name
-            result["resolution_reason"] = (
-                "Handled by deterministic portfolio lookahead before tool-router dispatch."
-            )
-            return result
-
         recent_topic = await self._recent_session_topic(session_id)
         safe_history = history or []
 
