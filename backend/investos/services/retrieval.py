@@ -729,6 +729,7 @@ class RetrievalService:
         )
         return {
             "query_text": packet.query_text,
+            "packet_assembled_at": packet.assembled_at.isoformat(),
             "subject_type": packet.subject_type,
             "subject_id": packet.subject_id,
             "subject_name": subject_name,
@@ -1362,6 +1363,12 @@ class RetrievalService:
                     "adjustment_plan": watcher.adjustment_plan,
                     "deadline": (
                         watcher.deadline.isoformat() if watcher.deadline else None
+                    ),
+                    "timing_status": (
+                        "review_deadline_set" if watcher.deadline else "undated_monitor"
+                    ),
+                    "calendar_resolution": (watcher.action_taken_json or {}).get(
+                        "calendar_resolution"
                     ),
                     "created_at": watcher.created_at.isoformat(),
                 }

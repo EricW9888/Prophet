@@ -30,6 +30,26 @@ from investos.services.corroboration import CorroborationService
 from investos.services.retrieval import RetrievalService
 from investos.services.runtime_settings import RuntimeSettingsStore
 
+CURRENT_CONTEXT_RULES = (
+    " When fresh_research_context is present, use its dated source summaries to "
+    "answer current-event questions. Name source titles or URLs. If search failed "
+    "or was rate-limited, say the current-event claim is unverified rather than "
+    "filling it with stale context. Do not treat ephemeral fresh-search snippets "
+    "as accepted thesis evidence. A bounded search is incomplete coverage, not proof "
+    "that nothing happened. Inspect the checks and candidate manifest across every "
+    "lane; an omitted excerpt requires inspection, not a negative conclusion. "
+    "An unheld company can matter through a customer, supplier, competitor or shared "
+    "economic exposure. Test that connection and label unverified channels as "
+    "hypotheses; absence of a holding ticker in a headline is not a relevance verdict. "
+    "selected_holding_evidence counts only links in this packet, not all external news. "
+    "Use checked_at and packet_assembled_at for temporal context. A pending or undated "
+    "monitor is not a verified upcoming event. Review deadlines and text mentioning "
+    "a quarter do not establish an event date; resolve missing timing before calling "
+    "it upcoming. Keep measured contributions, reported claims, causal hypotheses "
+    "and verified facts separate. A coherent explanation does not establish causality. "
+    "Format substantive answers in Markdown with short paragraphs and lists. "
+)
+
 MATERIAL_ASSERTION_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -731,17 +751,8 @@ class ReasoningService:
             "When historical_analogy_lenses are present, apply the lens explicitly: what rhymes, what would break the "
             "analogy, the current dominant-channel test, and the portfolio/watch implication. "
             "Connect the answer back to portfolio implications when the packet supports that connection. "
-            "When fresh_research_context is present, use it as a current-event preflight: answer the fresh/current part "
-            "only from those returned source snippets or from durable evidence that explicitly covers the same event. "
-            "Name source titles or URLs when relying on fresh snippets. If fresh search failed, returned no results, or was "
-            "rate-limited, say the current-event claim is unverified instead of filling with stale local context. "
-            "A bounded search is incomplete coverage, not proof that nothing happened or that no action needs consideration. "
-            "Distinguish not found from does not exist; preserve the returned publication window and coverage limits. "
-            "Do not treat ephemeral fresh-search snippets as accepted thesis evidence until they have been ingested and extracted. "
-            "When explaining portfolio performance, separate measured contributions, hypotheses about causes, and open questions. "
-            "A broad price move or market-only snippets cannot by themselves establish a specific sector or company catalyst. "
-            "A pending watcher without a verified future date is not an upcoming event. Holding presence is not evidence coverage; "
-            "selected_holding_evidence counts only links in the selected packet, so report missing support rather than filling it in. "
+            + CURRENT_CONTEXT_RULES
+            + "A broad price move alone cannot establish a specific sector or company catalyst. "
             "Format substantial answers in Markdown with short paragraphs, headings, and lists for genuinely distinct points. "
             "For earnings, guidance, deals, announcements, or other market events, separate prior investor expectations "
             "from the actual result, market sentiment and positioning, institutional or ownership flows, price reaction, "
@@ -790,6 +801,7 @@ class ReasoningService:
             "When historical_analogy_lenses are present, state what rhymes, what breaks the analogy, and the current "
             "dominant-channel check before accepting the analogy as useful. "
             "Keep no_view or uncertain when the local graph cannot support an accepted thesis."
+            + CURRENT_CONTEXT_RULES
         )
 
     def _is_reusable_cached_output(self, payload: dict | None) -> bool:
@@ -854,6 +866,7 @@ class ReasoningService:
     ) -> dict:
         thin_payload = {
             "query_text": packet_context.get("query_text"),
+            "packet_assembled_at": packet_context.get("packet_assembled_at"),
             "subject_type": packet_context.get("subject_type"),
             "subject_id": str(packet_context.get("subject_id")),
             "coverage": packet_context.get("coverage") or {},
@@ -1033,6 +1046,7 @@ class ReasoningService:
         return {
             "analysis_mode": "reduced_context_recovery",
             "query_text": packet_context.get("query_text"),
+            "packet_assembled_at": packet_context.get("packet_assembled_at"),
             "subject_type": packet_context.get("subject_type"),
             "subject_id": str(packet_context.get("subject_id")),
             "subject_name": packet_context.get("subject_name"),

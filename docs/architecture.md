@@ -127,6 +127,11 @@ Recently checked, dated publisher summaries also enter the normal broad
 portfolio question's fresh context. They remain clearly provisional, with
 source receipts and recorded coverage limits. Sources exposes feed controls,
 retained observations, fetch state and unsent research drafts.
+Prompt compaction retains a bounded candidate manifest and search-coverage
+receipts independently of excerpt capacity. Excerpts share capacity across
+search lanes; omitted content and candidates are explicit. Publication,
+observation, receipt and packet-assembly metadata survive repeated compaction
+for analysis and critique. Undated monitors remain distinct from dated events.
 URL documents use Python's HTML parser to omit executable script and style
 content; document parsing runs off the API event loop. Navigation and publisher
 boilerplate can still remain, so a fetched page is not a verified article claim.

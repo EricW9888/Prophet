@@ -5458,7 +5458,7 @@ class AgentService:
         status = str(fresh_context.get("status") or "unknown")
         results = [
             item
-            for item in (fresh_context.get("results") or [])[:3]
+            for item in (fresh_context.get("results") or [])
             if isinstance(item, dict) and (item.get("title") or item.get("url"))
         ]
         source_bits: list[str] = []
@@ -5480,7 +5480,7 @@ class AgentService:
                     + ("; ..." if len(source_bits) > 2 else "")
                     + ")"
                 )
-                + ". These are pre-ingestion snippets, so treat current-event claims as provisional until the evidence is extracted and dated."
+                + ". Candidate summaries, including pre-ingestion snippets, remain provisional; a source receipt alone does not verify a claim or its portfolio impact."
             )
         else:
             note = (
