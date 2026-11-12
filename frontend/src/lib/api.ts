@@ -1167,6 +1167,7 @@ export type ProviderHealth = {
   provider?: string;
   state: string;
   failure_code?: string | null;
+  failure_detail?: { kind?: string; finish_reason?: string; content_chars?: number; completion_tokens?: number; reasoning_tokens?: number; max_tokens?: number } | null;
   failure_count?: number;
   next_probe_at?: string | null;
   lease_until?: string | null;

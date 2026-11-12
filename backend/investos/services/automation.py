@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, tuple_
 
 from investos.config import settings
 from investos.core.provider_health import ProviderHealthStore, probe_llm_provider
@@ -132,6 +132,7 @@ class AutomationCoordinator:
             return False
         health = ProviderHealthStore.public_status()
         if health["state"] not in {
+            "unobserved",
             "open",
             "probing",
             "storage_unavailable",
@@ -158,7 +159,8 @@ class AutomationCoordinator:
         previous_state = ProviderHealthStore.public_status()["state"]
         health = await probe_llm_provider()
         recovered = health["state"] == "healthy" and (
-            previous_state in {"open", "probing"} or telemetry.last_status == "deferred"
+            previous_state in {"open", "probing", "unobserved"}
+            or telemetry.last_status == "deferred"
         )
         telemetry.last_run_at = datetime.now(UTC)
         telemetry.last_status = "ok" if health["state"] == "healthy" else "deferred"
@@ -787,35 +789,46 @@ class AutomationCoordinator:
                 await self._question_subject_context(session, question),
             )
         await ReviewService(session).refresh_queue()
-        review_items = (
-            (
-                await session.execute(
-                    select(ReviewQueueItem)
-                    .where(ReviewQueueItem.status.in_(["pending", "in_review"]))
-                    .order_by(
-                        desc(ReviewQueueItem.priority_score),
-                        desc(ReviewQueueItem.created_at),
+        cutoff = datetime.now(UTC)
+        cursor = None
+        while True:
+            statement = select(ReviewQueueItem).where(
+                ReviewQueueItem.review_domain == "investment",
+                ReviewQueueItem.status.in_(["pending", "in_review"]),
+                ReviewQueueItem.created_at <= cutoff,
+            )
+            ordering = (
+                ReviewQueueItem.priority_score,
+                ReviewQueueItem.created_at,
+                ReviewQueueItem.id,
+            )
+            if cursor is not None:
+                statement = statement.where(tuple_(*ordering) < cursor)
+            review_items = list(
+                await session.scalars(
+                    statement.order_by(*(column.desc() for column in ordering)).limit(
+                        30
                     )
-                    .limit(30)
                 )
             )
-            .scalars()
-            .all()
-        )
-        for item in review_items:
-            question = await self._question_for_review_item(session, item)
-            if (
-                question is not None
-                and await self._is_portfolio_relevant_question_subject(
-                    session, question
-                )
-            ):
-                await session.commit()
-                return (
-                    question,
-                    item,
-                    await self._question_subject_context(session, question),
-                )
+            if not review_items:
+                break
+            for item in review_items:
+                question = await self._question_for_review_item(session, item)
+                if (
+                    question is not None
+                    and await self._is_portfolio_relevant_question_subject(
+                        session, question
+                    )
+                ):
+                    await session.commit()
+                    return (
+                        question,
+                        item,
+                        await self._question_subject_context(session, question),
+                    )
+            last = review_items[-1]
+            cursor = (last.priority_score, last.created_at, last.id)
         await session.commit()
         return (
             None,

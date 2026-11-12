@@ -28,7 +28,7 @@ import {
 import { ArrowRight, Clock, Database, Landmark, Zap, Search, Shield, Trash2, CheckCircle2, AlertCircle, Terminal } from "lucide-react";
 import LiveLogConsole from "@/components/LiveLogConsole";
 import MailboxIdentityReviews from "@/components/MailboxIdentityReviews";
-import { automationJobOutcome } from "@/lib/automation";
+import { automationJobPresentation } from "@/lib/automation";
 
 type SettingsTab = "overview" | "data" | "research" | "system";
 type GmailTestResult = {
@@ -1220,6 +1220,7 @@ function formatStatusText(value?: string | null): string {
 }
 
 const AUTOMATION_JOB_COPY: Record<string, { label: string; description: string }> = {
+  provider_health_probe: { label: "Provider health probe", description: "Verifies structured generation when recovery is eligible, then wakes waiting model-dependent work." },
   database_backup: { label: "Database backup", description: "Creates a recoverable database snapshot." },
   integrity_audit: { label: "Integrity and graph repair", description: "Validates stored rows, preserves unknown graph types for review, and restores missing metric or market-signal links from canonical records." },
   research_loop: { label: "Research queue", description: "Advances the highest-priority unresolved research question." },
@@ -1258,69 +1259,14 @@ function automationJobDescription(name: string): string {
 type AutomationJob = AutomationStatus["jobs"][number];
 
 function automationStatusView(job: AutomationJob) {
-  const outcome = automationJobOutcome(job);
-  if (outcome === "disabled") {
-    return {
-      bg: "bg-slate-50 dark:bg-slate-900",
-      border: "border-slate-100 dark:border-slate-800",
-      text: "text-slate-500 dark:text-slate-400",
-      meaning: "Disabled by runtime settings.",
-    };
-  }
-  if (outcome === "error") {
-    return {
-      bg: "bg-red-50/70 dark:bg-red-950/20",
-      border: "border-red-100 dark:border-red-900/40",
-      text: "text-red-600 dark:text-red-300",
-      meaning: "Last run failed; open logs or rerun after fixing the cause.",
-    };
-  }
-  if (outcome === "warning") {
-    return {
-      bg: "bg-amber-50/70 dark:bg-amber-950/20",
-      border: "border-amber-100 dark:border-amber-900/40",
-      text: "text-amber-700 dark:text-amber-300",
-      meaning: "Last run needs attention; some work may remain incomplete.",
-    };
-  }
-  if (outcome === "waiting_for_config") {
-    return {
-      bg: "bg-amber-50/70 dark:bg-amber-950/20",
-      border: "border-amber-100 dark:border-amber-900/40",
-      text: "text-amber-700 dark:text-amber-300",
-      meaning: "Enabled, but waiting for a required setting before it can run.",
-    };
-  }
-  if (outcome === "idle") {
-    return {
-      bg: "bg-slate-50 dark:bg-slate-900",
-      border: "border-slate-100 dark:border-slate-800",
-      text: "text-slate-500 dark:text-slate-400",
-      meaning: "Enabled and waiting for the next scheduled run.",
-    };
-  }
-  if (outcome === "cancelled") {
-    return {
-      bg: "bg-slate-50 dark:bg-slate-900",
-      border: "border-slate-100 dark:border-slate-800",
-      text: "text-slate-500 dark:text-slate-300",
-      meaning: "Interrupted during shutdown or restart; the scheduler will retry later.",
-    };
-  }
-  if (outcome === "running" || outcome === "unknown") {
-    return {
-      bg: "bg-slate-50 dark:bg-slate-900",
-      border: "border-slate-100 dark:border-slate-800",
-      text: "text-slate-600 dark:text-slate-300",
-      meaning: outcome === "running" ? "Work is in progress; no completed result yet." : "Status is unavailable; completion has not been verified.",
-    };
-  }
-  return {
-    bg: "bg-emerald-50/70 dark:bg-emerald-950/20",
-    border: "border-emerald-100 dark:border-emerald-900/40",
-    text: "text-emerald-600 dark:text-emerald-300",
-    meaning: "Last run completed.",
+  const presentation = automationJobPresentation(job);
+  const colors = {
+    ok: { bg: "bg-emerald-50/70 dark:bg-emerald-950/20", border: "border-emerald-100 dark:border-emerald-900/40", text: "text-emerald-600 dark:text-emerald-300" },
+    warn: { bg: "bg-amber-50/70 dark:bg-amber-950/20", border: "border-amber-100 dark:border-amber-900/40", text: "text-amber-700 dark:text-amber-300" },
+    error: { bg: "bg-red-50/70 dark:bg-red-950/20", border: "border-red-100 dark:border-red-900/40", text: "text-red-600 dark:text-red-300" },
+    idle: { bg: "bg-slate-50 dark:bg-slate-900", border: "border-slate-100 dark:border-slate-800", text: "text-slate-500 dark:text-slate-400" },
   };
+  return { ...colors[presentation.tone], meaning: presentation.meaning };
 }
 
 function humanizeJobDetail(detail: string): string {

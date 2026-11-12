@@ -4,6 +4,33 @@ from dataclasses import dataclass
 from typing import Any
 
 
+class StructuredGenerationError(ValueError):
+    """A contract failure with diagnostic metadata, never generated content."""
+
+    def __init__(
+        self,
+        kind: str,
+        *,
+        finish_reason=None,
+        content_chars=None,
+        completion_tokens=None,
+        reasoning_tokens=None,
+        max_tokens=None,
+    ):
+        self.diagnostic = {"kind": kind}
+        if finish_reason in {"stop", "length", "tool_calls", "content_filter"}:
+            self.diagnostic["finish_reason"] = finish_reason
+        for name, value in dict(
+            content_chars=content_chars,
+            completion_tokens=completion_tokens,
+            reasoning_tokens=reasoning_tokens,
+            max_tokens=max_tokens,
+        ).items():
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                self.diagnostic[name] = value
+        super().__init__(f"Structured generation failed: {self.diagnostic}")
+
+
 @dataclass(frozen=True)
 class LLMProviderCapability:
     provider: str
@@ -87,6 +114,21 @@ LLM_PROVIDER_CAPABILITIES: dict[str, LLMProviderCapability] = {
 
 
 LLM_MODEL_CAPABILITIES: tuple[LLMModelCapability, ...] = (
+    LLMModelCapability(
+        provider="ollama",
+        model_prefixes=("qwen3:", "qwen3.5:"),
+        structured_request_options=(("think", False),),
+    ),
+    LLMModelCapability(
+        provider="nvidia_nim",
+        model_prefixes=("nvidia/nemotron-3-ultra-",),
+        structured_request_options=(
+            (
+                "chat_template_kwargs",
+                {"enable_thinking": False, "force_nonempty_content": True},
+            ),
+        ),
+    ),
     LLMModelCapability(
         provider="nvidia_nim",
         model_prefixes=("nvidia/nemotron-3-",),

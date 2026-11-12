@@ -2,6 +2,26 @@ import type { AutomationStatus } from "@/lib/api";
 
 type AutomationJob = AutomationStatus["jobs"][number];
 
+export function automationJobPresentation(job: AutomationJob): { tone: "ok" | "warn" | "error" | "idle"; meaning: string } {
+  const states = {
+    disabled: { tone: "idle", meaning: "Disabled by runtime settings." },
+    error: { tone: "error", meaning: "Last attempt failed; inspect the cause before retrying." },
+    warning: { tone: "warn", meaning: "Some work remains incomplete or needs attention." },
+    waiting_for_config: { tone: "warn", meaning: "Waiting for a required setting before work can run." },
+    deferred: { tone: "warn", meaning: "Work is deferred. Its prerequisite must recover before it can proceed." },
+    rejected: { tone: "warn", meaning: "The result was rejected; no accepted conclusion is implied." },
+    idle: { tone: "idle", meaning: "Waiting for eligible work or the next check." },
+    running: { tone: "idle", meaning: "Work is in progress; no completed result yet." },
+    cancelled: { tone: "idle", meaning: "Work was interrupted; no completed result is implied." },
+    skipped: { tone: "idle", meaning: "No work was performed on this check." },
+    no_new_evidence: { tone: "idle", meaning: "The check found no new evidence." },
+    no_new_knowledge: { tone: "idle", meaning: "The check produced no new accepted knowledge." },
+    ok: { tone: "ok", meaning: "Last run completed. Inspect its recorded result for what changed." },
+    unknown: { tone: "idle", meaning: "Status is unavailable; completion has not been verified." },
+  } as const;
+  return states[automationJobOutcome(job)];
+}
+
 export function automationOverallHealth(enabled: boolean, jobs: AutomationJob[]) {
   if (!enabled) return "Disabled";
   const active = jobs.filter(job => job.enabled);

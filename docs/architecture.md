@@ -224,6 +224,26 @@ resolution in a browser worker. Camera movement updates the SVG transform;
 React updates label detail only at zoom thresholds and memoizes individual
 glyphs so unrelated inspector or hover work does not redraw the whole scene.
 
+## Structured model execution
+
+The hosted request limiter rechecks the provider circuit before and after
+waiting for admission. A queued call denied admission is a deferral, not a new
+provider failure. Shared recovery uses one transport attempt, the configured
+generation timeout, and a lease covering that timeout. Autonomous model work
+waits for a verified configuration; deterministic maintenance can continue.
+Health identities include model request options so an observed failure is not
+silently transferred to a different protocol configuration. Old records remain
+retained. Empty, truncated and schema-invalid responses cannot pass as success;
+diagnostics retain protocol counts and finish codes rather than generated text.
+
+Model-family request options are defined in `core/providers.py`. Ultra final
+content controls follow [NVIDIA's documented recipe](https://docs.nvidia.com/dynamo/dev/recipes/nemotron-3-ultra).
+Local Qwen structured requests use Ollama's supported thinking control and
+schema format. Both local and hosted responses are validated in Prophet.
+An explicit local model must resolve to that installed model, rather than
+silently selecting another model or a cloud tag. Provider overrides use their
+own endpoint/model configuration. Local execution remains explicit opt-in.
+
 ## Automation
 
 `AutomationCoordinator` starts with the FastAPI lifespan and registers the
@@ -247,6 +267,12 @@ activity must still earn execution through due state, changed evidence,
 portfolio relevance, unresolved uncertainty, or another concrete expected
 information gain. Unchanged/no-op checkpoints may support deduplication and
 telemetry, but are not presented as meaningful agent activity.
+
+Research selection filters investment concerns before applying its batch size
+and continues through ordered batches until it finds eligible work. Receipt
+identity and reconciliation holds stay in their own review domain and cannot
+consume the research queue's candidate window. Scanning never resolves those
+holds or modifies the portfolio ledger.
 
 Committed evidence intake, material extraction, actionable questions, and
 shadow evidence receipts wake their existing workers through PostgreSQL

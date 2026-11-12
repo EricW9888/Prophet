@@ -5,6 +5,7 @@ import re
 import shutil
 import tempfile
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
@@ -16,10 +17,12 @@ import httpx
 from investos.config import settings
 from investos.core.provider_health import (
     LLMProviderCooldownError,
+    ProviderHealthStore,
     _probe_call,
     guarded_provider_call,
 )
 from investos.core.providers import (
+    StructuredGenerationError,
     llm_provider_capability,
     llm_recovery_provider_ids,
     llm_structured_request_options,
@@ -51,16 +54,24 @@ class AsyncRateLimiter:
         self._sem = asyncio.Semaphore(max(1, max_concurrency))
         self._next_allowed = 0.0
 
-    async def acquire(self) -> None:
+    async def acquire(self, *, check: Callable[[], Any] | None = None) -> None:
+        if check:
+            check()
         await self._sem.acquire()
         try:
+            if check:
+                check()
             async with self._lock:
+                if check:
+                    check()
                 loop = asyncio.get_running_loop()
                 now = loop.time()
                 wait = self._next_allowed - now
                 if wait > 0:
                     await asyncio.sleep(wait)
                     now = loop.time()
+                if check:
+                    check()
                 self._next_allowed = max(now, self._next_allowed) + self._interval
         except BaseException:
             self._sem.release()
@@ -75,6 +86,22 @@ class AsyncRateLimiter:
 
     async def __aexit__(self, *exc: Any) -> None:
         self.release()
+
+    @asynccontextmanager
+    async def admission(self, *, check=None):
+        await self.acquire(check=check)
+        try:
+            yield
+        finally:
+            self.release()
+
+
+def _nvidia_admission_check(model):
+    return (
+        None
+        if _probe_call.get()
+        else lambda: ProviderHealthStore.require_available("nvidia_nim", model)
+    )
 
 
 class CodexCLIFailedError(RuntimeError):
@@ -204,7 +231,7 @@ def retry_with_backoff(
                 )
             except (TypeError, ValueError):
                 timeout_value = None
-            if timeout_value is not None and timeout_value <= 5:
+            if _probe_call.get() or (timeout_value is not None and timeout_value <= 5):
                 effective_max_retries = 0
             elif timeout_value is not None and timeout_value <= 10:
                 effective_max_retries = min(max_retries, 1)
@@ -623,25 +650,24 @@ def _ollama_base_url() -> str:
     try:
         from investos.services.runtime_settings import RuntimeSettingsStore
 
-        base_url = RuntimeSettingsStore.load().llm.hosted_base_url
+        runtime = RuntimeSettingsStore.load().llm
+        base_url = runtime.hosted_base_url if runtime.provider == "ollama" else None
     except Exception:
         base_url = None
-    if not base_url or "nvidia" in str(base_url).lower():
+    if not base_url:
         base_url = settings.OLLAMA_BASE_URL
-    return str(base_url).replace("/v1", "").rstrip("/")
+    return str(base_url).rstrip("/").removesuffix("/v1")
 
 
 def _ollama_requested_model(model: str | None = None) -> str | None:
     try:
         from investos.services.runtime_settings import RuntimeSettingsStore
 
-        runtime_model = RuntimeSettingsStore.load().llm.hosted_model
+        runtime = RuntimeSettingsStore.load().llm
+        runtime_model = runtime.hosted_model if runtime.provider == "ollama" else None
     except Exception:
         runtime_model = None
-    requested_model = model or runtime_model or settings.OLLAMA_MODEL
-    if requested_model and "kimi" in requested_model.lower():
-        return None
-    return requested_model
+    return model or runtime_model or settings.OLLAMA_MODEL
 
 
 def _candidate_json_recovery_providers(
@@ -686,6 +712,7 @@ async def verify_llm_provider_readiness(provider: str) -> tuple[bool, str]:
     if capability.is_local and not settings.LLM_ALLOW_LOCAL_PROVIDER:
         return False, "Local LLM providers are disabled by policy."
     try:
+        ProviderHealthStore.require_available(provider)
         if provider == "codex_cli":
             remaining = _cooldown_remaining("codex_cli")
             if remaining > 0:
@@ -717,25 +744,13 @@ async def verify_llm_provider_readiness(provider: str) -> tuple[bool, str]:
             async with httpx.AsyncClient(
                 base_url=_ollama_base_url(), timeout=5
             ) as client:
-                response = await client.get("/api/tags")
-                response.raise_for_status()
-                payload = response.json()
-                models = payload.get("models") or []
-                if models:
-                    requested = _ollama_requested_model()
-                    if requested:
-                        model_names = {
-                            str(item.get("name"))
-                            for item in models
-                            if isinstance(item, dict) and item.get("name")
-                        }
-                        if requested not in model_names:
-                            return (
-                                True,
-                                f"Ollama is ready with {len(models)} models; configured model {requested} is not installed, so a local model will be selected.",
-                            )
-                    return True, f"Ollama is ready with {len(models)} models."
-                return False, "Ollama is running but no models are loaded."
+                installed = await _resolve_ollama_model(
+                    client, _ollama_requested_model()
+                )
+                return (
+                    True,
+                    f"Ollama model {installed} is installed. Generation is verified separately by the shared probe.",
+                )
 
         if provider == "nvidia_nim":
             remaining = _cooldown_remaining("nvidia_nim")
@@ -753,7 +768,10 @@ async def verify_llm_provider_readiness(provider: str) -> tuple[bool, str]:
                     headers={"Authorization": f"Bearer {runtime.api_key}"},
                 )
                 if response.status_code == 200:
-                    return True, "NVIDIA NIM is ready."
+                    return (
+                        True,
+                        "NVIDIA NIM API is reachable. Generation is verified separately by the shared probe.",
+                    )
                 return (
                     False,
                     f"NVIDIA NIM error {response.status_code}: {response.text[:100]}",
@@ -864,20 +882,30 @@ async def _call_ollama_json(
                 "prompt": user_prompt,
                 "format": schema,
                 "stream": False,
+                **llm_structured_request_options("ollama", request_model),
                 "options": {
                     "temperature": 0.1,
+                    "num_predict": settings.LLM_STRUCTURED_MAX_TOKENS,
                 },
             },
         )
     response.raise_for_status()
     payload = response.json()
     raw_text = _normalize_llm_text(payload.get("response"))
+    raw_text = _require_generated_content(
+        raw_text,
+        finish_reason="length" if payload.get("done_reason") == "length" else "stop",
+        usage={"completion_tokens": payload.get("eval_count")},
+        max_tokens=settings.LLM_STRUCTURED_MAX_TOKENS,
+    )
     try:
-        return _extract_json_object(raw_text, provider_name="Ollama")
+        return _validate_json_response(
+            _extract_json_object(raw_text, provider_name="Ollama"),
+            schema=schema,
+            provider_name="Ollama",
+        )
     except Exception as exc:
-        raise RuntimeError(
-            f"Ollama returned non-JSON output for model {request_model}: {raw_text[:400]}"
-        ) from exc
+        raise StructuredGenerationError("schema_mismatch") from exc
 
 
 # NOTE: retries live at the network layer (_nvidia_chat_json_text). This
@@ -946,6 +974,8 @@ async def _call_nvidia_json(
                 provider_name="NVIDIA NIM",
             )
         except Exception as exc:
+            if _probe_call.get():
+                raise StructuredGenerationError("schema_mismatch") from exc
             import logging
 
             logging.getLogger(__name__).warning(
@@ -999,12 +1029,7 @@ async def _call_nvidia_json(
                     provider_name="NVIDIA NIM repair",
                 )
             except Exception as repair_exc:
-                raise RuntimeError(
-                    "NVIDIA NIM could not satisfy the structured output contract "
-                    f"for model {request_model}. Initial response: "
-                    f"{compact_exception_message(exc)}. Repair response: "
-                    f"{compact_exception_message(repair_exc)}."
-                ) from repair_exc
+                raise StructuredGenerationError("schema_mismatch") from repair_exc
 
 
 @guarded_provider_call
@@ -1067,7 +1092,9 @@ async def _call_nvidia_tools(
     }
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-        async with _get_rate_limiter():
+        async with _get_rate_limiter().admission(
+            check=_nvidia_admission_check(request_model)
+        ):
             response = await client.post(
                 f"{base_url}/chat/completions",
                 headers={
@@ -1094,7 +1121,9 @@ async def _nvidia_chat_json_text(
     payload: dict[str, Any],
     timeout_seconds: int | None = None,
 ) -> str:
-    async with _get_rate_limiter():
+    async with _get_rate_limiter().admission(
+        check=_nvidia_admission_check(payload.get("model"))
+    ):
         response = await client.post(
             f"{base_url}/chat/completions",
             headers={
@@ -1105,11 +1134,39 @@ async def _nvidia_chat_json_text(
         )
     response.raise_for_status()
     body = response.json()
+    if not isinstance(body, dict):
+        raise StructuredGenerationError("invalid_envelope")
     choices = body.get("choices") or []
-    if not choices or not isinstance(choices[0], dict):
-        raise RuntimeError("NVIDIA NIM returned no choices.")
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        raise StructuredGenerationError("invalid_envelope")
     message = choices[0].get("message") or {}
-    return _normalize_llm_text(message.get("content"))
+    if not isinstance(message, dict):
+        raise StructuredGenerationError("invalid_envelope")
+    return _require_generated_content(
+        _normalize_llm_text(message.get("content")),
+        finish_reason=choices[0].get("finish_reason"),
+        usage=body.get("usage"),
+        max_tokens=payload.get("max_tokens"),
+    )
+
+
+def _require_generated_content(
+    content, *, finish_reason=None, usage=None, max_tokens=None
+):
+    if content and finish_reason != "length":
+        return content
+    usage = usage if isinstance(usage, dict) else {}
+    detail = usage.get("completion_tokens_details") or {}
+    raise StructuredGenerationError(
+        "truncated_output" if finish_reason == "length" else "empty_content",
+        finish_reason=finish_reason,
+        content_chars=len(content),
+        completion_tokens=usage.get("completion_tokens"),
+        reasoning_tokens=(
+            detail.get("reasoning_tokens") if isinstance(detail, dict) else None
+        ),
+        max_tokens=max_tokens,
+    )
 
 
 async def _call_nvidia_json_streaming(
@@ -1159,9 +1216,11 @@ async def _call_nvidia_json_streaming(
 
     full_text = ""
     last_reasoning = ""
+    finish_reason = None
+    usage = None
     _raise_if_provider_cooling_down("nvidia_nim")
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-        await _get_rate_limiter().acquire()
+        await _get_rate_limiter().acquire(check=_nvidia_admission_check(request_model))
         try:
             async with client.stream(
                 "POST",
@@ -1182,6 +1241,13 @@ async def _call_nvidia_json_streaming(
                         break
                     try:
                         chunk = json.loads(line[6:])
+                        if chunk.get("usage"):
+                            usage = chunk["usage"]
+                        if not chunk.get("choices"):
+                            continue
+                        finish_reason = (
+                            chunk["choices"][0].get("finish_reason") or finish_reason
+                        )
                         delta = chunk["choices"][0]["delta"].get("content", "")
                         full_text += delta
                         # Robust regex for 'reasoning' field extraction from a growing JSON stream
@@ -1203,7 +1269,15 @@ async def _call_nvidia_json_streaming(
         finally:
             _get_rate_limiter().release()
     return _validate_json_response(
-        _extract_json_object(full_text, provider_name="NVIDIA NIM Streaming"),
+        _extract_json_object(
+            _require_generated_content(
+                full_text,
+                finish_reason=finish_reason,
+                usage=usage,
+                max_tokens=payload.get("max_tokens"),
+            ),
+            provider_name="NVIDIA NIM Streaming",
+        ),
         schema=schema,
         provider_name="NVIDIA NIM Streaming",
     )
@@ -1226,6 +1300,7 @@ async def _call_ollama_json_streaming(
         )
         full_text = ""
         last_reasoning = ""
+        generation_info = {}
         async with client.stream(
             "POST",
             "/api/generate",
@@ -1235,6 +1310,11 @@ async def _call_ollama_json_streaming(
                 "prompt": user_prompt,
                 "format": schema,
                 "stream": True,
+                "options": {
+                    "temperature": 0.1,
+                    "num_predict": settings.LLM_STRUCTURED_MAX_TOKENS,
+                },
+                **llm_structured_request_options("ollama", request_model),
             },
         ) as response:
             response.raise_for_status()
@@ -1243,6 +1323,8 @@ async def _call_ollama_json_streaming(
                     continue
                 try:
                     chunk = json.loads(line)
+                    if chunk.get("done"):
+                        generation_info = chunk
                     delta = chunk.get("response", "")
                     full_text += delta
                     reasoning_match = re.search(r'"reasoning":\s*"([^"]*)', full_text)
@@ -1253,7 +1335,23 @@ async def _call_ollama_json_streaming(
                             last_reasoning = current_reasoning
                 except Exception:
                     continue
-    return _extract_json_object(full_text, provider_name="Ollama Streaming")
+    return _validate_json_response(
+        _extract_json_object(
+            _require_generated_content(
+                full_text,
+                finish_reason=(
+                    "length"
+                    if generation_info.get("done_reason") == "length"
+                    else "stop"
+                ),
+                usage={"completion_tokens": generation_info.get("eval_count")},
+                max_tokens=settings.LLM_STRUCTURED_MAX_TOKENS,
+            ),
+            provider_name="Ollama Streaming",
+        ),
+        schema=schema,
+        provider_name="Ollama Streaming",
+    )
 
 
 async def _resolve_ollama_model(
@@ -1271,11 +1369,18 @@ async def _resolve_ollama_model(
         for item in models
         if isinstance(item, dict) and item.get("name")
     ]
-    if requested_model and requested_model in model_names:
-        return requested_model
     local_candidates = [name for name in model_names if not name.endswith(":cloud")]
-    if local_candidates:
+    if requested_model:
+        requested = (
+            requested_model
+            if ":" in requested_model.rsplit("/", 1)[-1]
+            else f"{requested_model}:latest"
+        )
+        if requested in local_candidates:
+            return requested
+        raise RuntimeError(
+            "The requested local model is not installed. Select its exact installed name; cloud models are not local inference."
+        )
+    if len(local_candidates) == 1:
         return local_candidates[0]
-    if model_names:
-        return model_names[0]
-    raise RuntimeError("Unable to determine an Ollama model to use.")
+    raise RuntimeError("Select an installed local Ollama model explicitly.")
