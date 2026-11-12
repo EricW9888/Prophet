@@ -5,6 +5,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field
@@ -77,6 +78,7 @@ class ResearchRuntimeSettings(BaseModel):
 
 
 class OpportunityDiscoveryRuntimeSettings(BaseModel):
+    universe_scope: Literal["manual", "us_listed"] = "manual"
     enabled: bool = settings.OPPORTUNITY_DISCOVERY_ENABLED
     interval_seconds: int = settings.OPPORTUNITY_DISCOVERY_INTERVAL_SECONDS
     max_subjects_per_run: int = settings.OPPORTUNITY_DISCOVERY_MAX_SUBJECTS_PER_RUN
@@ -353,6 +355,7 @@ class RuntimeSettingsStore:
                 status_message=research_msg,
             ),
             opportunity_discovery=OpportunityDiscoveryIntegrationSettings(
+                universe_scope=runtime.opportunity_discovery.universe_scope,
                 enabled=runtime.opportunity_discovery.enabled,
                 interval_seconds=runtime.opportunity_discovery.interval_seconds,
                 max_subjects_per_run=runtime.opportunity_discovery.max_subjects_per_run,
@@ -577,6 +580,7 @@ class RuntimeSettingsStore:
     ) -> OpportunityDiscoveryRuntimeSettings:
         data = current.model_dump()
         for field in (
+            "universe_scope",
             "enabled",
             "interval_seconds",
             "max_subjects_per_run",

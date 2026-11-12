@@ -124,6 +124,11 @@ class Settings(BaseSettings):
     AUTOMATION_ENABLED: bool = True
     AUTOMATION_POLL_SECONDS: int = 300
     NEWS_INTAKE_ENABLED: bool = True
+    LISTING_DIRECTORY_REFRESH_SECONDS: int = Field(default=3600, ge=3600, le=604800)
+    US_LISTING_DIRECTORY_URLS: list[str] = [
+        "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt",
+        "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt",
+    ]
     NEWS_INTAKE_POLL_SECONDS: int = Field(default=300, ge=60, le=86400)
     NEWS_INTAKE_FETCH_BATCH_SIZE: int = Field(default=3, ge=1, le=20)
     NEWS_INTAKE_LOOKBACK_HOURS: int = Field(default=72, ge=1, le=720)

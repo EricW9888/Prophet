@@ -53,6 +53,50 @@ class OpportunityUniverseMember(Base):
     )
 
 
+class ListingDirectory(Base):
+    """External listing metadata, separate from canonical research subjects."""
+
+    __tablename__ = "listing_directories"
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    url: Mapped[str] = mapped_column(String, unique=True)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_refresh_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String, default="not_checked")
+    error: Mapped[str | None] = mapped_column(String)
+    metadata_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+
+class ResearchListing(Base):
+    __tablename__ = "research_listings"
+    __table_args__ = (
+        UniqueConstraint("directory_id", "symbol", name="uq_research_listing_symbol"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    directory_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("listing_directories.id"), index=True
+    )
+    symbol: Mapped[str] = mapped_column(String, index=True)
+    name: Mapped[str] = mapped_column(String)
+    exchange: Mapped[str] = mapped_column(String)
+    instrument_type: Mapped[str] = mapped_column(String)
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    research_eligible: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    operator_excluded: Mapped[bool] = mapped_column(Boolean, default=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    member_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("opportunity_universe_members.id", ondelete="SET NULL"), index=True
+    )
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error: Mapped[str | None] = mapped_column(String)
+    metadata_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+
 class OpportunityDiscoveryRun(Base):
     """Durable coverage and cost boundary for one resumable discovery pass."""
 

@@ -236,6 +236,7 @@ class ResearchIntegrationSettingsUpdate(BaseModel):
 
 
 class OpportunityDiscoveryIntegrationSettings(BaseModel):
+    universe_scope: Literal["manual", "us_listed"] = "manual"
     enabled: bool = True
     interval_seconds: int = Field(default=21600, ge=300, le=604800)
     max_subjects_per_run: int = Field(default=4, ge=1, le=100)
@@ -244,6 +245,7 @@ class OpportunityDiscoveryIntegrationSettings(BaseModel):
 
 
 class OpportunityDiscoveryIntegrationSettingsUpdate(BaseModel):
+    universe_scope: Literal["manual", "us_listed"] | None = None
     enabled: bool | None = None
     interval_seconds: int | None = Field(default=None, ge=300, le=604800)
     max_subjects_per_run: int | None = Field(default=None, ge=1, le=100)

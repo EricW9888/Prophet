@@ -155,12 +155,15 @@ async def fetch_public_text(
     timeout = httpx.Timeout(timeout_seconds)
 
     try:
-        async with httpx.AsyncClient(
-            timeout=timeout,
-            follow_redirects=False,
-            trust_env=False,
-            transport=transport,
-        ) as client:
+        async with (
+            asyncio.timeout(timeout_seconds),
+            httpx.AsyncClient(
+                timeout=timeout,
+                follow_redirects=False,
+                trust_env=False,
+                transport=transport,
+            ) as client,
+        ):
             for redirect_count in range(max_redirects + 1):
                 target = await resolve_public_url(
                     current_url,
@@ -223,6 +226,10 @@ async def fetch_public_text(
                         return bytes(body).decode(encoding, errors="replace")
                     except LookupError:
                         return bytes(body).decode("utf-8", errors="replace")
+    except TimeoutError as exc:
+        raise UrlFetchNetworkError(
+            "The remote document exceeded its retrieval deadline."
+        ) from exc
     except UnsafeUrlError:
         raise
     except UrlFetchNetworkError:

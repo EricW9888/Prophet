@@ -20,6 +20,7 @@ from investos.models.opportunity import (
     OpportunityCandidateObservation,
     OpportunityDiscoveryRun,
     OpportunityUniverseMember,
+    ResearchListing,
 )
 from investos.models.portfolio import Position
 from investos.models.profile import Profile
@@ -506,6 +507,13 @@ class OpportunityDiscoveryService:
         member = await self.session.get(OpportunityUniverseMember, member_id)
         if member is None:
             raise ValueError("Opportunity universe member not found.")
+        await self.session.execute(
+            update(ResearchListing)
+            .where(
+                ResearchListing.member_id == member.id,
+            )
+            .values(operator_excluded=True)
+        )
         await self.session.delete(member)
         await self.session.commit()
 
@@ -527,6 +535,26 @@ class OpportunityDiscoveryService:
                 **(run.limits_json or {}),
                 "outcome_evaluation": outcome_summary,
             }
+            from investos.services.listing_directory import ListingDirectoryService
+
+            directory = ListingDirectoryService(self.session)
+            materialized = await directory.materialize(
+                limit=self.runtime.max_subjects_per_run
+            )
+            if self.runtime.universe_scope == "us_listed":
+                run.universe_size = int(
+                    await self.session.scalar(
+                        select(func.count())
+                        .select_from(OpportunityUniverseMember)
+                        .where(OpportunityUniverseMember.enabled.is_(True))
+                    )
+                    or 0
+                )
+            run.limits_json = {
+                **run.limits_json,
+                "directory_frontier": materialized,
+                "universe_scope": self.runtime.universe_scope,
+            }
             members = await self._run_members(run)
             for member, security, entity in members:
                 await self._inspect_member(
@@ -538,8 +566,16 @@ class OpportunityDiscoveryService:
 
             await self._evaluate_run(run=run, members=members)
             if run.universe_size == 0 and run.planned_count == 0:
-                run.status = "waiting_for_config"
-                run.detail = "opportunity_universe_empty"
+                run.status = (
+                    "deferred"
+                    if self.runtime.universe_scope == "us_listed"
+                    else "waiting_for_config"
+                )
+                run.detail = (
+                    "listing_directory_pending_or_no_eligible_listings"
+                    if self.runtime.universe_scope == "us_listed"
+                    else "opportunity_universe_empty"
+                )
             else:
                 run.status = "completed" if run.failed_count == 0 else "partial"
                 run.detail = (

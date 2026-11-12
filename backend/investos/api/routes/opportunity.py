@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.db import get_session
@@ -16,10 +17,38 @@ from investos.schemas.opportunity import (
     OpportunityUniverseMemberResponse,
     OpportunityUniverseMemberUpdate,
 )
+from investos.services.listing_directory import ListingDirectoryService
 from investos.services.opportunity import OpportunityDiscoveryService
 from investos.services.shadow import execute_shadow_experiment
 
 router = APIRouter(prefix="/opportunities", tags=["opportunities"])
+
+
+class ListingReview(BaseModel):
+    excluded: bool
+
+
+@router.patch("/listings/{listing_id}")
+async def review_listing(
+    listing_id: UUID,
+    payload: ListingReview,
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        return await ListingDirectoryService(session).set_excluded(
+            listing_id, payload.excluded
+        )
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@router.get("/listings")
+async def listing_directory(
+    offset: int = Query(0, ge=0),
+    q: str = Query("", max_length=120),
+    session: AsyncSession = Depends(get_session),
+):
+    return await ListingDirectoryService(session).status(offset=offset, query=q)
 
 
 @router.get(

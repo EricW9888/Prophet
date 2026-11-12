@@ -38,6 +38,11 @@ async def update_integration_settings(
     coordinator = getattr(request.app.state, "automation", None)
     if coordinator:
         coordinator.sync_runtime_jobs()
+        if (
+            payload.opportunity_discovery is not None
+            and payload.opportunity_discovery.universe_scope is not None
+        ):
+            coordinator.signal_ready_work("universe_scope_changed")
     return updated
 
 
