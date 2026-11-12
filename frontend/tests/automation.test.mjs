@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { automationJobHealth, automationJobOutcome, automationOverallHealth } from "../src/lib/automation.ts";
+import { automationJobHealth, automationJobOutcome, automationJobPresentation, automationOverallHealth } from "../src/lib/automation.ts";
 
 const job = (last_status) => ({
   name: "gmail_sync", enabled: true, last_status,
@@ -10,6 +10,8 @@ const job = (last_status) => ({
 for (const status of ["warning", "partial", "busy", "waiting_for_config", "deferred", "rejected", "error"]) {
   test(`${status} does not become healthy merely because it has a run time`, () => {
     assert.equal(automationJobHealth([job(status)], "gmail_sync", "Inbox").tone, "warn");
+    assert.notEqual(automationJobPresentation(job(status)).tone, "ok");
+    assert.doesNotMatch(automationJobPresentation(job(status)).meaning, /Last run completed/);
   });
 }
 
@@ -17,6 +19,8 @@ for (const status of ["running", "cancelled", "idle", "skipped", "no_new_evidenc
   test(`${status || "empty status"} does not imply a completed run`, () => {
     assert.notEqual(automationJobOutcome(job(status)), "ok");
     assert.equal(automationJobHealth([job(status)], "gmail_sync", "Inbox").tone, "idle");
+    assert.notEqual(automationJobPresentation(job(status)).tone, "ok");
+    assert.doesNotMatch(automationJobPresentation(job(status)).meaning, /Last run completed/);
   });
 }
 

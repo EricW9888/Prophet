@@ -95,6 +95,19 @@ poetry run python ../scripts/audit_python_lock.py
 Use `poetry run python -m ...` or the virtual environment's Python module form
 when a checkout move leaves an old console-script shebang behind.
 
+An opt-in synthetic model screen exercises the real adapters without saving
+investment conclusions or changing provider settings. From the repository root:
+
+```bash
+backend/.venv/Scripts/python.exe scripts/benchmark_structured_generation.py --provider ollama --model qwen3.5:9b --allow-local --output .prophet-local/runtime/model-screen.json
+```
+
+Start an already installed local server separately. The screen never downloads
+a model. It records the corpus hash, contract/semantic results and end-to-end
+latencies, stops on a provider failure and refuses to overwrite a prior report.
+Eight small synthetic cases are an initial screen; they do not qualify a model
+for long evidence packets, autonomous actions or investment conclusions.
+
 ## Guardrails
 
 - Deterministic services own identities, timestamps, portfolio truth,

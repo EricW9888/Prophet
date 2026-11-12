@@ -18,6 +18,7 @@ from investos.core.provider_health import (
     ProviderHealthStore,
     probe_llm_provider,
 )
+from investos.core.providers import StructuredGenerationError
 from investos.models.evidence import EvidenceProcessingState, RawEvidence
 from investos.models.reasoning import CritiqueRun, ReasoningRun
 from investos.models.source import Source
@@ -84,6 +85,42 @@ def test_old_success_cannot_clear_new_failure():
     assert ProviderHealthStore.read().state == "open"
 
 
+def test_changed_request_protocol_has_its_own_health_and_preserves_previous_failure(
+    monkeypatch,
+):
+    key, _ = open_health()
+    monkeypatch.setattr(
+        "investos.core.provider_health.llm_structured_request_options",
+        lambda *args: {"chat_template_kwargs": {"enable_thinking": False}},
+    )
+    assert ProviderHealthStore.configuration()[0] != key
+    assert ProviderHealthStore.read().state == "unobserved"
+    assert ProviderHealthStore._read().records[key].state == "open"
+
+
+def test_structured_failure_exposes_only_protocol_metadata_and_clears_on_recovery():
+    key, provider = ProviderHealthStore.configuration()
+    ProviderHealthStore.failed(
+        key,
+        provider,
+        StructuredGenerationError(
+            "truncated_output",
+            finish_reason="length",
+            content_chars=0,
+            completion_tokens=64,
+            reasoning_tokens=64,
+            max_tokens=64,
+        ),
+    )
+    status = ProviderHealthStore.public_status()
+    assert status["failure_code"] == "invalid_response"
+    assert status["failure_detail"]["kind"] == "truncated_output"
+    make_probe_due()
+    _, _, token = ProviderHealthStore.claim_probe()
+    assert ProviderHealthStore.complete_probe(key, token)
+    assert ProviderHealthStore.public_status()["failure_detail"] is None
+
+
 async def test_open_circuit_does_not_call_provider(monkeypatch):
     open_health()
     request = AsyncMock(return_value={"ok": True})
@@ -91,6 +128,87 @@ async def test_open_circuit_does_not_call_provider(monkeypatch):
     with pytest.raises(LLMProviderCooldownError):
         await call_llm_json("system", "user", {"type": "object"})
     request.assert_not_awaited()
+
+
+async def test_waiting_request_rechecks_circuit_at_admission_without_inflating_backoff(
+    monkeypatch,
+):
+    from investos.core import llm
+
+    limiter = llm.AsyncRateLimiter(0, 1)
+    await limiter.acquire()
+    monkeypatch.setattr(llm, "_get_rate_limiter", lambda: limiter)
+    calls = []
+    original_client = httpx.AsyncClient
+
+    def transport(request):
+        calls.append(request)
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": '{"ok":true}'}}]}
+        )
+
+    monkeypatch.setattr(
+        llm.httpx,
+        "AsyncClient",
+        lambda **kwargs: original_client(
+            transport=httpx.MockTransport(transport), **kwargs
+        ),
+    )
+    task = asyncio.create_task(
+        call_llm_json("Return JSON", "Synthetic input", {"type": "object"})
+    )
+    await asyncio.sleep(0)
+    open_health()
+    limiter.release()
+    with pytest.raises(LLMProviderCooldownError):
+        await task
+    assert not calls
+    assert ProviderHealthStore.read().failure_count == 1
+    await asyncio.wait_for(limiter.acquire(), timeout=1)
+    limiter.release()
+
+
+async def test_probe_uses_one_transport_attempt_and_lease_covers_its_budget(
+    monkeypatch,
+):
+    from investos.core import llm
+    from investos.core.provider_health import _probe_call
+
+    monkeypatch.setattr(llm, "_get_rate_limiter", lambda: llm.AsyncRateLimiter(0, 1))
+    attempts = []
+
+    def transport(request):
+        attempts.append(request)
+        raise httpx.ReadTimeout("synthetic timeout")
+
+    token = _probe_call.set(True)
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(transport)
+        ) as client:
+            with pytest.raises(httpx.ReadTimeout):
+                await llm._nvidia_chat_json_text(
+                    client=client,
+                    base_url="https://example.test",
+                    api_key="synthetic",
+                    payload={},
+                    timeout_seconds=settings.LLM_TIMEOUT_SECONDS,
+                )
+    finally:
+        _probe_call.reset(token)
+    assert len(attempts) == 1
+    ProviderHealthStore.claim_probe()
+    assert (
+        ProviderHealthStore.read().lease_until - datetime.now(UTC)
+    ).total_seconds() >= settings.LLM_TIMEOUT_SECONDS
+
+
+def test_unobserved_provider_defers_model_work_until_a_real_probe(monkeypatch):
+    coordinator = AutomationCoordinator()
+    coordinator.telemetry["research_loop"] = JobTelemetry("research_loop", 300)
+    monkeypatch.setattr(coordinator, "_log_job_action", lambda **kwargs: None)
+    assert coordinator._provider_defers("research_loop") is True
+    assert coordinator._provider_defers("integrity_audit") is False
 
 
 async def test_only_one_actual_generation_probe_resumes_work(monkeypatch):
@@ -106,7 +224,7 @@ async def test_only_one_actual_generation_probe_resumes_work(monkeypatch):
     monkeypatch.setattr("investos.core.llm._call_nvidia_json", request)
     await asyncio.gather(probe_llm_provider(), probe_llm_provider())
     assert len(calls) == 1
-    assert calls[0]["timeout_seconds"] == 15
+    assert calls[0]["timeout_seconds"] == settings.LLM_TIMEOUT_SECONDS
     assert ProviderHealthStore.read().state == "healthy"
     assert ProviderHealthStore.require_available() >= 1
 

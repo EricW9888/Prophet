@@ -15,7 +15,11 @@ import httpx
 from pydantic import AwareDatetime, BaseModel, Field
 
 from investos.config import settings
-from investos.core.providers import normalize_llm_provider
+from investos.core.providers import (
+    StructuredGenerationError,
+    llm_structured_request_options,
+    normalize_llm_provider,
+)
 
 _call_depth = ContextVar("provider_call_depth", default=0)
 _probe_call = ContextVar("provider_probe_call", default=False)
@@ -31,6 +35,7 @@ class ProviderHealthRecord(BaseModel):
     revision: int = Field(default=0, ge=0)
     failure_count: int = Field(default=0, ge=0)
     failure_code: str | None = None
+    failure_detail: dict | None = None
     next_probe_at: AwareDatetime | None = None
     lease_until: AwareDatetime | None = None
     probe_token: str | None = None
@@ -62,11 +67,35 @@ class ProviderHealthStore:
                 (runtime.hosted_base_url or settings.NVIDIA_BASE_URL).rstrip("/"),
                 model or runtime.hosted_model or settings.NVIDIA_MODEL,
                 hashlib.sha256((runtime.api_key or "").encode()).hexdigest(),
+                llm_structured_request_options(
+                    provider, model or runtime.hosted_model or settings.NVIDIA_MODEL
+                ),
             ]
         elif provider == "codex_cli":
             identity += [settings.CODEX_BIN, settings.CODEX_MODEL]
         elif provider == "ollama":
-            identity += [settings.OLLAMA_BASE_URL, model or settings.OLLAMA_MODEL]
+            identity += [
+                (
+                    runtime.hosted_base_url
+                    if runtime.provider == "ollama"
+                    else settings.OLLAMA_BASE_URL
+                ),
+                model
+                or (
+                    runtime.hosted_model
+                    if runtime.provider == "ollama"
+                    else settings.OLLAMA_MODEL
+                ),
+                llm_structured_request_options(
+                    provider,
+                    model
+                    or (
+                        runtime.hosted_model
+                        if runtime.provider == "ollama"
+                        else settings.OLLAMA_MODEL
+                    ),
+                ),
+            ]
         key = hashlib.sha256(json.dumps(identity).encode()).hexdigest()
         return key, provider
 
@@ -180,6 +209,9 @@ class ProviderHealthStore:
                     )
                 )
             )
+            record.failure_detail = (
+                exc.diagnostic if isinstance(exc, StructuredGenerationError) else None
+            )
             delay = min(3600, 60 * 2 ** min(record.failure_count - 1, 6))
             if isinstance(exc, httpx.HTTPStatusError):
                 try:
@@ -212,7 +244,9 @@ class ProviderHealthStore:
             record.state = "probing"
             record.revision += 1
             record.probe_token = uuid4().hex
-            record.lease_until = now + timedelta(seconds=30)
+            record.lease_until = now + timedelta(
+                seconds=max(1, settings.LLM_TIMEOUT_SECONDS) + 30
+            )
             cls._write(registry)
             return key, provider, record.probe_token
 
@@ -226,6 +260,7 @@ class ProviderHealthStore:
             record.state = "healthy"
             record.failure_count = 0
             record.failure_code = None
+            record.failure_detail = None
             record.next_probe_at = record.lease_until = None
             record.probe_token = None
             record.last_success_at = datetime.now(UTC)
@@ -245,6 +280,9 @@ def guarded_provider_call(function):
         depth = _call_depth.set(1)
         try:
             result = await function(*args, **kwargs)
+        except LLMProviderCooldownError:
+            # Denied queue admission is deferral, not another observed failure.
+            raise
         except Exception as exc:
             ProviderHealthStore.failed(key, provider, exc)
             raise
@@ -269,7 +307,7 @@ async def probe_llm_provider():
     key, provider, token = claimed
     probe = _probe_call.set(True)
     try:
-        async with asyncio.timeout(20):
+        async with asyncio.timeout(max(1, settings.LLM_TIMEOUT_SECONDS)):
             result = await call_llm_json(
                 system_prompt='This is a connectivity health probe. Return only {"ok":true}.',
                 user_prompt="Confirm structured generation is available.",
@@ -279,7 +317,7 @@ async def probe_llm_provider():
                     "properties": {"ok": {"const": True}},
                     "required": ["ok"],
                 },
-                timeout_seconds=15,
+                timeout_seconds=max(1, settings.LLM_TIMEOUT_SECONDS),
                 provider_override=provider,
             )
         if result != {"ok": True}:
