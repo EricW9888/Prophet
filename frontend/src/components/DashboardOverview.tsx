@@ -3,7 +3,6 @@
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
-import { ShieldCheck } from "lucide-react";
 
 
 import { apiFetch, DashboardSummary } from "@/lib/api";
@@ -28,9 +27,9 @@ const PortfolioBuildChart = dynamic(() => import("./PortfolioBuildChart"), {
 function HeroMetric({ label, value, detail, href }: { label: string; value: string; detail: string; href?: string }) {
   const content = (
     <div className="h-full min-w-0 cursor-default border-t-2 border-line bg-panel px-1 py-3 transition-colors hover:border-line-strong sm:py-4">
-      <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</p>
-      <p className="mt-1.5 break-words text-xl font-semibold text-slate-900 dark:text-slate-100 sm:text-2xl">{value}</p>
-      <p className="mt-1 break-words text-[11px] leading-4 text-slate-500 dark:text-slate-400 sm:text-xs">{detail}</p>
+      <p className="text-xs font-medium text-muted ">{label}</p>
+      <p className="mt-1.5 break-words text-xl font-semibold text-foreground sm:text-2xl">{value}</p>
+      <p className="mt-1 break-words text-sm leading-4 text-muted sm:text-xs">{detail}</p>
     </div>
   );
 
@@ -64,11 +63,11 @@ function SectionTitle({
     <div className="mb-4 flex min-w-0 flex-wrap items-start justify-between gap-3">
       <div className="min-w-0">
         {subtitle && (
-          <div className="mb-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+          <div className="mb-1 text-xs font-medium text-muted ">
             {subtitle}
           </div>
         )}
-        <h2 className="text-lg font-semibold leading-tight text-slate-900 dark:text-slate-100">
+        <h2 className="text-lg font-semibold leading-tight text-foreground ">
           {title}
         </h2>
       </div>
@@ -202,7 +201,7 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
             action={
               <Link
                 href="/verification?domain=investment"
-                className="text-xs font-medium text-slate-600 hover:text-slate-950 dark:text-slate-300 dark:hover:text-white"
+                className="text-xs font-medium text-muted hover:text-foreground dark:hover:text-white"
               >
                 View All
               </Link>
@@ -211,43 +210,43 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
 
           <div className="space-y-3">
             {reviewItems.length === 0 ? (
-              <div className="py-8 text-center text-sm italic text-slate-400 dark:text-slate-500">
+              <div className="py-8 text-center text-sm italic text-muted ">
                 No investment reviews are currently queued. This does not establish complete coverage or an absence of risk. Monitor remains available for recent evidence.
               </div>
             ) : (
               visibleReviewItems.map((item) => (
                 <div
                   key={item.id}
-                  className="group relative border-b border-slate-200 py-3 last:border-b-0 dark:border-slate-800"
+                  className="group relative border-b border-line py-3 last:border-b-0 "
                 >
                   <div className="flex items-start justify-between mb-1.5">
-                    <div className="text-sm font-bold leading-tight text-slate-900 dark:text-slate-100">
+                    <div className="text-sm font-bold leading-tight text-foreground ">
                       {item.item_label}
                     </div>
-                    <div className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+                    <div className="rounded bg-panel-muted px-1.5 py-0.5 text-xs font-medium text-muted ">
                       {formatUserLabel(item.item_type)}
                     </div>
                   </div>
-                  <div className="mb-2 text-[11px] leading-relaxed text-slate-600 line-clamp-2 dark:text-slate-300">
+                  <div className="mb-2 text-sm leading-relaxed text-muted line-clamp-2 ">
                     {item.why_now_summary || item.trigger_reason}
                   </div>
-                  <div className="mb-2 border-l-2 border-slate-200 pl-2.5 text-[11px] text-slate-500 line-clamp-2 dark:border-slate-700 dark:text-slate-400">
+                  <div className="mb-2 border-l-2 border-line pl-2.5 text-sm text-muted line-clamp-2 ">
                     Next: {item.next_action || "Review the latest evidence and decide whether to escalate."}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    <span className="rounded border border-slate-100 bg-white px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-tighter text-slate-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-500">
+                    <span className="rounded border border-line bg-panel-muted px-1.5 py-0.5 text-xs font-bold uppercase tracking-tighter text-muted ">
                       {item.item_type === "position" ? "holding" : "logic"}
                     </span>
                     {item.signal_tags?.slice(0, 2).map((tag) => (
                       <span
                         key={`${item.id}-${tag}`}
-                        className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-900 dark:text-slate-300"
+                        className="rounded bg-panel-muted px-1.5 py-0.5 text-xs font-medium text-muted "
                       >
                         {tag}
                       </span>
                     ))}
                     {item.priority_score > 60 && (
-                      <span className="text-[9px] font-bold text-rose-500 uppercase tracking-tighter bg-rose-50 px-1.5 py-0.5 rounded">
+                      <span className="text-xs font-bold text-negative uppercase tracking-tighter bg-panel-muted px-1.5 py-0.5 rounded">
                         high priority
                       </span>
                     )}
@@ -260,7 +259,7 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
               <button
                 type="button"
                 onClick={() => setShowAllQueueItems((current) => !current)}
-                className="pt-1 text-xs font-medium text-slate-600 hover:text-slate-950 dark:text-slate-300 dark:hover:text-white"
+                className="pt-1 text-xs font-medium text-muted hover:text-foreground dark:hover:text-white"
               >
                 {showAllQueueItems ? "Show less" : `Show ${Math.min(reviewItems.length - 3, 5)} more`}
               </button>
@@ -281,7 +280,7 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
               <button
                 type="button"
                 onClick={() => void loadSummary()}
-                className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-600 transition-colors hover:border-slate-500 hover:text-slate-950 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
+                className="rounded border border-line bg-panel-muted px-2 py-1 text-xs font-medium text-muted transition-colors hover:border-line hover:text-foreground "
               >
                 Refresh desk
               </button>
@@ -289,12 +288,12 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
           />
           <div className="space-y-4">
             <ProviderWorkSummary usage={summary.llm_usage} operations={summary.recent_research_actions} />
-            <div className="border-b border-slate-200 pb-4 dark:border-slate-800">
+            <div className="border-b border-line pb-4 ">
               <div className="flex items-center justify-between gap-3">
-                <div className="text-xs font-medium text-slate-500">
+                <div className="text-xs font-medium text-muted">
                   Agent activity
                 </div>
-                <Link href="/activity" className="text-xs font-medium text-slate-600 hover:text-slate-950 dark:text-slate-300">
+                <Link href="/activity" className="text-xs font-medium text-muted hover:text-foreground ">
                   Catch up
                 </Link>
               </div>
@@ -321,19 +320,19 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
                 )}
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
-                <Link href="/activity" className="rounded border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-slate-400">
+                <Link href="/activity" className="rounded border border-line px-3 py-1.5 text-xs font-medium text-muted hover:border-line">
                   Agent log
                 </Link>
-                <Link href="/timeline" className="rounded border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-slate-400">
+                <Link href="/timeline" className="rounded border border-line px-3 py-1.5 text-xs font-medium text-muted hover:border-line">
                   Research feed
                 </Link>
-                <Link href="/graph" className="rounded border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-slate-400">
+                <Link href="/graph" className="rounded border border-line px-3 py-1.5 text-xs font-medium text-muted hover:border-line">
                   Knowledge
                 </Link>
-                <Link href="/shadow" className="rounded border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-slate-400">
+                <Link href="/shadow" className="rounded border border-line px-3 py-1.5 text-xs font-medium text-muted hover:border-line">
                   Shadow lab
                 </Link>
-                <Link href="/verification" className="rounded border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-slate-400">
+                <Link href="/verification" className="rounded border border-line px-3 py-1.5 text-xs font-medium text-muted hover:border-line">
                   Review queue
                 </Link>
               </div>
@@ -342,20 +341,20 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
             <div className="pt-1">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-xs font-medium text-slate-500">
+                  <div className="text-xs font-medium text-muted">
                     Priority scanner
                   </div>
-                  <div className="mt-1 text-xs text-slate-500">
+                  <div className="mt-1 text-xs text-muted">
                     Compact ranked view of what matters now.
                   </div>
                 </div>
-                <Link href="/verification" className="text-xs font-medium text-slate-600 hover:text-slate-950 dark:text-slate-300">
+                <Link href="/verification" className="text-xs font-medium text-muted hover:text-foreground ">
                   Open queue
                 </Link>
               </div>
               <div className="mt-4 space-y-2">
                 {scannerItems.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm italic text-slate-400 dark:border-slate-800 dark:text-slate-500">
+                  <div className="rounded-lg border border-dashed border-line px-3 py-4 text-sm italic text-muted ">
                     No active scanner items right now.
                   </div>
                 ) : (
@@ -406,63 +405,60 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
         </div>
       </details>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 md:gap-6 items-start">
         <DisclosurePanel
           eyebrow="Returns and risk"
           title="Performance"
-          summary={`Open holdings are ${summary?.portfolio_return_pct == null ? "unmeasured" : safeFormatPct(summary.portfolio_return_pct)} versus their current cost basis. Use Risk for cash-flow-aligned attribution.`}
+          summary={`Open holdings are ${summary?.open_holdings_return_pct == null ? "unmeasured" : safeFormatPct(summary.open_holdings_return_pct)} versus their current cost basis. Use Risk for cash-flow-aligned attribution.`}
           open={expandedPanels.performance}
           onToggle={() => setExpandedPanels((current) => ({ ...current, performance: !current.performance }))}
+          action={<Link href="/risk" className="text-sm text-action underline">Full risk report</Link>}
         >
-          <SectionTitle
-            title="Performance"
-            subtitle="Returns and risk"
-            action={
-              <Link href="/risk" className="text-[11px] font-bold uppercase tracking-widest text-sky-600 hover:underline">
-                Full report
-              </Link>
-            }
-          />
-          <div className="space-y-4 text-sm text-slate-600">
-            <div className="rounded-lg border border-slate-100 p-4 bg-slate-50/30 font-bold">
-              <p className="text-[10px] uppercase font-bold tracking-[0.2em] text-slate-400">Net Exposure (Market)</p>
+          <div className="space-y-4 text-sm text-muted">
+            <div className="rounded-lg border border-line p-4 bg-panel-muted font-bold">
+              <p className="text-sm font-medium text-muted">Holdings market value</p>
               <div className="flex items-baseline gap-3 mt-1.5">
-                <p className="text-2xl font-bold tracking-tighter text-slate-900">
+                <p className="text-2xl font-bold tracking-tighter text-foreground">
                   {safeFormatCurrency(summary?.total_market_value ?? 0)}
                 </p>
-                <p className={`text-[10px] font-bold ${(summary?.total_unrealized_pnl ?? 0) >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
-                  {safeFormatSignedCurrency(summary?.total_unrealized_pnl ?? 0)} pnl
+                <p className={`text-sm font-medium ${(summary?.total_unrealized_pnl ?? 0) >= 0 ? "text-positive" : "text-negative"}`}>
+                  {safeFormatSignedCurrency(summary?.total_unrealized_pnl ?? 0)} unrealized
                 </p>
               </div>
             </div>
-            <div className="rounded-lg border border-slate-100 p-4">
-              <p className="text-[10px] uppercase font-bold tracking-[0.2em] text-slate-400 mb-3">Reference frame</p>
-              <div className="grid grid-cols-2 gap-2 mt-1">
-                <div className="flex justify-between items-center bg-slate-50 p-2 rounded-lg">
-                   <span className="text-[10px] text-slate-500 font-bold uppercase">Open cost basis</span>
-                   <span className="font-bold text-slate-900 text-xs">{summary?.portfolio_return_pct == null ? "n/a" : safeFormatPct(summary.portfolio_return_pct)}</span>
+            <details className="border border-line p-4">
+              <summary className="cursor-pointer text-sm font-medium">Return measurement details</summary>
+              <div className="grid gap-2 mt-1">
+                <div className="flex justify-between items-center bg-panel-muted p-2 rounded-lg">
+                   <span className="text-xs text-muted font-bold uppercase">Open cost basis</span>
+                   <span className="font-bold text-foreground text-sm">{summary?.open_holdings_return_pct == null ? "n/a" : safeFormatPct(summary.open_holdings_return_pct)}</span>
                 </div>
-                <div className="flex justify-between items-center bg-slate-50 p-2 rounded-lg">
-                   <span className="text-[10px] text-slate-500 font-bold uppercase">Index since first entry</span>
-                   <span className="font-bold text-slate-900 text-xs">{summary?.benchmark_return_pct == null ? "n/a" : safeFormatPct(summary.benchmark_return_pct)}</span>
+                <div className="flex justify-between items-center bg-panel-muted p-2 rounded-lg">
+                   <span className="text-xs text-muted font-bold uppercase">Stored risk return</span>
+                   <span className="font-bold text-foreground text-sm">{summary?.portfolio_return_pct == null ? "n/a" : safeFormatPct(summary.portfolio_return_pct)}</span>
+                </div>
+                <div className="flex justify-between items-center bg-panel-muted p-2">
+                   <span className="text-xs text-muted font-bold uppercase">Risk benchmark return</span>
+                   <span className="font-bold text-foreground text-sm">{summary?.benchmark_return_pct == null ? "n/a" : safeFormatPct(summary.benchmark_return_pct)}</span>
                 </div>
               </div>
-              <p className="mt-2 text-[10px] leading-4 text-slate-400">These two reference figures are not cash-flow aligned and should not be subtracted. The Risk report calculates a dated Modified Dietz comparison.</p>
-            </div>
+              <p className="mt-2 text-xs leading-5 text-muted">The cost-basis figure and stored risk snapshot use different measurement bases. Do not subtract them. Open Risk for dated, cash-flow-aligned attribution.</p>
+              <p className="mt-1 text-xs leading-5 text-muted">Risk window: {summary.risk_measurement_start ? formatShortDateTime(summary.risk_measurement_start) : "Start unverified"} – {summary.risk_as_of ? formatShortDateTime(summary.risk_as_of) : "End unverified"}.</p>
+            </details>
             <div className="grid gap-4 lg:grid-cols-2">
-              <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-4">
-                <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-2">Top contributors</p>
+              <div className="rounded-lg border border-line bg-panel-muted p-4">
+                <p className="text-sm font-semibold text-positive mb-2">Top contributors</p>
                 <div className="space-y-2">
                   {!summary?.top_winners || summary.top_winners.length === 0 ? (
-                    <p className="text-xs text-slate-400 italic">No contributors yet.</p>
+                    <p className="text-xs text-muted italic">No contributors yet.</p>
                   ) : (
                     summary.top_winners.slice(0, 3).map((pos) => (
-                      <div key={pos.id} className="flex items-center justify-between gap-3 rounded-lg bg-white/80 px-3 py-2">
+                      <div key={pos.id} className="flex items-center justify-between gap-3 rounded-lg bg-panel-muted px-3 py-2">
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-bold text-slate-900">{pos.ticker}</p>
-                          <p className="truncate text-[10px] uppercase text-slate-500">{pos.entity_name}</p>
+                          <p className="truncate text-sm font-bold text-foreground">{pos.ticker}</p>
+                          <p className="truncate text-xs text-muted">{pos.entity_name}</p>
                         </div>
-                        <p className="text-xs font-black text-emerald-600">
+                        <p className="text-xs font-black text-positive">
                           {safeFormatSignedCurrency((pos.unrealized_pnl || 0) + (pos.realized_pnl || 0))}
                         </p>
                       </div>
@@ -470,19 +466,19 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
                   )}
                 </div>
               </div>
-              <div className="rounded-lg border border-rose-100 bg-rose-50/40 p-4">
-                <p className="text-[10px] font-bold text-rose-600 uppercase tracking-widest mb-2">Top detractors</p>
+              <div className="rounded-lg border border-line bg-panel-muted p-4">
+                <p className="text-sm font-semibold text-negative mb-2">Top detractors</p>
                 <div className="space-y-2">
                   {!summary?.top_losers || summary.top_losers.length === 0 ? (
-                    <p className="text-xs text-slate-400 italic">No detractors yet.</p>
+                    <p className="text-xs text-muted italic">No detractors yet.</p>
                   ) : (
                     summary.top_losers.slice(0, 3).map((pos) => (
-                      <div key={pos.id} className="flex items-center justify-between gap-3 rounded-lg bg-white/80 px-3 py-2">
+                      <div key={pos.id} className="flex items-center justify-between gap-3 rounded-lg bg-panel-muted px-3 py-2">
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-bold text-slate-900">{pos.ticker}</p>
-                          <p className="truncate text-[10px] uppercase text-slate-500">{pos.entity_name}</p>
+                          <p className="truncate text-sm font-bold text-foreground">{pos.ticker}</p>
+                          <p className="truncate text-xs text-muted">{pos.entity_name}</p>
                         </div>
-                        <p className="text-xs font-black text-rose-600">
+                        <p className="text-xs font-black text-negative">
                           {safeFormatSignedCurrency((pos.unrealized_pnl || 0) + (pos.realized_pnl || 0))}
                         </p>
                       </div>
@@ -502,11 +498,11 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
           onToggle={() => setExpandedPanels((current) => ({ ...current, trajectory: !current.trajectory }))}
         >
           <div className="space-y-4">
-            <div className="rounded-lg border border-slate-100 bg-slate-50/40 p-4">
-              <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+            <div className="rounded-lg border border-line bg-panel-muted p-4">
+              <div className="text-sm font-medium text-muted">
                 Capital deployment history
               </div>
-              <p className="mt-2 text-sm text-slate-600">
+              <p className="mt-2 text-sm text-muted">
                 This tracks cumulative capital deployed across the real transaction history, not a separate shadow view.
               </p>
             </div>
@@ -517,32 +513,28 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
         <DisclosurePanel
           eyebrow={summary?.automation_enabled ? "Running" : "Paused"}
           title="Infrastructure"
-          summary={`${summary?.profile_count ?? 0} profiles, ${summary?.recent_lessons?.length ?? 0} lessons, ${automationHealthy ? "automation healthy" : "automation needs review"}.`}
+          summary={`${summary?.profile_count ?? 0} profiles, ${summary?.recent_lessons?.length ?? 0} recent lessons, ${automationHealthy ? "automation healthy" : "automation needs review"}.`}
           open={expandedPanels.infrastructure}
           onToggle={() => setExpandedPanels((current) => ({ ...current, infrastructure: !current.infrastructure }))}
+          action={<Link href="/settings" className="text-sm text-action underline">Settings</Link>}
         >
-          <SectionTitle
-            title="Infrastructure"
-            subtitle={summary?.automation_enabled ? "Running" : "Paused"}
-            action={<Link href="/settings" className="text-[11px] font-bold text-sky-600 uppercase tracking-widest hover:underline">Settings</Link>}
-          />
           <div className="space-y-3">
-            <div className="rounded-lg border border-slate-100 p-3 bg-slate-50/50">
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">
-                <ShieldCheck className="w-3 h-3 text-emerald-500" /> System Persistent
+            <div className="rounded-lg border border-line p-3 bg-panel-muted">
+              <div className="text-xs font-bold text-muted uppercase tracking-widest mb-2 flex items-center gap-2">
+                Storage
               </div>
-              <div className="text-sm font-bold text-slate-900 leading-snug">
-                Data durable in project storage volumes.
+              <div className="text-sm font-bold text-foreground leading-snug">
+                Local database and source files. Review backups in Settings.
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-               <div className="rounded-lg border border-slate-100 p-3 bg-white">
-                  <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">Profiles</p>
-                  <p className="text-xl font-bold text-slate-900">{summary?.profile_count ?? 0}</p>
+               <div className="rounded-lg border border-line p-3 bg-panel-muted">
+                  <p className="text-xs uppercase font-bold text-muted tracking-widest mb-1">Profiles</p>
+                  <p className="text-xl font-bold text-foreground">{summary?.profile_count ?? 0}</p>
                </div>
-               <div className="rounded-lg border border-slate-100 p-3 bg-white">
-                  <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">Lessons</p>
-                  <p className="text-xl font-bold text-slate-900">{summary?.recent_lessons?.length ?? 0}</p>
+               <div className="rounded-lg border border-line p-3 bg-panel-muted">
+                  <p className="text-xs uppercase font-bold text-muted tracking-widest mb-1">Recent lessons</p>
+                  <p className="text-xl font-bold text-foreground">{summary?.recent_lessons?.length ?? 0}</p>
                </div>
             </div>
           </div>
@@ -569,7 +561,7 @@ function TransactionCapturePanel({
         action={
           <Link
             href="/history"
-            className="text-xs font-medium text-slate-600 hover:text-slate-950 dark:text-slate-300"
+            className="text-xs font-medium text-muted hover:text-foreground "
           >
             Full ledger
           </Link>
@@ -579,7 +571,7 @@ function TransactionCapturePanel({
         <AutomationHealthPill health={gmailHealth} />
       </div>
       {visibleTransactions.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm italic text-slate-400 dark:border-slate-800 dark:text-slate-500">
+        <div className="rounded-lg border border-dashed border-line px-3 py-4 text-sm italic text-muted ">
           No recent transactions found in the portfolio ledger.
         </div>
       ) : (
@@ -587,40 +579,40 @@ function TransactionCapturePanel({
           {visibleTransactions.map((txn) => (
             <div
               key={txn.id}
-              className="min-w-0 rounded-md border border-slate-200 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/50"
+              className="min-w-0 rounded-md border border-line bg-panel-muted p-3 "
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-black uppercase text-slate-900 dark:text-slate-100">
+                    <span className="text-sm font-black uppercase text-foreground ">
                       {txn.ticker}
                     </span>
-                    <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                    <span className="rounded bg-panel-muted px-1.5 py-0.5 text-xs font-medium text-foreground ">
                       {txn.action}
                     </span>
                   </div>
-                  <p className="mt-1 break-words text-[11px] text-slate-500 dark:text-slate-400">
+                  <p className="mt-1 break-words text-sm text-muted ">
                     {txn.entity_name || "Portfolio transaction"}
                   </p>
                 </div>
-                <div className="shrink-0 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <div className="shrink-0 text-right text-xs font-bold uppercase tracking-wider text-muted">
                   {formatShortDateTime(txn.executed_at)}
                 </div>
               </div>
               <div className="mt-3 grid min-w-0 grid-cols-2 items-end gap-3">
                 <div className="min-w-0">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                  <p className="text-xs font-bold uppercase tracking-widest text-muted">
                     Quantity
                   </p>
-                  <p className="break-words text-sm font-bold text-slate-900 dark:text-slate-100">
+                  <p className="break-words text-sm font-bold text-foreground ">
                     {formatQuantity(txn.quantity)} @ {safeFormatCurrency(txn.price, 2)}
                   </p>
                 </div>
                 <div className="min-w-0 text-right">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                  <p className="text-xs font-bold uppercase tracking-widest text-muted">
                     Source
                   </p>
-                  <p className="break-words text-xs font-bold text-slate-700 dark:text-slate-300 [overflow-wrap:anywhere]">
+                  <p className="break-words text-xs font-bold text-foreground [overflow-wrap:anywhere]">
                     {txn.source_label || "Manual/API"}
                     {txn.source_confidence != null ? ` · ${Math.round(txn.source_confidence * 100)}%` : ""}
                   </p>
@@ -629,7 +621,7 @@ function TransactionCapturePanel({
               {txn.source_evidence_id ? (
                 <Link
                   href={`/sources/evidence/${txn.source_evidence_id}`}
-                  className="mt-3 block rounded border border-slate-200 bg-white/80 px-2.5 py-2 text-xs font-medium text-slate-500 hover:border-slate-400 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-400"
+                  className="mt-3 block rounded border border-line bg-panel-muted px-2.5 py-2 text-xs font-medium text-muted hover:border-line hover:text-foreground "
                 >
                   Evidence receipt {txn.source_evidence_id.slice(0, 8)}
                 </Link>
@@ -645,10 +637,10 @@ function TransactionCapturePanel({
 function AutomationHealthPill({ health }: { health: AutomationHealth }) {
   const toneClass =
     health.tone === "ok"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
+      ? "border-line bg-panel-muted text-positive "
       : health.tone === "warn"
-        ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
-        : "border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400";
+        ? "border-line bg-panel-muted text-negative "
+        : "border-line bg-panel-muted text-muted ";
   return (
     <span className={`inline-flex rounded border px-2.5 py-1 text-xs font-medium ${toneClass}`}>
       {health.label}: {health.detail}
@@ -663,6 +655,7 @@ function DisclosurePanel({
   open,
   onToggle,
   children,
+  action,
 }: {
   eyebrow: string;
   title: string;
@@ -670,19 +663,21 @@ function DisclosurePanel({
   open: boolean;
   onToggle: () => void;
   children: ReactNode;
+  action?: ReactNode;
 }) {
   return (
     <Panel className="xl:col-span-1">
-      <button type="button" onClick={onToggle} className="flex w-full items-start justify-between gap-4 text-left">
+      <button type="button" aria-expanded={open} onClick={onToggle} className="flex w-full min-w-0 items-start justify-between gap-4 text-left">
         <div>
-          <div className="mb-1 text-xs font-medium text-slate-500 dark:text-slate-400">{eyebrow}</div>
-          <h2 className="text-lg font-semibold leading-tight text-slate-900 dark:text-slate-100">{title}</h2>
-          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{summary}</p>
+          <div className="mb-1 text-xs font-medium text-muted ">{eyebrow}</div>
+          <h2 className="text-lg font-semibold leading-tight text-foreground ">{title}</h2>
         </div>
-        <span className="rounded border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 dark:border-slate-700 dark:text-slate-400">
+        <span className="rounded border border-line px-3 py-1.5 text-xs font-medium text-muted ">
           {open ? "Hide" : "Expand"}
         </span>
       </button>
+      <p className="mt-2 text-sm leading-6 text-muted">{summary}</p>
+      {action && <div className="mt-2">{action}</div>}
       {open ? <div className="mt-5">{children}</div> : null}
     </Panel>
   );
@@ -690,22 +685,22 @@ function DisclosurePanel({
 
 function CompactSnapshot({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <div className="border-l-2 border-slate-200 py-1 pl-3 dark:border-slate-700">
-      <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
-      <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">{value}</p>
-      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{detail}</p>
+    <div className="border-l-2 border-line py-1 pl-3 ">
+      <p className="text-xs text-muted ">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-foreground ">{value}</p>
+      <p className="mt-1 text-xs text-muted ">{detail}</p>
     </div>
   );
 }
 
 function ActivityRow({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <div className="border-b border-slate-100 px-1 py-3 last:border-b-0 dark:border-slate-800">
+    <div className="border-b border-line px-1 py-3 last:border-b-0 ">
       <div className="flex items-center justify-between gap-3">
-        <div className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</div>
-        <div className="text-xs font-medium text-slate-700 dark:text-slate-300">{value}</div>
+        <div className="text-xs font-medium text-muted ">{label}</div>
+        <div className="text-xs font-medium text-foreground ">{value}</div>
       </div>
-      <div className="mt-1.5 text-xs leading-relaxed text-slate-600 dark:text-slate-300">{detail}</div>
+      <div className="mt-1.5 text-xs leading-relaxed text-muted ">{detail}</div>
     </div>
   );
 }
@@ -742,28 +737,28 @@ function ActionFeedRow({
         : "ok"
       : formatUserLabel(status);
   return (
-    <div className="border-b border-slate-100 px-1 py-3 last:border-b-0 dark:border-slate-800">
+    <div className="border-b border-line px-1 py-3 last:border-b-0 ">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            <div className="text-xs font-medium text-muted ">
               {formatUserLabel(source)} · {label}
             </div>
             {recentCount && recentCount > 1 ? (
-              <span className="rounded-none bg-slate-200 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              <span className="rounded-none bg-panel-muted px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-muted ">
                 {recentCount}x
               </span>
             ) : null}
           </div>
         </div>
-        <div className="text-xs font-medium text-slate-600 dark:text-slate-300">
+        <div className="text-xs font-medium text-muted ">
           {when || formatUserLabel(status)}
         </div>
       </div>
-      <div className="mt-1.5 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+      <div className="mt-1.5 text-xs leading-relaxed text-muted ">
         {summary}
       </div>
-      <div className="mt-2 text-xs text-slate-400 dark:text-slate-500">
+      <div className="mt-2 text-xs text-muted ">
         {statusLabel}
       </div>
     </div>
@@ -786,19 +781,19 @@ function ScannerRow({
   href: string;
 }) {
   return (
-    <div className="grid grid-cols-[34px_minmax(0,1fr)_68px] items-start gap-3 border-b border-slate-100 px-1 py-3 last:border-b-0 dark:border-slate-800">
-      <div className="rounded bg-slate-100 px-2 py-1 text-center text-xs font-semibold text-slate-500 dark:bg-slate-900 dark:text-slate-300">
+    <div className="grid grid-cols-[34px_minmax(0,1fr)_68px] items-start gap-3 border-b border-line px-1 py-3 last:border-b-0 ">
+      <div className="rounded bg-panel-muted px-2 py-1 text-center text-xs font-semibold text-muted ">
         #{rank}
       </div>
       <div className="min-w-0">
         <Link href={href} className="block truncate text-sm font-bold text-action hover:underline">{label}</Link>
-        <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{detail}</div>
+        <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted ">{detail}</div>
         {tags.length > 0 ? (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {tags.slice(0, 2).map((tag) => (
               <span
                 key={`${label}-${tag}`}
-                className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-900 dark:text-slate-300"
+                className="rounded bg-panel-muted px-1.5 py-0.5 text-xs font-medium text-muted "
               >
                 {tag}
               </span>
@@ -807,8 +802,8 @@ function ScannerRow({
         ) : null}
       </div>
       <div className="text-right">
-        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Score</div>
-        <div className="mt-1 text-sm font-black text-slate-900 dark:text-slate-100">{score.toFixed(1)}</div>
+        <div className="text-xs font-bold uppercase tracking-widest text-muted ">Score</div>
+        <div className="mt-1 text-sm font-black text-foreground ">{score.toFixed(1)}</div>
       </div>
     </div>
   );

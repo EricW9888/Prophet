@@ -13,7 +13,7 @@ import { type DashboardSummary } from "@/lib/api";
 import { safeFormatCurrency } from "@/lib/formatting";
 
 export default function PortfolioBuildChart({ points }: { points: DashboardSummary["portfolio_build_series"] }) {
-  if (points.length === 0) return <div className="py-12 text-center text-slate-400 italic text-sm">No series data</div>;
+  if (points.length === 0) return <div className="py-12 text-center text-muted italic text-sm">No series data</div>;
 
 
   return (
@@ -22,33 +22,35 @@ export default function PortfolioBuildChart({ points }: { points: DashboardSumma
         <AreaChart data={points}>
           <defs>
             <linearGradient id="colorDeployed" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#0284c7" stopOpacity={0.3}/>
-              <stop offset="95%" stopColor="#0284c7" stopOpacity={0}/>
+              <stop offset="5%" stopColor="var(--color-action)" stopOpacity={0.25}/>
+              <stop offset="95%" stopColor="var(--color-action)" stopOpacity={0}/>
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148,163,184,0.18)" />
+          <CartesianGrid vertical={false} stroke="var(--color-line)" />
           <XAxis
             dataKey="as_of"
-            hide
+            tickFormatter={value => new Date(value).toLocaleDateString(undefined, {month: "short", day: "numeric", year: "2-digit"})}
+            tick={{fill: "var(--color-muted)", fontSize: 12}} minTickGap={32} tickLine={false} axisLine={false}
           />
           <YAxis
-            hide
-            domain={['dataMin - 5000', 'dataMax + 5000']}
+            width="auto" domain={["auto", "auto"]} tickCount={4}
+            tickFormatter={value => safeFormatCurrency(value)}
+            tick={{fill: "var(--color-muted)", fontSize: 12}} tickLine={false} axisLine={false}
           />
           <Tooltip
             content={({ active, payload }) => {
               if (active && payload && payload.length) {
                 const data = payload[0].payload;
                 return (
-                  <div className="rounded-lg border border-slate-200 bg-white/95 p-3 shadow-xl backdrop-blur-sm dark:border-slate-700 dark:bg-slate-950/95">
-                    <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">
+                  <div className="border border-line bg-panel p-3">
+                    <p className="mb-1 text-xs font-bold uppercase tracking-widest text-muted ">
                       {new Date(data.as_of).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                     </p>
-                    <p className="text-sm font-black text-slate-900 dark:text-slate-100">
+                    <p className="text-sm font-black text-foreground ">
                       {safeFormatCurrency(data.net_capital_deployed)}
                     </p>
                     <div className="mt-1 flex items-center gap-2">
-                       <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-500 dark:bg-sky-950/30 dark:text-sky-300">
+                       <span className="text-sm text-muted">
                          {data.transaction_count} txns
                        </span>
                     </div>
@@ -59,9 +61,9 @@ export default function PortfolioBuildChart({ points }: { points: DashboardSumma
             }}
           />
           <Area
-            type="monotone"
+            type="stepAfter"
             dataKey="net_capital_deployed"
-            stroke="#0284c7"
+            stroke="var(--color-action)"
             strokeWidth={3}
             fillOpacity={1}
             fill="url(#colorDeployed)"
@@ -71,12 +73,12 @@ export default function PortfolioBuildChart({ points }: { points: DashboardSumma
       </ResponsiveContainer>
       <div className="mt-4 flex items-end justify-between">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-tighter text-slate-400 dark:text-slate-500">Current Inflow</p>
-          <p className="text-sm font-black text-slate-900 dark:text-slate-100">{safeFormatCurrency(points[points.length-1].net_capital_deployed)}</p>
+          <p className="text-sm text-muted">Net capital deployed</p>
+          <p className="text-sm font-black text-foreground ">{safeFormatCurrency(points[points.length-1].net_capital_deployed)}</p>
         </div>
         <div className="text-right">
-          <p className="text-[10px] font-bold uppercase tracking-tighter text-slate-400 dark:text-slate-500">Velocity</p>
-          <p className="text-sm font-black text-slate-900 dark:text-slate-100">{points[points.length-1].transaction_count} txns</p>
+          <p className="text-sm text-muted">Transactions</p>
+          <p className="text-sm font-black text-foreground ">{points[points.length-1].transaction_count} txns</p>
         </div>
       </div>
     </div>

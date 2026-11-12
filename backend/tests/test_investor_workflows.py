@@ -69,6 +69,62 @@ async def workflow_session():
     await engine.dispose()
 
 
+@pytest.mark.parametrize("cost,expected", [(100, 10), (0, None)])
+async def test_dashboard_keeps_open_cost_return_separate_from_stored_risk(
+    workflow_session, monkeypatch, cost, expected
+):
+    from investos.schemas.risk import RiskSummaryResponse
+    from investos.services.risk import RiskService
+
+    session = workflow_session
+    entity = Entity(name="Synthetic return basis", entity_type="company")
+    session.add(entity)
+    await session.flush()
+    security = Security(
+        entity_id=entity.id,
+        ticker="SYNRET",
+        asset_class="equity",
+        instrument_type="common_stock",
+    )
+    session.add(security)
+    await session.flush()
+    session.add(
+        Position(
+            security_id=security.id,
+            direction="long",
+            list_type="holding",
+            quantity=2,
+            avg_cost_basis=cost,
+            current_price=110,
+            market_value=220,
+            unrealized_pnl=20,
+        )
+    )
+    await session.flush()
+    end = datetime.now(UTC) - timedelta(hours=1)
+    start = end - timedelta(days=30)
+    monkeypatch.setattr(
+        RiskService,
+        "get_summary",
+        AsyncMock(
+            return_value=RiskSummaryResponse(
+                as_of=end,
+                measurement_start=start,
+                portfolio_return_pct=-70,
+                benchmark_return_pct=40,
+            )
+        ),
+    )
+    result = await DashboardService(session).get_summary(
+        automation_enabled=False, jobs=[]
+    )
+    assert result.open_holdings_return_pct == expected
+    assert result.portfolio_return_pct == -70
+    assert result.benchmark_return_pct == 40
+    assert result.risk_as_of == end
+    assert result.risk_measurement_start == start
+
+
 async def test_history_calculation_keeps_the_health_endpoint_responsive(
     workflow_session, monkeypatch
 ):

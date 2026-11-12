@@ -1155,6 +1155,9 @@ export type DashboardSummary = {
     live_critique_runs_24h: number;
   };
   active_benchmark_ticker?: string | null;
+  open_holdings_return_pct?: number | null;
+  risk_as_of?: string | null;
+  risk_measurement_start?: string | null;
   portfolio_return_pct?: number | null;
   benchmark_return_pct?: number | null;
   active_return_pct?: number | null;

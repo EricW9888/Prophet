@@ -145,6 +145,9 @@ class DashboardSummaryResponse(BaseModel):
     considering_count: int = 0
     total_market_value: float = 0.0
     total_unrealized_pnl: float = 0.0
+    open_holdings_return_pct: Optional[float] = None
+    risk_as_of: Optional[datetime] = None
+    risk_measurement_start: Optional[datetime] = None
     total_value: float = 0.0
     buying_power: float = 0.0
     top_winners: list[PositionResponse] = []

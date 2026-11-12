@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useMemo, useState, type MouseEvent } from "react";
-import { CartesianGrid, getRelativeCoordinate, Line, LineChart, ReferenceDot, ReferenceLine, ResponsiveContainer, XAxis, YAxis, usePlotArea, useXAxisInverseScale } from "recharts";
+import { createPortal } from "react-dom";
+import { CartesianGrid, getRelativeCoordinate, Line, LineChart, ReferenceDot, ResponsiveContainer, XAxis, YAxis, usePlotArea, useXAxisInverseScale, useXAxisScale, useYAxisScale } from "recharts";
 import { safeFormatCurrency } from "@/lib/formatting";
 
 type ReceiptLink = { href?: string; receiptLabel?: string; appReceipt?: boolean };
@@ -28,33 +29,56 @@ function description(item: Observation) {
   return item.value == null ? "Value unavailable" : safeFormatCurrency(item.value, 2);
 }
 
-function PlotInteraction({ observations, onHover, onSelect }: {
+function PlotInteraction({ observations, markers, selected, bottom, readout, observationDate, onSelect }: {
   observations: Observation[];
-  onHover: (id: string | null) => void;
+  markers: (ChartEvent & { time: number })[];
+  selected: Observation;
+  bottom: number;
+  readout: HTMLDivElement | null;
+  observationDate: (item: Observation) => string;
   onSelect: (id: string) => void;
 }) {
+  // Keep pointer state below the chart and activity list. Recharts' public
+  // scales place annotations without registering hundreds of reference lines.
+  const [hovered, setHovered] = useState<Observation | null>(null);
   const plot = usePlotArea();
   const invert = useXAxisInverseScale();
-  if (!plot || !invert) return null;
+  const scaleX = useXAxisScale();
+  const scaleY = useYAxisScale();
+  if (!plot || !invert || !scaleX || !scaleY) return null;
   const { x, y, width, height } = plot;
   const observationAt = (event: MouseEvent<SVGRectElement>) => {
     const time = Number(invert(x + getRelativeCoordinate(event).relativeX));
-    if (!Number.isFinite(time)) return observations[0].id;
+    if (!Number.isFinite(time)) return observations[0];
     return observations.reduce((nearest, item) =>
-      Math.abs(item.time - time) < Math.abs(nearest.time - time) ? item : nearest).id;
+      Math.abs(item.time - time) < Math.abs(nearest.time - time) ? item : nearest);
   };
-  return <rect x={x} y={y} width={width} height={height} fill="transparent" className="cursor-crosshair"
+  const active = hovered ?? selected;
+  const activeX = scaleX(active.time);
+  return <g onPointerLeave={() => setHovered(null)}>
+    {readout && createPortal(<>
+      <strong className="text-xl font-semibold tabular-nums">{description(active)}</strong>
+      <time dateTime={active.at} className="text-sm text-muted">{observationDate(active)}</time>
+    </>, readout)}
+    <line x1={activeX} x2={activeX} y1={y} y2={y + height} stroke="var(--color-muted)" strokeDasharray="3 4" className="pointer-events-none" />
+    {"value" in active && active.value != null && <circle cx={activeX} cy={scaleY(active.value)} r={4.5}
+      fill="var(--color-action)" stroke="var(--color-background)" strokeWidth={2} className="pointer-events-none" />}
+    <rect x={x} y={y} width={width} height={height} fill="transparent" className="cursor-crosshair"
     data-chart-plot
-    onPointerMove={(event) => { if (event.pointerType !== "touch") onHover(observationAt(event)); }}
-    onPointerLeave={() => onHover(null)}
-    onClick={(event) => onSelect(observationAt(event))} />;
+    onPointerMove={(event) => { if (event.pointerType !== "touch") setHovered(observationAt(event)); }}
+    onClick={(event) => { setHovered(null); onSelect(observationAt(event).id); }} />
+    {markers.map(marker => <circle key={marker.id} cx={scaleX(marker.time)} cy={scaleY(bottom)} r={marker.id === active.id ? 5 : 3.5}
+      fill={eventKinds[marker.kind].color} stroke="var(--color-background)" className="cursor-pointer"
+      onMouseEnter={() => setHovered(marker)} onMouseLeave={() => setHovered(null)}
+      onClick={() => { setHovered(null); onSelect(marker.id); }} />)}
+  </g>;
 }
 
 export default function CapturedValueChart({ label, points, events = noEvents, eventsLabel = "Actions and decisions", calendarDates = false }: {
   label: string; points: ValuePoint[]; events?: ChartEvent[]; eventsLabel?: string; calendarDates?: boolean;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [readout, setReadout] = useState<HTMLDivElement | null>(null);
   const [hiddenKinds, setHiddenKinds] = useState<Set<ChartEvent["kind"]>>(new Set());
   const [eventSearch, setEventSearch] = useState("");
   const { marks, markers, observations, times, values } = useMemo(() => {
@@ -70,9 +94,7 @@ export default function CapturedValueChart({ label, points, events = noEvents, e
   const visibleEventIds = new Set(visibleMarkers.map((event) => event.id));
   const selection = observations.filter((item) => "value" in item || visibleEventIds.has(item.id));
   const selected = selection.find((item) => item.id === selectedId) ?? marks.at(-1) ?? observations.at(-1);
-  const hovered = selection.find((item) => item.id === hoveredId);
   if (!selected) return <p className="text-sm text-muted">No dated observations yet.</p>;
-  const active = hovered ?? selected;
   const [start, end] = [times[0], times.at(-1)!];
   const min = values.length ? Math.min(...values) : 0;
   const max = values.length ? Math.max(...values) : 0;
@@ -86,7 +108,6 @@ export default function CapturedValueChart({ label, points, events = noEvents, e
   const axisDate = new Intl.DateTimeFormat(undefined, useTimes ? { timeStyle: "short" } : { month: "short", day: "numeric", timeZone });
 
   function selectObservation(id: string) {
-    setHoveredId(null);
     setSelectedId(id);
   }
 
@@ -115,10 +136,7 @@ export default function CapturedValueChart({ label, points, events = noEvents, e
         className="workspace-control min-w-0 flex-1 sm:max-w-64" />
     </fieldset>}
     {values.length > 0 ? <div className="min-w-0 border border-line bg-background px-2 pb-1 pt-3 focus-within:outline-2 focus-within:outline-action sm:px-3">
-      <div className="mb-2 flex min-h-14 flex-wrap items-baseline gap-x-3 px-2" aria-hidden="true">
-        <strong className="text-xl font-semibold tabular-nums">{description(active)}</strong>
-        <time dateTime={active.at} className="text-sm text-muted">{observationDate(active)}</time>
-      </div>
+      <div ref={setReadout} className="mb-2 flex min-h-14 flex-wrap items-baseline gap-x-3 px-2" aria-hidden="true" />
       {timelineControl}
       <div className="h-52 sm:h-64" aria-hidden="true">
         <ResponsiveContainer width="100%" height="100%" minWidth={0}>
@@ -130,17 +148,11 @@ export default function CapturedValueChart({ label, points, events = noEvents, e
             <YAxis width="auto" domain={[bottom, max + pad]} tickCount={4} allowDataOverflow
               tickFormatter={(value) => safeFormatCurrency(value, max - min < 4 ? 2 : 0)}
               tick={{ fill: "var(--color-muted)", fontSize: 12 }} tickLine={false} axisLine={false} />
-            <ReferenceLine x={active.time} stroke="var(--color-muted)" strokeDasharray="3 4" />
             <Line dataKey="value" type="linear" stroke="var(--color-action)" strokeWidth={2} connectNulls={false}
               dot={{ r: 2.5, fill: "var(--color-action)", strokeWidth: 0 }} activeDot={false} isAnimationActive={false} />
-            {"value" in active && active.value != null && <ReferenceDot x={active.time} y={active.value} r={4.5}
-              fill="var(--color-action)" stroke="var(--color-background)" strokeWidth={2} className="pointer-events-none" />}
-            <PlotInteraction observations={marks} onHover={setHoveredId} onSelect={selectObservation} />
             {marks.filter((mark) => mark.value == null).map((mark) => <ReferenceDot key={mark.id} x={mark.time} y={bottom} r={3}
               fill="var(--color-background)" stroke="var(--color-muted)" className="pointer-events-none" />)}
-            {visibleMarkers.map((marker) => <ReferenceDot key={marker.id} x={marker.time} y={bottom} r={marker.id === active.id ? 5 : 3.5}
-              fill={eventKinds[marker.kind].color} stroke="var(--color-background)"
-              className="cursor-pointer" onMouseEnter={() => setHoveredId(marker.id)} onMouseLeave={() => setHoveredId(null)} onClick={() => selectObservation(marker.id)} />)}
+            <PlotInteraction observations={marks} markers={visibleMarkers} selected={selected} bottom={bottom} readout={readout} observationDate={observationDate} onSelect={selectObservation} />
           </LineChart>
         </ResponsiveContainer>
       </div>
