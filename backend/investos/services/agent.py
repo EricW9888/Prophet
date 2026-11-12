@@ -3323,7 +3323,7 @@ class AgentService:
     def _merge_research_follow_up_into_answer(
         self, assistant_message: str, *, processed: bool
     ) -> str:
-        text = " ".join((assistant_message or "").split()).strip()
+        text = (assistant_message or "").strip()
         note = (
             "I also started a targeted research pass on the weakest part of this view and pushed it into the evidence loop."
             if processed
@@ -3335,22 +3335,18 @@ class AgentService:
         )
         if not text:
             return f"{note} {follow_up}"
-        if text.endswith((".", "!", "?")):
-            return f"{text} {note} {follow_up}"
-        return f"{text}. {note} {follow_up}"
+        return f"{text}\n\n{note} {follow_up}"
 
     def _merge_research_status_into_answer(
         self, assistant_message: str, note: str
     ) -> str:
-        text = " ".join((assistant_message or "").split()).strip()
-        note = " ".join((note or "").split()).strip()
+        text = (assistant_message or "").strip()
+        note = (note or "").strip()
         if not note:
             return text
         if not text:
             return note
-        if text.endswith((".", "!", "?")):
-            return f"{text} {note}"
-        return f"{text}. {note}"
+        return f"{text}\n\n{note}"
 
     async def _load_raw_content(self, evidence: RawEvidence) -> str:
         if not evidence.raw_content_ref:
