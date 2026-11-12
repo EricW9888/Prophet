@@ -10,7 +10,11 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import desc, select, tuple_
 
 from investos.config import settings
-from investos.core.provider_health import ProviderHealthStore, probe_llm_provider
+from investos.core.provider_health import (
+    LLMProviderCooldownError,
+    ProviderHealthStore,
+    probe_llm_provider,
+)
 from investos.core.research_providers import configured_research_providers
 from investos.core.work_signals import listen_for_work_signals
 from investos.db import async_session_maker
@@ -137,13 +141,9 @@ class AutomationCoordinator:
         if name not in self.LLM_DEPENDENT_JOBS:
             return False
         health = ProviderHealthStore.public_status()
-        if health["state"] not in {
-            "unobserved",
-            "open",
-            "probing",
-            "storage_unavailable",
-            "waiting_for_config",
-        }:
+        if health["state"] != "unobserved" and ProviderHealthStore.can_admit_work(
+            health
+        ):
             return False
         telemetry = self.telemetry.get(name)
         if telemetry:
@@ -160,16 +160,34 @@ class AutomationCoordinator:
                 )
         return True
 
+    def _record_job_failure(self, *, job_name, error, summary, detail=None):
+        status = "deferred" if isinstance(error, LLMProviderCooldownError) else "error"
+        telemetry = self.telemetry[job_name]
+        telemetry.last_status = status
+        telemetry.detail = detail if detail is not None else str(error)
+        self._log_job_action(
+            job_name=job_name,
+            status=status,
+            summary=(
+                f"Model work deferred: {error}" if status == "deferred" else summary
+            ),
+        )
+
     async def _run_provider_health_probe(self):
         telemetry = self.telemetry["provider_health_probe"]
         previous_state = ProviderHealthStore.public_status()["state"]
         health = await probe_llm_provider()
-        recovered = health["state"] == "healthy" and (
+        recovered = health["state"] in {"healthy", "recovering"} and (
             previous_state in {"open", "probing", "unobserved"}
             or telemetry.last_status == "deferred"
+            or (health["state"] == "healthy" and telemetry.last_status == "warning")
         )
         telemetry.last_run_at = datetime.now(UTC)
-        telemetry.last_status = "ok" if health["state"] == "healthy" else "deferred"
+        telemetry.last_status = (
+            "ok"
+            if health["state"] == "healthy"
+            else "warning" if health["state"] == "recovering" else "deferred"
+        )
         telemetry.detail = f"provider_health={health['state']} next_probe={health.get('next_probe_at')}"
         if recovered:
             self.signal_ready_work("provider_recovered")
@@ -691,12 +709,11 @@ class AutomationCoordinator:
                     self.signal_ready_work("universe_directory_changed")
             except Exception as exc:
                 await session.rollback()
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)[:400]
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="listing_directory",
-                    status="error",
-                    summary=telemetry.detail,
+                    error=exc,
+                    summary=str(exc)[:400],
+                    detail=str(exc)[:400],
                 )
 
     async def _run_news_intake(self) -> None:
@@ -718,10 +735,11 @@ class AutomationCoordinator:
                 )
             except Exception as exc:
                 await session.rollback()
-                telemetry.last_status = "error"
-                telemetry.detail = f"{type(exc).__name__}: {str(exc)[:300]}"
-                self._log_job_action(
-                    job_name="news_intake", status="error", summary=telemetry.detail
+                self._record_job_failure(
+                    job_name="news_intake",
+                    error=exc,
+                    summary=f"{type(exc).__name__}: {str(exc)[:300]}",
+                    detail=f"{type(exc).__name__}: {str(exc)[:300]}",
                 )
 
     async def _run_research_loop(self) -> None:
@@ -795,11 +813,9 @@ class AutomationCoordinator:
                     },
                 )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="research_loop",
-                    status="error",
+                    error=exc,
                     summary=f"Research loop failed: {exc}",
                 )
 
@@ -833,11 +849,9 @@ class AutomationCoordinator:
                     ", ".join(outcomes) if outcomes else "no_due_eligible_questions"
                 )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="question_resolution",
-                    status="error",
+                    error=exc,
                     summary=f"Question resolution failed: {exc}",
                 )
 
@@ -1204,11 +1218,9 @@ class AutomationCoordinator:
                 },
             )
         except Exception as exc:
-            telemetry.last_status = "error"
-            telemetry.detail = str(exc)
-            self._log_job_action(
+            self._record_job_failure(
                 job_name="database_backup",
-                status="error",
+                error=exc,
                 summary=f"Database backup failed: {exc}",
             )
 
@@ -1311,11 +1323,9 @@ class AutomationCoordinator:
                     },
                 )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="integrity_audit",
-                    status="error",
+                    error=exc,
                     summary=f"Integrity audit failed: {exc}",
                 )
 
@@ -1355,11 +1365,9 @@ class AutomationCoordinator:
                     },
                 )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="entity_hygiene",
-                    status="error",
+                    error=exc,
                     summary=f"Entity hygiene failed: {exc}",
                 )
 
@@ -1393,11 +1401,9 @@ class AutomationCoordinator:
                     },
                 )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="theme_hygiene",
-                    status="error",
+                    error=exc,
                     summary=f"Theme hygiene failed: {exc}",
                 )
 
@@ -1427,11 +1433,9 @@ class AutomationCoordinator:
                 },
             )
         except Exception as exc:
-            telemetry.last_status = "error"
-            telemetry.detail = str(exc)
-            self._log_job_action(
+            self._record_job_failure(
                 job_name="media_cleanup",
-                status="error",
+                error=exc,
                 summary=f"Media cleanup failed: {exc}",
             )
 
@@ -1464,11 +1468,9 @@ class AutomationCoordinator:
                     metadata=result,
                 )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="youtube_channel_review",
-                    status="error",
+                    error=exc,
                     summary=f"YouTube channel review failed: {exc}",
                 )
 
@@ -1524,11 +1526,9 @@ class AutomationCoordinator:
                     },
                 )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="source_claim_assessment",
-                    status="error",
+                    error=exc,
                     summary=f"Source claim assessment failed: {exc}",
                 )
 
@@ -1576,11 +1576,9 @@ class AutomationCoordinator:
                     },
                 )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="market_setup_assessment",
-                    status="error",
+                    error=exc,
                     summary=f"Market setup assessment failed: {exc}",
                 )
 
@@ -1606,11 +1604,9 @@ class AutomationCoordinator:
                     metadata=result,
                 )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="fundamental_freshness",
-                    status="error",
+                    error=exc,
                     summary=f"Fundamental freshness refresh failed: {exc}",
                 )
 
@@ -1646,11 +1642,9 @@ class AutomationCoordinator:
                     },
                 )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="investment_object_backfill",
-                    status="error",
+                    error=exc,
                     summary=f"Historical investment-object reindexing failed: {exc}",
                 )
 
@@ -1683,11 +1677,9 @@ class AutomationCoordinator:
                         visible=bool(result.get("actions")),
                     )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="agent_reflection",
-                    status="error",
+                    error=exc,
                     summary=f"Reflection cycle failed: {exc}",
                 )
 
@@ -1719,11 +1711,9 @@ class AutomationCoordinator:
                         visible=bool(result.get("links_added")),
                     )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="relation_review",
-                    status="error",
+                    error=exc,
                     summary=f"Relation review failed: {exc}",
                 )
 
@@ -1750,11 +1740,9 @@ class AutomationCoordinator:
                     metadata=result,
                 )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="market_data_refresh",
-                    status="error",
+                    error=exc,
                     summary=f"Market data refresh failed: {exc}",
                 )
 
@@ -1764,7 +1752,7 @@ class AutomationCoordinator:
         async with async_session_maker() as session:
             try:
                 health = ProviderHealthStore.public_status()
-                model_available = health["state"] in {"healthy", "unobserved"}
+                model_available = ProviderHealthStore.can_admit_work(health)
                 evidence = await EvidenceProcessingService(session).next_due_evidence(
                     model_available=model_available
                 )
@@ -1813,11 +1801,9 @@ class AutomationCoordinator:
                     },
                 )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="evidence_processing",
-                    status="error",
+                    error=exc,
                     summary=f"Evidence processing failed: {exc}",
                 )
 
@@ -1880,11 +1866,9 @@ class AutomationCoordinator:
                     },
                 )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="risk_refresh",
-                    status="error",
+                    error=exc,
                     summary=f"Risk refresh failed: {exc}",
                 )
 
@@ -1987,11 +1971,9 @@ class AutomationCoordinator:
                     },
                 )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="shadow_refresh",
-                    status="error",
+                    error=exc,
                     summary=f"Shadow refresh failed: {exc}",
                 )
 
@@ -2051,12 +2033,11 @@ class AutomationCoordinator:
                     )
                 await session.commit()
         except Exception as e:
-            telemetry.last_status = "error"
-            telemetry.detail = f"Gmail sync failed: {e}"
-            self._log_job_action(
+            self._record_job_failure(
                 job_name="gmail_sync",
-                status="error",
+                error=e,
                 summary=f"Gmail sync failed: {e}",
+                detail=f"Gmail sync failed: {e}",
             )
 
     async def _run_brokerage_reconcile(self) -> None:
@@ -2097,11 +2078,9 @@ class AutomationCoordinator:
                 },
             )
         except Exception as exc:
-            telemetry.last_status = "error"
-            telemetry.detail = str(exc)
-            self._log_job_action(
+            self._record_job_failure(
                 job_name="brokerage_reconcile",
-                status="error",
+                error=exc,
                 summary=f"Brokerage reconciliation failed: {exc}",
             )
 
@@ -2130,11 +2109,9 @@ class AutomationCoordinator:
                         visible=bool(result.get("actions_taken")),
                     )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="strategist_cycle",
-                    status="error",
+                    error=exc,
                     summary=f"Strategist cycle failed: {exc}",
                 )
 
@@ -2159,11 +2136,9 @@ class AutomationCoordinator:
                         metadata=result,
                     )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="pattern_discovery",
-                    status="error",
+                    error=exc,
                     summary=f"Pattern discovery failed: {exc}",
                 )
 
@@ -2184,11 +2159,9 @@ class AutomationCoordinator:
                         metadata={"discovered_count": count},
                     )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="shadow_discovery",
-                    status="error",
+                    error=exc,
                     summary=f"Shadow discovery failed: {exc}",
                 )
 
@@ -2213,11 +2186,9 @@ class AutomationCoordinator:
                     metadata=result,
                 )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="opportunity_discovery",
-                    status="error",
+                    error=exc,
                     summary=f"Opportunity discovery failed: {exc}",
                 )
 
@@ -2249,11 +2220,9 @@ class AutomationCoordinator:
                         },
                     )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="watcher_loop",
-                    status="error",
+                    error=exc,
                     summary=f"Watcher loop failed: {exc}",
                 )
 
@@ -2283,10 +2252,8 @@ class AutomationCoordinator:
                         metadata=result,
                     )
             except Exception as exc:
-                telemetry.last_status = "error"
-                telemetry.detail = str(exc)
-                self._log_job_action(
+                self._record_job_failure(
                     job_name="owner_notifications",
-                    status="error",
+                    error=exc,
                     summary=f"Owner notification delivery failed: {exc}",
                 )

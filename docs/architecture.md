@@ -150,8 +150,25 @@ reject missing, future, or out-of-window publication metadata. The default
 window is 24 hours. Rejected observations retain their disposition and the
 search window; dated snippets remain provisional, not corroborated facts.
 Market searches can surface material unheld companies without requiring a held
-ticker in the headline. Holding-specific searches remain anchored and bounded;
-the returned coverage receipt does not claim every exposure was checked.
+ticker in the headline. Holding-specific searches cover the requested book in
+priority order, batched by `CHAT_RESEARCH_HOLDINGS_PER_QUERY` (default 3) with
+`CHAT_RESEARCH_MAX_HOLDING_QUERIES` as an optional owner-configured request bound
+(default 0, no query-count cap). The existing provider credit budget still
+applies. Every holding receives a search receipt:
+candidate found, no matching candidate, provider/budget refusal, or not searched
+because of the request limit. These receipts survive prompt compaction and are
+visible in chat separately from stored evidence links. Candidate matches and
+search misses do not establish verified facts or exhaustive coverage.
+The turn's semantic classifier also selects its primary subject. Its selection
+takes precedence over lexical ticker matches when resolving context, so naming
+one held company as an example does not narrow a whole-portfolio question.
+An explicitly pinned subject remains authoritative; model-unavailable fallback
+resolution cannot provide the same semantic guarantee.
+Draft typing does not call the model. Submitted questions classify intent,
+freshness and primary scope in one call with the configured model timeout.
+If interpretation is unavailable, ordinary investment analysis stops visibly
+instead of silently guessing a narrower subject or using stale evidence.
+Deterministic conversational and explicit operating fallbacks remain available.
 In ingestion, a known candidate is reused without terminating the scan of the
 remaining bounded candidates. Historical and static-fact research keeps its
 ordinary unrestricted search path.
@@ -295,7 +312,15 @@ rather than introducing another renderer to correct a text-coordinate defect.
 The hosted request limiter rechecks the provider circuit before and after
 waiting for admission. A queued call denied admission is a deferral, not a new
 provider failure. Shared recovery uses one transport attempt, the configured
-generation timeout, and a lease covering that timeout. Autonomous model work
+generation timeout, and a lease covering that timeout. A successful connectivity
+probe enters `recovering`, retaining failure history. One real request receives
+a fenced lease; competing requests defer. Only successful real work marks the
+provider healthy and clears backoff. Probe and work success timestamps are
+separate. Cancellation releases its trial lease; expiry permits a new fenced
+trial after a restart. This follows the standard
+[half-open circuit breaker](https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker)
+pattern without raising provider quotas or bypassing admission limits.
+Autonomous model work
 waits for a verified configuration; deterministic maintenance can continue.
 Health identities include model request options so an observed failure is not
 silently transferred to a different protocol configuration. Old records remain

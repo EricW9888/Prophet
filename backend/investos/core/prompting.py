@@ -226,12 +226,15 @@ def compact_fresh_research_context(
             "checked_at",
             "window_hours",
             "coverage",
+            "holding_search_coverage",
         )
     }
     output.update(
         reason=compact_context_text(fresh.get("reason"), max_chars=220),
         query=compact_context_text(fresh.get("query"), max_chars=240),
         checks=(fresh.get("checks") or [])[:10],
+        omitted_check_count=int(fresh.get("omitted_check_count") or 0)
+        + max(0, len(fresh.get("checks") or []) - 10),
         candidate_count=max(int(fresh.get("candidate_count") or 0), len(candidates)),
         omitted_candidate_count=int(fresh.get("omitted_candidate_count") or 0)
         + len(candidates)
@@ -248,6 +251,7 @@ def compact_fresh_research_context(
                         "content_kind",
                         "evidence_id",
                         "score",
+                        "matched_tickers",
                     )
                 },
                 "title": compact_context_text(row.get("title"), max_chars=180),

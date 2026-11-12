@@ -82,6 +82,8 @@ class Settings(BaseSettings):
     # background automation jobs) to stay under provider rate quotas.
     LLM_RATE_LIMIT_PER_MINUTE: int = 30
     LLM_MAX_CONCURRENCY: int = 2
+    CHAT_RESEARCH_HOLDINGS_PER_QUERY: int = Field(default=3, ge=1, le=10)
+    CHAT_RESEARCH_MAX_HOLDING_QUERIES: int = Field(default=0, ge=0)
     LLM_ALLOW_LOCAL_PROVIDER: bool = False
     LLM_RECOVERY_PROVIDERS: str = ""
     CORROBORATION_MIN_INDEPENDENT_SOURCES: int = 2

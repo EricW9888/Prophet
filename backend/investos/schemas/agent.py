@@ -50,6 +50,7 @@ class AgentTurnRequest(BaseModel):
 class AgentResearchReceipt(BaseModel):
     holdings_count: int | None = None
     holdings_with_linked_evidence: list[str] = Field(default_factory=list)
+    holding_search_coverage: list[dict] = Field(default_factory=list)
     checks: list[dict] = Field(default_factory=list)
     candidate_sources: list[dict] = Field(default_factory=list)
 

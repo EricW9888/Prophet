@@ -1,13 +1,171 @@
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
 
-from investos.schemas.agent import AgentTurnRequest
-from investos.services.agent import AGENT_TOOLS, AgentService
+from investos.config import settings
+from investos.core.prompting import compact_fresh_research_context
+from investos.core.provider_health import LLMProviderCooldownError
+from investos.schemas.agent import AgentContextCandidateResponse, AgentTurnRequest
+from investos.services.agent import AGENT_TOOLS, PORTFOLIO_SUBJECT_ID, AgentService
 from investos.services.portfolio_lookahead import PortfolioLookaheadService
 from investos.services.research import ResearchSearchResult, ResearchService
+
+
+async def test_semantic_portfolio_scope_wins_over_an_illustrative_held_ticker(
+    monkeypatch,
+):
+    service = AgentService(None)
+    candidate = AgentContextCandidateResponse(
+        subject_id=uuid4(),
+        subject_type="entity",
+        subject_name="EXMPL",
+        score=215,
+        reason="Matched a held ticker",
+    )
+    monkeypatch.setattr(
+        service, "_subject_candidates", AsyncMock(return_value=[candidate])
+    )
+    model = AsyncMock(
+        return_value={
+            "subject_kind": "portfolio",
+            "ticker": None,
+            "search_text": None,
+            "reason": "The request explicitly covers the entire book.",
+        }
+    )
+    monkeypatch.setattr("investos.services.agent.call_llm_json", model)
+    resolved = await service.resolve_context(
+        message="Review all my holdings, including EXMPL, after today's supplier news.",
+        subject_id=None,
+        subject_type=None,
+    )
+    assert resolved.subject_type == "portfolio"
+    assert resolved.subject_id == PORTFOLIO_SUBJECT_ID
+    assert candidate.subject_id in [c.subject_id for c in resolved.candidates]
+
+
+async def test_context_resolution_reuses_the_classified_subject_without_another_call(
+    monkeypatch,
+):
+    service = AgentService(None)
+    monkeypatch.setattr(service, "_subject_candidates", AsyncMock(return_value=[]))
+    model = AsyncMock(side_effect=AssertionError("Already classified this turn"))
+    monkeypatch.setattr("investos.services.agent.call_llm_json", model)
+    resolved = await service.resolve_context(
+        message="Investigate my entire portfolio.",
+        subject_id=None,
+        subject_type=None,
+        subject_hint={"subject_kind": "portfolio", "reason": "Whole-book request"},
+    )
+    assert resolved.subject_type == "portfolio"
+    model.assert_not_awaited()
+
+
+async def test_unavailable_interpretation_cannot_become_stale_narrowed_analysis(
+    monkeypatch,
+):
+    service = AgentService(None)
+    model = AsyncMock(side_effect=LLMProviderCooldownError("synthetic capacity outage"))
+    monkeypatch.setattr("investos.services.agent.call_llm_json", model)
+    reasoning = AsyncMock(
+        side_effect=AssertionError("Uninterpreted question cannot reach analysis")
+    )
+    monkeypatch.setattr(service, "resolve_context", reasoning)
+    with pytest.raises(RuntimeError, match="No investment analysis was performed"):
+        await service.handle_turn(
+            AgentTurnRequest(
+                message="Check the last 24 hours for my entire portfolio, including EXMPL.",
+                auto_execute=False,
+            )
+        )
+    reasoning.assert_not_awaited()
+    assert model.call_args.kwargs["timeout_seconds"] == settings.LLM_TIMEOUT_SECONDS
+
+
+async def test_whole_book_fresh_check_includes_small_holdings_and_reports_misses(
+    monkeypatch,
+):
+    holdings = [
+        {"ticker": f"AST{i}", "name": f"Synthetic Issuer {i}", "market_value": 100 - i}
+        for i in range(9)
+    ]
+    queries = []
+
+    async def search(_self, *, query, **kwargs):
+        queries.append(query)
+        rows = []
+        if "AST8" in query:
+            rows = [
+                {
+                    "title": "AST8 cuts guidance",
+                    "url": "https://example.test/small",
+                    "published_date": (
+                        datetime.now(UTC) - timedelta(minutes=5)
+                    ).isoformat(),
+                }
+            ]
+        return ResearchSearchResult(True, "ok", query, rows)
+
+    monkeypatch.setattr(ResearchService, "search", search)
+    result = await AgentService(None)._portfolio_fresh_checks(
+        {"portfolio_context": {"holdings": holdings}}, "Whole-book check"
+    )
+    assert all(any(h["ticker"] in q for q in queries) for h in holdings)
+    coverage = {h["ticker"]: h for h in result["holding_search_coverage"]}
+    assert set(coverage) == {h["ticker"] for h in holdings}
+    assert coverage["AST8"]["candidate_count"] == 1
+    assert coverage["AST0"]["status"] == "no_matching_candidate"
+
+
+async def test_holding_coverage_preserves_budget_refusals_and_request_limits(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "CHAT_RESEARCH_HOLDINGS_PER_QUERY", 2)
+    monkeypatch.setattr(settings, "CHAT_RESEARCH_MAX_HOLDING_QUERIES", 1)
+    search = AsyncMock(
+        return_value=ResearchSearchResult(False, "budget_exhausted", "bounded", [])
+    )
+    monkeypatch.setattr(ResearchService, "search", search)
+    result = await AgentService(None)._portfolio_fresh_checks(
+        {
+            "portfolio_context": {
+                "holdings": [
+                    {"ticker": f"AST{i}", "market_value": 10 - i} for i in range(3)
+                ]
+            }
+        },
+        "Whole-book check",
+    )
+    coverage = {row["ticker"]: row for row in result["holding_search_coverage"]}
+    assert coverage["AST0"]["status"] == "budget_exhausted"
+    assert coverage["AST1"]["status"] == "budget_exhausted"
+    assert coverage["AST2"]["status"] == "request_limit"
+    assert all(
+        not row["searched"] and row["candidate_count"] == 0 for row in coverage.values()
+    )
+    assert search.await_count == 2  # One market query and one holding batch.
+
+
+def test_repeated_compaction_keeps_holding_coverage_and_check_omissions():
+    coverage = [
+        {
+            "ticker": "AST0",
+            "status": "request_limit",
+            "searched": False,
+            "candidate_count": 0,
+        }
+    ]
+    fresh = {
+        "holding_search_coverage": coverage,
+        "checks": [{"lane": "Holdings", "query": str(i)} for i in range(12)],
+    }
+    compacted = compact_fresh_research_context(compact_fresh_research_context(fresh))
+    assert compacted["holding_search_coverage"] == coverage
+    assert len(compacted["checks"]) == 10
+    assert compacted["omitted_check_count"] == 2
 
 
 @pytest.mark.parametrize(
@@ -229,9 +387,10 @@ async def test_vague_portfolio_update_checks_market_industry_and_loss_driver(
         "Market",
         "Industries",
         "Holdings",
+        "Holdings",
     ]
     assert "SMALL" in result["checks"][2]["query"]
-    assert all(item["result_count"] == 1 for item in result["checks"])
+    assert [item["result_count"] for item in result["checks"]] == [1, 1, 1, 0]
     assert [item["url"] for item in result["results"]] == [
         f"https://example.test/{path}" for path in ("market", "industry", "holding")
     ]

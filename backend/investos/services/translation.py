@@ -139,7 +139,7 @@ class TranslationService:
                 "status": "source_too_large" if original.strip() else "empty_source",
             }
         health = ProviderHealthStore.public_status()
-        if health["state"] not in {"healthy", "unobserved"}:
+        if not ProviderHealthStore.can_admit_work(health):
             return {
                 **result,
                 "status": "provider_deferred",

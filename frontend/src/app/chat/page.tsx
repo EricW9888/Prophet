@@ -10,12 +10,12 @@ import remarkGfm from "remark-gfm";
 
 import AppNav from "@/components/AppNav";
 import SourceProvenanceLinks from "@/components/SourceProvenanceLinks";
+import ResearchReceipt from "@/components/ResearchReceipt";
 import {
   API_BASE,
   AgentConversationHistory,
   AgentConversationList,
   AgentConversationSummary,
-  AgentResolve,
   AgentResearchReceipt,
   AgentTurnJob,
   AgentTurnJobList,
@@ -546,7 +546,6 @@ function ChatWorkspace() {
   const [openReport, setOpenReport] = useState<AgentConversationSummary | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [selectedSubjectName, setSelectedSubjectName] = useState("Portfolio");
-  const [resolvedPreview, setResolvedPreview] = useState<AgentResolve | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -963,27 +962,6 @@ function ChatWorkspace() {
   }, [activeSessionId, conversations, draftMessagesBySession]);
 
   useEffect(() => {
-    let cancelled = false;
-    if (input.trim().length < 2) {
-      setResolvedPreview(null);
-      return;
-    }
-    const timeout = window.setTimeout(() => {
-      void apiFetch<AgentResolve>("/agent/resolve", {
-        method: "POST",
-        body: JSON.stringify({
-          ...researchTurnContext(activeSessionId, pinnedSubject),
-          message: input.trim(),
-          auto_execute: false,
-        }),
-      })
-        .then((result) => { if (!cancelled) setResolvedPreview(result); })
-        .catch(() => undefined);
-    }, 250);
-    return () => { cancelled = true; window.clearTimeout(timeout); };
-  }, [activeSessionId, input, pinnedSubject]);
-
-  useEffect(() => {
     const pendingRunIds = Array.from(
       new Set(
         messages
@@ -1026,7 +1004,6 @@ function ChatWorkspace() {
     setPinnedSubject(entry.subject);
     setSelectedSubjectName(entry.subject?.subject_name ?? "Portfolio");
     setMessages([]);
-    setResolvedPreview(null);
     setInput(entry.question);
     setActiveJob(null);
     setIsTyping(false);
@@ -1204,7 +1181,6 @@ function ChatWorkspace() {
     setActiveSessionId(null);
     setMessages([]);
     setError(null);
-    setResolvedPreview(null);
     if (entryKey) router.replace("/chat", { scroll: false });
   }
 
@@ -1535,7 +1511,7 @@ function ChatWorkspace() {
                 </p>
                 {!activeSessionId && pinnedSubject && <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted">
                   <span>No research has been started by opening this link.</span>
-                  <button type="button" disabled={isTyping} onClick={() => { setPinnedSubject(null); setResolvedPreview(null); setSelectedSubjectName("Portfolio"); if (entryKey) router.replace("/chat", { scroll: false }); }} className="text-action underline disabled:opacity-50">Release subject context</button>
+                  <button type="button" disabled={isTyping} onClick={() => { setPinnedSubject(null); setSelectedSubjectName("Portfolio"); if (entryKey) router.replace("/chat", { scroll: false }); }} className="text-action underline disabled:opacity-50">Release subject context</button>
                   <Link href="/verification" className="text-action underline">Return to review</Link>
                 </div>}
               </div>
@@ -1742,7 +1718,6 @@ function ChatWorkspace() {
                       <span className="text-xs tabular-nums text-muted">{elapsedSeconds}s elapsed</span>
                     </div>
                     <p role="status" className="mt-1 text-muted">{liveEvents.at(-1)?.message ?? "Sending your request to Prophet."}</p>
-                    {resolvedPreview?.subject_name ? <p className="mt-1 text-xs text-muted">Context: {resolvedPreview.subject_name}</p> : null}
                     {activeJobRequestMessage && !messages.some((message) => message.role === "user" && message.content.startsWith(activeJobRequestMessage)) ? (
                       <p className="mt-1 truncate text-xs text-muted">{activeJobRequestMessage}</p>
                     ) : null}
@@ -1976,35 +1951,6 @@ function AutonomousReport({
         )}
       </article>
     </dialog>
-  );
-}
-
-function ResearchReceipt({ receipt }: { receipt: AgentResearchReceipt }) {
-  const count = receipt.holdings_with_linked_evidence.length;
-  return (
-    <details className="mt-4 border border-line bg-panel p-3 text-sm">
-      <summary className="cursor-pointer font-medium">
-        Evidence coverage{receipt.holdings_count != null ? ` · ${count} of ${receipt.holdings_count} holdings with linked evidence` : ""}
-      </summary>
-      {receipt.holdings_count != null ? <p className="mt-2 text-muted">Counts explicit links in the stored evidence selected for this answer. It does not measure news, prices, or the entire knowledge base.{count ? ` Linked: ${receipt.holdings_with_linked_evidence.join(", ")}.` : ""}</p> : null}
-      {receipt.checks.length ? (
-        <ul className="mt-3 space-y-2">
-          {receipt.checks.map((check) => (
-            <li key={check.lane} className="border-l border-line pl-2">
-              <span className="font-medium">{check.lane}</span> · {check.result_count ? `${check.result_count} candidate${check.result_count === 1 ? "" : "s"}` : formatUserLabel(check.status)}
-              <p className="break-words text-xs text-muted">{check.query}</p>
-            </li>
-          ))}
-        </ul>
-      ) : <p className="mt-2 text-muted">No external check recorded for this answer.</p>}
-      {receipt.candidate_sources.length ? (
-        <ul className="mt-3 space-y-1">
-          {receipt.candidate_sources.filter((source) => /^https?:\/\//i.test(source.url)).map((source) => (
-            <li key={source.url}><a className="break-words text-sky-600 underline dark:text-sky-400" href={source.url} target="_blank" rel="noreferrer">{source.title || source.url}</a>{source.published_date ? <span className="ml-2 text-xs text-muted">{source.published_date.slice(0, 10)}</span> : null}</li>
-          ))}
-        </ul>
-      ) : null}
-    </details>
   );
 }
 
