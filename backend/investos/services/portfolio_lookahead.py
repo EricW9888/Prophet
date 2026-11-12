@@ -60,10 +60,14 @@ class PortfolioLookaheadService:
 
     @classmethod
     def looks_like_lookahead_request(cls, message: str) -> bool:
-        """Fallback intent guard; the LLM tool router is still the primary classifier."""
-        normalized = " ".join(
-            re.sub(r"[^a-z0-9\s]", " ", (message or "").lower()).split()
-        )
+        """Fast-path only an explicit calendar request, not incidental event words.
+
+        Ambiguous or compound analysis requests belong to the semantic router.
+        """
+        question = (message or "").strip().lower()
+        if not re.fullmatch(r"[^.!?]+[.!?]?", question):
+            return False
+        normalized = " ".join(re.sub(r"[^a-z0-9\s]", " ", question).split())
         if not normalized:
             return False
         temporal_terms = {
@@ -96,9 +100,24 @@ class PortfolioLookaheadService:
             "deadline",
             "reminder",
         }
-        return any(term in normalized for term in temporal_terms) and any(
-            term in normalized for term in attention_terms
+        has_temporal = any(
+            re.search(r"\b" + re.escape(term) + r"\b", normalized)
+            for term in temporal_terms
         )
+        has_attention = any(
+            re.search(r"\b" + re.escape(term) + r"\b", normalized)
+            for term in attention_terms
+        )
+        explicit_request = any(
+            re.match(pattern, normalized)
+            for pattern in (
+                r"^(?:please )?(?:what|which|anything|is there anything) (?:(?:i|we) should|should (?:i|we)|do (?:i|we) need to) (?:watch|look|pay attention|focus)\b",
+                r"^(?:please )?(?:what|which)(?: portfolio)? (?:events?|catalysts?|earnings|reports?)\b.*\b(?:coming up|upcoming|scheduled|today|tomorrow|next week)\b",
+                r"^(?:please )?(?:show|list|get|give me)(?: me)? (?:my |our |the )?(?:upcoming )?(?:earnings|events?|catalysts?|portfolio|economic)\b.*\b(?:calendar|schedule|upcoming|next week|today|tomorrow)\b",
+                r"^(?:please )?what (?:s |is |are )?(?:coming up|scheduled|upcoming)\b",
+            )
+        )
+        return has_temporal and has_attention and explicit_request
 
     async def build_payload(
         self,

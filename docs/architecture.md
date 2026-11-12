@@ -77,6 +77,14 @@ The model may help classify an ambiguous document, but it cannot directly set
 positions, cash, fills, or prices. Those values are accepted only through the
 portfolio and reconciliation services.
 
+Cash entries are ordered by their effective execution time. Late arrivals update
+subsequent cash balances under the same database lock used by cash replay.
+The overview's legacy `buying_power` field represents reconstructed cash (or the
+configured fallback), not broker-confirmed purchasing capacity. Its `total_value`
+is an estimate of marked holdings plus that cash. Independently observed broker
+statements retain their own reconciliation receipts; missing activity, unsettled
+funds, margin and unmatched quantities must not be patched with a balancing entry.
+
 ### Research and market evidence
 
 `api/routes/ingestion.py` accepts notes, files, and URLs. Research discovery and

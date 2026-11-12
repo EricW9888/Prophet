@@ -169,14 +169,15 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
       {/* Hero Stats */}
       <section className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-3 lg:grid-cols-4">
           <HeroMetric
-            label="Total Equity"
+            label="Estimated account value"
             value={safeFormatCurrency(summary?.total_value, 2)}
-            detail={`${summary?.holdings_count ?? 0} active holdings`}
+            detail={`${safeFormatCurrency(summary.total_market_value, 2)} holdings + recorded cash`}
           />
           <HeroMetric
-            label="Buying Power"
+            label="Recorded cash"
             value={safeFormatCurrency(summary?.buying_power, 2)}
-            detail="Available to deploy"
+            detail="Reconstructed from recorded activity"
+            href="/verification?domain=portfolio_data"
           />
           <HeroMetric
             label="Open questions"

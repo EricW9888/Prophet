@@ -6,7 +6,42 @@ from pydantic import ValidationError
 
 from investos.schemas.agent import AgentTurnRequest
 from investos.services.agent import AGENT_TOOLS, AgentService
+from investos.services.portfolio_lookahead import PortfolioLookaheadService
 from investos.services.research import ResearchSearchResult, ResearchService
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Pressure-test this thesis: a major supplier replaced its CEO today. What are the portfolio implications and which catalysts could disprove it?",
+        "Analyze today's earnings report and its impact on my holdings.",
+        "What does today's executive departure mean for memory demand?",
+        "Evaluate this investment thesis without changing my portfolio or loss budget.",
+    ],
+)
+async def test_substantive_analysis_is_not_a_calendar_shortcut(monkeypatch, message):
+    assert not PortfolioLookaheadService.looks_like_lookahead_request(message)
+    service = AgentService(None)
+    assert service._fallback_turn_intent(message)["route"] == "analyze"
+    classify = AsyncMock(
+        return_value={"route": "analyze", "requires_fresh_research": True}
+    )
+    monkeypatch.setattr("investos.services.agent.call_llm_json", classify)
+    assert (await service._classify_turn_intent(message))["route"] == "analyze"
+    classify.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "What should I watch next week?",
+        "anything i should look forward/pay attention to the next week?",
+        "Show my upcoming earnings calendar.",
+        "Which portfolio events are coming up?",
+    ],
+)
+def test_explicit_calendar_questions_keep_the_fast_path(message):
+    assert PortfolioLookaheadService.looks_like_lookahead_request(message)
 
 
 def test_fallback_router_preserves_explicit_follow_up_correction():

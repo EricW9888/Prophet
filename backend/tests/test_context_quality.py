@@ -1331,14 +1331,18 @@ def test_extraction_prompt_preserves_source_dated_open_metric_ontology():
 
 
 @pytest.mark.asyncio
-async def test_turn_classifier_fast_paths_portfolio_lookahead():
+async def test_turn_classifier_routes_calendar_through_semantic_classifier(monkeypatch):
     service = AgentService.__new__(AgentService)
+    classify = AsyncMock(
+        return_value={"route": "operate", "reason": "Portfolio calendar lookup"}
+    )
+    monkeypatch.setattr("investos.services.agent.call_llm_json", classify)
     result = await service._classify_turn_intent(
         "anything i should look forward/pay attention to the next week?"
     )
 
     assert result["route"] == "operate"
-    assert "lookahead" in result["reason"].lower()
+    classify.assert_awaited_once()
 
 
 def test_portfolio_lookahead_answer_surfaces_dated_mu_catalyst():
