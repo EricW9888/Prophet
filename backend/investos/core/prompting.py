@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import defaultdict, deque
 from typing import Any
 
 
@@ -197,6 +198,73 @@ def compact_source_feedback(
     }
 
 
+def compact_fresh_research_context(
+    fresh: dict[str, Any],
+    *,
+    max_candidates: int = 40,
+    max_snippets: int = 6,
+    max_chars: int = 320,
+) -> dict[str, Any]:
+    """Keep the discovery manifest; share excerpt capacity across search lanes."""
+    candidates = [r for r in (fresh.get("results") or []) if isinstance(r, dict)]
+    retained = candidates[:max_candidates]
+    lanes: dict[str, deque[int]] = defaultdict(deque)
+    for index, row in enumerate(retained):
+        if row.get("content"):
+            lanes[str(row.get("lane") or "Search")].append(index)
+    excerpts: set[int] = set()
+    while len(excerpts) < max_snippets and any(lanes.values()):
+        for lane in lanes.values():
+            if lane and len(excerpts) < max_snippets:
+                excerpts.add(lane.popleft())
+    output = {
+        key: fresh.get(key)
+        for key in (
+            "required",
+            "searched",
+            "status",
+            "checked_at",
+            "window_hours",
+            "coverage",
+        )
+    }
+    output.update(
+        reason=compact_context_text(fresh.get("reason"), max_chars=220),
+        query=compact_context_text(fresh.get("query"), max_chars=240),
+        checks=(fresh.get("checks") or [])[:10],
+        candidate_count=max(int(fresh.get("candidate_count") or 0), len(candidates)),
+        omitted_candidate_count=int(fresh.get("omitted_candidate_count") or 0)
+        + len(candidates)
+        - len(retained),
+        results=[
+            {
+                **{
+                    key: row.get(key)
+                    for key in (
+                        "url",
+                        "published_date",
+                        "observed_at",
+                        "lane",
+                        "content_kind",
+                        "evidence_id",
+                        "score",
+                    )
+                },
+                "title": compact_context_text(row.get("title"), max_chars=180),
+                "content": (
+                    compact_context_text(row.get("content"), max_chars=max_chars)
+                    if index in excerpts
+                    else ""
+                ),
+                "content_omitted": bool(row.get("content_omitted"))
+                or bool(row.get("content") and index not in excerpts),
+            }
+            for index, row in enumerate(retained)
+        ],
+    )
+    return output
+
+
 def compact_packet_context(
     packet_context: dict[str, Any],
     *,
@@ -210,32 +278,9 @@ def compact_packet_context(
     fresh_research = packet_context.get("fresh_research_context")
     compact_fresh_research: dict[str, Any] = {}
     if isinstance(fresh_research, dict) and fresh_research:
-        compact_fresh_research = {
-            "required": fresh_research.get("required"),
-            "reason": compact_context_text(fresh_research.get("reason"), max_chars=220),
-            "searched": fresh_research.get("searched"),
-            "status": fresh_research.get("status"),
-            "query": compact_context_text(fresh_research.get("query"), max_chars=240),
-            "checked_at": fresh_research.get("checked_at"),
-            "results": [
-                {
-                    "title": compact_context_text(item.get("title"), max_chars=180),
-                    "url": item.get("url"),
-                    "published_date": item.get("published_date"),
-                    "content": compact_context_text(
-                        item.get("content"), max_chars=max_chars
-                    ),
-                    "score": item.get("score"),
-                }
-                for item in (fresh_research.get("results") or [])[:4]
-                if isinstance(item, dict)
-            ],
-        }
-        compact_fresh_research = {
-            key: value
-            for key, value in compact_fresh_research.items()
-            if value not in (None, "", [])
-        }
+        compact_fresh_research = compact_fresh_research_context(
+            fresh_research, max_snippets=max_items_per_layer, max_chars=max_chars
+        )
     return {
         "query_text": compact_context_text(
             packet_context.get("query_text"), max_chars=260
@@ -243,6 +288,7 @@ def compact_packet_context(
         "subject_type": packet_context.get("subject_type"),
         "subject_id": str(packet_context.get("subject_id")),
         "subject_name": packet_context.get("subject_name"),
+        "packet_assembled_at": packet_context.get("packet_assembled_at"),
         "coverage": packet_context.get("coverage") or {},
         "gap_flags": (packet_context.get("gap_flags") or [])[:6],
         "portfolio_context": portfolio_context,

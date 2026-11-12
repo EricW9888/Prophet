@@ -125,6 +125,41 @@ async def test_dashboard_keeps_open_cost_return_separate_from_stored_risk(
     assert result.risk_measurement_start == start
 
 
+async def test_retrieval_does_not_turn_an_undated_monitor_into_a_calendar_event(
+    workflow_session,
+):
+    from investos.models.watcher import ActiveWatcher
+    from investos.services.retrieval import RetrievalService
+
+    session = workflow_session
+    entity = Entity(name="Synthetic calendar subject", entity_type="company")
+    session.add(entity)
+    await session.flush()
+    session.add(
+        ActiveWatcher(
+            source="reasoning",
+            entity_id=entity.id,
+            ticker="SYNCAL",
+            condition_type="earnings_release",
+            condition_params_json={},
+            objective="Check an old quarter mentioned in research notes",
+            adjustment_plan="Resolve the actual next release date",
+            deadline=None,
+            status="pending",
+            is_active=True,
+        )
+    )
+    await session.flush()
+    rows = await RetrievalService(session)._active_watchers_for_positions(
+        position_details={uuid4(): {"ticker": "SYNCAL", "entity_id": str(entity.id)}},
+        subject_id=entity.id,
+    )
+    assert len(rows) == 1
+    assert rows[0]["deadline"] is None
+    assert rows[0]["timing_status"] == "undated_monitor"
+    assert rows[0]["calendar_resolution"] is None
+
+
 async def test_history_calculation_keeps_the_health_endpoint_responsive(
     workflow_session, monkeypatch
 ):

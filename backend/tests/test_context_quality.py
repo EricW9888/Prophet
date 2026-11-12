@@ -1080,6 +1080,110 @@ def test_compact_packet_context_carries_fresh_research_separately_from_evidence(
     assert fresh["results"][0]["url"] == "https://example.com/memory beta"
 
 
+def test_fresh_context_preserves_all_lanes_dates_and_visible_excerpt_limits():
+    rows = [
+        {
+            "title": f"Publisher item {i}",
+            "url": f"https://example.test/p/{i}",
+            "content": "Publisher summary " * 100,
+            "lane": "Publisher news",
+        }
+        for i in range(12)
+    ] + [
+        {
+            "title": "Market development",
+            "url": "https://example.test/market",
+            "content": "Dated market report",
+            "lane": "Market",
+        },
+        {
+            "title": "Unseen supplier affects a holding",
+            "url": "https://example.test/supplier",
+            "content": "Supplier changes deliveries; contractual impact is unconfirmed.",
+            "lane": "Holdings",
+            "published_date": "2025-05-20T18:00:00Z",
+            "observed_at": "2025-05-20T19:00:00Z",
+            "evidence_id": "synthetic-receipt",
+        },
+    ]
+    context = {
+        "packet_assembled_at": "2025-05-20T19:01:00Z",
+        "fresh_research_context": {
+            "results": rows,
+            "window_hours": 24,
+            "coverage": "bounded",
+            "checked_at": "2025-05-20T19:00:00Z",
+            "checks": [{"lane": "Holdings", "status": "matched", "result_count": 1}],
+        },
+    }
+    # Reasoning and critique both compact the packet; a second pass must not
+    # discard the late holdings lane or turn a trimmed excerpt into no news.
+    first = compact_packet_context(context)
+    again = compact_packet_context(first)
+    fresh = again["fresh_research_context"]
+    assert len(fresh["results"]) == 14
+    assert fresh["candidate_count"] == 14
+    assert fresh["omitted_candidate_count"] == 0
+    assert fresh["checks"] == context["fresh_research_context"]["checks"]
+    assert fresh["window_hours"] == 24
+    assert fresh["coverage"] == "bounded"
+    supplier = fresh["results"][-1]
+    for key in (
+        "title",
+        "url",
+        "published_date",
+        "observed_at",
+        "evidence_id",
+        "content",
+    ):
+        assert supplier[key] == rows[-1][key]
+    assert {r["lane"] for r in fresh["results"] if r["content"]} == {
+        "Publisher news",
+        "Market",
+        "Holdings",
+    }
+    assert sum(bool(r["content"]) for r in fresh["results"]) == 6
+    assert any(r["content_omitted"] for r in fresh["results"])
+    assert again["packet_assembled_at"] == context["packet_assembled_at"]
+
+
+def test_fresh_manifest_cap_is_explicit_and_not_a_no_news_claim():
+    fresh = compact_packet_context(
+        {
+            "fresh_research_context": {
+                "results": [
+                    {"title": f"Candidate {i}", "url": f"https://example.test/{i}"}
+                    for i in range(50)
+                ]
+            }
+        }
+    )["fresh_research_context"]
+    assert len(fresh["results"]) == 40
+    assert fresh["candidate_count"] == 50
+    assert fresh["omitted_candidate_count"] == 10
+    repeated = compact_packet_context({"fresh_research_context": fresh})[
+        "fresh_research_context"
+    ]
+    assert repeated["candidate_count"] == 50
+    assert repeated["omitted_candidate_count"] == 10
+
+
+def test_fresh_source_note_reports_total_candidates_not_preview_length():
+    message = AgentService.__new__(
+        AgentService
+    )._merge_fresh_research_context_into_answer(
+        "Read",
+        {
+            "status": "ok",
+            "results": [
+                {"title": f"Candidate {i}", "url": f"https://example.test/{i}"}
+                for i in range(19)
+            ],
+        },
+    )
+    assert "19 candidate sources" in message
+
+
 def test_compact_packet_context_carries_question_plan_and_opportunity_universe():
     compact = compact_packet_context(
         {
