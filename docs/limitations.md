@@ -55,6 +55,16 @@ retrieval. Search is source discovery, not a complete market-data or retrieval
 solution. Market prices and public web results may be delayed, revised,
 unavailable, or unsuitable for point-in-time backtesting.
 
+Publisher-feed intake adds a cheap current-world input, not an exhaustive news
+wire. Feeds can omit events, update old entries, lag publication, or block page
+fetching. Publisher dates are metadata estimates; discovery time records when
+this instance observed a version. Intake continues during model outages, but
+source extraction, relevance assessment, causal analysis and any alert can still
+be delayed. A retained headline or fetched page does not establish correctness,
+independent corroboration, portfolio impact, or advance usefulness. Pending and
+failed leads remain visible; complete attention coverage and investment value
+still require end-to-end validation.
+
 Opportunity discovery currently inspects an operator-approved security universe
 in bounded batches. Its run history records inspected subjects, skips, failures,
 provider attempts, and estimated metered credits; it does not establish that the

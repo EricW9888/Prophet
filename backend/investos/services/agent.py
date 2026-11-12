@@ -62,6 +62,7 @@ from investos.services.artifact_hygiene import is_internal_artifact_text
 from investos.services.corroboration import CorroborationService
 from investos.services.decision import DecisionService
 from investos.services.ingestion import IngestionService
+from investos.services.news_intake import NewsIntakeService
 from investos.services.operating_state import OperatingStateService
 from investos.services.portfolio_lookahead import PortfolioLookaheadService
 from investos.services.pruning import PruningService
@@ -5108,8 +5109,15 @@ class AgentService:
                 )
             )
 
-        results_by_url: dict[str, dict] = {}
-        check_receipts = []
+        publisher_context = (
+            await NewsIntakeService(self.session).recent_context()
+            if self.session is not None
+            else {"results": [], "checks": []}
+        )
+        results_by_url: dict[str, dict] = {
+            row["url"]: row for row in publisher_context["results"]
+        }
+        check_receipts = list(publisher_context["checks"])
         searched = False
         provider_statuses = []
         for lane, query, anchors in checks:

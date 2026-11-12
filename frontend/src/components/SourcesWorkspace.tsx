@@ -21,6 +21,7 @@ import {
 } from "@/lib/api";
 import { normalizeSourceOrigin } from "@/lib/sourceOrigin";
 import HintMarker from "@/components/HintMarker";
+import NewsIntakePanel from "@/components/NewsIntakePanel";
 import PageHeader from "@/components/PageHeader";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
 import { WorkspaceRead } from "@/components/WorkspaceState";
@@ -505,6 +506,7 @@ export default function SourcesWorkspace() {
         </div>
       </div>
 
+      <NewsIntakePanel />
       {error ? (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">
           {error}
