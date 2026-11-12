@@ -24,7 +24,7 @@ function Fields({ value }: { value: unknown }) {
     </div>)}</dl> : <span className="text-muted">None</span>;
   }
   if (typeof value === "boolean") return <span>{value ? "Yes" : "No"}</span>;
-  if (typeof value === "number") return <span className="tabular-nums">{value.toLocaleString()}</span>;
+  if (typeof value === "number") return <span className="tabular-nums">{Number.isInteger(value) ? value.toLocaleString() : String(value)}</span>;
   const text = String(value);
   const date = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text) ? new Date(text) : null;
   return <span>{date && Number.isFinite(date.getTime())
