@@ -26,6 +26,7 @@ import WorkspaceState from "@/components/WorkspaceState";
 import AppNav from "@/components/AppNav";
 import FloatingNotice from "@/components/FloatingNotice";
 import PageHeader from "@/components/PageHeader";
+import RecordFields from "@/components/RecordFields";
 import ListingUniversePanel, { type ListingCoverage } from "@/components/ListingUniversePanel";
 import { DISCOVERY_RUN_TIMEOUT_MS } from "@/lib/request-timeouts";
 import {
@@ -107,7 +108,7 @@ function EvidenceItem({ item, index }: { item: Record<string, unknown>; index: n
           </a>
         ) : null}
       </div>
-      {detail ? <p className="mt-1 break-words text-sm text-slate-600 dark:text-slate-300">{displayValue(detail)}</p> : null}
+      {detail != null && detail !== "" ? <div className="mt-1 break-words text-sm text-muted">{typeof detail === "object" ? <RecordFields value={detail} raw /> : displayValue(detail)}</div> : null}
       {timestamp ? <p className="mt-1 text-xs text-slate-400">{formatDate(String(timestamp))}</p> : null}
     </li>
   );
@@ -754,7 +755,7 @@ export default function OpportunitiesPage() {
                     </button>
                     {expanded ? (
                       <div className="mt-4 grid gap-5 border-l-2 border-slate-200 pl-4 lg:grid-cols-3 dark:border-slate-700">
-                        <RunDetail title="Limits" items={Object.entries(run.limits).map(([key, value]) => ({ label: key, detail: displayValue(value) }))} />
+                        <section><h3 className="mb-3 text-sm font-semibold">Limits and context</h3><RecordFields value={run.limits} raw /></section>
                         <RunDetail title="Provider attempts" items={run.provider_attempts.map((item) => ({ label: displayValue(item.provider ?? item.status), detail: `${displayValue(item.status)} · ${displayValue(item.estimated_credits)} credits · ${displayValue(item.query)}` }))} />
                         <RunDetail title="Skips and failures" items={[...run.skipped, ...run.failures].map((item) => ({ label: displayValue(item.ticker ?? item.stage ?? item.member_id ?? "Run item"), detail: displayValue(item.reason ?? item.error) }))} />
                         <p className="text-xs text-slate-500 lg:col-span-3">Detail: {displayValue(run.detail)} · started {formatDate(run.started_at)} · completed {formatDate(run.completed_at)}</p>
@@ -790,11 +791,11 @@ function NumberSetting({ label, value, min, max, onChange }: { label: string; va
 }
 
 function RunMetric({ label, value }: { label: string; value: string }) {
-  return <div><p className="text-[10px] font-semibold uppercase text-slate-400">{label}</p><p className="mt-0.5 text-sm font-medium tabular-nums">{value}</p></div>;
+  return <div><p className="text-xs font-medium text-muted">{label}</p><p className="mt-0.5 text-sm font-medium tabular-nums">{value}</p></div>;
 }
 
 function RunDetail({ title, items }: { title: string; items: Array<{ label: string; detail: string }> }) {
-  return <section><h3 className="text-xs font-semibold uppercase text-slate-400">{title}</h3>{items.length ? <ul className="mt-2 space-y-2">{items.map((item, index) => <li key={`${item.label}-${index}`}><p className="text-xs font-medium">{item.label}</p><p className="mt-0.5 break-words text-xs leading-5 text-slate-500">{item.detail}</p></li>)}</ul> : <p className="mt-2 text-xs text-slate-400">None recorded.</p>}</section>;
+  return <section><h3 className="text-sm font-semibold">{title}</h3>{items.length ? <ul className="mt-3 space-y-3">{items.map((item, index) => <li key={`${item.label}-${index}`}><p className="text-sm font-medium">{item.label}</p><p className="mt-1 break-words text-sm leading-6 text-muted">{item.detail}</p></li>)}</ul> : <p className="mt-3 text-sm text-muted">None recorded.</p>}</section>;
 }
 
 function OutcomeSection({

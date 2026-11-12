@@ -201,7 +201,8 @@ The main state groups are:
   subjects and original capture rather than marking them inspected or replacing
   its plan. Recovery resumes that run, respects newly paused subjects, and
   evaluates all successful inspections including those completed before the
-  interruption. Deferred work is exposed as deferred in automation telemetry.
+  interruption. Query drafting receives that run's UTC clock to anchor recency.
+  Deferred work is exposed as deferred in automation telemetry.
 - **Listing frontier:** optional exchange-directory intake stores listing rows
   separately from entities and securities. Complete, hashed directory snapshots
   update presence without changing holdings, quantities or operator exclusions.
