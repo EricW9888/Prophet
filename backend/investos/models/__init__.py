@@ -52,10 +52,12 @@ from .notification import (
     PushSubscription,
 )
 from .opportunity import (
+    ListingDirectory,
     OpportunityCandidate,
     OpportunityCandidateObservation,
     OpportunityDiscoveryRun,
     OpportunityUniverseMember,
+    ResearchListing,
 )
 from .override import ManualOverride
 from .portfolio import Lot, Position, Transaction
@@ -145,6 +147,8 @@ __all__ = [
     "OpportunityCandidateObservation",
     "OpportunityDiscoveryRun",
     "OpportunityUniverseMember",
+    "ListingDirectory",
+    "ResearchListing",
     "Position",
     "Lot",
     "Transaction",

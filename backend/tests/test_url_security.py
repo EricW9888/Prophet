@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 import pytest
 
@@ -29,6 +31,31 @@ async def _public_resolver(_hostname: str, _port: int) -> list[str]:
 async def test_resolve_public_url_rejects_unsafe_targets(url: str):
     with pytest.raises(UnsafeUrlError):
         await resolve_public_url(url, resolver=_public_resolver)
+
+
+async def test_fetch_deadline_covers_the_entire_response_not_each_chunk():
+    delivered = []
+
+    class SlowStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            for i in range(10):
+                await asyncio.sleep(0.015)
+                delivered.append(i)
+                yield b"x"
+
+    async def handler(_request):
+        return httpx.Response(
+            200, headers={"content-type": "text/plain"}, stream=SlowStream()
+        )
+
+    with pytest.raises(UrlFetchNetworkError, match="retrieval deadline"):
+        await fetch_public_text(
+            "https://example.test/slow",
+            timeout_seconds=0.04,
+            resolver=_public_resolver,
+            transport=httpx.MockTransport(handler),
+        )
+    assert len(delivered) < 10
 
 
 async def test_resolve_public_url_rejects_mixed_public_and_private_dns():

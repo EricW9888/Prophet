@@ -176,6 +176,8 @@ class SecurityCatalogService:
         *,
         ticker: str,
         entity_name: str | None = None,
+        instrument_type: str = "common_stock",
+        exchange: str | None = None,
     ) -> Security:
         normalized_ticker = ticker.strip().upper()
         if not normalized_ticker:
@@ -207,7 +209,8 @@ class SecurityCatalogService:
             entity_id=entity.id,
             ticker=normalized_ticker,
             asset_class="equity",
-            instrument_type="common_stock",
+            instrument_type=instrument_type,
+            exchange=exchange,
         )
         self.session.add(security)
         await self.session.flush()

@@ -34,6 +34,7 @@ from investos.services.evidence_processing import EvidenceProcessingService
 from investos.services.fundamentals import FundamentalMetricService
 from investos.services.integrity import IntegrityService
 from investos.services.investment_object_backfill import InvestmentObjectBackfillService
+from investos.services.listing_directory import ListingDirectoryService
 from investos.services.market_data import MarketDataService
 from investos.services.market_setup import MarketSetupSignalService
 from investos.services.media_workspace import MediaIngestionPolicy
@@ -73,12 +74,15 @@ class JobTelemetry:
 
 class AutomationCoordinator:
     SIGNAL_JOBS = {
+        "universe_scope_changed": ("listing_directory",),
+        "universe_directory_changed": ("opportunity_discovery",),
         "news_feed_changed": ("news_intake",),
         "evidence_arrived": ("evidence_processing",),
         "evidence_ready": ("question_resolution", "agent_reflection"),
         "question_actionable": ("research_loop",),
         "shadow_evidence_queued": ("shadow_refresh",),
         "provider_recovered": (
+            "opportunity_discovery",
             "evidence_processing",
             "question_resolution",
             "research_loop",
@@ -188,6 +192,12 @@ class AutomationCoordinator:
             settings.NEWS_INTAKE_ENABLED,
         )
         self._register_job(
+            "listing_directory",
+            self._run_listing_directory,
+            settings.LISTING_DIRECTORY_REFRESH_SECONDS,
+            False,
+        )
+        self._register_job(
             "research_loop",
             self._run_research_loop,
             settings.AUTOMATION_POLL_SECONDS,
@@ -287,6 +297,7 @@ class AutomationCoordinator:
         )
         self._schedule_startup_run("integrity_audit", self._run_integrity_audit)
         self._schedule_startup_run("news_intake", self._run_news_intake)
+        self._schedule_startup_run("listing_directory", self._run_listing_directory)
         self._schedule_startup_run("market_data_refresh", self._run_market_data_refresh)
         self._schedule_startup_run("risk_refresh", self._run_risk_refresh)
         self._schedule_startup_run("gmail_sync", self._run_gmail_sync)
@@ -335,6 +346,7 @@ class AutomationCoordinator:
     async def run_job(self, name: str) -> None:
         self.sync_runtime_jobs()
         mapping = {
+            "listing_directory": self._run_listing_directory,
             "news_intake": self._run_news_intake,
             "provider_health_probe": self._run_provider_health_probe,
             "database_backup": self._run_database_backup,
@@ -375,6 +387,12 @@ class AutomationCoordinator:
         for name in self.SIGNAL_JOBS.get(signal, ()):
             telemetry = self.telemetry.get(name)
             if telemetry is not None and telemetry.enabled:
+                if (
+                    signal == "provider_recovered"
+                    and name == "opportunity_discovery"
+                    and telemetry.last_status != "deferred"
+                ):
+                    continue
                 pending = self._pending_signals.get(name)
                 if pending is None or pending == "queue_catchup":
                     self._pending_signals[name] = signal
@@ -547,6 +565,12 @@ class AutomationCoordinator:
             runtime.opportunity_discovery.interval_seconds,
             runtime.opportunity_discovery.enabled,
         )
+        self._sync_job(
+            "listing_directory",
+            self._run_listing_directory,
+            settings.LISTING_DIRECTORY_REFRESH_SECONDS,
+            runtime.opportunity_discovery.universe_scope == "us_listed",
+        )
 
     def _sync_job(
         self,
@@ -622,6 +646,48 @@ class AutomationCoordinator:
     @staticmethod
     def _is_artifact_question(question: UnresolvedQuestion) -> bool:
         return is_artifact_question_text(question.question_text)
+
+    async def _run_listing_directory(self) -> None:
+        telemetry = self.telemetry["listing_directory"]
+        telemetry.last_run_at = datetime.now(UTC)
+        telemetry.last_status = "running"
+        async with async_session_maker() as session:
+            try:
+                result = await ListingDirectoryService(session).refresh()
+                if result["status"] != "disabled":
+                    result["frontier_preparation"] = await ListingDirectoryService(
+                        session
+                    ).materialize(
+                        limit=RuntimeSettingsStore.load().opportunity_discovery.max_subjects_per_run
+                    )
+                telemetry.last_status = result["status"]
+                telemetry.detail = " ".join(
+                    f"{k}={v}"
+                    for k, v in result.items()
+                    if k != "status" and not isinstance(v, dict)
+                )
+                self._log_job_action(
+                    job_name="listing_directory",
+                    status=telemetry.last_status,
+                    summary="Exchange directory metadata refreshed; this is not a completed company investigation.",
+                    metadata=result,
+                )
+                opportunity = self.telemetry.get("opportunity_discovery")
+                if opportunity and opportunity.last_status in {
+                    "idle",
+                    "waiting_for_config",
+                    "deferred",
+                }:
+                    self.signal_ready_work("universe_directory_changed")
+            except Exception as exc:
+                await session.rollback()
+                telemetry.last_status = "error"
+                telemetry.detail = str(exc)[:400]
+                self._log_job_action(
+                    job_name="listing_directory",
+                    status="error",
+                    summary=telemetry.detail,
+                )
 
     async def _run_news_intake(self) -> None:
         telemetry = self.telemetry["news_intake"]

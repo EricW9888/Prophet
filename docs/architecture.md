@@ -198,6 +198,16 @@ The main state groups are:
   source-linked candidates whose assumptions remain separate from evidence; and
   immutable discovery observations evaluated later against dated benchmark and
   cash controls.
+- **Listing frontier:** optional exchange-directory intake stores listing rows
+  separately from entities and securities. Complete, hashed directory snapshots
+  update presence without changing holdings, quantities or operator exclusions.
+  Explicit common/ordinary-share and depositary-share labels can enter a bounded
+  preparation buffer; unresolved types, ETFs and test issues remain inspectable.
+  Materialization reuses the canonical security catalog and existing discovery
+  runner, retains the selected row's source basis, and preserves existing pause
+  and priority choices. Directory refresh needs no inference provider. A newly
+  available frontier wakes waiting discovery; completed scans retain the configured
+  cadence. Model recovery wakes deferred discovery, not a duplicate completed run.
 - **Simulation:** shadow experiments, account events, orders, fills, evidence
   wake-ups, results, and experiment-family learning state.
 

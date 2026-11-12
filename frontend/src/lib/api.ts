@@ -1301,6 +1301,7 @@ export type IntegrationSettings = {
     status_message?: string | null;
   };
   opportunity_discovery: {
+    universe_scope?: "manual" | "us_listed";
     enabled: boolean;
     interval_seconds: number;
     max_subjects_per_run: number;

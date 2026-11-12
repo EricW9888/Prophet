@@ -40,6 +40,10 @@ exposed.
   for provisional opportunities,
   then evaluates immutable discovery-time hypotheses against dated market and cash controls,
   exposing coverage, assumptions, evidence, skips, failures, and provider cost.
+- Can expand research to broad U.S.-listed companies using exchange-directory
+  metadata. Listings stay separate from the knowledge graph; only bounded
+  research batches become subjects. Ideas exposes coverage, instrument-type
+  gaps, source checkpoints and reversible exclusions.
 - Tests ideas through shadow experiments and paper accounts, then records
   outcomes and lessons without sending real orders.
 

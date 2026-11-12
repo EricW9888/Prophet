@@ -76,6 +76,17 @@ benchmark's latest constituent snapshot. Import previews expose eligible,
 already-present, missing, and skipped counts. Imports do not remove, re-enable,
 or reprioritize existing members, and they are not a claim of complete exchange
 or global-market coverage.
+An optional broad U.S. scope adds Nasdaq-listed and other U.S. exchange directory
+metadata. These are listing records, not a complete issuer ontology or evidence
+of investment merit. Conservative instrument-label classification leaves unknown
+types outside automatic company research; depositary shares retain their distinct
+instrument type. A listing's disappearance changes directory presence, not broker
+truth or an existing research decision. Directory rows and prepared subjects have
+separate counts; only bounded batches reach investigation. Failed or stale source
+checks, preparation errors, exclusions and unexplored listings remain visible.
+Directory publication clocks are retained as publisher metadata; observation time
+does not establish historical availability. Current directory data cannot supply
+a missing point-in-time universe for a historical benchmark.
 Each new discovery observation fixes its expected relative direction, horizon,
 evidence packet, and evaluation policy before the outcome is known. Later
 evaluation uses stored adjusted daily closes, the configured broad-market

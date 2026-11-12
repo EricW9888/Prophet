@@ -304,6 +304,7 @@ def test_runtime_sync_applies_live_opportunity_discovery_controls(monkeypatch):
         opportunity_discovery=SimpleNamespace(
             enabled=False,
             interval_seconds=43200,
+            universe_scope="manual",
         ),
     )
     monkeypatch.setattr(
@@ -321,6 +322,21 @@ def test_runtime_sync_applies_live_opportunity_discovery_controls(monkeypatch):
         if call.args[0] == "opportunity_discovery"
     )
     assert opportunity_call.args[2:] == (43200, False)
+    directory_call = next(
+        call
+        for call in coordinator._sync_job.call_args_list
+        if call.args[0] == "listing_directory"
+    )
+    assert directory_call.args[3] is False
+    runtime.opportunity_discovery.universe_scope = "us_listed"
+    coordinator._sync_job.reset_mock()
+    coordinator.sync_runtime_jobs()
+    directory_call = next(
+        call
+        for call in coordinator._sync_job.call_args_list
+        if call.args[0] == "listing_directory"
+    )
+    assert directory_call.args[3] is True
 
 
 @pytest.mark.asyncio

@@ -26,6 +26,7 @@ import WorkspaceState from "@/components/WorkspaceState";
 import AppNav from "@/components/AppNav";
 import FloatingNotice from "@/components/FloatingNotice";
 import PageHeader from "@/components/PageHeader";
+import ListingUniversePanel, { type ListingCoverage } from "@/components/ListingUniversePanel";
 import { DISCOVERY_RUN_TIMEOUT_MS } from "@/lib/request-timeouts";
 import {
   apiFetch,
@@ -117,6 +118,7 @@ export default function OpportunitiesPage() {
   const [filter, setFilter] = useState<CandidateFilter>("all");
   const [candidates, setCandidates] = useState<OpportunityCandidate[]>([]);
   const [universe, setUniverse] = useState<OpportunityUniverseMember[]>([]);
+  const [listingCoverage, setListingCoverage] = useState<ListingCoverage | null>(null);
   const [importPreview, setImportPreview] = useState<OpportunityUniverseImportPreview | null>(null);
   const [runs, setRuns] = useState<OpportunityDiscoveryRun[]>([]);
   const [settings, setSettings] = useState<IntegrationSettings | null>(null);
@@ -378,7 +380,7 @@ export default function OpportunitiesPage() {
             <button
               type="button"
               onClick={() => void runDiscovery()}
-              disabled={busy === "run" || !universe.some((item) => item.enabled)}
+              disabled={busy === "run" || !(universe.some((item) => item.enabled) || (listingCoverage?.scope === "us_listed" && listingCoverage.eligible > 0))}
               className="inline-flex h-9 items-center gap-2 rounded-md bg-slate-900 px-3 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white"
             >
               {busy === "run" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
@@ -388,7 +390,9 @@ export default function OpportunitiesPage() {
           )}
         />
 
-        {status.universe?.ready && !universe.some((item) => item.enabled) && (
+        <ListingUniversePanel onCoverage={setListingCoverage} />
+
+        {status.universe?.ready && !universe.some((item) => item.enabled) && listingCoverage?.scope !== "us_listed" && (
           <p className="mb-4 rounded border border-line p-3 text-sm text-muted">
             Discovery needs an enabled universe. Open Universe to preview eligible holdings and watchlist names or add a security.
           </p>
@@ -396,7 +400,7 @@ export default function OpportunitiesPage() {
 
         <section className="grid grid-cols-2 gap-px border-b border-slate-200 bg-slate-200 sm:grid-cols-4 dark:border-slate-800 dark:bg-slate-800">
           {[
-            ["Universe", status.universe?.ready ? `${universe.filter((item) => item.enabled).length} enabled / ${universe.length} total` : "Unavailable"],
+            ["Prepared frontier", status.universe?.ready ? `${universe.filter((item) => item.enabled).length} enabled / ${universe.length} total` : "Unavailable"],
             ["Due now", status.universe?.ready ? String(dueCount) : "—"],
             ["Last run", latestRun ? `${latestRun.inspected_count}/${latestRun.universe_size} inspected` : status.runs?.ready ? "No runs" : "—"],
             ["Provider cost", latestRun ? `${latestRun.estimated_credits} estimated credits` : "Not recorded"],
@@ -469,7 +473,7 @@ export default function OpportunitiesPage() {
                   <div className="min-w-0 border border-dashed border-slate-300 px-4 py-8 text-center dark:border-slate-700">
                     <CircleDot className="mx-auto h-5 w-5 text-slate-400" />
                     <p className="mt-2 text-sm font-medium">No candidates in this state</p>
-                    <p className="mt-1 break-words text-xs text-slate-500">Run discovery after adding securities to the universe.</p>
+                    <p className="mt-1 break-words text-xs text-muted">Inspect Run history for completed coverage and any failures. A prepared subject becomes a candidate only after investigation.</p>
                   </div>
                 ) : (
                   filteredCandidates.map((candidate) => (

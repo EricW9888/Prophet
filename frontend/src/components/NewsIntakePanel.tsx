@@ -74,7 +74,7 @@ export default function NewsIntakePanel() {
         <details className="mb-3 border border-line p-3">
           <summary className="cursor-pointer text-sm">Publisher feeds · {data.feeds.filter(f => f.enabled).length} enabled</summary>
           <div className="mt-3 space-y-3">{data.feeds.map(feed => <div key={feed.id} className="flex flex-wrap items-start justify-between gap-2 border-t border-line pt-2 text-sm">
-            <div className="min-w-0"><a href={feed.url} target="_blank" rel="noreferrer" className="break-all text-accent underline">{feed.name}</a>
+            <div className="min-w-0"><a href={feed.url} target="_blank" rel="noreferrer" className="break-all text-action underline">{feed.name}</a>
               <p className={feed.status === "error" ? "text-red-400" : "text-muted"}>{feed.enabled ? feed.status === "ok" ? `${feed.entry_count} entries · ${feed.new_count} new on last check` : feed.status.replaceAll("_", " ") : "Paused"}</p>
               <p className="text-xs text-muted">Last checked {displayTime(feed.last_checked_at)} · last successful {displayTime(feed.last_success_at)}</p>
               {feed.error ? <p className="max-w-prose break-words text-red-400">{feed.error}</p> : null}
@@ -88,15 +88,15 @@ export default function NewsIntakePanel() {
         </details>
         {error ? <p role="alert" className="mb-3 text-sm text-red-400">{error}</p> : null}
         <div className="divide-y divide-line">{(showAll ? data.items : data.items.slice(0, 5)).map(item => <article key={item.id} className="py-3">
-          <div className="flex flex-wrap items-start justify-between gap-2"><a className="min-w-0 flex-1 break-words text-sm font-medium text-accent underline" href={item.url} target="_blank" rel="noreferrer">{item.title}</a>
-            {item.evidence_id ? <Link className="text-sm text-accent underline" href={`/sources/evidence/${item.evidence_id}`}>Evidence receipt</Link> : null}
-            <Link className="text-sm text-accent underline" href={`/chat?${new URLSearchParams({ q: `Investigate this provisional publisher report: ${JSON.stringify(item.title)}. Source: ${item.url}. Check the original report, contrary evidence, publication and discovery times, and any material direct or indirect portfolio implications. Separate reported claims from confirmed facts and hypotheses.` })}`}>Research draft</Link>
+          <div className="flex flex-wrap items-start justify-between gap-2"><a className="min-w-0 flex-1 break-words text-sm font-medium text-action underline" href={item.url} target="_blank" rel="noreferrer">{item.title}</a>
+            {item.evidence_id ? <Link className="text-sm text-action underline" href={`/sources/evidence/${item.evidence_id}`}>Evidence receipt</Link> : null}
+            <Link className="text-sm text-action underline" href={`/chat?${new URLSearchParams({ q: `Investigate this provisional publisher report: ${JSON.stringify(item.title)}. Source: ${item.url}. Check the original report, contrary evidence, publication and discovery times, and any material direct or indirect portfolio implications. Separate reported claims from confirmed facts and hypotheses.` })}`}>Research draft</Link>
           </div>
           <p className="mt-1 text-xs text-muted">{outcomes[item.outcome] || item.outcome.replaceAll("_", " ")} · Discovered {displayTime(item.observed_at)} · Publisher time {displayTime(item.published_date, "Unverified")}</p>
           {item.error ? <p className="mt-1 break-words text-xs text-red-400">{item.error}</p> : null}
         </article>)}</div>
         {!data.items.length ? <p className="py-3 text-sm text-muted">No publisher observations retained yet. Feed status above shows whether intake has checked successfully.</p> : null}
-        {!showAll && data.total > 5 ? <button type="button" className="mt-3 text-sm text-accent underline" onClick={() => setShowAll(true)}>Browse all retained observations</button> : null}
+        {!showAll && data.total > 5 ? <button type="button" className="mt-3 text-sm text-action underline" onClick={() => setShowAll(true)}>Browse all retained observations</button> : null}
         {showAll && data.total > 20 ? <div className="mt-3 flex items-center gap-3 text-sm">
           <button className="border border-line px-3 py-1 disabled:opacity-50" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 20))}>Previous</button>
           <span className="text-muted">{data.offset + 1}–{data.offset + data.items.length} of {data.total}</span>
