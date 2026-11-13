@@ -10,6 +10,7 @@ export type PositionedNode = GraphWebNode & {
   index?: number;
   degree?: number;
   layout_node_count?: number;
+  layout_component?: string;
 };
 export const WIDTH = 5200;
 export const HEIGHT = 3400;

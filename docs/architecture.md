@@ -331,7 +331,14 @@ state promotion still passes through evidence policy.
 
 Workspace graph reads batch node and provenance dependencies within each
 request while retaining per-node admission limits. D3 runs layout and collision
-resolution in a browser worker. Camera movement updates the SVG transform;
+resolution in a browser worker. Each connected component has its own force
+simulation; D3 front-chain circle packing separates disconnected groups. Layout
+coordinates are unbounded: camera fitting owns the viewport rather than a clamp
+that can pile nodes against world boundaries. Aspect fitting expands spacing
+without compressing collisions; explicit manual anchors take precedence. The
+selected-group fit changes only the camera and retains the full map. Spatial
+proximity and component membership do not establish a causal relationship.
+Camera movement updates the SVG transform;
 React updates label detail only at zoom thresholds and memoizes individual
 glyphs so unrelated inspector or hover work does not redraw the whole scene.
 Labels sit outside node circles and compensate for both camera and SVG viewBox
