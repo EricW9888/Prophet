@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { apiFetch, AgentTurnJob } from "@/lib/api";
-import { ACTIVE_JOB_STORAGE_KEY, COMPLETED_JOB_NOTICE_KEY } from "@/lib/job-notifications";
+import { ACTIVE_JOB_STORAGE_KEY, COMPLETED_JOB_NOTICE_KEY, JOB_NOTICE_CLEARED_EVENT, clearCompletedJobNotice } from "@/lib/job-notifications";
 
 type NoticeState = {
   message: string;
@@ -18,12 +18,16 @@ export default function JobCompletionNoticeHost() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const clearNotice = () => setNotice(null);
+    window.addEventListener(JOB_NOTICE_CLEARED_EVENT, clearNotice);
 
     const existing = window.sessionStorage.getItem(COMPLETED_JOB_NOTICE_KEY);
     if (existing) {
       setTimeout(() => {
         try {
-          const saved = JSON.parse(existing) as NoticeState;
+          const current = window.sessionStorage.getItem(COMPLETED_JOB_NOTICE_KEY);
+          if (!current) return;
+          const saved = JSON.parse(current) as NoticeState;
           terminalJobId.current = saved.jobId ?? null;
           setNotice(saved);
         } catch {
@@ -62,7 +66,7 @@ export default function JobCompletionNoticeHost() {
         window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
       }
     }, 2500);
-    return () => window.clearInterval(interval);
+    return () => {window.clearInterval(interval); window.removeEventListener(JOB_NOTICE_CLEARED_EVENT, clearNotice);};
   }, []);
 
   if (!notice) {
@@ -87,7 +91,7 @@ export default function JobCompletionNoticeHost() {
             type="button"
             onClick={() => {
               if (typeof window !== "undefined") {
-                window.sessionStorage.removeItem(COMPLETED_JOB_NOTICE_KEY);
+                clearCompletedJobNotice();
               }
               setNotice(null);
             }}

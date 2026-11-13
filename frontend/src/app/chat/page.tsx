@@ -29,7 +29,7 @@ import {
 
 import { formatModelUsedLabel, formatUserLabel } from "@/lib/formatting";
 import { readResearchEntry, researchTurnContext, type ResearchSubject } from "@/lib/workflows";
-import { ACTIVE_JOB_STORAGE_KEY } from "@/lib/job-notifications";
+import { ACTIVE_JOB_STORAGE_KEY, COMPLETED_JOB_NOTICE_KEY, clearCompletedJobNotice } from "@/lib/job-notifications";
 
 const ALLOW_ACTIONS_STORAGE_KEY = "prophet:allow-agent-actions";
 const RESEARCH_SIDEBAR_WIDTH = 320;
@@ -614,6 +614,11 @@ function ChatWorkspace() {
     if (!job || job.status === "completed" || job.status === "cancelled") {
       window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
       return;
+    }
+    const notice = window.sessionStorage.getItem(COMPLETED_JOB_NOTICE_KEY);
+    if (notice) {
+      try {if (JSON.parse(notice).jobId !== job.job_id) clearCompletedJobNotice();}
+      catch {clearCompletedJobNotice();}
     }
     window.sessionStorage.setItem(
       ACTIVE_JOB_STORAGE_KEY,
@@ -1246,7 +1251,8 @@ function ChatWorkspace() {
   const activeConversation = conversations.find((item) => item.session_id === activeSessionId) ?? null;
   const linkedReport = autonomousReviews.find((item) => item.session_id === activeSessionId) ?? null;
   const liveEvents = activeJob?.events.filter((event) => event.phase !== "thinking") ?? [];
-  const executionActive = allowActionsLoaded && !attachments.length && !usingSessionFiles ? allowActions : false;
+  const fileContextActive = attachments.length > 0 || usingSessionFiles || Boolean(activeJob?.resumable);
+  const executionActive = allowActionsLoaded && !fileContextActive ? allowActions : false;
 
   return (
     <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-background font-sans text-foreground">
@@ -1761,9 +1767,9 @@ function ChatWorkspace() {
                   type="button"
                   role="switch"
                   aria-checked={executionActive}
-                  disabled={!allowActionsLoaded}
+                  disabled={!allowActionsLoaded || fileContextActive}
                   onClick={() => setAllowActions((current) => !current)}
-                  title="Allow Prophet to use enabled research and system actions for new turns"
+                  title={fileContextActive ? "File questions only analyze the attached files." : "Allow Prophet to use enabled research and system actions for new turns"}
                   className="inline-flex items-center gap-2 rounded border border-line bg-panel px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:border-line-strong hover:text-foreground disabled:cursor-wait disabled:opacity-60"
                 >
                   <span
