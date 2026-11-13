@@ -41,6 +41,16 @@ host setup. Neither mode guarantees delivery or replaces the Monitor view.
 
 ## Data and Connector Coverage
 
+Chat can read PDFs, common raster images, DOCX, XLSX and UTF-8 text formats.
+This does not imply support for arbitrary binary formats, executable files,
+encrypted documents or all embedded Office objects. Visual reading requires a
+supported, configured hosted image-reader model and shares provider availability
+and request limits. Scanned text, small print and charts can be misread; page
+observations and answers remain provisional. Formulas are shown without being
+executed. Large or partially extracted representations disclose their limits.
+Original uploads stay private on the Prophet host; a database-only backup does
+not contain the separate file-storage bytes.
+
 Gmail or IMAP ingestion depends on the configured mailbox scope and the formats
 of broker messages received. Optional Plaid support depends on institution and
 product coverage. Neither path guarantees that every transaction, correction,

@@ -150,6 +150,8 @@ class PlaidPublicTokenExchangeRequest(BaseModel):
 
 class LLMProviderCapabilityResponse(BaseModel):
     provider: str
+    default_vision_model: str = ""
+    supports_images: bool = False
     label: str
     is_local: bool
     requires_api_key: bool
@@ -164,6 +166,7 @@ class LLMIntegrationSettings(BaseModel):
     provider: str = "nvidia_nim"
     hosted_base_url: str = "https://integrate.api.nvidia.com/v1"
     hosted_model: str = "nvidia/nemotron-3-ultra-550b-a55b"
+    vision_model: str = ""
     available_providers: list[LLMProviderCapabilityResponse] = Field(
         default_factory=list
     )
@@ -176,6 +179,7 @@ class LLMIntegrationSettingsUpdate(BaseModel):
     provider: str | None = None
     hosted_base_url: str | None = None
     hosted_model: str | None = None
+    vision_model: str | None = None
     api_key: str | None = None
 
 

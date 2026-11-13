@@ -497,6 +497,7 @@ async def call_llm_json(
     timeout_seconds: int | None = None,
     provider_override: str | None = None,
     on_chunk: Callable[[str], Awaitable[None]] | None = None,
+    images: list[str] | None = None,
 ) -> dict[str, Any]:
     provider = normalize_llm_provider(provider_override or _runtime_llm_provider())
     capability = _assert_llm_provider_allowed(provider)
@@ -506,7 +507,9 @@ async def call_llm_json(
         or settings.CODEX_TIMEOUT_SECONDS
     )
     try:
-        if on_chunk and capability.supports_streaming:
+        if images and provider != "nvidia_nim":
+            raise ValueError("Image reading is not supported by this provider adapter.")
+        if on_chunk and capability.supports_streaming and not images:
             return await call_llm_json_streaming(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
@@ -540,8 +543,12 @@ async def call_llm_json(
                 schema=schema,
                 model=model,
                 timeout_seconds=timeout,
+                **({"images": images} if images else {}),
             )
     except Exception as exc:
+        if images:
+            # Text-only recovery cannot stand in for inspecting the supplied image.
+            raise
         import logging
 
         if isinstance(exc, LLMProviderCooldownError):
@@ -918,6 +925,7 @@ async def _call_nvidia_json(
     schema: dict[str, Any],
     model: str | None,
     timeout_seconds: int,
+    images: list[str] | None = None,
 ) -> dict[str, Any]:
     from investos.services.runtime_settings import RuntimeSettingsStore
 
@@ -945,7 +953,20 @@ async def _call_nvidia_json(
                     f"{system_prompt}{schema_instruction}"
                 ),
             },
-            {"role": "user", "content": user_prompt},
+            {
+                "role": "user",
+                "content": (
+                    (
+                        [{"type": "text", "text": user_prompt}]
+                        + [
+                            {"type": "image_url", "image_url": {"url": url}}
+                            for url in images
+                        ]
+                    )
+                    if images
+                    else user_prompt
+                ),
+            },
         ],
         "temperature": 0.0,
         "top_p": 0.9,

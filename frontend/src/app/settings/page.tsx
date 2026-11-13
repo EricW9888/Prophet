@@ -954,6 +954,12 @@ export default function SettingsPage() {
                       />
                     </Field>
                   )}
+                  {activeLlmCapability?.supports_images ? (
+                    <Field label="Image and PDF reader">
+                      <input value={settings.llm.vision_model ?? ""} onChange={e => updateSettings(c => ({ ...c, llm: { ...c.llm, vision_model: e.target.value }}))} className={inputClass} placeholder={activeLlmCapability.default_vision_model || "Vision model identifier"} />
+                      <p className="mt-1 text-xs text-muted">Reads uploaded images and PDF page graphics. Leave blank to use the provider default. The main model answers using those provisional observations.</p>
+                    </Field>
+                  ) : null}
                 </div>
               </section>
             </div>

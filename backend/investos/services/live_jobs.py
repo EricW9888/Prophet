@@ -24,6 +24,7 @@ class LiveJobRecord:
     updated_at: datetime
     request_message: str
     session_id: UUID | None = None
+    request_context: dict[str, Any] = field(default_factory=dict)
     events: list[LiveJobEvent] = field(default_factory=list)
     result: dict[str, Any] | None = None
     error: str | None = None
@@ -57,6 +58,7 @@ class LiveJobTracker:
                     "created_at": record.created_at.isoformat(),
                     "updated_at": record.updated_at.isoformat(),
                     "request_message": record.request_message,
+                    "request_context": record.request_context,
                     "session_id": str(record.session_id) if record.session_id else None,
                     "events": [
                         {
@@ -92,6 +94,7 @@ class LiveJobTracker:
                         created_at=datetime.fromisoformat(raw["created_at"]),
                         updated_at=datetime.fromisoformat(raw["updated_at"]),
                         request_message=raw["request_message"],
+                        request_context=raw.get("request_context") or {},
                         session_id=(
                             UUID(raw["session_id"]) if raw.get("session_id") else None
                         ),
@@ -117,6 +120,7 @@ class LiveJobTracker:
         session_id: UUID | None,
         job_kind: str = "agent_turn",
         queued_message: str = "Queued for analysis.",
+        request_context: dict[str, Any] | None = None,
     ) -> LiveJobRecord:
         now = datetime.now(UTC)
         record = LiveJobRecord(
@@ -126,6 +130,7 @@ class LiveJobTracker:
             created_at=now,
             updated_at=now,
             request_message=request_message,
+            request_context=request_context or {},
             session_id=session_id,
         )
         record.events.append(LiveJobEvent(phase="queued", message=queued_message))

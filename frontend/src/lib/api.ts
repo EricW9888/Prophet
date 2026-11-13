@@ -1269,6 +1269,7 @@ export type IntegrationSettings = {
     provider: "ollama" | "codex_cli" | "nvidia_nim" | string;
     hosted_base_url: string;
     hosted_model: string;
+    vision_model?: string;
     available_providers: Array<{
       provider: string;
       label: string;
@@ -1277,6 +1278,8 @@ export type IntegrationSettings = {
       accepts_model: boolean;
       accepts_base_url: boolean;
       supports_streaming: boolean;
+      supports_images?: boolean;
+      default_vision_model?: string;
       default_model: string;
       default_base_url: string;
     }>;
@@ -1743,6 +1746,21 @@ export type AgentResearchReceipt = {
   candidate_sources: { title?: string | null; url: string; published_date?: string | null; lane?: string | null }[];
 };
 
+export type ChatAttachment = {
+  id: string;
+  name: string;
+  content_type: string;
+  size_bytes: number;
+  status: string;
+  page_count: number | null;
+  text_chars: number;
+  visual_count?: number;
+  visual_pages_read?: number;
+  reader_model?: string | null;
+  warnings: string[];
+  created_at: string;
+};
+
 export type AgentTurn = {
   session_id: string;
   assistant_message: string;
@@ -1751,6 +1769,7 @@ export type AgentTurn = {
   subject_name?: string | null;
   resolution_reason?: string | null;
   process_mode?: string | null;
+  attachments?: ChatAttachment[];
   reasoning_run_id?: string | null;
   stance?: string | null;
   confidence_band?: string | null;
@@ -1796,6 +1815,8 @@ export type AgentTurnJob = {
   job_id: string;
   status: string;
   request_message: string;
+  request_attachments?: ChatAttachment[];
+  use_session_attachments?: boolean;
   session_id?: string | null;
   created_at: string;
   updated_at: string;
@@ -1841,6 +1862,7 @@ export type AgentConversationHistory = {
     is_artifact?: boolean;
     origin?: string | null;
     process_mode?: string | null;
+    attachments?: ChatAttachment[];
     resolution_reason?: string | null;
     reasoning_run_id?: string | null;
     stance?: string | null;

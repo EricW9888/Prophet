@@ -5,6 +5,8 @@ import { API_PROXY_TIMEOUT_MS } from "./src/lib/request-timeouts";
 // BACKEND_URL when starting development or building the production frontend.
 const backendUrl = process.env.BACKEND_URL ?? "http://127.0.0.1:8000";
 const launcherBuild = process.env.PROPHET_BUILD_INPUT ?? "";
+const uploadLimitMb = Number(process.env.CHAT_ATTACHMENT_MAX_FILE_MB ?? "25");
+if (!Number.isInteger(uploadLimitMb) || uploadLimitMb < 1) throw new Error("CHAT_ATTACHMENT_MAX_FILE_MB must be a positive integer.");
 const distDir = process.env.PROPHET_BUILD_VALIDATION === "1"
   ? ".next-verification"
   : process.env.NODE_ENV === "development" ? ".next-dev" : ".next";
@@ -15,7 +17,7 @@ const nextConfig: NextConfig = {
   agentRules: false,
   env: { PROPHET_COMPILED_BUILD: launcherBuild },
   generateBuildId: async () => /^[0-9a-f]{64}$/.test(launcherBuild) ? launcherBuild : null,
-  experimental: { proxyTimeout: API_PROXY_TIMEOUT_MS },
+  experimental: { proxyTimeout: API_PROXY_TIMEOUT_MS, proxyClientMaxBodySize: (uploadLimitMb + 1) * 1024 * 1024 },
   // Keep hot-reload artifacts separate from production builds so validation can
   // run while the local app remains available.
   distDir,

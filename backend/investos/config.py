@@ -84,6 +84,12 @@ class Settings(BaseSettings):
     LLM_MAX_CONCURRENCY: int = 2
     CHAT_RESEARCH_HOLDINGS_PER_QUERY: int = Field(default=3, ge=1, le=10)
     CHAT_RESEARCH_MAX_HOLDING_QUERIES: int = Field(default=0, ge=0)
+    CHAT_ATTACHMENT_MAX_FILES: int = Field(default=10, ge=1)
+    CHAT_ATTACHMENT_MAX_FILE_MB: int = Field(default=25, ge=1)
+    CHAT_ATTACHMENT_MAX_TURN_MB: int = Field(default=50, ge=1)
+    CHAT_ATTACHMENT_MAX_TEXT_CHARS: int = Field(default=200_000, ge=1)
+    CHAT_ATTACHMENT_MAX_IMAGE_PIXELS: int = Field(default=40_000_000, ge=1)
+    CHAT_ATTACHMENT_MAX_SHEET_CELLS: int = Field(default=1_000_000, ge=1)
     LLM_ALLOW_LOCAL_PROVIDER: bool = False
     LLM_RECOVERY_PROVIDERS: str = ""
     CORROBORATION_MIN_INDEPENDENT_SOURCES: int = 2

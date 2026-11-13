@@ -19,10 +19,12 @@ class AgentTurnRequest(BaseModel):
     message: str
     auto_execute: bool = True
     attachments: list[AgentTextAttachment] = Field(default_factory=list, max_length=3)
+    attachment_ids: list[UUID] = Field(default_factory=list)
+    use_session_attachments: bool = True
 
     @model_validator(mode="after")
     def validate_attachments(self):
-        if not self.attachments:
+        if not self.attachments and not self.attachment_ids:
             return self
         if not self.message.strip():
             raise ValueError("Ask a question about the attached files.")
@@ -45,6 +47,21 @@ class AgentTurnRequest(BaseModel):
         ):
             raise ValueError("Attachments must total 24 KB or less.")
         return self
+
+
+class ChatAttachmentResponse(BaseModel):
+    id: UUID
+    name: str
+    content_type: str
+    size_bytes: int
+    status: str
+    page_count: int | None = None
+    text_chars: int
+    visual_count: int = 0
+    visual_pages_read: int = 0
+    reader_model: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+    created_at: datetime
 
 
 class AgentResearchReceipt(BaseModel):
@@ -88,6 +105,7 @@ class AgentTurnResponse(BaseModel):
     subject_name: str | None = None
     resolution_reason: str | None = None
     process_mode: str | None = None
+    attachments: list[ChatAttachmentResponse] = Field(default_factory=list)
     reasoning_run_id: Optional[UUID] = None
     stance: Optional[str] = None
     confidence_band: Optional[str] = None
@@ -112,6 +130,8 @@ class AgentTurnJobResponse(BaseModel):
     job_id: UUID
     status: str
     request_message: str
+    request_attachments: list[ChatAttachmentResponse] = Field(default_factory=list)
+    use_session_attachments: bool = True
     session_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
@@ -149,6 +169,7 @@ class AgentConversationEntryResponse(BaseModel):
     is_artifact: bool = False
     origin: str | None = None
     process_mode: str | None = None
+    attachments: list[ChatAttachmentResponse] = Field(default_factory=list)
     resolution_reason: str | None = None
     reasoning_run_id: UUID | None = None
     stance: str | None = None

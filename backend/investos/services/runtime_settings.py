@@ -67,6 +67,7 @@ class LLMRuntimeSettings(BaseModel):
     provider: str = settings.LLM_PROVIDER
     hosted_base_url: str = settings.NVIDIA_BASE_URL
     hosted_model: str = settings.NVIDIA_MODEL
+    vision_model: str = ""
     api_key: str | None = settings.NVIDIA_API_KEY
 
 
@@ -327,6 +328,7 @@ class RuntimeSettingsStore:
                 provider=runtime.llm.provider,
                 hosted_base_url=runtime.llm.hosted_base_url,
                 hosted_model=runtime.llm.hosted_model,
+                vision_model=runtime.llm.vision_model,
                 available_providers=[
                     capability.public_dict()
                     for capability in selectable_llm_providers(
@@ -508,6 +510,8 @@ class RuntimeSettingsStore:
             data["hosted_base_url"] = update.hosted_base_url.strip()
         if update.hosted_model is not None:
             data["hosted_model"] = update.hosted_model.strip()
+        if update.vision_model is not None:
+            data["vision_model"] = update.vision_model.strip()
         if update.api_key is not None:
             data["api_key"] = update.api_key.strip() or current.api_key
         return LLMRuntimeSettings.model_validate(data)

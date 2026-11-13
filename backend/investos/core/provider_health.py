@@ -138,11 +138,11 @@ class ProviderHealthStore:
             return record.model_copy(deep=True)
 
     @classmethod
-    def public_status(cls):
+    def public_status(cls, provider=None, model=None):
         from investos.services.runtime_settings import RuntimeSettingsStore
 
         try:
-            record = cls.read()
+            record = cls.read(provider, model)
             result = record.model_dump(mode="json", exclude={"revision", "probe_token"})
             runtime = RuntimeSettingsStore.load().llm
             if record.provider == "nvidia_nim" and not runtime.api_key:
@@ -279,8 +279,8 @@ class ProviderHealthStore:
             cls._write(registry)
 
     @classmethod
-    def claim_probe(cls):
-        key, provider = cls.configuration()
+    def claim_probe(cls, provider=None, model=None):
+        key, provider = cls.configuration(provider, model)
         with cls._lock:
             registry = cls._read()
             record = registry.records.setdefault(
@@ -349,15 +349,15 @@ def guarded_provider_call(function):
     return guarded
 
 
-async def probe_llm_provider():
+async def probe_llm_provider(*, provider=None, model=None):
     from investos.core.llm import call_llm_json
 
-    status = ProviderHealthStore.public_status()
+    status = ProviderHealthStore.public_status(provider, model)
     if status["state"] in {"waiting_for_config", "storage_unavailable"}:
         return status
-    claimed = ProviderHealthStore.claim_probe()
+    claimed = ProviderHealthStore.claim_probe(provider, model)
     if claimed is None:
-        return ProviderHealthStore.public_status()
+        return ProviderHealthStore.public_status(provider, model)
     key, provider, token = claimed
     probe = _probe_call.set(True)
     try:
@@ -373,6 +373,7 @@ async def probe_llm_provider():
                 },
                 timeout_seconds=max(1, settings.LLM_TIMEOUT_SECONDS),
                 provider_override=provider,
+                **({"model": model} if model else {}),
             )
         if result != {"ok": True}:
             raise ValueError("Probe did not satisfy the generation contract")
@@ -381,4 +382,4 @@ async def probe_llm_provider():
         ProviderHealthStore.failed(key, provider, exc, probe_token=token)
     finally:
         _probe_call.reset(probe)
-    return ProviderHealthStore.public_status()
+    return ProviderHealthStore.public_status(provider, model)

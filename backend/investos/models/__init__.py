@@ -1,3 +1,4 @@
+from .attachment import ChatAttachment
 from .base import Base, TimestampMixin, utcnow
 from .benchmark import Benchmark, BenchmarkConstituent
 from .catalog import (
@@ -85,6 +86,7 @@ from .verification import VerificationRun
 from .watcher import ActiveWatcher, WatcherEvidenceEvaluation
 
 __all__ = [
+    "ChatAttachment",
     "PublisherFeed",
     "EvidenceTranslation",
     "Base",

@@ -238,6 +238,20 @@ async def test_only_one_actual_generation_probe_resumes_work(monkeypatch):
     assert ProviderHealthStore.require_available() >= 1
 
 
+async def test_vision_model_probe_does_not_clear_an_unrelated_model_outage(monkeypatch):
+    open_health()
+    model = "synthetic-vision-model"
+    key, provider = ProviderHealthStore.configuration(model=model)
+    ProviderHealthStore.failed(key, provider, TimeoutError())
+    make_probe_due()
+    request = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr("investos.core.llm._call_nvidia_json", request)
+    await probe_llm_provider(model=model)
+    assert request.await_args.kwargs["model"] == model
+    assert ProviderHealthStore.public_status(model=model)["state"] == "recovering"
+    assert ProviderHealthStore.public_status()["state"] == "open"
+
+
 async def test_failed_probe_stays_open_and_backoff_prevents_retry_churn(monkeypatch):
     open_health()
     make_probe_due()
