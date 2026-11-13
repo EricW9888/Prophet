@@ -29,8 +29,8 @@ import {
 
 import { formatModelUsedLabel, formatUserLabel } from "@/lib/formatting";
 import { readResearchEntry, researchTurnContext, type ResearchSubject } from "@/lib/workflows";
+import { ACTIVE_JOB_STORAGE_KEY } from "@/lib/job-notifications";
 
-const ACTIVE_JOB_STORAGE_KEY = "prophet:active-chat-job";
 const ALLOW_ACTIONS_STORAGE_KEY = "prophet:allow-agent-actions";
 const RESEARCH_SIDEBAR_WIDTH = 320;
 const RESEARCH_VIEWS = ["Chats", "Autonomous", "Watches"] as const;
