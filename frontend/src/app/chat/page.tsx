@@ -1163,7 +1163,7 @@ function ChatWorkspace() {
 
   function startNewChat() {
     setFailedJob(null);
-    persistActiveJob(null);
+    if (failedJob) persistActiveJob(null);
     setUseSessionAttachments(true);
     setResearchView("Chats");
     fileInputs.clear();
