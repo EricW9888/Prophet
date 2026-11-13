@@ -2570,11 +2570,14 @@ class GraphService:
             node.as_of.isoformat() if node.as_of else None
         )
         value_bits = [
-            str(node.value_text) if node.value_text else None,
             (
-                f"{float(node.numeric_value):g}"
-                if node.numeric_value is not None
-                else None
+                str(node.value_text).strip()
+                if node.value_text and str(node.value_text).strip()
+                else (
+                    format(node.numeric_value, ",f")
+                    if node.numeric_value is not None
+                    else None
+                )
             ),
             node.unit,
             node.currency,

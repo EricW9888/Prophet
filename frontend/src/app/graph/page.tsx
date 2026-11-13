@@ -9,8 +9,10 @@ import remarkGfm from "remark-gfm";
 import { Maximize2, PanelRightClose, PanelRightOpen, RotateCcw, Search, ZoomIn, ZoomOut } from "lucide-react";
 import { GraphEdgeGlyph, GraphNodeGlyph, getNodeStyle } from "@/components/GraphGlyphs";
 import GraphNodeNavigator from "@/components/GraphNodeNavigator";
+import GraphMetricSummary from "@/components/GraphMetricSummary";
 import HintMarker from "@/components/HintMarker";
 import { graphLabelCandidates } from "@/lib/graph-labels";
+import { filterGraphView } from "@/lib/graph-view";
 import AppNav from "@/components/AppNav";
 import WorkspaceDivider, { useWorkspacePane } from "@/components/WorkspaceDivider";
 import WorkspaceState from "@/components/WorkspaceState";
@@ -178,17 +180,6 @@ function humanizeGraphError(error: unknown) {
   return raw;
 }
 
-function normalizeNodeLabel(label: string) {
-  return label
-    .toLowerCase()
-    .replace(/^[a-z0-9.-]{1,8}\s*[·-]\s*/, "")
-    .replace(/\([a-z0-9.-]{1,8}\)/g, " ")
-    .replace(/\b(corporation|corp|incorporated|inc|company|co)\b/g, " ")
-    .replace(/[$%.,:;!?()[\]{}"'`]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function nodeTypeSortOrder(nodeType: string) {
   const orderedTypes = [
     "portfolio",
@@ -215,49 +206,6 @@ function nodeTypeSortOrder(nodeType: string) {
   return index === -1 ? orderedTypes.length + 1 : index;
 }
 
-function markSingleGraphRoot<T extends GraphWebNode>(nodes: T[], rootKey: string | null) {
-  return nodes.map((node) => {
-    const isRoot = Boolean(rootKey && node.key === rootKey);
-    return node.is_root === isRoot ? node : { ...node, is_root: isRoot };
-  });
-}
-
-function nodeRetentionScore(node: GraphWebNode) {
-  const layerScore =
-    node.layer === "knowledge"
-      ? 40
-      : node.layer === "operating"
-        ? 30
-        : node.layer === "source"
-          ? 20
-          : 10;
-  const typeScore =
-    node.node_type === "entity"
-      ? 40
-      : node.node_type === "theme"
-        ? 36
-        : node.node_type === "conclusion"
-          ? 34
-          : node.node_type === "lesson"
-            ? 32
-            : node.node_type === "claim"
-              ? 28
-              : node.node_type === "fact"
-                ? 26
-                : node.node_type === "event"
-                  ? 24
-                  : 12;
-  const tierScore =
-    node.tier === "critical"
-      ? 20
-      : node.tier === "high"
-        ? 14
-        : node.tier === "medium"
-          ? 8
-          : 0;
-  return layerScore + typeScore + tierScore + (node.is_root ? 100 : 0);
-}
-
 function makeNodeAskPrompt(node: GraphNodeDetail) {
   return `Analyze this graph node in context: ${node.label}. Explain what it means, why it matters, how it connects to my portfolio or current theses, the strongest support and contradiction around it, and what I should watch next.`;
 }
@@ -276,14 +224,16 @@ export default function GraphPage() {
   const [knowledgeQuery, setKnowledgeQuery] = useState("");
   const [knowledgeResults, setKnowledgeResults] = useState<GraphSearchResult[]>([]);
   const [knowledgeSearching, setKnowledgeSearching] = useState(false);
+  const [knowledgeSearchError, setKnowledgeSearchError] = useState<string | null>(null);
   const [graphStats, setGraphStats] = useState<GraphStats | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<GraphNodeDetail | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [graph, setGraph] = useState<GraphNeighborhood | null>(null);
-  const [graphMode, setGraphMode] = useState<GraphMode>("portfolio");
+  const [graphMode, setGraphMode] = useState<GraphMode>("all");
+  const [showMap, setShowMap] = useState(false);
   const [showSystemNodes, setShowSystemNodes] = useState(false);
-  const [showDuplicateNodes, setShowDuplicateNodes] = useState(false);
+  const [showUnconnectedNodes, setShowUnconnectedNodes] = useState(false);
   const [activeNodeTypes, setActiveNodeTypes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -337,7 +287,7 @@ export default function GraphPage() {
     setHoveredEdgeId(null);
   }, []);
   const { transformRef: viewTransformRef, zoomRef, detailZoom } = useGraphCamera(
-    svgRef, containerRef, hasGraphSurface, clearGraphHover,
+    svgRef, containerRef, hasGraphSurface && showMap, clearGraphHover,
   );
 
   const toSvgPoint = useCallback((clientX: number, clientY: number) => {
@@ -457,7 +407,7 @@ export default function GraphPage() {
       cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
     };
-  }, [fitNodesToViewport, hasGraphSurface]);
+  }, [fitNodesToViewport, hasGraphSurface, showMap]);
 
   const handleNodePointerDown = useCallback(
     (event: React.PointerEvent<SVGGElement>, node: PositionedNode) => {
@@ -493,6 +443,8 @@ export default function GraphPage() {
 
   useEffect(() => {
     const query = knowledgeQuery.trim();
+    setKnowledgeSearchError(null);
+    setKnowledgeResults([]);
     if (query.length < 2) {
       setKnowledgeResults([]);
       setKnowledgeSearching(false);
@@ -506,7 +458,7 @@ export default function GraphPage() {
         { signal: controller.signal },
       )
         .then((results) => { if (!controller.signal.aborted) setKnowledgeResults(results); })
-        .catch(() => { if (!controller.signal.aborted) setKnowledgeResults([]); })
+        .catch(() => { if (!controller.signal.aborted) setKnowledgeSearchError("Knowledge search could not finish. Change the query to retry; this is not an empty-result check."); })
         .finally(() => { if (!controller.signal.aborted) setKnowledgeSearching(false); });
     }, 250);
     return () => {
@@ -552,13 +504,13 @@ export default function GraphPage() {
       setGraphMode(mode);
       setShowSystemNodes(includeSystem);
       const generation = ++selectionGenerationRef.current;
-      setSelectedKey(next?.root_key ?? null);
+      setSelectedKey(mode === "all" ? null : next?.root_key ?? null);
       setSelectedDetail(null);
       setSelectedEdgeId(null);
       setDetailError(null);
       setDetailLoading(false);
       const root = next?.nodes.find((node) => node.key === next.root_key);
-      if (root) void loadDetail(root.node_type, root.id, generation);
+      if (root && mode !== "all") void loadDetail(root.node_type, root.id, generation);
     } catch (err) {
       if (request.signal.aborted) return;
       const message = humanizeGraphError(err);
@@ -575,7 +527,7 @@ export default function GraphPage() {
 
   useEffect(() => {
     const inventory = new AbortController();
-    void loadGraph("portfolio", false);
+    void loadGraph("all", false);
     void loadInventory(inventory.signal);
     return () => {
       graphRequestRef.current?.abort();
@@ -630,9 +582,6 @@ export default function GraphPage() {
       if (!showSystemNodes && isSystemDiagnosticNode(node)) {
         continue;
       }
-      if (node.node_type === "unresolved_question") {
-        continue;
-      }
       counts.set(node.node_type, (counts.get(node.node_type) ?? 0) + 1);
     }
     return Array.from(counts.entries())
@@ -653,110 +602,17 @@ export default function GraphPage() {
     });
   }, []);
 
-  const visibleGraph = useMemo(() => {
-    if (!activeGraph) {
-      return null;
-    }
-    let visibleNodes = activeGraph.nodes.filter(
-      (node) => {
-        const protectedNode = node.key === activeRootKey;
-        if (protectedNode) {
-          return true;
-        }
-        if (!showSystemNodes && isSystemDiagnosticNode(node)) {
-          return false;
-        }
-        if (node.node_type === "unresolved_question") {
-          return false;
-        }
-        if (activeNodeTypes.length > 0 && !activeNodeTypes.includes(node.node_type)) {
-          return false;
-        }
-        return true;
-      },
-    );
-    if (!showDuplicateNodes) {
-      const protectedKeys = new Set([activeRootKey].filter((key): key is string => Boolean(key)));
-      const buckets = new Map<string, GraphWebNode[]>();
-      for (const node of visibleNodes) {
-        const bucket = `${node.node_type}:${normalizeNodeLabel(node.label)}`;
-        const current = buckets.get(bucket) ?? [];
-        current.push(node);
-        buckets.set(bucket, current);
-      }
-      const hiddenKeys = new Set<string>();
-      for (const bucketNodes of buckets.values()) {
-        if (bucketNodes.length <= 1) {
-          continue;
-        }
-        const ranked = [...bucketNodes].sort((a, b) => {
-          const aProtected = protectedKeys.has(a.key) ? 1 : 0;
-          const bProtected = protectedKeys.has(b.key) ? 1 : 0;
-          return (
-            bProtected - aProtected ||
-            nodeRetentionScore(b) - nodeRetentionScore(a) ||
-            a.label.localeCompare(b.label)
-          );
-        });
-        for (const node of ranked.slice(1)) {
-          hiddenKeys.add(node.key);
-        }
-      }
-      visibleNodes = visibleNodes.filter((node) => !hiddenKeys.has(node.key));
-    }
-    const portfolioNodes = visibleNodes.filter((node) => node.node_type === "portfolio");
-    if (portfolioNodes.length > 1) {
-      const preferredPortfolioKey =
-        portfolioNodes.find((node) => node.key === activeRootKey)?.key ?? portfolioNodes[0]?.key;
-      visibleNodes = visibleNodes.filter(
-        (node) => node.node_type !== "portfolio" || node.key === preferredPortfolioKey,
-      );
-    }
-    const visibleKeys = new Set(visibleNodes.map((node) => node.key));
-    const candidateEdges: GraphWebEdge[] = [];
-    const seenEdgeKeys = new Set<string>();
-    for (const edge of activeGraph.edges) {
-      if (!visibleKeys.has(edge.source_key) || !visibleKeys.has(edge.target_key)) {
-        continue;
-      }
-      const edgeKey = graphEdgeIdentity(edge);
-      if (seenEdgeKeys.has(edgeKey)) {
-        continue;
-      }
-      seenEdgeKeys.add(edgeKey);
-      candidateEdges.push(edge);
-    }
-
-    return {
-      ...activeGraph,
-      root_key: activeRootKey ?? activeGraph.nodes[0]?.key ?? "",
-      nodes: markSingleGraphRoot(visibleNodes, activeRootKey ?? activeGraph.nodes[0]?.key ?? null),
-      edges: candidateEdges,
-    };
-  }, [
-    activeGraph,
-    activeRootKey,
-    activeNodeTypes,
-    showDuplicateNodes,
-    showSystemNodes,
-  ]);
-
-  const rawNodeCount = activeGraph?.nodes.length ?? 0;
-  const rawEdgeCount = activeGraph?.edges.length ?? 0;
+  const graphView = useMemo(() => activeGraph ? filterGraphView(activeGraph, {
+    includeSystem: showSystemNodes, nodeTypes: activeNodeTypes, showUnconnected: showUnconnectedNodes,
+  }) : null, [activeGraph, activeNodeTypes, showSystemNodes, showUnconnectedNodes]);
+  const visibleGraph = graphView?.graph ?? null;
   const visibleNodeCount = visibleGraph?.nodes.length ?? 0;
   const visibleEdgeCount = visibleGraph?.edges.length ?? 0;
-  const hiddenNodeCount = Math.max(0, rawNodeCount - visibleNodeCount);
-  const hiddenEdgeCount = Math.max(0, rawEdgeCount - visibleEdgeCount);
-  const modeLabel =
-    graphMode === "all"
-      ? "Expanded Web"
-      : graphMode === "focused"
-        ? "Focused Node"
-        : "Portfolio Web";
+  const modeLabel = graphMode === "all" ? "Research map" : graphMode === "focused" ? "Focused neighborhood" : "Holdings lens";
 
   // The bounded physics run must not block pan, navigation or the inspector.
   useEffect(() => {
-    if (!visibleGraph?.nodes.length) return;
+    if (!showMap || !visibleGraph?.nodes.length) return;
     const worker = new Worker(new URL("../../lib/graph-layout.worker.ts", import.meta.url), { type: "module" });
     worker.onmessage = ({ data }: MessageEvent<PositionedNode[]>) => {
       for (const node of data) {
@@ -779,7 +635,7 @@ export default function GraphPage() {
       targetAspect: layoutTargetAspectRef.current,
     } satisfies GraphLayoutRequest);
     return () => worker.terminate();
-  }, [fitNodesToViewport, layoutNonce, visibleGraph]);
+  }, [fitNodesToViewport, layoutNonce, visibleGraph, showMap]);
 
   const layoutPending = Boolean(visibleGraph?.nodes.length && layoutGraph !== visibleGraph);
   const activeLayoutError = layoutError?.graph === visibleGraph ? layoutError?.message : null;
@@ -1056,8 +912,12 @@ export default function GraphPage() {
       <main className="workspace-frame space-y-3 py-4">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
             <div className="flex min-w-0 flex-wrap items-center gap-3">
-              <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Knowledge Web</h1>
-              <HintMarker label="How to use the knowledge graph">Scroll or pinch to zoom, drag the background to pan, and select a node or connection to inspect it. Search or browse the node list for full names and center a node’s connections. Overview labels prioritize holdings, important subjects and your selection; hidden labels do not remove graph records.</HintMarker>
+              <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Knowledge</h1>
+              <HintMarker label="How to use the knowledge graph">Scroll or pinch to zoom, drag the background to pan, and select a node or connection to inspect it. Search or browse the node list for full names and center a node’s connections. The library searches stored knowledge; choosing a record opens its focused neighborhood. Overview labels prioritize subjects and your selection; hidden labels do not remove records.</HintMarker>
+              <div className="inline-flex gap-1">
+                <button type="button" className="workspace-control" aria-pressed={!showMap} onClick={() => {setShowMap(false); if (graphMode === "focused") void loadGraph("all", showSystemNodes);}}>Browse knowledge</button>
+                <button type="button" className="workspace-control" aria-pressed={showMap} onClick={() => setShowMap(true)}>Map connections</button>
+              </div>
               <div className="inline-flex gap-1">
                 <button
                   type="button"
@@ -1066,7 +926,7 @@ export default function GraphPage() {
                   className="workspace-control"
                   aria-pressed={graphMode === "portfolio"}
                 >
-                  Portfolio Web
+                  Holdings lens
                 </button>
                 <button
                   type="button"
@@ -1075,12 +935,12 @@ export default function GraphPage() {
                   className="workspace-control"
                   aria-pressed={graphMode === "all"}
                 >
-                  Expanded Web
+                  Research map
                 </button>
               </div>
             </div>
             <div className="flex max-w-full flex-wrap items-center gap-2">
-              <button
+              {showMap && <button
                 type="button"
                 className="workspace-control"
                 aria-expanded={inspector.open}
@@ -1089,7 +949,7 @@ export default function GraphPage() {
               >
                 {inspector.open ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
                 {inspector.open ? "Hide inspector" : "Show inspector"}
-              </button>
+              </button>}
               {selectedDetail && selectedKey !== activeRootKey ? (
                 <button
                   type="button"
@@ -1099,20 +959,10 @@ export default function GraphPage() {
                   Focus on node
                 </button>
               ) : null}
-              {graphMode === "focused" ? (
-                <button
-                  type="button"
-                  onClick={() => void loadGraph("portfolio", showSystemNodes)}
-                  disabled={loading}
-                  className="rounded-none border border-slate-300 px-4 py-2 text-sm text-slate-600 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
-                >
-                  Back to overview
-                </button>
-              ) : null}
             </div>
           </header>
 
-        <div className="knowledge-split" style={inspector.style} data-inspector-open={inspector.open}>
+        <div className="knowledge-split" style={inspector.style} data-inspector-open={inspector.open && showMap}>
         <section className="min-w-0">
           <section className="min-w-0 rounded-lg border border-line bg-panel p-3 sm:p-6">
             {graphNotice ? (
@@ -1121,7 +971,7 @@ export default function GraphPage() {
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
                 <span className="rounded-none bg-slate-100 px-3 py-1 dark:bg-slate-900">
-                  {visibleNodeCount} nodes
+                  {showMap ? visibleNodeCount : graphView?.browseNodes.length ?? 0} records
                 </span>
                 <span className="rounded-none bg-slate-100 px-3 py-1 dark:bg-slate-900">
                   {visibleEdgeCount} connections
@@ -1129,10 +979,8 @@ export default function GraphPage() {
                 <span className="rounded-none bg-slate-100 px-3 py-1 dark:bg-slate-900">
                   {modeLabel}
                 </span>
-                {hiddenNodeCount > 0 || hiddenEdgeCount > 0 ? (
-                  <span className="rounded-none bg-amber-50 px-3 py-1 text-amber-700 dark:bg-amber-950/25 dark:text-amber-300">
-                    {hiddenNodeCount} nodes / {hiddenEdgeCount} links hidden
-                  </span>
+                {(graphView?.filteredNodeCount ?? 0) > 0 || (graphView?.filteredEdgeCount ?? 0) > 0 ? (
+                  <span className="text-muted">Filters exclude {graphView?.filteredNodeCount} records and {graphView?.filteredEdgeCount} connections</span>
                 ) : null}
                 {graphMode === "focused" ? (
                   <span className="rounded-none bg-sky-50 px-3 py-1 text-sky-700 dark:bg-sky-900/20 dark:text-sky-300">
@@ -1140,7 +988,7 @@ export default function GraphPage() {
                   </span>
                 ) : null}
               </div>
-              <div className="flex items-center gap-2">
+              {showMap && <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -1193,10 +1041,22 @@ export default function GraphPage() {
                 >
                   <ZoomIn className="h-4 w-4" aria-hidden="true" />
                 </button>
-              </div>
+              </div>}
             </div>
 
-            <GraphNodeNavigator nodes={displayedNodes} onSelect={jumpToNode} />
+            {!activeGraph && !showMap ? <WorkspaceState kind={error ? "error" : "loading"} title={error ? "Knowledge unavailable" : "Loading knowledge"} description={error ?? "Loading stored subjects and evidence."} /> : null}
+            <GraphNodeNavigator key={showMap ? "map" : "library"} library={!showMap}
+              search={!showMap ? {value:knowledgeQuery,onChange:setKnowledgeQuery,remote:knowledgeQuery.trim().length >= 2,status:knowledgeSearching ? "Searching all stored knowledge…" : knowledgeSearchError ?? (!activeGraph ? (loading ? "Loading stored knowledge…" : "The loaded view is unavailable. Search is still available.") : undefined)} : undefined}
+              nodes={!showMap && knowledgeQuery.trim().length >= 2 ? knowledgeResults.map(item => ({key:`${item.node_type}:${item.node_id}`,id:item.node_id,node_type:item.node_type,label:item.label,layer:item.layer,subtitle:item.subtitle,is_root:false,is_autonomous:false})) : graphView?.browseNodes ?? []} onSelect={(node) => {
+              const positioned = displayedNodes.find(current => current.key === node.key);
+              if (showMap && positioned) jumpToNode(positioned);
+              else void openGraph(node.node_type, node.id).then(() => setShowMap(true));
+            }} />
+            {showMap && (graphView?.unconnectedCount ?? 0) > 0 ? <label className="mt-3 flex items-center gap-2 text-sm text-muted">
+              <input type="checkbox" checked={showUnconnectedNodes} onChange={event => setShowUnconnectedNodes(event.target.checked)} />
+              Show {graphView?.unconnectedCount} records without connections in this view
+              <HintMarker label="Records without visible connections">These records remain in Browse and search. Selecting one opens its own neighborhood. A missing connection in this bounded view does not prove that the record has no stored relationships.</HintMarker>
+            </label> : null}
             <details className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
               <summary className="cursor-pointer text-xs font-semibold text-slate-600 dark:text-slate-300">
                 Filters{activeNodeTypes.length > 0 ? ` · ${activeNodeTypes.length} active` : ""}
@@ -1241,15 +1101,6 @@ export default function GraphPage() {
                 <label className="inline-flex items-center gap-2 rounded-none border border-line bg-panel px-3 py-1.5">
                   <input
                     type="checkbox"
-                    checked={showDuplicateNodes}
-                    onChange={(event) => setShowDuplicateNodes(event.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                  />
-                  <span>Show duplicate labels</span>
-                </label>
-                <label className="inline-flex items-center gap-2 rounded-none border border-line bg-panel px-3 py-1.5">
-                  <input
-                    type="checkbox"
                     checked={showSystemNodes}
                     disabled={loading}
                     onChange={(event) => {
@@ -1263,7 +1114,7 @@ export default function GraphPage() {
                   <span>Include internal memory</span>
                 </label>
                 <span>
-                  Portfolio Web is scoped to active holdings. Use Expanded Web or search to open broader neighborhoods.
+                  The research map includes stored subjects beyond your holdings. The holdings lens narrows the starting subjects; neither view limits what Prophet researches.
                 </span>
               </div>
             </details>
@@ -1287,7 +1138,7 @@ export default function GraphPage() {
               </details>
             ) : null}
 
-            <div className="relative mt-3 min-w-0 overflow-hidden border border-line bg-background">
+            {showMap && <div className="relative mt-3 min-w-0 overflow-hidden border border-line bg-background">
               {!activeGraph ? (
                 <div className="knowledge-canvas flex items-center justify-center p-4">
                   <WorkspaceState
@@ -1425,15 +1276,15 @@ export default function GraphPage() {
                   ) : null}
                 </div>
               )}
-            </div>
+            </div>}
           </section>
 
         </section>
 
-        {inspector.open ? (
+        {inspector.open && showMap ? (
           <WorkspaceDivider side="right" controls="knowledge-inspector" label="Resize Knowledge inspector" width={inspector.width} defaultWidth={INSPECTOR_DEFAULT_WIDTH} onResize={inspector.setWidth} />
         ) : null}
-        <aside id="knowledge-inspector" aria-label="Knowledge inspector" hidden={!inspector.open} className="min-w-0 space-y-3 self-start lg:sticky lg:top-20 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto">
+        <aside id="knowledge-inspector" aria-label="Knowledge inspector" hidden={!inspector.open || !showMap} className="min-w-0 space-y-3 self-start lg:sticky lg:top-20 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto">
           {activeEdge ? (
             <section id="knowledge-connection-detail" className="min-w-0 scroll-mt-24 rounded-lg border border-line bg-panel p-4 sm:p-6">
               <div className="flex items-center justify-between gap-3">
@@ -1500,26 +1351,6 @@ export default function GraphPage() {
                 <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Node detail</h2>
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Inspect the selected node, its evidence, and why it belongs in the system.</p>
               </div>
-              {selectedDetail ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    void startGraphAsk(makeNodeAskPrompt(selectedDetail), {
-                      targetLabel: selectedDetail.label,
-                      subjectId: ["entity", "theme"].includes(selectedDetail.node_type)
-                        ? selectedDetail.id
-                        : undefined,
-                      subjectType: ["entity", "theme"].includes(selectedDetail.node_type)
-                        ? selectedDetail.node_type
-                        : undefined,
-                      context: "node",
-                    })
-                  }
-                  className="rounded-none border border-amber-300 px-3 py-1 text-[10px] text-amber-700 hover:border-amber-400 dark:border-amber-800 dark:text-amber-300"
-                >
-                  Analyze node
-                </button>
-              ) : null}
             </div>
 
             {detailLoading ? (
@@ -1530,42 +1361,6 @@ export default function GraphPage() {
               <p role="alert" className="mt-4 text-sm text-rose-700 dark:text-rose-300">{detailError}</p>
             ) : selectedDetail ? (
               <div className="mt-5 space-y-5">
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                    Guide this analysis
-                  </label>
-                  <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
-                    Write the exact question you want answered about this node.
-                  </p>
-                  <textarea
-                    value={graphAskUserPrompt}
-                    onChange={(event) => setGraphAskUserPrompt(event.target.value)}
-                    rows={2}
-                    placeholder="Why does this matter to me?"
-                    className="mt-2 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none placeholder:text-slate-400 focus:border-amber-400 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                  />
-                </div>
-                {selectedKey === activeRootKey ? (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void startGraphAsk(makeNodeAskPrompt(selectedDetail), {
-                        targetLabel: selectedDetail.label,
-                        subjectId: ["entity", "theme"].includes(selectedDetail.node_type)
-                          ? selectedDetail.id
-                          : undefined,
-                        subjectType: ["entity", "theme"].includes(selectedDetail.node_type)
-                          ? selectedDetail.node_type
-                          : undefined,
-                        context: "node",
-                      })
-                    }
-                    className="inline-flex items-center justify-center rounded-none border border-amber-300 px-4 py-2 text-xs font-medium text-amber-700 hover:border-amber-400 dark:border-amber-800 dark:text-amber-300"
-                  >
-                    Run node analysis
-                  </button>
-                ) : null}
-                {graphAskContext === "node" ? graphAskPanel : null}
                 <div className="min-w-0 rounded-lg border border-sky-200 bg-sky-50/70 p-4 dark:border-sky-900 dark:bg-sky-950/30">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-md border border-sky-300 bg-white/60 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-sky-700 dark:border-sky-700 dark:bg-sky-900/50 dark:text-sky-300">
@@ -1581,9 +1376,9 @@ export default function GraphPage() {
                     </span>
                   </div>
                   <h3 className="mt-3 text-base font-semibold text-slate-900 dark:text-slate-100">{selectedDetail.label}</h3>
-                  {selectedDetail.body && selectedDetail.body.trim() !== selectedDetail.label.trim() ? (
+                  {selectedDetail.node_type === "fundamental_metric" ? <GraphMetricSummary properties={selectedDetail.properties} /> : selectedDetail.body && selectedDetail.body.trim() !== selectedDetail.label.trim() ? (
                     <div className="mt-3 bg-white px-4 py-3 dark:bg-[#1e1e1e] border-l-4 border-sky-500 rounded-r-lg">
-                      <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-sky-500/80 dark:text-sky-400/80">Description & Reasoning</div>
+                      <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-sky-500/80 dark:text-sky-400/80">Evidence summary</div>
                       <div className="prose prose-xs dark:prose-invert max-w-none prose-sky leading-relaxed break-words">
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm]}
@@ -1614,6 +1409,46 @@ export default function GraphPage() {
                   ) : null}
                 </div>
 
+                <details className="border-y border-line py-3">
+                  <summary className="cursor-pointer text-sm font-medium">Ask about this record</summary>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    Guide this analysis
+                  </label>
+                  <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                    Write the exact question you want answered about this node.
+                  </p>
+                  <textarea
+                    value={graphAskUserPrompt}
+                    onChange={(event) => setGraphAskUserPrompt(event.target.value)}
+                    rows={2}
+                    placeholder="Why does this matter to me?"
+                    className="mt-2 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none placeholder:text-slate-400 focus:border-amber-400 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  />
+                </div>
+                {selectedDetail ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void startGraphAsk(makeNodeAskPrompt(selectedDetail), {
+                        targetLabel: selectedDetail.label,
+                        subjectId: ["entity", "theme"].includes(selectedDetail.node_type)
+                          ? selectedDetail.id
+                          : undefined,
+                        subjectType: ["entity", "theme"].includes(selectedDetail.node_type)
+                          ? selectedDetail.node_type
+                          : undefined,
+                        context: "node",
+                      })
+                    }
+                    className="inline-flex items-center justify-center rounded-none border border-amber-300 px-4 py-2 text-xs font-medium text-amber-700 hover:border-amber-400 dark:border-amber-800 dark:text-amber-300"
+                  >
+                    Run node analysis
+                  </button>
+                ) : null}
+                </details>
+                {graphAskContext === "node" ? graphAskPanel : null}
+
 	                {/* Portfolio Significance Section */}
 	                {selectedDetail.relevance_reasoning && (
 	                  <div className="mb-6 mx-4 rounded-lg border border-teal-200 bg-teal-50 p-4 dark:border-teal-900/60 dark:bg-teal-950/25">
@@ -1631,7 +1466,7 @@ export default function GraphPage() {
 	                    <p className="text-sm leading-relaxed text-teal-950 dark:text-teal-100">
 	                      {selectedDetail.relevance_reasoning}
 	                    </p>
-	                    {propertyText(selectedDetail.properties?.portfolio_mechanism) ? (
+	                    {propertyText(selectedDetail.properties?.portfolio_mechanism) && !selectedDetail.relevance_reasoning?.includes(propertyText(selectedDetail.properties?.portfolio_mechanism)!) ? (
 	                      <div className="mt-4 rounded-lg border border-teal-200 bg-white/65 px-3 py-2 dark:border-teal-800/70 dark:bg-teal-950/30">
 	                        <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
 	                          Portfolio Mechanism
@@ -1658,7 +1493,7 @@ export default function GraphPage() {
 	                        </div>
 	                      </div>
 	                    ) : null}
-	                    {propertyText(selectedDetail.properties?.next_test) ? (
+	                    {propertyText(selectedDetail.properties?.next_test) && !selectedDetail.relevance_reasoning?.includes(propertyText(selectedDetail.properties?.next_test)!) ? (
 	                      <div className="mt-3 rounded-lg border border-teal-200 bg-white/65 px-3 py-2 dark:border-teal-800/70 dark:bg-teal-950/30">
 	                        <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
 	                          Next Useful Test
@@ -1686,14 +1521,13 @@ export default function GraphPage() {
                         </div>
                       </div>
                     ) : null}
-                    {Array.isArray(selectedDetail.properties?.linked_companies) &&
-                    selectedDetail.properties.linked_companies.length > 0 ? (
+                    {propertyList(selectedDetail.properties?.linked_companies).filter(company => !propertyList(selectedDetail.properties?.affected_holdings).includes(company) && !propertyList(selectedDetail.properties?.linked_holdings).includes(company)).length > 0 ? (
                       <div className="mt-3">
                         <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
                           Linked Companies
                         </div>
                         <div className="flex flex-wrap gap-2">
-                          {selectedDetail.properties.linked_companies.map((company) => (
+                          {propertyList(selectedDetail.properties.linked_companies).filter(company => !propertyList(selectedDetail.properties?.affected_holdings).includes(company) && !propertyList(selectedDetail.properties?.linked_holdings).includes(company)).map((company) => (
                             <span
                               key={`company-${String(company)}`}
                               className="rounded-none border border-emerald-300 bg-emerald-100 px-2 py-1 text-[10px] font-semibold tracking-wide text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-200"
@@ -1708,8 +1542,8 @@ export default function GraphPage() {
                 )}
 
                 {Object.keys(selectedDetail.properties || {}).length > 0 ? (
-                  <div className="border-t border-slate-100 pt-4 dark:border-slate-800">
-                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Node Properties</h4>
+                  <details className="border-t border-line pt-4">
+                    <summary className="cursor-pointer text-sm font-medium text-muted">Record fields</summary>
                     <div className="mt-2 grid grid-cols-1 gap-1.5">
                       {selectedDetail.relevance !== undefined && (
                         <div className="min-w-0 rounded-lg border border-sky-200 bg-sky-50/30 px-2 py-1.5 dark:border-sky-800/60 dark:bg-sky-950/20">
@@ -1738,7 +1572,7 @@ export default function GraphPage() {
                         </div>
                       ))}
                     </div>
-                  </div>
+                  </details>
                 ) : null}
 
                 <div className="space-y-3">
@@ -1880,7 +1714,7 @@ export default function GraphPage() {
                   <button
                     key={item.key}
                     type="button"
-                    onClick={() => void openGraph(item.type, item.id)}
+                    onClick={() => void openGraph(item.type, item.id).then(() => setShowMap(true))}
                     className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs text-slate-700 hover:border-sky-400 hover:bg-white dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-sky-600 dark:hover:bg-slate-950"
                   >
                     <span className="flex min-w-0 items-start justify-between gap-2">
@@ -1902,7 +1736,8 @@ export default function GraphPage() {
               {knowledgeSearching ? (
                 <span className="py-1.5 text-xs text-slate-400">Searching...</span>
               ) : null}
-              {!knowledgeSearching && knowledgeQuery.trim().length >= 2 && knowledgeResults.length === 0 ? (
+              {knowledgeSearchError ? <p role="status" className="text-sm text-muted">{knowledgeSearchError}</p> : null}
+              {!knowledgeSearchError && !knowledgeSearching && knowledgeQuery.trim().length >= 2 && knowledgeResults.length === 0 ? (
                 <span className="py-1.5 text-xs text-slate-400">No matching knowledge</span>
               ) : null}
             </div>

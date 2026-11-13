@@ -102,6 +102,18 @@ then calculates node positions off the browser's main thread. Selecting a node
 loads its inspector separately. Resizing the inspector changes the visible
 canvas without rebuilding the graph or resetting its camera.
 
+Knowledge starts with a searchable library of the broader **Research map**;
+selecting a record opens its focused neighborhood. Search covers stored
+knowledge beyond the loaded map and returns up to twelve ranked matches. The
+full canvas is optional. The optional **Holdings lens** changes the starting
+subjects, not the discovery universe. Both maps
+show bounded stored neighborhoods rather than every known record. Filters
+preserve record identity: matching labels do not establish duplicate companies,
+claims or metric periods. Unconnected records remain in Browse and search;
+selecting one opens its neighborhood. The canvas can include them explicitly.
+The metric inspector separates source value, unit, currency, period and as-of
+date, with original record fields and citations available for inspection.
+
 Knowledge lists all open holdings, including those without a saved research
 profile. A broad portfolio update checks recent stored evidence by holding and
 makes bounded external checks of the market, relevant industries and material
@@ -118,9 +130,13 @@ and symbol agree. The audited entity cleanup uses the same check for old labels.
 When identities are consolidated, equivalent links keep their canonical
 relationship and audit the retired link; links that would point back to the same
 subject are recorded in the audit instead of creating new graph connections.
-The live work log records observable stages. Text attachments are read-only
-inputs for one turn; Prophet retains filenames and the answer, not the input
-files themselves.
+The live work log records observable stages. Native PDF, image, DOCX, XLSX and
+UTF-8 attachments retain private original bytes and file/page receipts. A
+follow-up can explicitly include prior files from that chat. Legacy inline text
+remains a one-turn input. File analysis is read-only and provisional; it cannot
+reconcile portfolio state or establish account identity merely from matching
+amounts. Eligible file questions wait through temporary provider outages and
+resume after a single-backend restart without repeating committed messages.
 
 Activity keeps successful routine price, risk and backup refreshes behind
 **Include routine refreshes**, so those receipts cannot push research,
