@@ -27,6 +27,7 @@ from investos.models.profile import Profile
 from investos.models.reasoning import CritiqueRun, EvidencePacket, ReasoningRun
 from investos.services.canonical_state import CanonicalStateService
 from investos.services.corroboration import CorroborationService
+from investos.services.quantity_evidence import QUANTITY_BINDING_SCHEMA, QUANTITY_RULES
 from investos.services.retrieval import RetrievalService
 from investos.services.runtime_settings import RuntimeSettingsStore
 
@@ -80,6 +81,7 @@ MATERIAL_ASSERTION_SCHEMA = {
             ),
         },
         "supporting_evidence_ids": {"type": "array", "items": {"type": "string"}},
+        "quantity_bindings": {"type": "array", "items": QUANTITY_BINDING_SCHEMA},
         "contradicting_evidence_ids": {"type": "array", "items": {"type": "string"}},
     },
     "required": [
@@ -91,6 +93,7 @@ MATERIAL_ASSERTION_SCHEMA = {
         "evidence_basis",
         "supporting_context_paths",
         "supporting_evidence_ids",
+        "quantity_bindings",
         "contradicting_evidence_ids",
     ],
 }
@@ -379,7 +382,7 @@ class ReasoningService:
         if supplemental_context:
             packet_context = {**packet_context, **supplemental_context}
         prompt_context = compact_packet_context(packet_context)
-        system_prompt = self._analysis_system_prompt()
+        system_prompt = self._analysis_system_prompt() + QUANTITY_RULES
         prompt_hash = hash_llm_request(
             label=self._analysis_cache_label(),
             system_prompt=system_prompt,
@@ -638,7 +641,9 @@ class ReasoningService:
         )
         from investos.core.presentation_language import presentation_instruction
 
-        system_prompt += presentation_instruction("independent_summary")
+        system_prompt += QUANTITY_RULES + presentation_instruction(
+            "independent_summary"
+        )
         critique_payload = {"packet_context": packet_context}
         try:
             critique = await call_llm_json(
@@ -648,6 +653,14 @@ class ReasoningService:
             )
         except Exception:
             return None
+        CorroborationService().assess_result(critique, packet_context)
+        numerical_review = critique["quantity_grounding"]
+        if not numerical_review["verified"]:
+            critique["question_answerability"] = "inadequate"
+            critique["issues_found"] = [
+                *critique.get("issues_found", []),
+                "The independent review contains unverified numerical claims.",
+            ]
         review = {
             "candidate_stance": critique["candidate_stance"],
             "confidence_band": critique["confidence_band"],
@@ -662,6 +675,8 @@ class ReasoningService:
             "alternative_hypotheses": critique.get("alternative_hypotheses", []),
             "issues_found": critique.get("issues_found", []),
             "severity": critique["severity"],
+            "quantity_grounding": numerical_review,
+            "corroboration": critique["corroboration"],
         }
         self.session.add(
             CritiqueRun(
@@ -872,6 +887,7 @@ class ReasoningService:
             "coverage": packet_context.get("coverage") or {},
             "gap_flags": packet_context.get("gap_flags") or [],
             "portfolio_context": packet_context.get("portfolio_context") or {},
+            "quantity_measurements": packet_context.get("quantity_measurements") or [],
             "fresh_research_context": packet_context.get("fresh_research_context")
             or {},
             "conversation_context": packet_context.get("conversation_context") or {},
@@ -880,7 +896,7 @@ class ReasoningService:
         }
         try:
             result = await call_llm_json(
-                system_prompt=self._thin_packet_system_prompt(),
+                system_prompt=self._thin_packet_system_prompt() + QUANTITY_RULES,
                 user_prompt=json_dumps(thin_payload),
                 schema=REASONING_SCHEMA,
                 timeout_seconds=self._interactive_timeout_seconds(thin_packet=True),
@@ -893,7 +909,7 @@ class ReasoningService:
         except Exception as exc:
             alternate_result = await self._alternate_provider_recovery(
                 thin_payload,
-                system_prompt=self._thin_packet_system_prompt(),
+                system_prompt=self._thin_packet_system_prompt() + QUANTITY_RULES,
                 max_evidence_ids=3,
             )
             if alternate_result is not None:
@@ -1045,6 +1061,8 @@ class ReasoningService:
         conversation_context = packet_context.get("conversation_context") or {}
         return {
             "analysis_mode": "reduced_context_recovery",
+            "quantity_measurements": packet_context.get("quantity_measurements")
+            or portfolio_context.get("quantity_measurements", []),
             "query_text": packet_context.get("query_text"),
             "packet_assembled_at": packet_context.get("packet_assembled_at"),
             "subject_type": packet_context.get("subject_type"),

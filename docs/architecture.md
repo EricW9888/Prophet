@@ -286,6 +286,25 @@ analysis result and visible trace. `services/corroboration.py`,
 Material contradictions, unsupported assertions, weak source independence, or
 unresolved evidence gaps can narrow or block promotion.
 
+Account and calculated amounts also pass through `services/quantity_evidence.py`.
+The ledger, stored portfolio-risk capture and cached performance-attribution
+receipt supply immutable measurement references with value, unit, basis,
+subject, snapshot and dates. Models select these references; they cannot create
+measurements. Existing context paths remain inspectable but do not verify math.
+Risk replay checks current holdings identity, currency, quote freshness and price
+coverage without fetching new prices. Complete valuation is distinct from having
+enough observations for a stress estimate. Holdings marks exclude cash; ledger
+cash is not broker buying power; dated Modified Dietz returns retain their own
+period and denominator.
+
+Analysis, independent review and strategic goals check structured quantity
+bindings. Final answer rewrites are checked before accepted-state updates. A
+failed numerical check retains the generated proposal and receipt, qualifies
+the delivered answer and blocks its decisions, new watches, shadow creation,
+pruning and memory promotion. Qualitative research can continue. Chat exposes
+matched dimensions and unresolved checks on demand, including an explicit
+unverified state for historical records without a numerical receipt.
+
 ## Accepted State and Graph
 
 `ConclusionState` is the current accepted view for a subject. Evidence packets,

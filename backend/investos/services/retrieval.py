@@ -25,6 +25,7 @@ from investos.services.historical import HistoricalEpisodeService
 from investos.services.market_setup import MarketSetupSignalService
 from investos.services.operating_state import OperatingStateService
 from investos.services.portfolio_peers import PortfolioPeerContextService
+from investos.services.quantity_evidence import ledger_holdings, portfolio_measurements
 from investos.services.risk import RiskService
 
 
@@ -750,6 +751,7 @@ class RetrievalService:
             ),
             "historical_analogy_lenses": historical_analogy_lenses,
             "portfolio_context": portfolio_context,
+            "quantity_measurements": portfolio_context.get("quantity_measurements", []),
             "coverage": packet.coverage_map_snapshot_json or {},
             "gap_flags": packet.gap_flags or [],
         }
@@ -1237,6 +1239,12 @@ class RetrievalService:
 
         return {
             "tracked_positions": len(positions),
+            "quantity_measurements": await portfolio_measurements(
+                self.session,
+                ledger_holdings(position_rows),
+                latest_cash,
+                performance_attribution,
+            ),
             "holdings_count": len(holdings),
             "watchlist_count": len(watchlist),
             "considering_count": len(considering),

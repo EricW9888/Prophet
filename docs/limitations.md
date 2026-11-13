@@ -41,6 +41,15 @@ host setup. Neither mode guarantees delivery or replaces the Monitor view.
 
 ## Data and Connector Coverage
 
+Numerical evidence checks compare literal quantities and model-selected metadata
+with supplied deterministic measurements. They do not prove that every sentence
+uses a value with the correct natural-language meaning, or recognize every
+spelled-out amount, date format, language or hypothetical trade level. Exact
+matches do not establish a common account identity or validate source-reported
+issuer figures. Unsupported, partial, stale or missing account measurements are
+not zero. A source-corroborated company figure still depends on the separate
+source and scope checks; numerical receipts are not a universal fact checker.
+
 Chat can read PDFs, common raster images, DOCX, XLSX and UTF-8 text formats.
 File/page citations and matching amounts do not establish a common account or
 snapshot identity. File interpretations are provisional, not portfolio

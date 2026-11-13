@@ -295,7 +295,13 @@ def compact_packet_context(
         "packet_assembled_at": packet_context.get("packet_assembled_at"),
         "coverage": packet_context.get("coverage") or {},
         "gap_flags": (packet_context.get("gap_flags") or [])[:6],
-        "portfolio_context": portfolio_context,
+        "portfolio_context": {
+            key: value
+            for key, value in portfolio_context.items()
+            if key != "quantity_measurements"
+        },
+        "quantity_measurements": packet_context.get("quantity_measurements")
+        or portfolio_context.get("quantity_measurements", []),
         "source_feedback_context": source_feedback_context,
         "fresh_research_context": compact_fresh_research,
         "research_plan": (

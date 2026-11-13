@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 from collections import OrderedDict
+from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 from inspect import isawaitable
 from typing import Any, Awaitable, Callable
@@ -68,6 +69,14 @@ from investos.services.news_intake import NewsIntakeService
 from investos.services.operating_state import OperatingStateService
 from investos.services.portfolio_lookahead import PortfolioLookaheadService
 from investos.services.pruning import PruningService
+from investos.services.quantity_evidence import (
+    QUANTITY_BINDING_SCHEMA,
+    QUANTITY_RULES,
+    audit_numeric_narrative,
+    financial_quotes,
+    qualify_numeric_message,
+    validate_quantities,
+)
 from investos.services.reasoning import ReasoningService
 from investos.services.research import ResearchService
 from investos.services.retrieval import RetrievalService
@@ -574,6 +583,10 @@ STRATEGIC_PLANNING_SCHEMA = {
                     },
                     "why_now": {"type": "string"},
                     "rationale": {"type": "string"},
+                    "quantity_bindings": {
+                        "type": "array",
+                        "items": QUANTITY_BINDING_SCHEMA,
+                    },
                 },
                 "required": [
                     "goal_name",
@@ -582,6 +595,7 @@ STRATEGIC_PLANNING_SCHEMA = {
                     "portfolio_connection",
                     "why_now",
                     "rationale",
+                    "quantity_bindings",
                 ],
             },
         }
@@ -608,7 +622,39 @@ class AgentService:
     def _watchers_allowed(reasoning_result: dict, *, auto_execute: bool) -> list[dict]:
         if not auto_execute:
             return []
+        if AgentService._has_invalid_account_quantities(reasoning_result):
+            return []
         return list(reasoning_result.get("active_watchers") or [])
+
+    @staticmethod
+    def _has_invalid_account_quantities(result: dict) -> bool:
+        return (result.get("quantity_grounding") or {}).get("verified") is False or any(
+            item.get("evidence_basis")
+            in {"portfolio_ledger", "market_data_calculation"}
+            and (item.get("quantity_verification") or {}).get("verified") is False
+            for item in (result.get("corroboration") or {}).get("assertions", [])
+        )
+
+    @staticmethod
+    def _audit_delivered_quantities(orchestration: dict, result: dict) -> None:
+        check = audit_numeric_narrative(
+            [
+                str(orchestration.get(key) or "")
+                for key in ("assistant_message", "rationale_summary")
+            ],
+            (result.get("corroboration") or {}).get("assertions", []),
+        )
+        if check["verified"]:
+            return
+        result["quantity_grounding"] = check
+        result["quantity_grounding"]["raw_delivery_text"] = orchestration.get(
+            "assistant_message"
+        )
+        assessment = result.setdefault("corroboration", {})
+        assessment["can_promote"] = False
+        assessment["status"] = "numerical_evidence_unverified"
+        assessment["quantity_grounding"] = check
+        result["confidence_band"] = "very_low"
 
     @staticmethod
     def _enforce_action_evidence_boundary(
@@ -616,11 +662,17 @@ class AgentService:
     ) -> dict:
         if bool((reasoning_result.get("corroboration") or {}).get("can_promote")):
             return orchestration
+        if AgentService._has_invalid_account_quantities(reasoning_result):
+            reasoning_result["blocked_action_proposal"] = deepcopy(orchestration)
         decision = orchestration.setdefault("decision", {})
         decision["should_create"] = False
         decision["rationale"] = (
             "Decision creation requires independently corroborated material assertions."
         )
+        if AgentService._has_invalid_account_quantities(reasoning_result):
+            orchestration.setdefault("shadow_experiment", {})["should_create"] = False
+            orchestration.setdefault("pruning", {})["should_run"] = False
+            orchestration["memory_note"] = ""
         return orchestration
 
     async def resolve_file_context(self, payload: AgentTurnRequest) -> AgentTurnRequest:
@@ -1244,33 +1296,6 @@ class AgentService:
             independent_review,
             question_research_plan=question_research_plan,
         )
-        if self._state_updates_allowed(
-            auto_execute=payload.auto_execute,
-            has_fresh_research=bool(fresh_research_context),
-        ):
-            state_updated = await reasoning_service._update_conclusion_state(
-                packet.subject_id,
-                packet.subject_type,
-                reasoning_run,
-                reasoning_result,
-            )
-            if state_updated:
-                await reasoning_service._update_profile(
-                    packet.subject_id,
-                    packet.subject_type,
-                    reasoning_result,
-                )
-        elif fresh_research_context:
-            reasoning_result.setdefault(
-                "state_update_blocked_reason", "fresh_search_context_not_promoted"
-            )
-        else:
-            reasoning_result.setdefault(
-                "state_update_blocked_reason", "user_disabled_state_updates"
-            )
-        reasoning_run.output_text = reasoning_result.get("reasoning")
-        reasoning_run.output_tokens = estimate_tokens_from_payload(reasoning_result)
-        reasoning_run.structured_output_json = dict(reasoning_result)
 
         await self._emit_progress(
             progress_callback,
@@ -1317,9 +1342,37 @@ class AgentService:
             reasoning_result=reasoning_result,
             subagent_insights=subagent_insights,
         )
+        self._audit_delivered_quantities(orchestration, reasoning_result)
+        if self._state_updates_allowed(
+            auto_execute=payload.auto_execute,
+            has_fresh_research=bool(fresh_research_context),
+        ):
+            state_updated = await reasoning_service._update_conclusion_state(
+                packet.subject_id,
+                packet.subject_type,
+                reasoning_run,
+                reasoning_result,
+            )
+            if state_updated:
+                await reasoning_service._update_profile(
+                    packet.subject_id,
+                    packet.subject_type,
+                    reasoning_result,
+                )
+        elif fresh_research_context:
+            reasoning_result.setdefault(
+                "state_update_blocked_reason", "fresh_search_context_not_promoted"
+            )
+        else:
+            reasoning_result.setdefault(
+                "state_update_blocked_reason", "user_disabled_state_updates"
+            )
         orchestration = self._enforce_action_evidence_boundary(
             orchestration, reasoning_result
         )
+        reasoning_run.output_text = reasoning_result.get("reasoning")
+        reasoning_run.output_tokens = estimate_tokens_from_payload(reasoning_result)
+        reasoning_run.structured_output_json = dict(reasoning_result)
 
         actions: list[AgentActionResponse] = []
         if payload.auto_execute:
@@ -1417,6 +1470,7 @@ class AgentService:
                 "Preview only: state updates are off, so Prophet has not changed portfolio state, watchlists, or experiments yet. "
                 + assistant_message
             )
+        assistant_message = qualify_numeric_message(assistant_message, reasoning_result)
         historical_analogy_lenses = self._compact_historical_analogy_lenses(
             packet_context
         )
@@ -1807,6 +1861,7 @@ class AgentService:
 
             refined = await call_llm_json(
                 system_prompt=synthesis_prompt
+                + QUANTITY_RULES
                 + presentation_instruction("thesis_summary", "reasoning"),
                 user_prompt=json.dumps(synthesis_input),
                 schema=REASONING_SCHEMA,
@@ -2301,7 +2356,12 @@ class AgentService:
         )
         strategist_user_prompt = json.dumps(
             {
-                "portfolio_summary": portfolio,
+                "portfolio_summary": {
+                    key: value
+                    for key, value in portfolio.items()
+                    if key != "quantity_measurements"
+                },
+                "quantity_measurements": portfolio.get("quantity_measurements", []),
                 "portfolio_monitor": monitor,
                 "review_queue": review_queue,
                 "user_lessons": lessons_data.get("recent_lessons", []),
@@ -2313,6 +2373,7 @@ class AgentService:
         try:
             result = await call_llm_json(
                 system_prompt=strategist_system_prompt
+                + QUANTITY_RULES
                 + presentation_instruction(
                     "summary", "why_now", "portfolio_connection"
                 ),
@@ -2325,6 +2386,26 @@ class AgentService:
             return {"status": "error", "detail": f"LLM strategy failed: {message}"}
 
         goals = result.get("strategic_goals", [])
+        for goal in goals:
+            statement = ". ".join(
+                str(goal.get(key) or "")
+                for key in ("goal_name", "why_now", "rationale")
+            )
+            goal["quantity_verification"] = (
+                validate_quantities(
+                    {
+                        "statement": statement,
+                        "quantity_bindings": goal.get("quantity_bindings", []),
+                    },
+                    {
+                        "quantity_measurements": portfolio.get(
+                            "quantity_measurements", []
+                        )
+                    },
+                )
+                if financial_quotes(statement)
+                else {"status": "not_applicable", "verified": True, "issues": []}
+            )
         actions_taken = []
 
         # 3. Execute Top Goal
@@ -2332,6 +2413,7 @@ class AgentService:
             goal
             for goal in goals
             if goal.get("action") in {"research", "prospect"}
+            and goal["quantity_verification"]["verified"]
             and goal.get("portfolio_connection")
             in {"direct_holding", "tracked_name", "portfolio_theme", "macro_portfolio"}
         ]
@@ -2385,7 +2467,11 @@ class AgentService:
 
         await self.session.commit()
         return {
-            "status": "ok",
+            "status": (
+                "partial"
+                if any(not goal["quantity_verification"]["verified"] for goal in goals)
+                else "ok"
+            ),
             "detail": (
                 f"Planned {len(goals)} goals. "
                 + (
@@ -2692,6 +2778,7 @@ class AgentService:
                         "Generic headlines, expired watchers, or broad market moves alone cannot establish the cause of a holding's move. "
                         "When historical analogy lenses are present, action plans should preserve the what-rhymes/what-breaks/current-channel distinction. "
                         "Populate 'rationale_summary' with a concise user-facing rationale summary. Output JSON only."
+                        " Preserve the quantities and measurement bases in the assessed assertions; do not invent additional amounts or change their units, period or denominator."
                         + presentation_instruction(
                             "assistant_message", "rationale_summary"
                         )
