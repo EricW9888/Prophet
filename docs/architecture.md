@@ -330,7 +330,7 @@ accepted facts. The main model answers from file representations with filename
 and page/row/section references. Text-only provider recovery cannot replace a
 failed image read. Model-specific health probes preserve the other model's
 circuit state. NVIDIA's default image reader follows its documented
-[Nemotron Nano VL API](https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-nano-12b-v2-vl-infer),
+[Nemotron 3.5 Super VL API](https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3_5-super-vl-120b-a12b),
 and can be changed in Settings independently of the main analyst model.
 
 File references survive conversation reloads and follow-up questions. The

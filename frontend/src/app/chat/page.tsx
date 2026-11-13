@@ -1741,7 +1741,7 @@ function ChatWorkspace() {
           </div>
 
           <div className="shrink-0 border-t border-line bg-background/90 px-4 py-3 backdrop-blur sm:px-6">
-            {linkedReport ? <button type="button" className="workspace-control" onClick={() => setOpenReport(linkedReport)}>Open autonomous review</button> : <form onSubmit={handleSubmit} className="w-full" onDragOver={(event) => {if (event.dataTransfer.types.includes("Files")) event.preventDefault();}} onDrop={(event) => {if (event.dataTransfer.files.length) {event.preventDefault(); fileInputs.addFiles(event.dataTransfer.files);}}}>
+            {linkedReport ? <button type="button" className="workspace-control" onClick={() => setOpenReport(linkedReport)}>Open autonomous review</button> : <form onSubmit={handleSubmit} className="w-full" onFocusCapture={() => {conversationChosenRef.current = true;}} onDragOver={(event) => {if (event.dataTransfer.types.includes("Files")) event.preventDefault();}} onDrop={(event) => {if (event.dataTransfer.files.length) {event.preventDefault(); conversationChosenRef.current = true; fileInputs.addFiles(event.dataTransfer.files);}}}>
               <div className="mb-2 flex min-h-8 items-center justify-between gap-3">
                 <button
                   type="button"

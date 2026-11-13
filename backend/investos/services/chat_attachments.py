@@ -388,8 +388,9 @@ class ChatAttachmentService:
                         "data:image/png;base64,"
                         + base64.b64encode(image).decode("ascii")
                     )
-                # A different model cannot bypass the configured provider's shared outage.
-                ProviderHealthStore.require_available()
+                # Health is keyed by endpoint, credentials and model. Reading can
+                # finish and be cached while the separate analyst model is down;
+                # the final answer still passes that model's own admission guard.
                 if ProviderHealthStore.read(llm.provider, vision_model).state in {
                     "open",
                     "probing",

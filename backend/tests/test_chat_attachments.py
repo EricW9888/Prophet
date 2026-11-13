@@ -317,11 +317,12 @@ async def test_real_nvidia_adapter_transmits_images_instead_of_text_only_fallbac
             "properties": {"read": {"type": "string"}},
             "required": ["read"],
         },
-        model="nvidia/nemotron-nano-12b-v2-vl",
+        model="nvidia/nemotron-3.5-super-vl-120b-a12b",
         timeout_seconds=10,
         images=[image],
     )
     assert result["read"] == "EXMPL"
+    assert captured[0]["chat_template_kwargs"] == {"enable_thinking": False}
     assert captured[0]["messages"][1]["content"][1] == {
         "type": "image_url",
         "image_url": {"url": image},

@@ -92,7 +92,7 @@ LLM_PROVIDER_CAPABILITIES: dict[str, LLMProviderCapability] = {
         recovery_priority=20,
         structured_output_mode="json_object",
         default_model="nvidia/nemotron-3-ultra-550b-a55b",
-        default_vision_model="nvidia/nemotron-nano-12b-v2-vl",
+        default_vision_model="nvidia/nemotron-3.5-super-vl-120b-a12b",
         supports_images=True,
         default_base_url="https://integrate.api.nvidia.com/v1",
     ),
@@ -138,7 +138,7 @@ LLM_MODEL_CAPABILITIES: tuple[LLMModelCapability, ...] = (
     ),
     LLMModelCapability(
         provider="nvidia_nim",
-        model_prefixes=("nvidia/nemotron-3-",),
+        model_prefixes=("nvidia/nemotron-3-", "nvidia/nemotron-3.5-super-vl-"),
         structured_request_options=(
             ("chat_template_kwargs", {"enable_thinking": False}),
         ),
