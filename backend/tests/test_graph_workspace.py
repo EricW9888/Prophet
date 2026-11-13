@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from uuid import uuid4
 
 import httpx
@@ -12,6 +13,7 @@ from investos.models.conclusion import ConclusionState
 from investos.models.coverage import CoverageMap
 from investos.models.entity import Entity, Security
 from investos.models.evidence import RawEvidence, SourceItem
+from investos.models.fundamental import FundamentalMetric
 from investos.models.graph import Edge, GraphNodeLayout
 from investos.models.knowledge import Fact
 from investos.models.portfolio import Position
@@ -249,3 +251,23 @@ async def test_workspace_web_preserves_scope_edges_and_retained_layout():
             assert (
                 await client.get("/graph/workspace?scope=unknown")
             ).status_code == 422
+
+
+def test_metric_summary_prefers_source_text_without_duplicating_numeric_representation():
+    metric = FundamentalMetric(
+        value_text="55,555,555",
+        numeric_value=Decimal("55555555"),
+        unit="shares",
+        period_label="offering",
+    )
+    body = GraphService(None)._fundamental_metric_body(metric)
+    assert "Value: 55,555,555 shares" in body
+    assert "e+07" not in body
+    assert body.count("55,555,555") == 1
+    metric.value_text = None
+    metric.numeric_value = Decimal("1234567.25")
+    assert "Value: 1,234,567.25 shares" in GraphService(None)._fundamental_metric_body(
+        metric
+    )
+    metric.numeric_value = Decimal("0")
+    assert "Value: 0 shares" in GraphService(None)._fundamental_metric_body(metric)
