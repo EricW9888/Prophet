@@ -42,6 +42,10 @@ host setup. Neither mode guarantees delivery or replaces the Monitor view.
 ## Data and Connector Coverage
 
 Chat can read PDFs, common raster images, DOCX, XLSX and UTF-8 text formats.
+File/page citations and matching amounts do not establish a common account or
+snapshot identity. File interpretations are provisional, not portfolio
+reconciliation; per-record arithmetic and aggregate account state are different
+claims.
 File questions can wait through temporary model failures and resume after a
 single-backend restart. This is not a distributed job queue or a provider-capacity
 guarantee. Other analysis/action jobs are not automatically replayed; permanent

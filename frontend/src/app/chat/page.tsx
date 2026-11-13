@@ -562,6 +562,7 @@ function ChatWorkspace() {
   const [traceCache, setTraceCache] = useState<Record<string, ReasoningTrace>>({});
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [activeJob, setActiveJob] = useState<AgentTurnJob | null>(null);
+  const [jobConnectionError, setJobConnectionError] = useState<string | null>(null);
   const [failedJob, setFailedJob] = useState<AgentTurnJob | null>(null);
   const [activeJobs, setActiveJobs] = useState<AgentTurnJob[]>([]);
   const [activeJobRequestMessage, setActiveJobRequestMessage] = useState<string | null>(null);
@@ -648,6 +649,7 @@ function ChatWorkspace() {
   loadActiveJobsRef.current = loadActiveJobs;
 
   function focusJob(job: AgentTurnJob) {
+    setJobConnectionError(null);
     setFailedJob(null);
     selectionEpochRef.current += 1;
     setPinnedSubject(null);
@@ -1055,11 +1057,12 @@ function ChatWorkspace() {
       setElapsedSeconds(0);
       return;
     }
+    const startedAt = activeJob?.created_at ? Date.parse(activeJob.created_at) : Date.now();
     const interval = window.setInterval(() => {
-      setElapsedSeconds((current) => current + 1);
+      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
     }, 1000);
     return () => window.clearInterval(interval);
-  }, [isTyping]);
+  }, [isTyping, activeJob?.created_at]);
 
   useEffect(() => {
     if (!activeJob || !isActiveTurnJob(activeJob)) {
@@ -1071,6 +1074,7 @@ function ChatWorkspace() {
       void apiFetch<AgentTurnJob>(`/agent/turn-jobs/${activeJob.job_id}`)
         .then((job) => {
           if (cancelled) return;
+          setJobConnectionError(null);
           setIsTyping(isActiveTurnJob(job));
           setActiveJob(job);
           upsertActiveJob(job);
@@ -1091,10 +1095,9 @@ function ChatWorkspace() {
             upsertActiveJob(job);
           }
         })
-        .catch((err) => {
+        .catch(() => {
           if (cancelled) return;
-          setIsTyping(false);
-          setError(err instanceof Error ? err.message : "Unable to refresh turn status.");
+          setJobConnectionError("Connection interrupted. Your saved question will continue when Prophet reconnects.");
         });
     }, 1200);
     return () => { cancelled = true; window.clearInterval(interval); };
@@ -1105,6 +1108,7 @@ function ChatWorkspace() {
     if (!input.trim() || fileInputs.blocked || isTyping || Boolean(activeJob && isActiveTurnJob(activeJob))) return;
 
     const userMessage = input.trim();
+    setJobConnectionError(null);
     setFailedJob(null);
     const submittedAttachments = attachments;
     const submissionEpoch = selectionEpochRef.current;
@@ -1175,6 +1179,7 @@ function ChatWorkspace() {
   }
 
   function startNewChat() {
+    setJobConnectionError(null);
     setFailedJob(null);
     if (failedJob) persistActiveJob(null);
     setUseSessionAttachments(true);
@@ -1514,6 +1519,8 @@ function ChatWorkspace() {
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                   {linkedReport
                     ? "Saved background review. Open the report to start a separate follow-up."
+                    : fileContextActive
+                    ? "Analyzing the attached files."
                     : activeConversation
                     ? `Talking with Prophet about ${activeConversation.subject_name ?? selectedSubjectName}.`
                     : pinnedSubject
@@ -1724,10 +1731,10 @@ function ChatWorkspace() {
                 {isTyping ? (
                   <section className="w-full border-l-2 border-line pl-4 py-3 text-sm" aria-label="Research activity">
                     <div className="flex flex-wrap justify-between gap-2">
-                      <span className="font-semibold">{activeJob?.status === "deferred" ? "Waiting for AI" : liveEvents.at(-1) ? formatUserLabel(liveEvents.at(-1)!.phase) : "Starting turn"}</span>
+                      <span className="font-semibold">{jobConnectionError ? "Reconnecting" : activeJob?.status === "deferred" ? "Waiting for AI" : liveEvents.at(-1) ? formatUserLabel(liveEvents.at(-1)!.phase) : "Starting turn"}</span>
                       <span className="text-xs tabular-nums text-muted">{elapsedSeconds}s elapsed</span>
                     </div>
-                    <p role="status" className="mt-1 text-muted">{liveEvents.at(-1)?.message ?? "Sending your request to Prophet."}</p>
+                    <p role="status" className="mt-1 text-muted">{jobConnectionError ?? liveEvents.at(-1)?.message ?? "Sending your request to Prophet."}</p>
                     {activeJob?.status === "deferred" && activeJob.retry_at ? <p className="mt-1 text-xs text-muted">Next planned availability check: {formatTimestamp(activeJob.retry_at)}. You can leave this page; Cancel stops this question.</p> : null}
                     {activeJobRequestMessage && !messages.some((message) => message.role === "user" && message.content.startsWith(activeJobRequestMessage)) ? (
                       <p className="mt-1 truncate text-xs text-muted">{activeJobRequestMessage}</p>
@@ -2258,6 +2265,7 @@ function ActualProcessSummary({
   const displayedStance = summary.stance ?? message.meta.stance ?? null;
   const displayedConfidence = summary.confidenceBand ?? message.meta.confidence_band ?? null;
   const displayedRationale = message.meta.rationale_summary ?? null;
+  const fileAnswer = ["attached_files", "attached_text"].includes(message.meta.process_mode ?? "");
   const sourceFeedbackSummary = message.meta.source_feedback_influence?.summary ?? null;
   const historicalLens = (message.meta.historical_analogy_lenses ?? []).find(
     (lens) => lens?.name || lens?.what_rhymes || lens?.dominant_channel_test,
@@ -2267,7 +2275,7 @@ function ActualProcessSummary({
   return (
     <details className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-3 text-sm dark:border-slate-800 dark:bg-slate-950/40">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-        <span>Answer audit</span>
+        <span>{fileAnswer ? "File evidence" : "Answer audit"}</span>
         {displayedConfidence ? (
           <span className="rounded-none border border-slate-200 px-2 py-1 text-[10px] dark:border-slate-700">
             {formatUserLabel(displayedConfidence)}
@@ -2275,7 +2283,7 @@ function ActualProcessSummary({
         ) : null}
       </summary>
       <div className="mt-3 space-y-3">
-      <p className="text-xs text-muted">Check the original evidence and its dates before relying on this answer.</p>
+      <p className="text-xs text-muted">{fileAnswer ? "Based on the supplied files and provisional visual readings." : "Check the original evidence and its dates before relying on this answer."}</p>
       <div className="space-y-1 text-slate-500 dark:text-slate-400">
         {message.meta.process_mode ? (
           <p>analysis path: {formatUserLabel(message.meta.process_mode)}</p>
