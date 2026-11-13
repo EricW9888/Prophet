@@ -389,6 +389,13 @@ Health identities include model request options so an observed failure is not
 silently transferred to a different protocol configuration. Old records remain
 retained. Empty, truncated and schema-invalid responses cannot pass as success;
 diagnostics retain protocol counts and finish codes rather than generated text.
+An explicit read deadline shorter than the configured shared generation budget
+is a caller failure, not evidence that longer requests are unavailable. Its error
+still reaches the job and a configuration-scoped timeout counter is retained;
+it neither opens nor heals the shared circuit. Default-budget timeouts, connection
+failures, HTTP authentication/quota/server errors and invalid responses still
+use the existing shared failure and recovery rules. These counters record
+retained history, not completed work or provider capacity.
 
 Model-family request options are defined in `core/providers.py`. Ultra final
 content controls follow [NVIDIA's documented recipe](https://docs.nvidia.com/dynamo/dev/recipes/nemotron-3-ultra).
