@@ -3,10 +3,12 @@
 import asyncio
 import hashlib
 import json
+import math
 import threading
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from functools import wraps
+from inspect import signature
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
@@ -44,6 +46,9 @@ class ProviderHealthRecord(BaseModel):
     probe_token: str | None = None
     last_success_at: AwareDatetime | None = None
     last_probe_success_at: AwareDatetime | None = None
+    caller_timeout_count: int = Field(default=0, ge=0)
+    last_caller_timeout_at: AwareDatetime | None = None
+    last_caller_timeout_seconds: float | None = None
 
 
 class ProviderHealthRegistry(BaseModel):
@@ -279,6 +284,19 @@ class ProviderHealthStore:
             cls._write(registry)
 
     @classmethod
+    def caller_timed_out(cls, key, provider, seconds):
+        """Retain a shorter request's failure without inferring a shared outage."""
+        with cls._lock:
+            registry = cls._read()
+            record = registry.records.setdefault(
+                key, ProviderHealthRecord(provider=provider)
+            )
+            record.caller_timeout_count += 1
+            record.last_caller_timeout_at = datetime.now(UTC)
+            record.last_caller_timeout_seconds = seconds
+            cls._write(registry)
+
+    @classmethod
     def claim_probe(cls, provider=None, model=None):
         key, provider = cls.configuration(provider, model)
         with cls._lock:
@@ -318,12 +336,15 @@ class ProviderHealthStore:
 
 
 def guarded_provider_call(function):
+    parameters = signature(function)
+
     @wraps(function)
     async def guarded(*args, **kwargs):
         if _probe_call.get() or _call_depth.get():
             return await function(*args, **kwargs)
-        provider = kwargs.get("provider_override")
-        model = kwargs.get("model")
+        call_parameters = parameters.bind_partial(*args, **kwargs).arguments
+        provider = call_parameters.get("provider_override")
+        model = call_parameters.get("model")
         key, provider = ProviderHealthStore.configuration(provider, model)
         revision = ProviderHealthStore.claim_work(key, provider, model)
         owner = _recovery_owner.set((key, revision))
@@ -334,7 +355,22 @@ def guarded_provider_call(function):
             # Denied queue admission is deferral, not another observed failure.
             raise
         except Exception as exc:
-            ProviderHealthStore.failed(key, provider, exc)
+            supplied = call_parameters.get("timeout_seconds")
+            try:
+                budget = float(supplied) if not isinstance(supplied, bool) else 0.0
+            except (TypeError, ValueError):
+                budget = 0.0
+            shared_budget = (
+                settings.LLM_TIMEOUT_SECONDS or settings.CODEX_TIMEOUT_SECONDS
+            )
+            if (
+                isinstance(exc, (httpx.ReadTimeout, TimeoutError))
+                and math.isfinite(budget)
+                and 0 < budget < shared_budget
+            ):
+                ProviderHealthStore.caller_timed_out(key, provider, budget)
+            else:
+                ProviderHealthStore.failed(key, provider, exc)
             raise
         else:
             ProviderHealthStore.succeeded(key, provider, revision)

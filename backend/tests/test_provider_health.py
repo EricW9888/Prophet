@@ -654,3 +654,186 @@ async def test_disabled_coordinator_is_not_reported_as_enabled(monkeypatch):
         assert (
             await client.post("/automation/run/strategist_cycle")
         ).status_code == 503
+
+
+@pytest.mark.parametrize("error", [httpx.ReadTimeout, TimeoutError])
+async def test_short_caller_timeout_preserves_capacity_for_longer_work_and_records_failure(
+    monkeypatch, error
+):
+    monkeypatch.setattr(settings, "LLM_TIMEOUT_SECONDS", 60)
+    request = AsyncMock(side_effect=[error("synthetic deadline"), {"ok": True}])
+    monkeypatch.setattr("investos.core.llm._call_nvidia_json", request)
+    with pytest.raises(error):
+        await call_llm_json(
+            "system", "short work", {"type": "object"}, timeout_seconds=8
+        )
+    health = ProviderHealthStore.read()
+    assert health.state == "unobserved" and health.last_success_at is None
+    assert health.failure_count == 0 and health.caller_timeout_count == 1
+    assert health.last_caller_timeout_seconds == 8
+    assert health.last_caller_timeout_at is not None
+    assert health.next_probe_at is None
+    assert await call_llm_json(
+        "system", "longer work", {"type": "object"}, timeout_seconds=60
+    ) == {"ok": True}
+    assert ProviderHealthStore.read().state == "healthy"
+    assert ProviderHealthStore.read().caller_timeout_count == 1
+    assert request.await_count == 2
+
+
+@pytest.mark.parametrize("budget", [None, 60, 120])
+async def test_shared_budget_timeout_still_opens_health(monkeypatch, budget):
+    monkeypatch.setattr(settings, "LLM_TIMEOUT_SECONDS", 60)
+    monkeypatch.setattr(
+        "investos.core.llm._call_nvidia_json",
+        AsyncMock(side_effect=httpx.ReadTimeout("synthetic outage")),
+    )
+    with pytest.raises(httpx.ReadTimeout):
+        await call_llm_json(
+            "system", "work", {"type": "object"}, timeout_seconds=budget
+        )
+    record = ProviderHealthStore.read()
+    assert record.state == "open" and record.failure_code == "provider_timeout"
+    assert record.caller_timeout_count == 0
+
+
+@pytest.mark.parametrize("status", [401, 429, 503])
+async def test_short_deadline_does_not_hide_real_http_failures_or_retry_after(
+    monkeypatch, status
+):
+    response = httpx.Response(
+        status,
+        headers={"Retry-After": "900"},
+        request=httpx.Request("POST", "https://example.test"),
+    )
+    failure = httpx.HTTPStatusError(
+        "synthetic failure", request=response.request, response=response
+    )
+    monkeypatch.setattr(
+        "investos.core.llm._call_nvidia_json", AsyncMock(side_effect=failure)
+    )
+    with pytest.raises(httpx.HTTPStatusError):
+        await call_llm_json("system", "work", {"type": "object"}, timeout_seconds=8)
+    record = ProviderHealthStore.read()
+    assert record.state == "open" and record.failure_code == f"http_{status}"
+    assert record.caller_timeout_count == 0
+    assert (record.next_probe_at - datetime.now(UTC)).total_seconds() > 899
+
+
+async def test_short_connection_timeout_remains_shared_network_failure(monkeypatch):
+    monkeypatch.setattr(
+        "investos.core.llm._call_nvidia_json",
+        AsyncMock(side_effect=httpx.ConnectTimeout("synthetic connection failure")),
+    )
+    with pytest.raises(httpx.ConnectTimeout):
+        await call_llm_json("system", "work", {"type": "object"}, timeout_seconds=8)
+    assert ProviderHealthStore.read().state == "open"
+    assert ProviderHealthStore.read().caller_timeout_count == 0
+
+
+async def test_short_recovery_trial_failure_releases_lease_without_fabricating_recovery(
+    monkeypatch,
+):
+    key, _ = open_health()
+    make_probe_due()
+    _, _, token = ProviderHealthStore.claim_probe()
+    assert ProviderHealthStore.complete_probe(key, token)
+    monkeypatch.setattr(
+        "investos.core.llm._call_nvidia_json",
+        AsyncMock(side_effect=httpx.ReadTimeout("synthetic short trial")),
+    )
+    with pytest.raises(httpx.ReadTimeout):
+        await call_llm_json("system", "trial", {"type": "object"}, timeout_seconds=8)
+    record = ProviderHealthStore.read()
+    assert record.state == "recovering" and record.last_success_at is None
+    assert record.lease_until is None and record.failure_count == 1
+    assert record.caller_timeout_count == 1
+
+
+async def test_mixed_foreground_and_unattended_work_survives_a_short_http_read_deadline(
+    monkeypatch, isolated_health
+):
+    import json
+
+    from investos.core import llm
+
+    received = []
+    handlers = set()
+
+    async def serve(reader, writer):
+        task = asyncio.current_task()
+        handlers.add(task)
+        try:
+            headers = await reader.readuntil(b"\r\n\r\n")
+            length = int(
+                next(
+                    line.split(b":", 1)[1].strip()
+                    for line in headers.split(b"\r\n")
+                    if line.lower().startswith(b"content-length:")
+                )
+            )
+            data = json.loads(await reader.readexactly(length))
+            received.append(data["messages"][-1]["content"])
+            await asyncio.sleep(0.08)
+            body = json.dumps(
+                {
+                    "choices": [
+                        {"message": {"content": '{"ok":true}'}, "finish_reason": "stop"}
+                    ]
+                }
+            ).encode()
+            writer.write(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                + str(len(body)).encode()
+                + b"\r\nConnection: close\r\n\r\n"
+                + body
+            )
+            await writer.drain()
+        except (ConnectionError, asyncio.IncompleteReadError):
+            pass
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except ConnectionError:
+                pass
+            handlers.discard(task)
+
+    server = await asyncio.start_server(serve, "127.0.0.1", 0)
+    isolated_health.llm.hosted_base_url = (
+        f"http://127.0.0.1:{server.sockets[0].getsockname()[1]}"
+    )
+    limiter = llm.AsyncRateLimiter(0, 2)
+    monkeypatch.setattr(llm, "_get_rate_limiter", lambda: limiter)
+    schema = {
+        "type": "object",
+        "properties": {"ok": {"type": "boolean"}},
+        "required": ["ok"],
+        "additionalProperties": False,
+    }
+    try:
+        with pytest.raises(httpx.ReadTimeout):
+            await call_llm_json(
+                "Return JSON", "short_background", schema, timeout_seconds=0.01
+            )
+        kinds = [
+            "foreground_a",
+            "background_deep_a",
+            "foreground_b",
+            "background_deep_b",
+        ]
+        outputs = await asyncio.gather(
+            *(
+                call_llm_json("Return JSON", kind, schema, timeout_seconds=2)
+                for kind in kinds
+            )
+        )
+        assert outputs == [{"ok": True}] * 4
+        assert sorted(received) == sorted(["short_background", *kinds])
+        assert ProviderHealthStore.read().state == "healthy"
+        assert ProviderHealthStore.read().caller_timeout_count == 1
+    finally:
+        server.close()
+        await server.wait_closed()
+        if handlers:
+            await asyncio.gather(*handlers)
