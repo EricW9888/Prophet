@@ -1855,6 +1855,7 @@ function ChatWorkspace() {
             </div>
             <article className="w-full px-4 py-6 sm:px-8">
               <div className={ANSWER_TEXT_CLASS}><ReactMarkdown remarkPlugins={[remarkGfm]} components={ANSWER_COMPONENTS}>{focusedAnswer.content}</ReactMarkdown></div>
+              <AttachmentReceipts attachments={focusedAnswer.meta?.attachments} />
               {focusedAnswer.meta?.rationale_summary ? <p className="mt-5 border-t border-line pt-4 text-sm"><strong>Rationale:</strong> {focusedAnswer.meta.rationale_summary}</p> : null}
               {focusedAnswer.meta?.research_receipt ? <ResearchReceipt receipt={focusedAnswer.meta.research_receipt} /> : null}
             </article>
