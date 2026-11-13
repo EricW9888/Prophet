@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+import tempfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -25,6 +28,7 @@ class LiveJobRecord:
     request_message: str
     session_id: UUID | None = None
     request_context: dict[str, Any] = field(default_factory=dict)
+    retry_at: datetime | None = None
     events: list[LiveJobEvent] = field(default_factory=list)
     result: dict[str, Any] | None = None
     error: str | None = None
@@ -44,8 +48,6 @@ class LiveJobTracker:
             self._save_to_disk()
 
     def _save_to_disk(self) -> None:
-        import json
-
         try:
             self._storage_path.parent.mkdir(parents=True, exist_ok=True)
             serializable = {}
@@ -59,6 +61,9 @@ class LiveJobTracker:
                     "updated_at": record.updated_at.isoformat(),
                     "request_message": record.request_message,
                     "request_context": record.request_context,
+                    "retry_at": (
+                        record.retry_at.isoformat() if record.retry_at else None
+                    ),
                     "session_id": str(record.session_id) if record.session_id else None,
                     "events": [
                         {
@@ -72,14 +77,22 @@ class LiveJobTracker:
                     "result": record.result,
                     "error": record.error[:1000] if record.error else None,
                 }
-            with open(self._storage_path, "w") as f:
-                json.dump(serializable, f)
-        except Exception:
-            pass
+            descriptor, temporary = tempfile.mkstemp(
+                dir=self._storage_path.parent, prefix=".live-jobs-"
+            )
+            try:
+                with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                    json.dump(serializable, handle)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary, self._storage_path)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+        except OSError as exc:
+            raise RuntimeError("Chat job state could not be saved.") from exc
 
     def _load_from_disk(self) -> None:
-        import json
-
         if not self._storage_path.exists():
             return
         try:
@@ -95,6 +108,11 @@ class LiveJobTracker:
                         updated_at=datetime.fromisoformat(raw["updated_at"]),
                         request_message=raw["request_message"],
                         request_context=raw.get("request_context") or {},
+                        retry_at=(
+                            datetime.fromisoformat(raw["retry_at"])
+                            if raw.get("retry_at")
+                            else None
+                        ),
                         session_id=(
                             UUID(raw["session_id"]) if raw.get("session_id") else None
                         ),
@@ -136,7 +154,11 @@ class LiveJobTracker:
         record.events.append(LiveJobEvent(phase="queued", message=queued_message))
         self._jobs[record.id] = record
         self._prune()
-        self._save_to_disk()
+        try:
+            self._save_to_disk()
+        except Exception:
+            self._jobs.pop(record.id, None)
+            raise
         return record
 
     def mark_running(
@@ -149,14 +171,35 @@ class LiveJobTracker:
         record.updated_at = datetime.now(UTC)
         record._task = task
         record.events.append(LiveJobEvent(phase="running", message=message))
+        record.retry_at = None
+        self._save_to_disk()
+
+    def defer(self, job_id: UUID, *, retry_at: datetime, message: str) -> None:
+        record = self._jobs.get(job_id)
+        if record is None or record.status in {"cancelled", "completed"}:
+            return
+        record.status = "deferred"
+        record.retry_at = retry_at
+        record.error = None
+        record.updated_at = datetime.now(UTC)
+        record.events.append(
+            LiveJobEvent(
+                phase="deferred",
+                message=message,
+                detail={"retry_at": retry_at.isoformat()},
+            )
+        )
+        self._save_to_disk()
 
     def cancel_job(self, job_id: UUID) -> bool:
         record = self._jobs.get(job_id)
         if record is None:
             return False
-        if record.status == "running" and record._task:
-            record._task.cancel()
+        if record.status in {"queued", "running", "deferred"}:
+            if record._task:
+                record._task.cancel()
             record.status = "cancelled"
+            record.retry_at = None
             record.updated_at = datetime.now(UTC)
             record.events.append(
                 LiveJobEvent(phase="cancelled", message="Job cancelled by user.")
@@ -187,9 +230,10 @@ class LiveJobTracker:
         message: str = "Analysis finished.",
     ) -> None:
         record = self._jobs.get(job_id)
-        if record is None:
+        if record is None or record.status == "cancelled":
             return
         record.status = "completed"
+        record.retry_at = None
         record.updated_at = datetime.now(UTC)
         record.result = result
         record.events.append(LiveJobEvent(phase="completed", message=message))
@@ -197,9 +241,10 @@ class LiveJobTracker:
 
     def fail(self, job_id: UUID, *, error: str) -> None:
         record = self._jobs.get(job_id)
-        if record is None:
+        if record is None or record.status == "cancelled":
             return
         record.status = "error"
+        record.retry_at = None
         record.updated_at = datetime.now(UTC)
         record.error = error
         record.events.append(LiveJobEvent(phase="error", message=error))
@@ -213,7 +258,7 @@ class LiveJobTracker:
         *,
         status: str | None = None,
         job_kind: str | None = None,
-        limit: int = 30,
+        limit: int | None = 30,
     ) -> list[LiveJobRecord]:
         self._prune()
         records = sorted(
@@ -223,18 +268,21 @@ class LiveJobTracker:
             records = [record for record in records if record.job_kind == job_kind]
         if status == "active":
             records = [
-                record for record in records if record.status in {"queued", "running"}
+                record
+                for record in records
+                if record.status in {"queued", "running", "deferred"}
             ]
         elif status:
             records = [record for record in records if record.status == status]
-        return records[: max(1, min(limit, 100))]
+        return records if limit is None else records[: max(1, min(limit, 100))]
 
     def _prune(self) -> None:
         cutoff = datetime.now(UTC) - timedelta(hours=12)
         stale = [
             job_id
             for job_id, record in self._jobs.items()
-            if record.updated_at < cutoff and record.status in {"completed", "error"}
+            if record.updated_at < cutoff
+            and record.status in {"completed", "error", "cancelled"}
         ]
         for job_id in stale:
             self._jobs.pop(job_id, None)
@@ -243,9 +291,22 @@ class LiveJobTracker:
         recovered = False
         now = datetime.now(UTC)
         for record in self._jobs.values():
-            if record.status not in {"queued", "running"}:
+            if record.status not in {"queued", "running", "deferred"}:
                 continue
             recovered = True
+            if record.job_kind == "agent_turn" and record.request_context.get(
+                "resume_payload"
+            ):
+                record.status = "deferred"
+                record.retry_at = record.retry_at or now
+                record.events.append(
+                    LiveJobEvent(
+                        phase="deferred",
+                        message="Resuming the saved read-only file question after restart.",
+                        created_at=now,
+                    )
+                )
+                continue
             record.status = "error"
             record.updated_at = now
             record.error = "Job interrupted by backend restart."
@@ -257,3 +318,14 @@ class LiveJobTracker:
                 )
             )
         return recovered
+
+    async def shutdown(self) -> None:
+        tasks = [
+            record._task
+            for record in self._jobs.values()
+            if record._task and not record._task.done()
+        ]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)

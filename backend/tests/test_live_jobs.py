@@ -12,6 +12,28 @@ from investos.config import settings
 from investos.services.live_jobs import LiveJobTracker
 
 
+def test_failed_checkpoint_write_preserves_the_previous_job_file(tmp_path, monkeypatch):
+    import json
+
+    monkeypatch.setattr(settings, "STORAGE_DIR", str(tmp_path))
+    tracker = LiveJobTracker()
+    first = tracker.create_job(
+        request_message="Synthetic first question", session_id=None
+    )
+    before = tracker._storage_path.read_bytes()
+
+    def failed_replace(*args):
+        raise OSError("Synthetic disk interruption")
+
+    monkeypatch.setattr("investos.services.live_jobs.os.replace", failed_replace)
+    with pytest.raises(RuntimeError, match="could not be saved"):
+        tracker.create_job(request_message="Synthetic second question", session_id=None)
+    assert tracker._storage_path.read_bytes() == before
+    assert str(first.id) in json.loads(before)
+    assert len(tracker._jobs) == 1
+    assert not list(tracker._storage_path.parent.glob(".live-jobs-*"))
+
+
 def test_live_job_kinds_remain_isolated_and_persisted(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "STORAGE_DIR", str(tmp_path))
     tracker = LiveJobTracker()

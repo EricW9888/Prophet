@@ -42,6 +42,11 @@ host setup. Neither mode guarantees delivery or replaces the Monitor view.
 ## Data and Connector Coverage
 
 Chat can read PDFs, common raster images, DOCX, XLSX and UTF-8 text formats.
+File questions can wait through temporary model failures and resume after a
+single-backend restart. This is not a distributed job queue or a provider-capacity
+guarantee. Other analysis/action jobs are not automatically replayed; permanent
+provider errors still require correction and an explicit retry. A long outage
+can leave a file question waiting until capacity returns or the user cancels it.
 This does not imply support for arbitrary binary formats, executable files,
 encrypted documents or all embedded Office objects. Visual reading requires a
 supported, configured hosted image-reader model and shares provider availability

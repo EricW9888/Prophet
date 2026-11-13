@@ -1822,6 +1822,8 @@ export type AgentTurnJob = {
   session_id?: string | null;
   created_at: string;
   updated_at: string;
+  retry_at?: string | null;
+  resumable?: boolean;
   events: Array<{
     phase: string;
     message: string;
@@ -1857,6 +1859,7 @@ export type AgentConversationHistory = {
   subject_type: string;
   entries: Array<{
     id: string;
+    job_id?: string | null;
     role: string;
     content: string;
     created_at: string;

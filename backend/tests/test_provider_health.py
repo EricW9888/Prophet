@@ -61,6 +61,34 @@ def make_probe_due():
     ProviderHealthStore._write(registry)
 
 
+async def test_cancelled_probe_releases_its_lease_without_fabricating_success(
+    monkeypatch,
+):
+    from investos.core.provider_health import probe_llm_provider
+
+    open_health()
+    make_probe_due()
+    entered = asyncio.Event()
+
+    async def pending(**kwargs):
+        entered.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr("investos.core.llm.call_llm_json", pending)
+    task = asyncio.create_task(probe_llm_provider())
+    await asyncio.wait_for(entered.wait(), 2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    health = ProviderHealthStore.public_status()
+    assert health["state"] == "open" and health["lease_until"] is None
+    assert health["last_success_at"] is None and health["failure_count"] == 1
+    monkeypatch.setattr(
+        "investos.core.llm.call_llm_json", AsyncMock(return_value={"ok": True})
+    )
+    assert (await probe_llm_provider())["state"] == "recovering"
+
+
 def test_restart_retains_failure_and_configuration_change_does_not_erase_it(
     isolated_health,
 ):

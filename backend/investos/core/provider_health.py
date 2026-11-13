@@ -378,6 +378,17 @@ async def probe_llm_provider(*, provider=None, model=None):
         if result != {"ok": True}:
             raise ValueError("Probe did not satisfy the generation contract")
         ProviderHealthStore.complete_probe(key, token)
+    except asyncio.CancelledError:
+        with ProviderHealthStore._lock:
+            registry = ProviderHealthStore._read()
+            record = registry.records.get(key)
+            if record and record.state == "probing" and record.probe_token == token:
+                record.state = "open"
+                record.probe_token = record.lease_until = None
+                record.next_probe_at = datetime.now(UTC)
+                record.revision += 1
+                ProviderHealthStore._write(registry)
+        raise
     except Exception as exc:
         ProviderHealthStore.failed(key, provider, exc, probe_token=token)
     finally:

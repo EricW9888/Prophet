@@ -49,6 +49,7 @@ type Message = {
   messageKind?: string;
   isArtifact?: boolean;
   meta?: {
+    job_id?: string | null;
     process_mode?: string | null;
     attachments?: ChatAttachment[];
     resolution_reason?: string | null;
@@ -66,7 +67,7 @@ type Message = {
 };
 
 function isActiveTurnJob(job: Pick<AgentTurnJob, "status">) {
-  return job.status === "queued" || job.status === "running";
+  return job.status === "queued" || job.status === "running" || job.status === "deferred";
 }
 
 function stripInternalReasoningBlock(content: string) {
@@ -495,7 +496,7 @@ function RunningChats({
   return (
     <div className="shrink-0 border-b border-slate-200 p-4 dark:border-slate-800">
       <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-        Running chats ({jobs.length})
+        Active chats ({jobs.length})
       </p>
       <div className="space-y-2">
         {jobs.slice(0, 5).map((job) => (
@@ -503,7 +504,7 @@ function RunningChats({
             <button type="button" onClick={() => onFocus(job)} className="w-full text-left">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">
-                  {job.status}
+                  {job.status === "deferred" ? "Waiting for AI" : job.status}
                 </span>
                 <span className="text-[10px] text-slate-400">{formatTimestamp(job.updated_at)}</span>
               </div>
@@ -679,12 +680,13 @@ function ChatWorkspace() {
     }
   }
 
-  const mergeAssistantTurn = useCallback((turn: AgentTurn, requestMessage: string, requestCreatedAt?: string | null) => {
+  const mergeAssistantTurn = useCallback((turn: AgentTurn, requestMessage: string, requestCreatedAt?: string | null, jobId?: string) => {
     const assistantMessage: Message = {
       role: "assistant",
       content: stripInternalReasoningBlock(turn.assistant_message),
       createdAt: turn.responded_at,
       meta: {
+        job_id: jobId,
         process_mode: turn.process_mode ?? (turn.reasoning_run_id ? "reasoning_analysis" : "operating_context_llm"),
         resolution_reason: turn.resolution_reason,
         stance: turn.stance,
@@ -705,14 +707,14 @@ function ChatWorkspace() {
         role: "user",
         content: requestMessage,
         createdAt: requestCreatedAt || turn.responded_at,
-        meta: { attachments: turn.attachments },
+        meta: { attachments: turn.attachments, job_id: jobId },
       };
       const hasLatestUser =
         prev.length > 0 &&
         prev[prev.length - 1]?.role === "user" &&
         prev[prev.length - 1]?.content === requestMessage;
       const nextMessages = hasLatestUser
-        ? [...prev.slice(0, -1), {...prev[prev.length - 1], meta: {...prev[prev.length - 1].meta, attachments: turn.attachments}}, assistantMessage]
+        ? [...prev.slice(0, -1), {...prev[prev.length - 1], meta: {...prev[prev.length - 1].meta, attachments: turn.attachments, job_id: jobId}}, assistantMessage]
         : [...prev, restoredUserMessage, assistantMessage];
       setDraftMessagesBySession((current) => ({
         ...current,
@@ -807,13 +809,15 @@ function ChatWorkspace() {
         void apiFetch<AgentTurnJob>(`/agent/turn-jobs/${saved.job_id}`)
           .then((job) => {
             if (cancelled || restorationEpoch !== selectionEpochRef.current) return;
-            setIsTyping(["queued", "running"].includes(job.status));
+            setIsTyping(isActiveTurnJob(job));
             if (job.status === "error") {
               setFailedJob(job);
               setError(job.error || "Unable to complete this turn.");
               setActiveJobRequestMessage(null);
             } else {
               if (conversationChosenRef.current) return;
+              conversationChosenRef.current = true;
+              if (job.session_id) setActiveSessionId(job.session_id);
               setActiveJob(job);
             }
             persistActiveJob(job);
@@ -936,6 +940,7 @@ function ChatWorkspace() {
           meta:
             entry.role === "assistant" && !entry.is_artifact
               ? {
+                  job_id: entry.job_id,
                   process_mode: entry.process_mode,
                   attachments: entry.attachments,
                   resolution_reason: entry.resolution_reason,
@@ -950,14 +955,15 @@ function ChatWorkspace() {
                   reasoning_run_id: entry.reasoning_run_id,
                   subagents: entry.subagents,
                 }
-              : entry.attachments?.length ? {attachments: entry.attachments} : undefined,
+              : entry.attachments?.length || entry.job_id ? {attachments: entry.attachments, job_id: entry.job_id} : undefined,
         }));
         const draftMessages = draftMessagesBySession[activeSessionId] ?? [];
         const preferredMessages =
           historyMessages.length >= draftMessages.length || draftMessages.length === 0
             ? historyMessages
             : draftMessages;
-        setMessages(preferredMessages);
+        const pending = activeJobsRef.current.find((job) => job.resumable && job.session_id === activeSessionId && isActiveTurnJob(job));
+        setMessages(pending && !preferredMessages.some((message) => message.meta?.job_id === pending.job_id) ? [...preferredMessages, {role: "user", content: pending.request_message, createdAt: pending.created_at, meta: {job_id: pending.job_id, attachments: pending.request_attachments}}] : preferredMessages);
         const matchedConversation = conversations.find((item) => item.session_id === activeSessionId);
         setSelectedSubjectName(
           matchedConversation?.subject_name ?? history.subject_type ?? "Portfolio",
@@ -1051,7 +1057,7 @@ function ChatWorkspace() {
   }, [isTyping]);
 
   useEffect(() => {
-    if (!activeJob || !["queued", "running"].includes(activeJob.status)) {
+    if (!activeJob || !isActiveTurnJob(activeJob)) {
       return;
     }
     let cancelled = false;
@@ -1060,7 +1066,7 @@ function ChatWorkspace() {
       void apiFetch<AgentTurnJob>(`/agent/turn-jobs/${activeJob.job_id}`)
         .then((job) => {
           if (cancelled) return;
-          setIsTyping(["queued", "running"].includes(job.status));
+          setIsTyping(isActiveTurnJob(job));
           setActiveJob(job);
           upsertActiveJob(job);
           persistActiveJob(job);
@@ -1068,7 +1074,7 @@ function ChatWorkspace() {
             setIsTyping(false);
             setError(null);
             setActiveJobRequestMessage(null);
-            mergeAssistantTurn(job.result, job.request_message, job.created_at);
+            mergeAssistantTurn(job.result, job.request_message, job.created_at, job.job_id);
             setActiveJob(null);
             upsertActiveJob(job);
           } else if (job.status === "error") {
@@ -1125,6 +1131,8 @@ function ChatWorkspace() {
       upsertActiveJob(job);
       if (submissionEpoch !== selectionEpochRef.current) return;
       setActiveJob(job);
+      setMessages((current) => current.map((message) => message === optimisticUserMessage ? {...message, meta: {...message.meta, job_id: job.job_id, attachments: job.request_attachments}} : message));
+      if (job.resumable && job.session_id && !activeSessionId) setActiveSessionId(job.session_id);
       persistActiveJob(job);
     } catch (err) {
       if (submissionEpoch !== selectionEpochRef.current) return;
@@ -1710,10 +1718,11 @@ function ChatWorkspace() {
                 {isTyping ? (
                   <section className="w-full border-l-2 border-line pl-4 py-3 text-sm" aria-label="Research activity">
                     <div className="flex flex-wrap justify-between gap-2">
-                      <span className="font-semibold">{liveEvents.at(-1) ? formatUserLabel(liveEvents.at(-1)!.phase) : "Starting turn"}</span>
+                      <span className="font-semibold">{activeJob?.status === "deferred" ? "Waiting for AI" : liveEvents.at(-1) ? formatUserLabel(liveEvents.at(-1)!.phase) : "Starting turn"}</span>
                       <span className="text-xs tabular-nums text-muted">{elapsedSeconds}s elapsed</span>
                     </div>
                     <p role="status" className="mt-1 text-muted">{liveEvents.at(-1)?.message ?? "Sending your request to Prophet."}</p>
+                    {activeJob?.status === "deferred" && activeJob.retry_at ? <p className="mt-1 text-xs text-muted">Next planned availability check: {formatTimestamp(activeJob.retry_at)}. You can leave this page; Cancel stops this question.</p> : null}
                     {activeJobRequestMessage && !messages.some((message) => message.role === "user" && message.content.startsWith(activeJobRequestMessage)) ? (
                       <p className="mt-1 truncate text-xs text-muted">{activeJobRequestMessage}</p>
                     ) : null}

@@ -90,6 +90,7 @@ class Settings(BaseSettings):
     CHAT_ATTACHMENT_MAX_TEXT_CHARS: int = Field(default=200_000, ge=1)
     CHAT_ATTACHMENT_MAX_IMAGE_PIXELS: int = Field(default=40_000_000, ge=1)
     CHAT_ATTACHMENT_MAX_SHEET_CELLS: int = Field(default=1_000_000, ge=1)
+    CHAT_JOB_HEALTH_POLL_SECONDS: float = Field(default=5, ge=0.05, le=60)
     LLM_ALLOW_LOCAL_PROVIDER: bool = False
     LLM_RECOVERY_PROVIDERS: str = ""
     CORROBORATION_MIN_INDEPENDENT_SOURCES: int = 2
