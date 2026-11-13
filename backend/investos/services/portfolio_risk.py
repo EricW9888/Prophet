@@ -253,6 +253,9 @@ def evaluate_packet(packet: dict, *, max_age_hours: int = 96) -> dict:
         )
     if len({item["last_day"] for item in eligible}) > 1:
         issues.append("Holdings have different latest session dates.")
+    valuation_complete = (
+        bool(eligible) and not issues and total_positions == len(eligible)
+    )
     if len(common) < MIN_RETURNS:
         issues.append(
             f"Need {MIN_RETURNS} matching daily returns; found {len(common)}."
@@ -268,6 +271,7 @@ def evaluate_packet(packet: dict, *, max_age_hours: int = 96) -> dict:
             "max_age_hours": max_age_hours,
         },
         "status": "ready" if complete else "insufficient_data",
+        "valuation_complete": valuation_complete,
         "currency": "USD",
         "covered_positions": len(eligible),
         "total_positions": total_positions,

@@ -6,6 +6,11 @@ from collections import Counter
 from collections.abc import Iterable
 from urllib.parse import urlsplit
 
+from investos.services.quantity_evidence import (
+    audit_numeric_narrative,
+    validate_quantities,
+)
+
 CONFIDENCE_ORDER = ["very_low", "low", "medium", "high", "very_high"]
 SIGNATURE_TOKEN_RE = re.compile(r"[a-z0-9]+")
 SIGNATURE_HEX_RE = re.compile(r"[0-9a-f]{16}", re.I)
@@ -187,6 +192,14 @@ class CorroborationService:
             for item in assertions
         ]
         material_assumptions = self._assess_material_assumptions(result, node_index)
+        quantity_grounding = audit_numeric_narrative(
+            [
+                str(result.get(key) or "")
+                for key in ("thesis_summary", "reasoning", "independent_summary")
+            ],
+            assessed,
+        )
+        result["quantity_grounding"] = quantity_grounding
 
         unresolved_assumptions = [
             item for item in material_assumptions if item["status"] != "corroborated"
@@ -199,6 +212,7 @@ class CorroborationService:
                 for item in assessed
             )
             and not unresolved_assumptions
+            and quantity_grounding["verified"]
         )
         statuses = {item["status"] for item in assessed}
         if promotable:
@@ -207,7 +221,11 @@ class CorroborationService:
         elif "scope_mismatch" in statuses or "disputed" in statuses:
             status = "disputed"
             confidence_cap = "low"
-        elif "unsupported" in statuses or unresolved_assumptions:
+        elif (
+            "unsupported" in statuses
+            or unresolved_assumptions
+            or not quantity_grounding["verified"]
+        ):
             status = "insufficient_support"
             confidence_cap = "very_low"
         elif statuses:
@@ -224,7 +242,7 @@ class CorroborationService:
             int(item.get("duplicate_copy_count") or 0) for item in assessed
         )
         assessment = {
-            "policy": "evidence_basis_corroboration_v2",
+            "policy": "typed_quantity_corroboration_v3",
             "status": status,
             "minimum_independent_sources": self.minimum_independent_sources,
             "independent_supporting_source_count": len(unique_sources),
@@ -237,6 +255,7 @@ class CorroborationService:
             ),
             "unresolved_material_assumption_count": len(unresolved_assumptions),
             "can_promote": promotable,
+            "quantity_grounding": quantity_grounding,
             "confidence_cap": confidence_cap,
             "assertions": assessed,
             "material_assumptions": material_assumptions,
@@ -311,14 +330,15 @@ class CorroborationService:
             for path in context_paths
             if self._context_path_exists(packet_context, path)
         ]
+        quantity_check = validate_quantities(assertion, packet_context)
 
         if scope_status == "mixed":
             status = "scope_mismatch"
         elif contradiction_groups:
             status = "disputed"
-        elif evidence_basis == "portfolio_ledger" and valid_context_paths:
+        elif evidence_basis == "portfolio_ledger" and quantity_check["verified"]:
             status = "account_evidence"
-        elif evidence_basis == "market_data_calculation" and valid_context_paths:
+        elif evidence_basis == "market_data_calculation" and quantity_check["verified"]:
             status = "calculated_evidence"
         elif evidence_basis in {
             "portfolio_ledger",
@@ -351,6 +371,11 @@ class CorroborationService:
             "status": status,
             "supporting_context_paths": context_paths,
             "valid_supporting_context_paths": valid_context_paths,
+            "quantity_verification": (
+                quantity_check
+                if evidence_basis in {"portfolio_ledger", "market_data_calculation"}
+                else None
+            ),
             "supporting_evidence_ids": [str(node.get("id")) for node in support_nodes],
             "contradicting_evidence_ids": [
                 str(node.get("id")) for node in contradiction_nodes

@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import QuantityEvidence from "@/components/QuantityEvidence";
 import WorkspaceDivider, { useWorkspacePane } from "@/components/WorkspaceDivider";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -134,6 +135,7 @@ type StructuredReasoningSummary = {
       sourceCount: number;
       contradictionCount: number;
       contextPathCount: number;
+      quantityVerification: Record<string, unknown> | null;
     }>;
     assumptions: Array<{ statement: string; status: string; falsifier: string | null }>;
   } | null;
@@ -144,6 +146,7 @@ type StructuredReasoningSummary = {
     disagrees: boolean;
     answerability: string;
     answerabilityReason: string;
+    quantitiesUnverified: boolean;
   } | null;
 };
 
@@ -255,6 +258,7 @@ function summarizeReasoningTrace(trace?: ReasoningTrace): StructuredReasoningSum
               typeof item.independent_contradicting_source_count === "number"
                 ? item.independent_contradicting_source_count
                 : 0,
+            quantityVerification: asRecord(item.quantity_verification),
             contextPathCount: Array.isArray(item.valid_supporting_context_paths)
               ? item.valid_supporting_context_paths.length
               : 0,
@@ -278,6 +282,7 @@ function summarizeReasoningTrace(trace?: ReasoningTrace): StructuredReasoningSum
               : "uncertain",
           summary:
             typeof independentReview.summary === "string" ? independentReview.summary : "",
+          quantitiesUnverified: asRecord(independentReview.quantity_grounding)?.verified === false,
           disagrees: independentReview.stance_disagrees === true,
           answerability:
             typeof independentReview.question_answerability === "string"
@@ -322,7 +327,7 @@ function CorroborationPanel({ summary }: { summary: StructuredReasoningSummary }
             <div key={`${assertion.statement}-${index}`} className="border-t border-current/15 pt-2 text-sm">
               <div className="flex flex-wrap justify-between gap-2">
                 <p className="font-medium">{assertion.statement}</p>
-                <span className="text-xs uppercase opacity-75">{formatUserLabel(assertion.status)}</span>
+                <span className="text-xs uppercase opacity-75">{["portfolio_ledger", "market_data_calculation"].includes(assertion.evidenceBasis) && !assertion.quantityVerification ? "Numerical check unavailable" : formatUserLabel(assertion.status)}</span>
               </div>
               <p className="mt-1 text-xs opacity-75">
                 {assertion.evidenceBasis === "portfolio_ledger"
@@ -332,6 +337,7 @@ function CorroborationPanel({ summary }: { summary: StructuredReasoningSummary }
                     : `${assertion.sourceCount} independent support`}
                 {` · ${assertion.contradictionCount} contradiction${assertion.contradictionCount === 1 ? "" : "s"}`}
               </p>
+              {["portfolio_ledger", "market_data_calculation"].includes(assertion.evidenceBasis) ? <QuantityEvidence check={assertion.quantityVerification} /> : null}
             </div>
           ))}
         </div>
@@ -362,6 +368,7 @@ function CorroborationPanel({ summary }: { summary: StructuredReasoningSummary }
           {summary.independentReview.summary ? (
             <p className="mt-1 opacity-80">{summary.independentReview.summary}</p>
           ) : null}
+          {summary.independentReview.quantitiesUnverified ? <p className="mt-1 font-medium text-amber-300">This review contains unverified numerical claims.</p> : null}
           {summary.independentReview.answerabilityReason ? (
             <p className="mt-1 opacity-80">
               Scope check: {summary.independentReview.answerabilityReason}
@@ -1836,7 +1843,7 @@ function ChatWorkspace() {
           </div>
         </section>
       </main>
-      {openReport ? <AutonomousReport report={openReport} onClose={() => setOpenReport(null)} onDiscuss={(summary) => {
+      {openReport ? <AutonomousReport key={openReport.session_id} report={openReport} onClose={() => setOpenReport(null)} onDiscuss={(summary) => {
         startNewChat();
         if (openReport.subject_id && openReport.subject_type) {
           setPinnedSubject({ subject_id: openReport.subject_id, subject_type: openReport.subject_type, subject_name: openReport.subject_name ?? undefined });
@@ -1858,6 +1865,7 @@ function ChatWorkspace() {
               <AttachmentReceipts attachments={focusedAnswer.meta?.attachments} />
               {focusedAnswer.meta?.rationale_summary ? <p className="mt-5 border-t border-line pt-4 text-sm"><strong>Rationale:</strong> {focusedAnswer.meta.rationale_summary}</p> : null}
               {focusedAnswer.meta?.research_receipt ? <ResearchReceipt receipt={focusedAnswer.meta.research_receipt} /> : null}
+              {focusedAnswer.meta?.reasoning_run_id && traceCache[focusedAnswer.meta.reasoning_run_id] ? <details className="mt-5 border-t border-line pt-3"><summary className="cursor-pointer text-sm">Evidence and numerical checks</summary><CorroborationPanel summary={summarizeReasoningTrace(traceCache[focusedAnswer.meta.reasoning_run_id])} /></details> : null}
             </article>
           </div>
         ) : null}
@@ -1925,6 +1933,8 @@ function AutonomousReport({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [finding, setFinding] = useState<AgentConversationHistory["entries"][number] | null>(null);
+  const [trace, setTrace] = useState<ReasoningTrace | null>(null);
+  const [traceError, setTraceError] = useState(false);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   useLayoutEffect(() => { dialog.current?.showModal(); }, []);
   useEffect(() => {
@@ -1937,6 +1947,14 @@ function AutonomousReport({
       }, () => { if (!controller.signal.aborted) setState("error"); });
     return () => controller.abort();
   }, [report.session_id]);
+  useEffect(() => {
+    const controller = new AbortController();
+    if (finding?.reasoning_run_id) {
+      void apiFetch<ReasoningTrace>(`/reasoning/runs/${finding.reasoning_run_id}`, { signal: controller.signal })
+        .then((loaded) => { if (!controller.signal.aborted) setTrace(loaded); }, () => { if (!controller.signal.aborted) setTraceError(true); });
+    }
+    return () => controller.abort();
+  }, [finding?.reasoning_run_id]);
   const summary = finding ? stripInternalReasoningBlock(finding.content) : "";
   return (
     <dialog ref={dialog} onClose={onClose} aria-labelledby="autonomous-report-title"
@@ -1957,6 +1975,7 @@ function AutonomousReport({
             <div className={ANSWER_TEXT_CLASS}><ReactMarkdown remarkPlugins={[remarkGfm]} components={ANSWER_COMPONENTS}>{summary}</ReactMarkdown></div>
             {finding.rationale_summary ? <p className="mt-4 text-sm"><strong>Rationale:</strong> {finding.rationale_summary}</p> : null}
             {finding.research_receipt ? <ResearchReceipt receipt={finding.research_receipt} /> : null}
+            {finding.reasoning_run_id ? <details className="mt-5 border-t border-line pt-3"><summary className="cursor-pointer text-sm">Evidence and numerical checks</summary>{trace ? <CorroborationPanel summary={summarizeReasoningTrace(trace)} /> : <p className="mt-2 text-sm text-muted">{traceError ? "The saved audit could not be loaded. Reopen this review to retry." : "Loading the saved audit…"}</p>}</details> : null}
             <div className="mt-5 flex flex-wrap gap-2 border-t border-line pt-4">
               <button type="button" className="workspace-control" onClick={() => onDiscuss(summary.replace(/\s+/g, " ").slice(0, 480))}>Discuss in a new chat</button>
               <Link href="/activity" className="workspace-control">See Activity</Link>

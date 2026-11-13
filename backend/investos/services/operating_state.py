@@ -26,6 +26,7 @@ from investos.models.source import Source
 from investos.models.theme import Theme
 from investos.services.canonical_state import CanonicalStateService
 from investos.services.portfolio_peers import PortfolioPeerContextService
+from investos.services.quantity_evidence import ledger_holdings, portfolio_measurements
 from investos.services.question_lifecycle import (
     ACTIVE_QUESTION_STATUSES,
     QuestionLifecycleService,
@@ -204,6 +205,12 @@ class OperatingStateService:
 
         return {
             "holdings_count": len(holdings),
+            "quantity_measurements": await portfolio_measurements(
+                self.session,
+                ledger_holdings(position_rows),
+                latest_cash,
+                performance_attribution,
+            ),
             "watchlist_count": len(watchlist),
             "considering_count": len(considering),
             "total_market_value": round(total_market_value, 2),

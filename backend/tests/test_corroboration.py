@@ -216,15 +216,42 @@ def test_blind_analyst_disagreement_prevents_promotion():
 
 
 def test_portfolio_ledger_assertion_uses_structured_context_not_publication():
+    from investos.services.quantity_evidence import measurement
+
+    measured = measurement(
+        value=24,
+        unit="percent",
+        basis="position_mark_divided_by_holdings_mark",
+        subject_ref="security:synthetic",
+        snapshot_ref="synthetic-snapshot",
+        as_of="2026-01-02T21:00:00Z",
+    )
+    bound = {
+        key: measured[key]
+        for key in (
+            "measurement_ref",
+            "value",
+            "unit",
+            "basis",
+            "subject_ref",
+            "snapshot_ref",
+            "as_of",
+            "period_start",
+            "period_end",
+        )
+    }
+    bound.update(quote="24%", value=24, occurrence=0)
     result = _result([])
     result["material_assertions"][0].update(
         statement="The position is 24% of the account.",
         evidence_basis="portfolio_ledger",
         supporting_context_paths=["portfolio_context.top_holdings.0.weight_pct"],
+        quantity_bindings=[bound],
     )
     packet = {
         **_packet(),
         "portfolio_context": {"top_holdings": [{"ticker": "MEMA", "weight_pct": 24}]},
+        "quantity_measurements": [measured],
     }
 
     assessment = CorroborationService().assess_result(result, packet)
@@ -236,6 +263,30 @@ def test_portfolio_ledger_assertion_uses_structured_context_not_publication():
     ]
     assert assessment["can_promote"] is True
     assert assessment["independent_supporting_source_count"] == 0
+
+
+def test_existing_context_paths_do_not_verify_invented_account_values():
+    result = _result([])
+    result["material_assertions"][0].update(
+        statement="The account is worth $10 million and the holding is 60%.",
+        evidence_basis="portfolio_ledger",
+        supporting_context_paths=[
+            "portfolio_context.total_market_value",
+            "portfolio_context.top_holdings.0.weight_pct",
+        ],
+    )
+    packet = {
+        **_packet(),
+        "portfolio_context": {
+            "total_market_value": 10000,
+            "top_holdings": [
+                {"ticker": "EXMPL", "market_value": 2500, "weight_pct": 25}
+            ],
+        },
+    }
+    assessment = CorroborationService().assess_result(result, packet)
+    assert assessment["can_promote"] is False
+    assert assessment["assertions"][0]["status"] != "account_evidence"
 
 
 def test_structured_context_assertion_fails_closed_for_missing_path():
