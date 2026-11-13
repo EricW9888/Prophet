@@ -3,7 +3,7 @@
  */
 
 export function safeFormatCurrency(value: number | null | undefined, maximumFractionDigits = 0): string {
-  if (value == null || isNaN(value)) return "$0";
+  if (value == null || !Number.isFinite(value)) return "—";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -12,7 +12,7 @@ export function safeFormatCurrency(value: number | null | undefined, maximumFrac
 }
 
 export function safeFormatSignedCurrency(value: number | null | undefined): string {
-  if (value == null || isNaN(value)) return "$0.00";
+  if (value == null || !Number.isFinite(value)) return "—";
   const absVal = Math.abs(value);
   const formatted = new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -23,9 +23,14 @@ export function safeFormatSignedCurrency(value: number | null | undefined): stri
 }
 
 export function safeFormatPct(value: number | null | undefined): string {
-  if (value == null || isNaN(value)) return "0.00%";
+  if (value == null || !Number.isFinite(value)) return "—";
   const sign = value >= 0 ? "+" : "";
   return `${sign}${value.toFixed(2)}%`;
+}
+
+export function safeFormatQuantity(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat("en-US", {maximumSignificantDigits: 21}).format(value);
 }
 
 /**

@@ -6,9 +6,11 @@ import Link from "next/link";
 import AddResearchObjectModal from "./AddResearchObjectModal";
 import AddTransactionModal from "./AddTransactionModal";
 import PortfolioWatchlist from "./PortfolioWatchlist";
+import ValuationCoverage from "./ValuationCoverage";
+import HintMarker from "./HintMarker";
 import WorkspaceState from "./WorkspaceState";
 import { apiFetch, PortfolioBuildPoint, PortfolioOverview } from "@/lib/api";
-import { safeFormatCurrency, safeFormatSignedCurrency, formatUserLabel } from "@/lib/formatting";
+import { safeFormatCurrency, safeFormatSignedCurrency, safeFormatQuantity, formatUserLabel } from "@/lib/formatting";
 import { researchHref } from "@/lib/workflows";
 
 export default function PositionsTable() {
@@ -122,6 +124,7 @@ export default function PositionsTable() {
               </div>
             </div>
 
+            <div className="mt-4"><ValuationCoverage coverage={overview.valuation_coverage} /></div>
             {holdings.length === 0 ? (
               <WorkspaceState
                 kind="empty"
@@ -140,7 +143,7 @@ export default function PositionsTable() {
                       <th className="pb-3 font-medium">Holding</th>
                       <th className="pb-3 font-medium text-right">Shares</th>
                       <th className="pb-3 font-medium text-right">Avg Cost</th>
-                      <th className="pb-3 font-medium text-right">Last</th>
+                      <th className="pb-3 font-medium text-right">Recorded quote</th>
                       <th className="pb-3 font-medium text-right">Market Value</th>
                       <th className="pb-3 font-medium text-right">P&L</th>
                     </tr>
@@ -153,12 +156,13 @@ export default function PositionsTable() {
                           {pos.entity_name ? (
                             <div className="text-xs text-slate-500 dark:text-slate-400">{pos.entity_name}</div>
                           ) : null}
+                          {pos.valuation ? <div className="mt-1 text-xs text-muted">{pos.valuation.status === "ready" ? `Quote ${pos.valuation.quoted_at ? new Date(pos.valuation.quoted_at).toLocaleString() : "time unavailable"}` : "Quote unavailable"} <HintMarker label={`Quote basis for ${pos.ticker ?? "holding"}`}><p>{pos.valuation.issues.join(" ") || `${formatUserLabel(pos.valuation.provider)} · ${pos.valuation.currency} · observed ${pos.valuation.observed_at ? new Date(pos.valuation.observed_at).toLocaleString() : "time unavailable"}. Mark uses recorded shares and quotes; P&L uses recorded cost basis.`}</p></HintMarker></div> : null}
                         </td>
-                        <td className="py-4 text-right tabular-nums">{(pos.quantity || 0).toFixed(2)}</td>
+                        <td className="py-4 text-right tabular-nums">{safeFormatQuantity(pos.quantity)}</td>
                         <td className="py-4 text-right tabular-nums">{safeFormatCurrency(pos.avg_cost_basis, 2)}</td>
                         <td className="py-4 text-right tabular-nums">{safeFormatCurrency(pos.current_price, 2)}</td>
                         <td className="py-4 text-right tabular-nums">{safeFormatCurrency(pos.market_value, 2)}</td>
-                        <td className={`py-4 text-right tabular-nums ${(pos.unrealized_pnl || 0) >= 0 ? "text-emerald-600" : "text-rose-500"}`}>
+                        <td className={`py-4 text-right tabular-nums ${pos.unrealized_pnl == null ? "text-muted" : pos.unrealized_pnl >= 0 ? "text-emerald-600" : "text-rose-500"}`}>
                           {safeFormatSignedCurrency(pos.unrealized_pnl)}
                         </td>
                       </tr>

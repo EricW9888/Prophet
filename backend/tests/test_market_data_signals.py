@@ -307,7 +307,10 @@ async def test_partial_live_quote_refresh_preserves_missing_value_and_normalizes
 ):
     positions = [
         SimpleNamespace(
-            security=SimpleNamespace(ticker=ticker, entity=None),
+            security=SimpleNamespace(
+                id=ticker, ticker=ticker, entity=None, instrument_type="common_stock"
+            ),
+            direction="long",
             quantity=Decimal("10"),
             avg_cost_basis=Decimal("5"),
             current_price=Decimal(str(price)),

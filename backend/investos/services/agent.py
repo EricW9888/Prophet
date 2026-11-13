@@ -74,6 +74,7 @@ from investos.services.quantity_evidence import (
     QUANTITY_RULES,
     audit_numeric_narrative,
     financial_quotes,
+    finite_decimal,
     qualify_numeric_message,
     validate_quantities,
 )
@@ -6687,8 +6688,8 @@ class AgentService:
             primary = positions[0]
             list_type = str(primary.get("list_type") or "tracked")
             quantity = float(primary.get("quantity") or 0.0)
-            price = float(primary.get("current_price") or 0.0)
-            market_value = float(primary.get("market_value") or 0.0)
+            price = self._format_recorded_money(primary.get("current_price"))
+            market_value = self._format_recorded_money(primary.get("market_value"))
             stance = accepted.get("current_stance")
             summary = ""
             if accepted:
@@ -6699,14 +6700,14 @@ class AgentService:
                 return {
                     "assistant_message": (
                         f"{subject_name} is currently in your {list_type}. "
-                        f"You hold {quantity:g} shares at about ${price:.2f}, worth about ${market_value:.2f}. "
+                        f"You hold {quantity:g} recorded units; recorded quote {price}, marked value {market_value}. "
                         f"The current accepted view is {stance}. {summary}"
                     )
                 }
             return {
                 "assistant_message": (
                     f"{subject_name} is currently in your {list_type}. "
-                    f"You hold {quantity:g} shares at about ${price:.2f}, worth about ${market_value:.2f}. "
+                    f"You hold {quantity:g} recorded units; recorded quote {price}, marked value {market_value}. "
                     "Prophet does not yet have substantive research coverage saved for it, so the next useful step is to ingest filings, earnings material, source claims, or your own thesis notes."
                 )
             }
@@ -6959,6 +6960,9 @@ class AgentService:
         self, payload: dict[str, object]
     ) -> dict[str, str] | None:
         state = payload.get("portfolio_state") or {}
+
+        amount = self._format_recorded_money
+
         top_holdings = state.get("top_holdings") or []
         labels: list[str] = []
         if isinstance(top_holdings, list):
@@ -6966,17 +6970,22 @@ class AgentService:
                 if not isinstance(item, dict):
                     continue
                 labels.append(
-                    f"{item.get('ticker')} · {item.get('name')} (${float(item.get('market_value', 0.0)):.2f})"
+                    f"{item.get('ticker')} · {item.get('name')} ({amount(item.get('market_value'))})"
                 )
         return {
             "assistant_message": (
                 "I checked the current portfolio state. "
                 f"It has {state.get('holdings_count', 0)} holdings, "
-                f"${float(state.get('total_market_value', 0.0)):.2f} of holding market value, and "
-                f"${float(state.get('remaining_buying_power', 0.0)):.2f} of remaining buying power."
+                f"holdings value {amount(state.get('total_market_value'))}, and "
+                f"recorded ledger cash {amount(state.get('remaining_buying_power'))}."
                 + (" Top holdings: " + "; ".join(labels) + "." if labels else "")
             )
         }
+
+    @staticmethod
+    def _format_recorded_money(value):
+        number = finite_decimal(value)
+        return "unavailable" if number is None else f"${number:,.2f}"
 
     @staticmethod
     def _format_investment_lens(value: object) -> str:

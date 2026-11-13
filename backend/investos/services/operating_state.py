@@ -7,6 +7,7 @@ from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.config import settings
+from investos.core.valuation import mark_rows
 from investos.models.catalog import (
     SourceProfile,
     SourceTrustProfile,
@@ -173,8 +174,9 @@ class OperatingStateService:
         considering = [
             position for position in positions if position.list_type == "considering"
         ]
-        total_market_value = sum(
-            float(position.market_value or 0.0) for position in holdings
+        marks, coverage = mark_rows(position_rows)
+        total_market_value = (
+            coverage["covered_market_value"] if coverage["complete"] else None
         )
 
         latest_cash = (
@@ -186,13 +188,17 @@ class OperatingStateService:
                 .limit(1)
             )
         ).scalar_one_or_none()
-        buying_power = float(latest_cash.balance_after) if latest_cash else 0.0
+        buying_power = float(latest_cash.balance_after) if latest_cash else None
 
-        total_equity = total_market_value + buying_power
+        total_equity = (
+            total_market_value + buying_power
+            if total_market_value is not None and buying_power is not None
+            else None
+        )
         pct_deployed = (
             round((total_market_value / total_equity) * 100, 1)
-            if total_equity > 0
-            else 0.0
+            if total_equity is not None and total_equity > 0
+            else None
         )
         peer_exposures = (
             await PortfolioPeerContextService(self.session).peer_exposures(limit=12)
@@ -213,16 +219,22 @@ class OperatingStateService:
             ),
             "watchlist_count": len(watchlist),
             "considering_count": len(considering),
-            "total_market_value": round(total_market_value, 2),
-            "remaining_buying_power": round(buying_power, 2),
+            "total_market_value": (
+                round(total_market_value, 2) if total_market_value is not None else None
+            ),
+            "valuation_coverage": coverage,
+            "remaining_buying_power": (
+                round(buying_power, 2) if buying_power is not None else None
+            ),
             "pct_capital_deployed": pct_deployed,
             "top_holdings": [
                 {
                     "ticker": security.ticker,
                     "name": entity.name,
                     "quantity": float(position.quantity or 0.0),
-                    "market_value": float(position.market_value or 0.0),
-                    "current_price": float(position.current_price or 0.0),
+                    "market_value": marks[position.id]["market_value"],
+                    "current_price": marks[position.id]["price"],
+                    "valuation": marks[position.id],
                 }
                 for position, security, entity in position_rows[:5]
                 if position.list_type == "holding"
@@ -268,6 +280,7 @@ class OperatingStateService:
             subject_type="entity",
             subject_id=subject_id,
         )
+        marks, _ = mark_rows(position_rows)
         return {
             "subject_name": subject_name,
             "securities": [
@@ -290,9 +303,10 @@ class OperatingStateService:
                     "direction": position.direction,
                     "quantity": float(position.quantity or 0.0),
                     "avg_cost_basis": float(position.avg_cost_basis or 0.0),
-                    "current_price": float(position.current_price or 0.0),
-                    "market_value": float(position.market_value or 0.0),
-                    "unrealized_pnl": float(position.unrealized_pnl or 0.0),
+                    "current_price": marks[position.id]["price"],
+                    "market_value": marks[position.id]["market_value"],
+                    "unrealized_pnl": marks[position.id]["unrealized_pnl"],
+                    "valuation": marks[position.id],
                     "conviction": position.conviction,
                 }
                 for position, security in position_rows[:6]

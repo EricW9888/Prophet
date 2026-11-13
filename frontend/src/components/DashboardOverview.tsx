@@ -13,6 +13,7 @@ import ProviderWorkSummary from "@/components/ProviderWorkSummary";
 import QuestionBacklog from "@/components/QuestionBacklog";
 import ReviewItemActions from "@/components/ReviewItemActions";
 import PortfolioDataReviewNotice from "@/components/PortfolioDataReviewNotice";
+import ValuationCoverage from "@/components/ValuationCoverage";
 import {
   safeFormatCurrency,
   safeFormatSignedCurrency,
@@ -193,6 +194,7 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
       </section>
 
       <PortfolioDataReviewNotice count={summary.portfolio_data_review_total ?? 0} />
+      <ValuationCoverage coverage={summary.valuation_coverage} />
 
       <div key="dashboard-body" className="space-y-6">
         <Panel className="xl:col-span-1">
@@ -420,10 +422,10 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
               <p className="text-sm font-medium text-muted">Holdings market value</p>
               <div className="flex items-baseline gap-3 mt-1.5">
                 <p className="text-2xl font-bold tracking-tighter text-foreground">
-                  {safeFormatCurrency(summary?.total_market_value ?? 0)}
+                  {safeFormatCurrency(summary?.total_market_value)}
                 </p>
                 <p className={`text-sm font-medium ${(summary?.total_unrealized_pnl ?? 0) >= 0 ? "text-positive" : "text-negative"}`}>
-                  {safeFormatSignedCurrency(summary?.total_unrealized_pnl ?? 0)} unrealized
+                  {safeFormatSignedCurrency(summary?.total_unrealized_pnl)} unrealized
                 </p>
               </div>
             </div>

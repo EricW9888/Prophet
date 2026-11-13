@@ -4,6 +4,7 @@ from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import (
+    AliasChoices,
     AnyHttpUrl,
     BaseModel,
     ConfigDict,
@@ -11,6 +12,8 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+from investos.core.valuation import quote_mark
 
 
 class SecuritySymbolChangeRequest(BaseModel):
@@ -128,11 +131,11 @@ class PositionBase(BaseModel):
     list_type: str
     quantity: float = 0.0
     avg_cost_basis: float = 0.0
-    current_price: float = 0.0
-    market_value: float = 0.0
-    unrealized_pnl: float = 0.0
+    current_price: Optional[float] = None
+    market_value: Optional[float] = None
+    unrealized_pnl: Optional[float] = None
     realized_pnl: float = 0.0
-    weight_pct: float = 0.0
+    weight_pct: Optional[float] = None
     is_nonlinear: bool = False
     notional_exposure: Optional[float] = None
     delta_exposure: Optional[float] = None
@@ -154,6 +157,36 @@ class PositionResponse(PositionBase):
     security_id: UUID
     ticker: Optional[str] = None
     entity_name: Optional[str] = None
+    instrument_type: Optional[str] = None
+    quote_receipt_json: Optional[dict] = Field(default=None, exclude=True)
+    recorded_quantity: Optional[Decimal] = Field(
+        default=None,
+        validation_alias=AliasChoices("recorded_quantity", "quantity"),
+        exclude=True,
+    )
+    recorded_cost_basis: Optional[Decimal] = Field(
+        default=None,
+        validation_alias=AliasChoices("recorded_cost_basis", "avg_cost_basis"),
+        exclude=True,
+    )
+    valuation: dict = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def require_quote_basis(self):
+        self.valuation = quote_mark(
+            receipt=self.quote_receipt_json,
+            security_id=self.security_id,
+            ticker=self.ticker,
+            instrument_type=self.instrument_type,
+            quantity=self.recorded_quantity,
+            direction=self.direction,
+            cost=self.recorded_cost_basis,
+        )
+        self.current_price = self.valuation["price"]
+        self.market_value = self.valuation["market_value"]
+        self.unrealized_pnl = self.valuation["unrealized_pnl"]
+        self.weight_pct = None
+        return self
 
     lots: list[LotResponse] = Field(default_factory=list)
     transactions: list[TransactionResponse] = Field(default_factory=list)
@@ -201,13 +234,14 @@ class PortfolioOverviewResponse(BaseModel):
     recent_transactions: list[TransactionResponse] = Field(default_factory=list)
     top_winners: list[PositionResponse] = Field(default_factory=list)
     top_losers: list[PositionResponse] = Field(default_factory=list)
-    total_value: float = Field(
-        default=0.0,
+    total_value: Optional[float] = Field(
+        default=None,
         description="Estimated marked holdings plus recorded cash; not independently reconciled broker equity.",
     )
-    buying_power: float = Field(
-        default=0.0,
-        description="Legacy field name for reconstructed cash, or the configured cash fallback. Does not establish broker buying power, settlement or margin availability.",
+    valuation_coverage: dict = Field(default_factory=dict)
+    buying_power: Optional[float] = Field(
+        default=None,
+        description="Legacy field name for reconstructed ledger cash. Missing ledger cash is unavailable. Does not establish broker buying power, settlement or margin availability.",
     )
     build_series: list[PortfolioBuildPoint] = Field(default_factory=list)
 

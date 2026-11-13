@@ -143,17 +143,18 @@ class DashboardSummaryResponse(BaseModel):
     holdings_count: int = 0
     watchlist_count: int = 0
     considering_count: int = 0
-    total_market_value: float = 0.0
-    total_unrealized_pnl: float = 0.0
+    total_market_value: Optional[float] = None
+    total_unrealized_pnl: Optional[float] = None
     open_holdings_return_pct: Optional[float] = None
     risk_as_of: Optional[datetime] = None
     risk_measurement_start: Optional[datetime] = None
-    total_value: float = Field(
-        default=0.0,
+    total_value: Optional[float] = Field(
+        default=None,
         description="Estimated marked holdings plus recorded cash; not independently reconciled broker equity.",
     )
-    buying_power: float = Field(
-        default=0.0,
+    valuation_coverage: dict = Field(default_factory=dict)
+    buying_power: Optional[float] = Field(
+        default=None,
         description="Legacy field name for recorded cash; not independently observed broker buying power.",
     )
     top_winners: list[PositionResponse] = []
