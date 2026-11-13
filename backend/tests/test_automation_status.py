@@ -1,5 +1,7 @@
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
+from uuid import uuid4
 
 import pytest
 
@@ -8,6 +10,60 @@ from investos.services.agent import AgentService
 from investos.services.agent_action_log import AgentActionLogService
 from investos.services.automation import AutomationCoordinator, JobTelemetry
 from investos.services.research import ResearchRunResult
+from investos.services.runtime_settings import RuntimeSettingsStore
+
+
+async def test_occupied_discovery_lease_wakes_only_its_pending_run_and_obeys_pause(
+    monkeypatch,
+):
+    from apscheduler.schedulers.base import STATE_RUNNING
+
+    monkeypatch.setattr(settings, "AUTOMATION_ENABLED", True)
+    coordinator = AutomationCoordinator()
+    monkeypatch.setattr(coordinator.scheduler, "state", STATE_RUNNING)
+    coordinator.scheduler.add_job = Mock()
+    coordinator.telemetry["opportunity_discovery"] = JobTelemetry(
+        "opportunity_discovery", 21600
+    )
+    monkeypatch.setattr(coordinator, "_log_job_action", Mock())
+    monkeypatch.setattr(coordinator, "_provider_defers", lambda _: False)
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    monkeypatch.setattr(
+        "investos.services.automation.async_session_maker", lambda: session
+    )
+    runtime = SimpleNamespace(opportunity_discovery=SimpleNamespace(enabled=True))
+    monkeypatch.setattr(RuntimeSettingsStore, "load", lambda: runtime)
+    run_id = uuid4()
+    retry_at = datetime.now(UTC) + timedelta(minutes=5)
+    result = {
+        "id": run_id,
+        "status": "busy",
+        "retry_at": retry_at,
+        "detail": "another_discovery_run_is_active",
+    }
+    work = AsyncMock(return_value=result)
+    monkeypatch.setattr(
+        "investos.services.automation.OpportunityDiscoveryService.run_discovery", work
+    )
+    await coordinator._run_opportunity_discovery()
+    assert coordinator.telemetry["opportunity_discovery"].last_status == "busy"
+    scheduled = coordinator.scheduler.add_job.call_args
+    assert scheduled.kwargs["run_date"] == retry_at
+    assert scheduled.kwargs["replace_existing"] is True
+    resume = scheduled.args[0]
+    runtime.opportunity_discovery.enabled = False
+    await resume()
+    assert work.await_count == 1
+    runtime.opportunity_discovery.enabled = True
+    monkeypatch.setattr(coordinator, "_provider_defers", lambda _: True)
+    await resume()
+    assert work.await_count == 1
+    monkeypatch.setattr(coordinator, "_provider_defers", lambda _: False)
+    result["status"] = "completed"
+    await coordinator._run_opportunity_discovery()
+    assert work.await_count == 2
+    assert work.call_args.kwargs["resume_run_id"] == run_id
 
 
 def test_activity_focus_filters_routine_success_before_the_feed_limit(

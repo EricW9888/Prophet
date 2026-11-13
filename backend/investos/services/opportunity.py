@@ -521,13 +521,35 @@ class OpportunityDiscoveryService:
         await self.session.delete(member)
         await self.session.commit()
 
-    async def run_discovery(self) -> dict[str, Any]:
+    async def run_discovery(
+        self, *, resume_run_id: UUID | None = None
+    ) -> dict[str, Any]:
         now = datetime.now(UTC)
-        run, acquired = await self._acquire_run(now=now)
+        if resume_run_id is None:
+            run, acquired = await self._acquire_run(now=now)
+        else:
+            run = (
+                await self.session.execute(
+                    select(OpportunityDiscoveryRun).where(
+                        OpportunityDiscoveryRun.id == resume_run_id,
+                        OpportunityDiscoveryRun.active_key == self.ACTIVE_KEY,
+                        OpportunityDiscoveryRun.status.in_(["running", "deferred"]),
+                    )
+                )
+            ).scalar_one_or_none()
+            if run is None:
+                return {
+                    "id": resume_run_id,
+                    "status": "skipped",
+                    "detail": "discovery_run_no_longer_pending",
+                }
+            run, acquired = await self._claim_active_run(run, now=now)
         if not acquired:
             return {
                 **self._serialize_run(run),
+                "status": "busy",
                 "detail": "another_discovery_run_is_active",
+                "retry_at": run.heartbeat_at + self.ACTIVE_RUN_STALE_AFTER,
             }
 
         try:
@@ -1054,6 +1076,10 @@ class OpportunityDiscoveryService:
                 )
             )
         ).scalar_one()
+        return await self._claim_active_run(active, now=now)
+
+    async def _claim_active_run(self, active, *, now):
+        owner_token = str(uuid4())
         if (
             active.status != "deferred"
             and active.heartbeat_at > now - self.ACTIVE_RUN_STALE_AFTER
@@ -1066,8 +1092,15 @@ class OpportunityDiscoveryService:
                 OpportunityDiscoveryRun.id == active.id,
                 OpportunityDiscoveryRun.owner_token == active.owner_token,
                 OpportunityDiscoveryRun.heartbeat_at == active.heartbeat_at,
+                OpportunityDiscoveryRun.active_key == self.ACTIVE_KEY,
+                OpportunityDiscoveryRun.status.in_(["running", "deferred"]),
             )
-            .values(status="running", owner_token=owner_token, heartbeat_at=now)
+            .values(
+                status="running",
+                owner_token=owner_token,
+                heartbeat_at=now,
+                detail="discovery_run_resumed",
+            )
             .returning(OpportunityDiscoveryRun.id)
         )
         claimed_id = claimed.scalar_one_or_none()

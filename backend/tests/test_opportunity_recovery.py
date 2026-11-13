@@ -1,7 +1,7 @@
 """An interrupted provider must not consume or replace a bounded scan plan."""
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -19,6 +19,68 @@ from investos.services.opportunity import OpportunityDiscoveryService
 from investos.services.runtime_settings import RuntimeSettingsStore
 from investos.services.security_catalog import SecurityCatalogService
 from tests.test_investor_workflows import workflow_session
+
+
+async def test_occupied_discovery_lease_reports_when_the_same_run_can_resume(
+    monkeypatch,
+):
+    service = OpportunityDiscoveryService(None)
+    run = OpportunityDiscoveryRun(
+        id=uuid4(), status="running", heartbeat_at=datetime.now(UTC)
+    )
+    monkeypatch.setattr(service, "_acquire_run", AsyncMock(return_value=(run, False)))
+    response = await service.run_discovery()
+    assert response["retry_at"] == run.heartbeat_at + service.ACTIVE_RUN_STALE_AFTER
+    assert response["status"] == "busy"
+
+
+async def test_resume_of_completed_discovery_never_creates_another_run(
+    workflow_session, monkeypatch
+):
+    run = OpportunityDiscoveryRun(
+        status="completed",
+        captured_at=datetime.now(UTC),
+        started_at=datetime.now(UTC),
+        heartbeat_at=datetime.now(UTC),
+    )
+    workflow_session.add(run)
+    await workflow_session.commit()
+    service = OpportunityDiscoveryService(workflow_session)
+    create = AsyncMock(
+        side_effect=AssertionError("Resuming must not create a new scan")
+    )
+    monkeypatch.setattr(service, "_acquire_run", create)
+    response = await service.run_discovery(resume_run_id=run.id)
+    assert response["status"] == "skipped"
+    assert response["detail"] == "discovery_run_no_longer_pending"
+    create.assert_not_awaited()
+
+
+async def test_stale_owner_is_reclaimed_without_replacing_capture_or_pending_subjects(
+    workflow_session,
+):
+    service = OpportunityDiscoveryService(workflow_session)
+    service.ACTIVE_KEY = f"synthetic-lease-{uuid4()}"
+    now = datetime.now(UTC)
+    pending = str(uuid4())
+    run = OpportunityDiscoveryRun(
+        status="running",
+        active_key=service.ACTIVE_KEY,
+        captured_at=now - timedelta(hours=6),
+        started_at=now - timedelta(hours=6),
+        heartbeat_at=now - timedelta(hours=1),
+        owner_token="synthetic-old-owner",
+        remaining_member_ids_json=[pending],
+        detail="Synthetic earlier provider deferral",
+    )
+    workflow_session.add(run)
+    await workflow_session.commit()
+    resumed, acquired = await service._claim_active_run(run, now=now)
+    assert acquired and resumed.id == run.id
+    assert resumed.captured_at == now - timedelta(hours=6)
+    assert resumed.remaining_member_ids_json == [pending]
+    assert resumed.detail == "discovery_run_resumed"
+    assert resumed.owner_token != "synthetic-old-owner"
 
 
 @pytest.mark.parametrize(

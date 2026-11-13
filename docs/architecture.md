@@ -228,6 +228,11 @@ The main state groups are:
   evaluates all successful inspections including those completed before the
   interruption. Query drafting receives that run's UTC clock to anchor recency.
   Deferred work is exposed as deferred in automation telemetry.
+  A run whose owner lease is still occupied reports `busy` and its lease-expiry
+  time. The coordinator wakes that exact run at expiry, independently of the
+  cadence for new scans. Resumption uses the same fenced claim and cannot create
+  a new run if its target already finished. Pausing discovery also prevents the
+  pending lease wake from performing research.
 - **Listing frontier:** optional exchange-directory intake stores listing rows
   separately from entities and securities. Complete, hashed directory snapshots
   update presence without changing holdings, quantities or operator exclusions.

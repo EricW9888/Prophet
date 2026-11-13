@@ -130,6 +130,7 @@ class AutomationCoordinator:
         self._shutting_down = False
         self._signal_listener: asyncio.Task | None = None
         self._pending_signals: dict[str, str] = {}
+        self._discovery_resume_run_id = None
         self._active_jobs: set[str] = set()
         self._last_model_attempt_at: dict[str, datetime] = {}
 
@@ -367,6 +368,9 @@ class AutomationCoordinator:
             "waiting_for_config",
             "cancelled",
             "deferred",
+            "busy",
+            "running",
+            "skipped",
         }:
             return status
         return "ok"
@@ -2165,23 +2169,62 @@ class AutomationCoordinator:
                     summary=f"Shadow discovery failed: {exc}",
                 )
 
-    async def _run_opportunity_discovery(self) -> None:
+    async def _run_opportunity_discovery(self, *, resume_run_id=None) -> None:
+        resume_run_id = resume_run_id or self._discovery_resume_run_id
         telemetry = self.telemetry["opportunity_discovery"]
         telemetry.last_run_at = datetime.now(UTC)
         async with async_session_maker() as session:
             try:
-                result = await OpportunityDiscoveryService(session).run_discovery()
+                result = await OpportunityDiscoveryService(session).run_discovery(
+                    resume_run_id=resume_run_id
+                )
+                if result.get("status") in {"busy", "deferred"} and result.get("id"):
+                    self._discovery_resume_run_id = result["id"]
+                elif result.get("status") not in {"running", "busy", "deferred"}:
+                    self._discovery_resume_run_id = None
                 telemetry.last_status = self._result_telemetry_status(result)
                 telemetry.detail = str(
                     result.get("detail") or "opportunity_discovery_complete"
                 )
+                if result.get("status") == "busy" and result.get("retry_at"):
+                    run_id = result["id"]
+
+                    async def resume_pending_run():
+                        if (
+                            not self.enabled
+                            or not RuntimeSettingsStore.load().opportunity_discovery.enabled
+                        ):
+                            return
+                        await self._dispatch_job(
+                            "opportunity_discovery",
+                            lambda: self._run_opportunity_discovery(
+                                resume_run_id=run_id
+                            ),
+                            trigger="lease_resume",
+                        )
+
+                    self.scheduler.add_job(
+                        resume_pending_run,
+                        "date",
+                        run_date=max(
+                            datetime.now(UTC) + timedelta(seconds=1), result["retry_at"]
+                        ),
+                        id="opportunity_discovery_lease_resume",
+                        replace_existing=True,
+                    )
                 self._log_job_action(
                     job_name="opportunity_discovery",
                     status=str(result.get("status") or "ok"),
                     summary=(
-                        "Opportunity discovery inspected "
-                        f"{result.get('inspected_count', 0)} of "
-                        f"{result.get('universe_size', 0)} configured subjects."
+                        "Discovery lease is occupied; the same unfinished run will resume after lease expiry."
+                        if result.get("status") == "busy"
+                        else (
+                            "Requested discovery run is no longer pending; no new scan started."
+                            if result.get("status") == "skipped"
+                            else "Opportunity discovery inspected "
+                            f"{result.get('inspected_count', 0)} of "
+                            f"{result.get('universe_size', 0)} configured subjects."
+                        )
                     ),
                     metadata=result,
                 )
