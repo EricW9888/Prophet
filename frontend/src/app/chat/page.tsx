@@ -797,6 +797,7 @@ function ChatWorkspace() {
     // Local job restoration remains in useEffect
     let cancelled = false;
     if (entry.hasEntry || conversationChosenRef.current) return;
+    const restorationEpoch = selectionEpochRef.current;
     const raw = window.sessionStorage.getItem(ACTIVE_JOB_STORAGE_KEY);
     if (!raw) return;
     try {
@@ -805,13 +806,14 @@ function ChatWorkspace() {
         setActiveJobRequestMessage(saved.request_message ?? null);
         void apiFetch<AgentTurnJob>(`/agent/turn-jobs/${saved.job_id}`)
           .then((job) => {
-            if (cancelled || conversationChosenRef.current) return;
+            if (cancelled || restorationEpoch !== selectionEpochRef.current) return;
             setIsTyping(["queued", "running"].includes(job.status));
             if (job.status === "error") {
               setFailedJob(job);
               setError(job.error || "Unable to complete this turn.");
               setActiveJobRequestMessage(null);
             } else {
+              if (conversationChosenRef.current) return;
               setActiveJob(job);
             }
             persistActiveJob(job);
@@ -1741,7 +1743,7 @@ function ChatWorkspace() {
           </div>
 
           <div className="shrink-0 border-t border-line bg-background/90 px-4 py-3 backdrop-blur sm:px-6">
-            {linkedReport ? <button type="button" className="workspace-control" onClick={() => setOpenReport(linkedReport)}>Open autonomous review</button> : <form onSubmit={handleSubmit} className="w-full" onFocusCapture={() => {conversationChosenRef.current = true;}} onDragOver={(event) => {if (event.dataTransfer.types.includes("Files")) event.preventDefault();}} onDrop={(event) => {if (event.dataTransfer.files.length) {event.preventDefault(); conversationChosenRef.current = true; fileInputs.addFiles(event.dataTransfer.files);}}}>
+            {linkedReport ? <button type="button" className="workspace-control" onClick={() => setOpenReport(linkedReport)}>Open autonomous review</button> : <form onSubmit={handleSubmit} className="w-full" onPointerDownCapture={() => {conversationChosenRef.current = true;}} onKeyDownCapture={(event) => {if (event.key !== "Tab") conversationChosenRef.current = true;}} onDragOver={(event) => {if (event.dataTransfer.types.includes("Files")) event.preventDefault();}} onDrop={(event) => {if (event.dataTransfer.files.length) {event.preventDefault(); conversationChosenRef.current = true; fileInputs.addFiles(event.dataTransfer.files);}}}>
               <div className="mb-2 flex min-h-8 items-center justify-between gap-3">
                 <button
                   type="button"
