@@ -81,6 +81,8 @@ def _job_response(tracker: LiveJobTracker, job_id: UUID) -> AgentTurnJobResponse
         job_id=record.id,
         status=record.status,
         request_message=record.request_message,
+        request_subject_id=record.request_context.get("subject_id"),
+        request_subject_type=record.request_context.get("subject_type"),
         request_attachments=record.request_context.get("attachments", []),
         use_session_attachments=record.request_context.get(
             "use_session_attachments", True
@@ -134,6 +136,8 @@ async def create_agent_turn_job(
         request_message=payload.message,
         session_id=payload.session_id,
         request_context={
+            "subject_id": str(payload.subject_id) if payload.subject_id else None,
+            "subject_type": payload.subject_type,
             "attachments": [
                 attachments.response(row).model_dump(mode="json") for row in files
             ],

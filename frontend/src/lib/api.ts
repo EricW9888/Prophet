@@ -1815,6 +1815,8 @@ export type AgentTurnJob = {
   job_id: string;
   status: string;
   request_message: string;
+  request_subject_id?: string | null;
+  request_subject_type?: string | null;
   request_attachments?: ChatAttachment[];
   use_session_attachments?: boolean;
   session_id?: string | null;

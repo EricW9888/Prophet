@@ -1551,11 +1551,14 @@ function ChatWorkspace() {
               <span className="text-muted">The failed question and its files are retained.</span>
               <button type="button" className="workspace-control" disabled={Boolean(input.trim() || attachments.length || isTyping)} onClick={() => {
                 const job = failedJob;
+                selectionEpochRef.current += 1;
+                conversationChosenRef.current = true;
+                setPinnedSubject(job.request_subject_id && job.request_subject_type ? {subject_id: job.request_subject_id, subject_type: job.request_subject_type} : null);
                 setInput(job.request_message);
                 fileInputs.restore((job.request_attachments ?? []).map((receipt) => ({key: receipt.id, name: receipt.name, bytes: receipt.size_bytes, state: "ready", receipt})));
                 setUseSessionAttachments(job.use_session_attachments ?? true);
                 setActiveSessionId(job.session_id ?? null);
-                setMessages((current) => current.at(-1)?.role === "user" && current.at(-1)?.content === job.request_message ? current.slice(0, -1) : current);
+                setMessages((current) => !job.session_id || job.session_id !== activeSessionId ? [] : current.at(-1)?.role === "user" && current.at(-1)?.content === job.request_message ? current.slice(0, -1) : current);
                 setFailedJob(null); setError(null); persistActiveJob(null);
               }}>Restore question and files</button>
               {input.trim() || attachments.length ? <span className="text-xs text-muted">Send or clear your current draft first.</span> : null}

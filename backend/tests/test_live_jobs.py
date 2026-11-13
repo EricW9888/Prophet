@@ -104,7 +104,12 @@ def test_failed_file_question_retains_retry_references_after_restart(
     job = tracker.create_job(
         request_message="Compare these files",
         session_id=None,
-        request_context={"attachments": [attachment], "use_session_attachments": False},
+        request_context={
+            "attachments": [attachment],
+            "use_session_attachments": False,
+            "subject_id": attachment["id"],
+            "subject_type": "entity",
+        },
     )
     tracker.fail(job.id, error="Provider temporarily unavailable")
     response = agent_job_response(LiveJobTracker(), job.id)
@@ -112,3 +117,5 @@ def test_failed_file_question_retains_retry_references_after_restart(
     assert response.request_message == "Compare these files"
     assert response.request_attachments[0].id == UUID(attachment["id"])
     assert response.use_session_attachments is False
+    assert response.request_subject_id == UUID(attachment["id"])
+    assert response.request_subject_type == "entity"

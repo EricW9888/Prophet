@@ -130,6 +130,8 @@ class AgentTurnJobResponse(BaseModel):
     job_id: UUID
     status: str
     request_message: str
+    request_subject_id: UUID | None = None
+    request_subject_type: str | None = None
     request_attachments: list[ChatAttachmentResponse] = Field(default_factory=list)
     use_session_attachments: bool = True
     session_id: UUID | None = None
