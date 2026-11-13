@@ -1095,7 +1095,12 @@ class OpportunityDiscoveryService:
                 OpportunityDiscoveryRun.active_key == self.ACTIVE_KEY,
                 OpportunityDiscoveryRun.status.in_(["running", "deferred"]),
             )
-            .values(status="running", owner_token=owner_token, heartbeat_at=now)
+            .values(
+                status="running",
+                owner_token=owner_token,
+                heartbeat_at=now,
+                detail="discovery_run_resumed",
+            )
             .returning(OpportunityDiscoveryRun.id)
         )
         claimed_id = claimed.scalar_one_or_none()
