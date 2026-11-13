@@ -1046,7 +1046,7 @@ export default function GraphPage() {
 
             {!activeGraph && !showMap ? <WorkspaceState kind={error ? "error" : "loading"} title={error ? "Knowledge unavailable" : "Loading knowledge"} description={error ?? "Loading stored subjects and evidence."} /> : null}
             <GraphNodeNavigator key={showMap ? "map" : "library"} library={!showMap}
-              search={!showMap ? {value:knowledgeQuery,onChange:setKnowledgeQuery,remote:knowledgeQuery.trim().length >= 2,status:knowledgeSearching ? "Searching all stored knowledge…" : knowledgeSearchError ?? (!activeGraph ? (loading ? "Loading stored knowledge�" : "The loaded view is unavailable. Search is still available.") : undefined)} : undefined}
+              search={!showMap ? {value:knowledgeQuery,onChange:setKnowledgeQuery,remote:knowledgeQuery.trim().length >= 2,status:knowledgeSearching ? "Searching all stored knowledge…" : knowledgeSearchError ?? (!activeGraph ? (loading ? "Loading stored knowledge…" : "The loaded view is unavailable. Search is still available.") : undefined)} : undefined}
               nodes={!showMap && knowledgeQuery.trim().length >= 2 ? knowledgeResults.map(item => ({key:`${item.node_type}:${item.node_id}`,id:item.node_id,node_type:item.node_type,label:item.label,layer:item.layer,subtitle:item.subtitle,is_root:false,is_autonomous:false})) : graphView?.browseNodes ?? []} onSelect={(node) => {
               const positioned = displayedNodes.find(current => current.key === node.key);
               if (showMap && positioned) jumpToNode(positioned);
