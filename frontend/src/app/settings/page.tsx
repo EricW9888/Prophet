@@ -375,7 +375,7 @@ export default function SettingsPage() {
                 <Card title="Live Status" icon={<Shield className="h-5 w-5 text-slate-500" />}>
                   <div className="grid grid-cols-2 gap-4">
                     <StatItem label="Holdings" value={String(portfolioOverview?.holdings.length ?? 0)} />
-                    <StatItem label="Market Value" value={safeFormatCurrency((portfolioOverview?.holdings ?? []).reduce((s, h) => s + h.market_value, 0))} />
+                    <StatItem label="Market Value" value={safeFormatCurrency(portfolioOverview?.valuation_coverage?.complete ? portfolioOverview.valuation_coverage.covered_market_value : null)} />
                     <StatItem label="Benchmark" value={riskSummary?.active_benchmark?.ticker || "SPY"} />
                     <StatItem label="Regime" value={formatRegimeLabel(riskSummary?.current_regime?.regime_type)} />
                   </div>

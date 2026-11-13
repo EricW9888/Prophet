@@ -202,6 +202,17 @@ PostgreSQL is the source of durable application state. SQLAlchemy models live in
 The main state groups are:
 
 - **Portfolio truth:** `Transaction`, `Lot`, `Position`, and cash-ledger records.
+  Position caches are not quote evidence. The nullable `quote_receipt_json`
+  retains the latest source quote with symbol, currency, price, observation and
+  source times, instrument and recorded share basis. `core/valuation.py` checks
+  that receipt against the current position without fetching prices. The same
+  mark feeds API position responses, overview/dashboard totals and research
+  context. Exact recorded decimals are retained during validation before float
+  presentation. Missing, stale, future, mismatched or unsupported marks produce
+  null values with reasons. Quote coverage exposes a priced subtotal separately;
+  a partial book has no full total, full-book weight or open-cost return. Missing
+  cash-ledger evidence also leaves estimated total ledger value unavailable.
+  Shared financial formatters distinguish unavailable values from measured zero.
 - **Evidence and provenance:** `Source`, `RawEvidence`, `SourceItem`, source
   profiles, quality segments, source-performance history, and provisional
   `ResearchDiscoveryObservation` records.

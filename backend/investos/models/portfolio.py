@@ -68,6 +68,7 @@ class Position(Base):
     quantity: Mapped[float] = mapped_column(Numeric, default=0.0)
     avg_cost_basis: Mapped[float] = mapped_column(Numeric, default=0.0)
     current_price: Mapped[float] = mapped_column(Numeric, default=0.0)
+    quote_receipt_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     market_value: Mapped[float] = mapped_column(Numeric, default=0.0)
     unrealized_pnl: Mapped[float] = mapped_column(Numeric, default=0.0)
     weight_pct: Mapped[float] = mapped_column(Numeric, default=0.0)

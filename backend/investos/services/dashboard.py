@@ -63,11 +63,15 @@ class DashboardService:
         holdings_count = len(portfolio_overview.holdings)
         watchlist_count = len(portfolio_overview.watchlist)
         considering_count = len(portfolio_overview.considering)
-        total_market_value = sum(
-            (float(h.market_value or 0.0) for h in portfolio_overview.holdings), 0.0
+        complete = portfolio_overview.valuation_coverage.get("complete", False)
+        active = [h for h in portfolio_overview.holdings if h.quantity > 0]
+        total_market_value = (
+            sum(float(h.market_value) for h in active) if complete else None
         )
-        total_unrealized_pnl = sum(
-            (float(h.unrealized_pnl or 0.0) for h in portfolio_overview.holdings), 0.0
+        total_unrealized_pnl = (
+            sum(float(h.unrealized_pnl) for h in active)
+            if complete and all(h.unrealized_pnl is not None for h in active)
+            else None
         )
         total_open_cost = sum(
             float(h.quantity or 0) * float(h.avg_cost_basis or 0)
@@ -132,12 +136,13 @@ class DashboardService:
             total_unrealized_pnl=total_unrealized_pnl,
             open_holdings_return_pct=(
                 total_unrealized_pnl / total_open_cost * 100
-                if total_open_cost > 0
+                if total_open_cost > 0 and total_unrealized_pnl is not None
                 else None
             ),
             risk_as_of=risk_summary.as_of,
             risk_measurement_start=risk_summary.measurement_start,
             total_value=portfolio_overview.total_value,
+            valuation_coverage=portfolio_overview.valuation_coverage,
             buying_power=portfolio_overview.buying_power,
             top_winners=portfolio_overview.top_winners,
             top_losers=portfolio_overview.top_losers,

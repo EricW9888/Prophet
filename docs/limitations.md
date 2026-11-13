@@ -50,6 +50,18 @@ issuer figures. Unsupported, partial, stale or missing account measurements are
 not zero. A source-corroborated company figure still depends on the separate
 source and scope checks; numerical receipts are not a universal fact checker.
 
+Displayed position marks require retained quote provenance; a legacy cached
+price or last trade does not establish a current quote. Existing rows are not
+backfilled with invented receipt dates. Long common shares, ADRs and ETFs with a
+matching USD quote and recorded share basis can be marked; other instruments,
+currencies, unavailable timestamps and stale quotes remain explicit gaps.
+Freshness uses the existing portfolio policy. Source and observation times are
+available in the holding's quote hint; even a usable retained quote is not a
+promise of a live or executable price. A partial priced subtotal excludes the
+unpriced holdings and is not full account equity. P&L uses recorded cost basis,
+not an independent broker tax-lot reconciliation. Quote receipts retain the
+latest observation; they are not a complete historical tick archive.
+
 Chat can read PDFs, common raster images, DOCX, XLSX and UTF-8 text formats.
 File/page citations and matching amounts do not establish a common account or
 snapshot identity. File interpretations are provisional, not portfolio

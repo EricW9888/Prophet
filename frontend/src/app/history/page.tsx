@@ -474,8 +474,8 @@ export default function HistoryPage() {
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-900/50">
                 {filteredLedgerRows.map(({ kind, position: pos }) => {
-                  const pnl = kind === "live" ? (pos.unrealized_pnl || 0) : (pos.realized_pnl || 0);
-                  const isPositive = pnl >= 0;
+                  const pnl = kind === "live" ? pos.unrealized_pnl : pos.realized_pnl;
+                  const isPositive = pnl != null && pnl >= 0;
                   const statusLabel = kind === "live" ? "active holding" : "archived exit";
                   const valueLabel = kind === "live" ? pos.market_value : pnl;
 
@@ -501,15 +501,15 @@ export default function HistoryPage() {
                       <td className="px-5 py-3 text-right">
                         <div className="flex flex-col items-end gap-1.5">
                           <div className="text-sm font-bold font-mono text-slate-900 dark:text-slate-100">
-                            ${valueLabel.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {valueLabel == null ? "Unavailable" : `$${valueLabel.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                           </div>
                           <div className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-none text-[11px] font-bold font-mono transition-transform group-hover:scale-105 ${
-                          isPositive
+                          pnl == null ? "text-muted" : isPositive
                             ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400"
                             : "bg-rose-50 text-rose-600 dark:bg-rose-950/20 dark:text-rose-400"
                         }`}>
-                          {isPositive ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                            {kind === "live" ? "unrealized" : "realized"} {isPositive ? "+" : ""}${pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {pnl == null ? null : isPositive ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                            {kind === "live" ? "unrealized" : "realized"} {pnl == null ? "unavailable" : `${isPositive ? "+" : ""}$${pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                           </div>
                         </div>
                       </td>

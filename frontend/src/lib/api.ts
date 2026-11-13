@@ -13,6 +13,15 @@ function alternateLoopbackBase(base: string): string | null {
   return null;
 }
 
+export type ValuationCoverage = {
+  complete: boolean;
+  total_positions: number;
+  priced_positions: number;
+  covered_market_value: number;
+  unavailable_tickers: string[];
+  cash_basis?: string;
+};
+
 export type Position = {
   id: string;
   security_id: string;
@@ -22,9 +31,10 @@ export type Position = {
   list_type: string;
   quantity: number;
   avg_cost_basis: number;
-  current_price: number;
-  market_value: number;
-  unrealized_pnl: number;
+  current_price: number | null;
+  market_value: number | null;
+  unrealized_pnl: number | null;
+  valuation?: {status: string; issues: string[]; quoted_at: string | null; observed_at: string | null; provider: string | null; currency: string | null; receipt?: Record<string, unknown> | null};
   realized_pnl: number;
   conviction?: number | null;
   added_at: string;
@@ -126,8 +136,9 @@ export type PortfolioOverview = {
   recent_transactions: Transaction[];
   top_winners: Position[];
   top_losers: Position[];
-  total_value: number;
-  buying_power: number;
+  total_value: number | null;
+  buying_power: number | null;
+  valuation_coverage?: ValuationCoverage;
   build_series: PortfolioBuildPoint[];
 };
 
@@ -1020,10 +1031,11 @@ export type DashboardSummary = {
   holdings_count: number;
   watchlist_count: number;
   considering_count: number;
-  total_market_value: number;
-  total_unrealized_pnl: number;
-  total_value: number;
-  buying_power: number;
+  total_market_value: number | null;
+  total_unrealized_pnl: number | null;
+  total_value: number | null;
+  buying_power: number | null;
+  valuation_coverage?: ValuationCoverage;
   top_winners: Position[];
   top_losers: Position[];
   portfolio_build_series: PortfolioBuildPoint[];

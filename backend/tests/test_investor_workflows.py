@@ -98,6 +98,19 @@ async def test_dashboard_keeps_open_cost_return_separate_from_stored_risk(
             current_price=110,
             market_value=220,
             unrealized_pnl=20,
+            quote_receipt_json={
+                "version": 1,
+                "security_id": str(security.id),
+                "ticker": "SYNRET",
+                "instrument_type": "common_stock",
+                "direction": "long",
+                "quantity": "2",
+                "price": "110",
+                "provider": "synthetic",
+                "currency": "USD",
+                "quoted_at": datetime.now(UTC).isoformat(),
+                "observed_at": datetime.now(UTC).isoformat(),
+            },
         )
     )
     await session.flush()

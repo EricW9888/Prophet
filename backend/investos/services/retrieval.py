@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import desc, func, literal, or_, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from investos.core.valuation import mark_rows
 from investos.models.catalog import SourceTrustProfile, SourceValueProfile
 from investos.models.conclusion import ConclusionState
 from investos.models.coverage import CoverageMap
@@ -1116,6 +1117,10 @@ class RetrievalService:
                 "performance_attribution": None,
             }
 
+        marks, coverage = mark_rows(position_rows)
+        total_market_value = (
+            coverage["covered_market_value"] if coverage["complete"] else None
+        )
         position_details = {
             position.id: {
                 "position_id": str(position.id),
@@ -1125,9 +1130,16 @@ class RetrievalService:
                 "name": entity.name,
                 "list_type": position.list_type,
                 "quantity": float(position.quantity or 0),
-                "market_value": float(position.market_value or 0),
-                "weight_pct": float(position.weight_pct or 0),
-                "current_price": float(position.current_price or 0),
+                "market_value": marks[position.id]["market_value"],
+                "weight_pct": (
+                    marks[position.id]["market_value"] / total_market_value * 100
+                    if total_market_value
+                    and marks[position.id]["market_value"] is not None
+                    and position.list_type == "holding"
+                    else None
+                ),
+                "current_price": marks[position.id]["price"],
+                "valuation": marks[position.id],
                 "sector": entity.sector,
                 "industry": entity.industry,
             }
@@ -1167,9 +1179,6 @@ class RetrievalService:
         )
         source_feedback = await self._recent_source_feedback()
 
-        total_market_value = sum(
-            float(position.market_value or 0) for position in holdings
-        )
         latest_cash = (
             await self.session.execute(
                 select(CashLedgerEntry)
@@ -1179,12 +1188,16 @@ class RetrievalService:
                 .limit(1)
             )
         ).scalar_one_or_none()
-        buying_power = float(latest_cash.balance_after) if latest_cash else 0.0
-        total_equity = total_market_value + buying_power
+        buying_power = float(latest_cash.balance_after) if latest_cash else None
+        total_equity = (
+            total_market_value + buying_power
+            if total_market_value is not None and buying_power is not None
+            else None
+        )
         pct_deployed = (
             round((total_market_value / total_equity) * 100, 1)
-            if total_equity > 0
-            else 0.0
+            if total_equity is not None and total_equity > 0
+            else None
         )
         peer_service = PortfolioPeerContextService(self.session)
         peer_exposures = await peer_service.peer_exposures(limit=12)
@@ -1248,8 +1261,13 @@ class RetrievalService:
             "holdings_count": len(holdings),
             "watchlist_count": len(watchlist),
             "considering_count": len(considering),
-            "total_market_value": round(total_market_value, 2),
-            "remaining_buying_power": round(buying_power, 2),
+            "total_market_value": (
+                round(total_market_value, 2) if total_market_value is not None else None
+            ),
+            "valuation_coverage": coverage,
+            "remaining_buying_power": (
+                round(buying_power, 2) if buying_power is not None else None
+            ),
             "pct_capital_deployed": pct_deployed,
             **(
                 {"holdings": [position_details[position.id] for position in holdings]}

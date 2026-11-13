@@ -90,8 +90,8 @@ class MarketDataService:
                 quote is None
                 or quote.get("currency") != "USD"
                 or quote.get("reported_symbol") != security.ticker.upper()
-                or not self._finite_number(quote.get("price"))
-                or float(quote["price"]) <= 0
+                or self._finite_number(quote.get("price")) is None
+                or float(quote["price"]) < 0
             ):
                 continue
             price = _to_decimal(quote.get("price"))
@@ -101,6 +101,20 @@ class MarketDataService:
             position.current_price = price
             position.market_value = quantity * price
             position.unrealized_pnl = quantity * (price - avg_cost)
+            position.quote_receipt_json = {
+                "version": 1,
+                "security_id": str(security.id),
+                "ticker": security.ticker.upper(),
+                "instrument_type": security.instrument_type,
+                "quantity": str(quantity),
+                "direction": position.direction,
+                "price": str(price),
+                "quoted_at": quote.get("quote_time"),
+                "observed_at": datetime.now(UTC).isoformat(),
+                "currency": quote["currency"],
+                "provider": "yahoo_finance",
+                "session": quote.get("session"),
+            }
             entity = getattr(security, "entity", None)
             quote_name = str(quote.get("name") or "").strip()
             if (

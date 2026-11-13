@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
 from investos.core.llm import call_llm_json
+from investos.core.valuation import quote_coverage
 from investos.models.coverage import (
     CoverageMap,
     MissingEvidenceClass,
@@ -30,6 +31,7 @@ from investos.schemas.portfolio import (
     PortfolioImportResponse,
     PortfolioOverviewResponse,
     PortfolioSimpleImportRequest,
+    PositionResponse,
     ResearchObjectCreate,
     ResearchObjectResponse,
     TransactionCorrectionRequest,
@@ -179,10 +181,14 @@ class PortfolioService:
         return self._decorate_transaction(transaction, security=security, entity=entity)
 
     async def list_positions(self, list_type: str = "holding") -> list[Position]:
-        stmt = select(Position).options(
-            selectinload(Position.security).selectinload(Security.entity),
-            selectinload(Position.lots),
-            selectinload(Position.transactions),
+        stmt = (
+            select(Position)
+            .options(
+                selectinload(Position.security).selectinload(Security.entity),
+                selectinload(Position.lots),
+                selectinload(Position.transactions),
+            )
+            .order_by(Position.added_at.asc(), Position.id.asc())
         )
         if list_type != "all":
             stmt = stmt.where(Position.list_type == list_type)
@@ -192,9 +198,22 @@ class PortfolioService:
         return positions
 
     async def overview(self) -> PortfolioOverviewResponse:
-        holdings = await self.list_positions("holding")
-        watchlist = await self.list_positions("watchlist")
-        considering = await self.list_positions("considering")
+        holdings = [
+            PositionResponse.model_validate(row)
+            for row in await self.list_positions("holding")
+        ]
+        watchlist = [
+            PositionResponse.model_validate(row)
+            for row in await self.list_positions("watchlist")
+        ]
+        considering = [
+            PositionResponse.model_validate(row)
+            for row in await self.list_positions("considering")
+        ]
+        active = [row for row in holdings if row.quantity != 0]
+        coverage = quote_coverage([row.valuation for row in active])
+        complete = coverage["complete"]
+        covered_value = _to_decimal(coverage["covered_market_value"])
         recent_rows = (
             await self.session.execute(
                 select(Transaction, Security, Entity)
@@ -213,7 +232,7 @@ class PortfolioService:
 
         # Calculate rankings by Total PnL (Unrealized + Realized)
         sorted_by_pnl = sorted(
-            holdings,
+            [row for row in active if row.unrealized_pnl is not None],
             key=lambda x: _to_decimal(getattr(x, "unrealized_pnl", 0.0))
             + _to_decimal(getattr(x, "realized_pnl", 0.0)),
             reverse=True,
@@ -234,9 +253,10 @@ class PortfolioService:
         if latest_ledger is not None:
             buying_power = float(latest_ledger.balance_after)
         else:
-            buying_power = float(
-                RuntimeSettingsStore.load().portfolio.remaining_buying_power or 0.0
-            )
+            buying_power = None
+        coverage["cash_basis"] = (
+            "cash_ledger" if latest_ledger is not None else "unavailable"
+        )
 
         return PortfolioOverviewResponse(
             holdings=holdings,
@@ -245,8 +265,12 @@ class PortfolioService:
             recent_transactions=recent_transactions,
             top_winners=top_winners,
             top_losers=top_losers,
-            total_value=sum((float(h.market_value or 0.0) for h in holdings), 0.0)
-            + buying_power,
+            total_value=(
+                float(covered_value) + buying_power
+                if complete and buying_power is not None
+                else None
+            ),
+            valuation_coverage=coverage,
             buying_power=buying_power,
             build_series=await self.build_series(),
         )
@@ -257,6 +281,7 @@ class PortfolioService:
     def _decorate_position(self, position: Position) -> None:
         security = getattr(position, "security", None)
         setattr(position, "ticker", getattr(security, "ticker", None))
+        setattr(position, "instrument_type", getattr(security, "instrument_type", None))
         setattr(
             position,
             "entity_name",
