@@ -336,8 +336,17 @@ limits. NVIDIA's default image reader follows its documented
 and can be changed in Settings independently of the main analyst model.
 
 File references survive conversation reloads and follow-up questions. The
-job record also retains file receipts and the context choice so a failed or
-interrupted question can be restored without uploading its files again. The
+job record also retains file receipts and the context choice so a failed
+question can be restored without uploading its files again. File-analysis jobs
+freeze their original file set and session, and remain deferred through transient
+provider failures. The existing provider circuit owns the next eligible probe;
+completed page readings are reused. The single-instance job tracker checkpoints
+requests atomically and resumes eligible work after restart. Stable job identity
+on both conversation messages prevents replay from duplicating a committed
+answer or a user message saved before an interruption. Deferred work is active,
+cancellable and visibly waiting, rather than reported as completed analysis.
+Permanent configuration/model errors stop the job. Requests that may execute
+actions are not automatically replayed. The
 composer lets the user stop including prior files. Attachment turns never
 execute portfolio actions, create watches, or promote uploads into research
 evidence. Size, text and cell-processing limits are configurable and partial

@@ -137,6 +137,8 @@ class AgentTurnJobResponse(BaseModel):
     session_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
+    retry_at: datetime | None = None
+    resumable: bool = False
     events: list[AgentTurnJobEventResponse] = Field(default_factory=list)
     result: AgentTurnResponse | None = None
     error: str | None = None
@@ -164,6 +166,7 @@ class AgentResolveResponse(BaseModel):
 
 class AgentConversationEntryResponse(BaseModel):
     id: UUID
+    job_id: UUID | None = None
     role: str
     content: str
     created_at: datetime

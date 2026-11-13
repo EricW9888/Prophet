@@ -1,11 +1,10 @@
-import asyncio
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from investos.db import async_session_maker, get_session
+from investos.db import get_session
 from investos.schemas.agent import (
     AgentActionLogEntryResponse,
     AgentActionLogResponse,
@@ -22,6 +21,7 @@ from investos.schemas.agent import (
 )
 from investos.services.agent import AgentService
 from investos.services.agent_action_log import AgentActionLogService
+from investos.services.agent_turn_jobs import start_agent_turn_job
 from investos.services.chat_attachments import ChatAttachmentService
 from investos.services.live_jobs import LiveJobTracker
 
@@ -90,6 +90,8 @@ def _job_response(tracker: LiveJobTracker, job_id: UUID) -> AgentTurnJobResponse
         session_id=record.session_id,
         created_at=record.created_at,
         updated_at=record.updated_at,
+        retry_at=record.retry_at,
+        resumable=bool(record.request_context.get("resume_payload")),
         events=[
             {
                 "phase": event.phase,
@@ -124,6 +126,8 @@ async def create_agent_turn_job(
 ):
     tracker: LiveJobTracker = request.app.state.live_jobs
     attachments = ChatAttachmentService(session)
+    original = payload
+    payload = await AgentService(session).resolve_file_context(payload)
     try:
         files = (
             await attachments.resolve(payload.attachment_ids)
@@ -132,6 +136,15 @@ async def create_agent_turn_job(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    resumable = bool(payload.attachments or payload.attachment_ids)
+    if resumable:
+        payload = payload.model_copy(
+            update={
+                "session_id": payload.session_id or uuid4(),
+                "use_session_attachments": False,
+                "auto_execute": False,
+            }
+        )
     record = tracker.create_job(
         request_message=payload.message,
         session_id=payload.session_id,
@@ -141,32 +154,13 @@ async def create_agent_turn_job(
             "attachments": [
                 attachments.response(row).model_dump(mode="json") for row in files
             ],
-            "use_session_attachments": payload.use_session_attachments,
+            "use_session_attachments": original.use_session_attachments,
+            **(
+                {"resume_payload": payload.model_dump(mode="json")} if resumable else {}
+            ),
         },
     )
-
-    async def run_job() -> None:
-        async with async_session_maker() as session:
-            service = AgentService(session)
-
-            async def progress(
-                phase: str, message: str, detail: dict | None = None
-            ) -> None:
-                tracker.add_event(
-                    record.id, phase=phase, message=message, detail=detail
-                )
-
-            try:
-                result = await service.handle_turn(payload, progress_callback=progress)
-                tracker.complete(record.id, result=result.model_dump(mode="json"))
-            except asyncio.CancelledError:
-                # Job was cancelled by user
-                pass
-            except Exception as exc:
-                tracker.fail(record.id, error=str(exc))
-
-    task = asyncio.create_task(run_job())
-    tracker.mark_running(record.id, task=task, message="Prophet started this turn.")
+    start_agent_turn_job(tracker, record, payload)
     return _job_response(tracker, record.id)
 
 

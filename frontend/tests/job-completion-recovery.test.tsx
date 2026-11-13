@@ -7,7 +7,35 @@ import JobCompletionNoticeHost from "../src/components/JobCompletionNoticeHost";
 import {
   ACTIVE_JOB_STORAGE_KEY,
   COMPLETED_JOB_NOTICE_KEY,
+  clearCompletedJobNotice,
 } from "../src/lib/job-notifications";
+
+test("starting another question clears an older terminal notice immediately", async () => {
+  window.sessionStorage.setItem(
+    COMPLETED_JOB_NOTICE_KEY,
+    JSON.stringify({
+      message: "Synthetic earlier failure",
+      jobId: "earlier-job",
+    }),
+  );
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<JobCompletionNoticeHost />));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    assert.match(container.textContent!, /Synthetic earlier failure/);
+    await act(async () => clearCompletedJobNotice());
+    assert.equal(container.textContent, "");
+    assert.equal(window.sessionStorage.getItem(COMPLETED_JOB_NOTICE_KEY), null);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    window.sessionStorage.removeItem(COMPLETED_JOB_NOTICE_KEY);
+  }
+});
 
 for (const status of ["error", "completed"] as const) {
   test(`the global ${status} notice preserves the right chat recovery state`, async () => {
