@@ -328,8 +328,10 @@ documented provider-sized batches. Completed page observations are retained
 and resumed after an interruption. These are provisional model readings, not
 accepted facts. The main model answers from file representations with filename
 and page/row/section references. Text-only provider recovery cannot replace a
-failed image read. Model-specific health probes preserve the other model's
-circuit state. NVIDIA's default image reader follows its documented
+failed image read. Health probes and cooldowns use the same endpoint,
+credential and model identity; one model cannot clear or block a different
+model's circuit. All hosted calls still share request pacing and concurrency
+limits. NVIDIA's default image reader follows its documented
 [Nemotron 3.5 Super VL API](https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3_5-super-vl-120b-a12b),
 and can be changed in Settings independently of the main analyst model.
 

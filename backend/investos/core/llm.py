@@ -128,27 +128,41 @@ def _provider_label_for_call(func_name: str, kwargs: dict[str, Any]) -> str:
     return func_name
 
 
-def _cooldown_remaining(provider: str) -> float:
-    until = _provider_cooldowns.get(provider, 0.0)
+def _cooldown_key(provider: str, model: str | None = None) -> str:
+    # Match the durable circuit identity; another model or endpoint may remain
+    # available. The process-wide request/concurrency budget is still shared.
+    return (
+        ProviderHealthStore.configuration(provider, model)[0]
+        if provider == "nvidia_nim"
+        else provider
+    )
+
+
+def _cooldown_remaining(provider: str, model: str | None = None) -> float:
+    key = _cooldown_key(provider, model)
+    until = _provider_cooldowns.get(key, 0.0)
     remaining = until - time.monotonic()
     if remaining <= 0:
-        _provider_cooldowns.pop(provider, None)
+        _provider_cooldowns.pop(key, None)
         return 0.0
     return remaining
 
 
-def _raise_if_provider_cooling_down(provider: str) -> None:
-    remaining = _cooldown_remaining(provider)
+def _raise_if_provider_cooling_down(provider: str, model: str | None = None) -> None:
+    remaining = _cooldown_remaining(provider, model)
     if remaining > 0:
         raise LLMProviderCooldownError(
             f"{provider} is cooling down for {remaining:.0f}s after provider rate limiting."
         )
 
 
-def _open_provider_cooldown(provider: str, seconds: float) -> None:
+def _open_provider_cooldown(
+    provider: str, seconds: float, model: str | None = None
+) -> None:
     duration = max(30.0, min(seconds, 600.0))
-    _provider_cooldowns[provider] = max(
-        _provider_cooldowns.get(provider, 0.0),
+    key = _cooldown_key(provider, model)
+    _provider_cooldowns[key] = max(
+        _provider_cooldowns.get(key, 0.0),
         time.monotonic() + duration,
     )
 
@@ -223,7 +237,11 @@ def retry_with_backoff(
         async def wrapper(*args: Any, **kwargs: Any) -> T:
             last_exc = Exception("Unknown failure in retry wrapper")
             provider_label = _provider_label_for_call(func.__name__, kwargs)
-            _raise_if_provider_cooling_down(provider_label)
+            payload = kwargs.get("payload")
+            request_model = kwargs.get("model") or (
+                payload.get("model") if isinstance(payload, dict) else None
+            )
+            _raise_if_provider_cooling_down(provider_label, request_model)
             timeout_hint = kwargs.get("timeout_seconds")
             try:
                 timeout_value = (
@@ -248,7 +266,9 @@ def retry_with_backoff(
 
                     if status_code == 429:
                         cooldown_seconds = _retry_after_seconds(exc) or 300.0
-                        _open_provider_cooldown(provider_label, cooldown_seconds)
+                        _open_provider_cooldown(
+                            provider_label, cooldown_seconds, request_model
+                        )
                         import logging
 
                         logging.getLogger(__name__).warning(
@@ -268,7 +288,7 @@ def retry_with_backoff(
                             and provider_label == "nvidia_nim"
                             and status_code is None
                         ):
-                            _open_provider_cooldown(provider_label, 60.0)
+                            _open_provider_cooldown(provider_label, 60.0, request_model)
                             import logging
 
                             logging.getLogger(__name__).warning(
@@ -1239,7 +1259,7 @@ async def _call_nvidia_json_streaming(
     last_reasoning = ""
     finish_reason = None
     usage = None
-    _raise_if_provider_cooling_down("nvidia_nim")
+    _raise_if_provider_cooling_down("nvidia_nim", request_model)
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         await _get_rate_limiter().acquire(check=_nvidia_admission_check(request_model))
         try:
@@ -1253,7 +1273,9 @@ async def _call_nvidia_json_streaming(
                     cooldown_seconds = (
                         _retry_after_seconds_from_headers(response.headers) or 300.0
                     )
-                    _open_provider_cooldown("nvidia_nim", cooldown_seconds)
+                    _open_provider_cooldown(
+                        "nvidia_nim", cooldown_seconds, request_model
+                    )
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     if not line.startswith("data: "):
