@@ -369,8 +369,10 @@ export function AttachmentDrafts({
 
 export function AttachmentReceipts({
   attachments,
+  showReadStatus = true,
 }: {
   attachments?: ChatAttachment[];
+  showReadStatus?: boolean;
 }) {
   if (!attachments?.length) return null;
   return (
@@ -392,7 +394,7 @@ export function AttachmentReceipts({
             {file.name}
           </a>
           {file.page_count ? ` · ${file.page_count} pages` : ""}
-          {file.visual_count ? (
+          {showReadStatus && file.visual_count ? (
             <p className="text-muted">
               Visual reading: {file.visual_pages_read ?? 0}/{file.visual_count}
               {file.reader_model ? ` · ${file.reader_model}` : ""}

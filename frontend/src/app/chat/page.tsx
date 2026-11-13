@@ -1637,7 +1637,7 @@ function ChatWorkspace() {
                         {!linkedReport && m.role === "assistant" && (m.meta?.research_receipt || ["attached_text", "attached_files"].includes(m.meta?.process_mode ?? "")) && !messages.slice(idx + 1).some((entry) => entry.role === "assistant") ? (
                           <button type="button" className="workspace-control mt-3" onClick={() => draftFollowUp("What evidence would change your conclusion, and how would you check it?")}>Draft follow-up</button>
                         ) : null}
-                        <AttachmentReceipts attachments={m.meta?.attachments} />
+                        <AttachmentReceipts attachments={m.meta?.attachments} showReadStatus={m.role === "assistant"} />
                         {m.meta?.research_receipt ? <ResearchReceipt receipt={m.meta.research_receipt} /> : null}
                         {m.role === "assistant" && m.meta ? (
                           <div className="mt-4 space-y-3 border-t border-slate-200 pt-4 dark:border-slate-800">
