@@ -4,13 +4,14 @@ import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import WorkspaceDivider, { useWorkspacePane } from "@/components/WorkspaceDivider";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Check, Maximize2, PanelLeftOpen, Paperclip, Pencil, X } from "lucide-react";
+import { Check, Maximize2, PanelLeftOpen, Pencil, X } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import AppNav from "@/components/AppNav";
 import SourceProvenanceLinks from "@/components/SourceProvenanceLinks";
 import ResearchReceipt from "@/components/ResearchReceipt";
+import { AttachmentButton, AttachmentDrafts, AttachmentReceipts, transferredFiles, useChatAttachments } from "@/components/ChatAttachments";
 import {
   API_BASE,
   AgentConversationHistory,
@@ -20,6 +21,7 @@ import {
   AgentTurnJob,
   AgentTurnJobList,
   AgentTurn,
+  ChatAttachment,
   ActiveWatcher,
   apiFetch,
   ReasoningTrace,
@@ -27,18 +29,15 @@ import {
 
 import { formatModelUsedLabel, formatUserLabel } from "@/lib/formatting";
 import { readResearchEntry, researchTurnContext, type ResearchSubject } from "@/lib/workflows";
+import { ACTIVE_JOB_STORAGE_KEY } from "@/lib/job-notifications";
 
-const ACTIVE_JOB_STORAGE_KEY = "prophet:active-chat-job";
 const ALLOW_ACTIONS_STORAGE_KEY = "prophet:allow-agent-actions";
 const RESEARCH_SIDEBAR_WIDTH = 320;
 const RESEARCH_VIEWS = ["Chats", "Autonomous", "Watches"] as const;
 const ACTIVE_JOBS_POLL_ACTIVE_MS = 5000;
 const ACTIVE_JOBS_POLL_IDLE_MS = 15000;
 const ACTIVE_JOBS_POLL_HIDDEN_MS = 60000;
-const MAX_ATTACHMENT_BYTES = 24_000;
-const MAX_ATTACHMENTS = 3;
 const ANSWER_TEXT_CLASS = "prose prose-slate max-w-none break-words text-sm leading-7 dark:prose-invert md:text-base prose-headings:mb-2 prose-headings:mt-5 prose-headings:text-current prose-p:my-3 prose-li:my-1 prose-strong:text-current prose-a:text-sky-600 dark:prose-a:text-sky-400";
-type DraftAttachment = { name: string; text: string; bytes: number };
 const ANSWER_COMPONENTS: Components = {
   table: ({ children }) => <div className="overflow-x-auto"><table>{children}</table></div>,
 };
@@ -51,6 +50,7 @@ type Message = {
   isArtifact?: boolean;
   meta?: {
     process_mode?: string | null;
+    attachments?: ChatAttachment[];
     resolution_reason?: string | null;
     stance?: string | null;
     confidence_band?: string | null;
@@ -547,11 +547,13 @@ function ChatWorkspace() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [selectedSubjectName, setSelectedSubjectName] = useState("Portfolio");
   const [error, setError] = useState<string | null>(null);
-  const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
-  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const fileInputs = useChatAttachments();
+  const attachments = fileInputs.attachments;
+  const [useSessionAttachments, setUseSessionAttachments] = useState(true);
+  const sessionAttachments = [...messages].reverse().find((message) => message.role === "assistant")?.meta?.attachments ?? [];
+  const usingSessionFiles = useSessionAttachments && sessionAttachments.length > 0;
   const [focusedAnswer, setFocusedAnswer] = useState<Message | null>(null);
   const answerDialog = useRef<HTMLDialogElement>(null);
-  const attachmentInput = useRef<HTMLInputElement>(null);
   const [allowActions, setAllowActions] = useState(false);
   const [allowActionsLoaded, setAllowActionsLoaded] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -559,6 +561,7 @@ function ChatWorkspace() {
   const [traceCache, setTraceCache] = useState<Record<string, ReasoningTrace>>({});
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [activeJob, setActiveJob] = useState<AgentTurnJob | null>(null);
+  const [failedJob, setFailedJob] = useState<AgentTurnJob | null>(null);
   const [activeJobs, setActiveJobs] = useState<AgentTurnJob[]>([]);
   const [activeJobRequestMessage, setActiveJobRequestMessage] = useState<string | null>(null);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
@@ -607,7 +610,7 @@ function ChatWorkspace() {
 
   function persistActiveJob(job: AgentTurnJob | null) {
     if (typeof window === "undefined") return;
-    if (!job || job.status === "completed" || job.status === "error") {
+    if (!job || job.status === "completed" || job.status === "cancelled") {
       window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
       return;
     }
@@ -639,6 +642,7 @@ function ChatWorkspace() {
   loadActiveJobsRef.current = loadActiveJobs;
 
   function focusJob(job: AgentTurnJob) {
+    setFailedJob(null);
     selectionEpochRef.current += 1;
     setPinnedSubject(null);
     conversationChosenRef.current = true;
@@ -655,6 +659,7 @@ function ChatWorkspace() {
           role: "user",
           content: job.request_message,
           createdAt: job.created_at,
+          meta: {attachments: job.request_attachments},
         },
       ]);
     }
@@ -687,6 +692,7 @@ function ChatWorkspace() {
         thesis_summary: turn.thesis_summary,
         rationale_summary: turn.rationale_summary,
         research_receipt: turn.research_receipt,
+        attachments: turn.attachments,
         source_feedback_influence: turn.source_feedback_influence,
         historical_analogy_lenses: turn.historical_analogy_lenses,
         actions: turn.actions,
@@ -699,13 +705,14 @@ function ChatWorkspace() {
         role: "user",
         content: requestMessage,
         createdAt: requestCreatedAt || turn.responded_at,
+        meta: { attachments: turn.attachments },
       };
       const hasLatestUser =
         prev.length > 0 &&
         prev[prev.length - 1]?.role === "user" &&
         prev[prev.length - 1]?.content === requestMessage;
       const nextMessages = hasLatestUser
-        ? [...prev, assistantMessage]
+        ? [...prev.slice(0, -1), {...prev[prev.length - 1], meta: {...prev[prev.length - 1].meta, attachments: turn.attachments}}, assistantMessage]
         : [...prev, restoredUserMessage, assistantMessage];
       setDraftMessagesBySession((current) => ({
         ...current,
@@ -790,6 +797,7 @@ function ChatWorkspace() {
     // Local job restoration remains in useEffect
     let cancelled = false;
     if (entry.hasEntry || conversationChosenRef.current) return;
+    const restorationEpoch = selectionEpochRef.current;
     const raw = window.sessionStorage.getItem(ACTIVE_JOB_STORAGE_KEY);
     if (!raw) return;
     try {
@@ -798,9 +806,16 @@ function ChatWorkspace() {
         setActiveJobRequestMessage(saved.request_message ?? null);
         void apiFetch<AgentTurnJob>(`/agent/turn-jobs/${saved.job_id}`)
           .then((job) => {
-            if (cancelled || conversationChosenRef.current) return;
+            if (cancelled || restorationEpoch !== selectionEpochRef.current) return;
             setIsTyping(["queued", "running"].includes(job.status));
-            setActiveJob(job);
+            if (job.status === "error") {
+              setFailedJob(job);
+              setError(job.error || "Unable to complete this turn.");
+              setActiveJobRequestMessage(null);
+            } else {
+              if (conversationChosenRef.current) return;
+              setActiveJob(job);
+            }
             persistActiveJob(job);
           })
           .catch(() => {
@@ -922,6 +937,7 @@ function ChatWorkspace() {
             entry.role === "assistant" && !entry.is_artifact
               ? {
                   process_mode: entry.process_mode,
+                  attachments: entry.attachments,
                   resolution_reason: entry.resolution_reason,
                   stance: entry.stance,
                   confidence_band: entry.confidence_band,
@@ -934,7 +950,7 @@ function ChatWorkspace() {
                   reasoning_run_id: entry.reasoning_run_id,
                   subagents: entry.subagents,
                 }
-              : undefined,
+              : entry.attachments?.length ? {attachments: entry.attachments} : undefined,
         }));
         const draftMessages = draftMessagesBySession[activeSessionId] ?? [];
         const preferredMessages =
@@ -1058,6 +1074,7 @@ function ChatWorkspace() {
           } else if (job.status === "error") {
             setIsTyping(false);
             setError(job.error || "Unable to complete this turn.");
+            setFailedJob(job);
             setActiveJobRequestMessage(null);
             setActiveJob(null);
             upsertActiveJob(job);
@@ -1074,17 +1091,17 @@ function ChatWorkspace() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!input.trim() || isTyping || Boolean(activeJob && isActiveTurnJob(activeJob))) return;
+    if (!input.trim() || fileInputs.blocked || isTyping || Boolean(activeJob && isActiveTurnJob(activeJob))) return;
 
     const userMessage = input.trim();
+    setFailedJob(null);
     const submittedAttachments = attachments;
     const submissionEpoch = selectionEpochRef.current;
     setInput("");
-    setAttachments([]);
-    setAttachmentError(null);
+    fileInputs.clear();
     resizeComposer("");
     setError(null);
-    const optimisticUserMessage = { role: "user", content: submittedAttachments.length ? `${userMessage}\n\nFiles: ${submittedAttachments.map((file) => file.name).join(", ")}` : userMessage, createdAt: new Date().toISOString() } as Message;
+    const optimisticUserMessage = { role: "user", content: userMessage, createdAt: new Date().toISOString(), meta: {attachments: submittedAttachments.flatMap((file) => file.receipt ? [file.receipt] : [])} } as Message;
     setMessages((prev) => [...prev, optimisticUserMessage]);
     setIsTyping(true);
     setActiveJobRequestMessage(userMessage);
@@ -1096,8 +1113,9 @@ function ChatWorkspace() {
         body: JSON.stringify({
           ...researchTurnContext(activeSessionId, pinnedSubject),
           message: userMessage,
-          auto_execute: allowActions && !submittedAttachments.length,
-          attachments: submittedAttachments.map(({ name, text }) => ({ name, text })),
+          auto_execute: allowActions && !submittedAttachments.length && !usingSessionFiles,
+          attachment_ids: submittedAttachments.flatMap((file) => file.receipt ? [file.receipt.id] : []),
+          use_session_attachments: useSessionAttachments,
         }),
       });
       if (!response.ok) {
@@ -1114,32 +1132,9 @@ function ChatWorkspace() {
       setMessages((previous) => previous.filter((item) => item !== optimisticUserMessage));
       setInput(userMessage);
       resizeComposer(userMessage);
-      setAttachments(submittedAttachments);
+      fileInputs.restore(submittedAttachments);
       setActiveJobRequestMessage(null);
       setIsTyping(false);
-    }
-  }
-
-  async function addAttachments(files: FileList | null) {
-    if (!files?.length) return;
-    const selected = Array.from(files);
-    if (attachments.length + selected.length > MAX_ATTACHMENTS || attachments.reduce((total, file) => total + file.bytes, 0) + selected.reduce((total, file) => total + file.size, 0) > MAX_ATTACHMENT_BYTES) {
-      setAttachmentError("Choose up to 3 text files, totaling 24 KB or less.");
-      return;
-    }
-    const epoch = selectionEpochRef.current;
-    try {
-      const additions = await Promise.all(selected.map(async (file) => {
-        if (!/\.(txt|md|csv|tsv|json)$/i.test(file.name) || file.name.length > 200) throw new Error("Choose TXT, Markdown, CSV, TSV, or JSON files.");
-        const text = new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer());
-        if (!text.trim() || text.includes(String.fromCharCode(0))) throw new Error("Attachments must contain readable text.");
-        return { name: file.name, text, bytes: file.size };
-      }));
-      if (epoch !== selectionEpochRef.current) return;
-      setAttachments((previous) => [...previous, ...additions]);
-      setAttachmentError(null);
-    } catch (err) {
-      if (epoch === selectionEpochRef.current) setAttachmentError(err instanceof Error ? err.message : "Could not read these files.");
     }
   }
 
@@ -1167,9 +1162,11 @@ function ChatWorkspace() {
   }
 
   function startNewChat() {
+    setFailedJob(null);
+    if (failedJob) persistActiveJob(null);
+    setUseSessionAttachments(true);
     setResearchView("Chats");
-    setAttachments([]);
-    setAttachmentError(null);
+    fileInputs.clear();
     selectionEpochRef.current += 1;
     conversationChosenRef.current = true;
     setPinnedSubject(null);
@@ -1241,7 +1238,7 @@ function ChatWorkspace() {
   const activeConversation = conversations.find((item) => item.session_id === activeSessionId) ?? null;
   const linkedReport = autonomousReviews.find((item) => item.session_id === activeSessionId) ?? null;
   const liveEvents = activeJob?.events.filter((event) => event.phase !== "thinking") ?? [];
-  const executionActive = allowActionsLoaded ? allowActions : false;
+  const executionActive = allowActionsLoaded && !attachments.length && !usingSessionFiles ? allowActions : false;
 
   return (
     <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-background font-sans text-foreground">
@@ -1549,7 +1546,23 @@ function ChatWorkspace() {
 
             {/* Settings and Dossier quick create merged to Settings page */}
 
-            {error ? <p className="mt-3 text-sm text-red-500">{error}</p> : null}
+            {error ? <p role="alert" className="mt-3 text-sm text-red-500">{error}</p> : null}
+            {failedJob ? <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+              <span className="text-muted">The failed question and its files are retained.</span>
+              <button type="button" className="workspace-control" disabled={Boolean(input.trim() || attachments.length || isTyping)} onClick={() => {
+                const job = failedJob;
+                selectionEpochRef.current += 1;
+                conversationChosenRef.current = true;
+                setPinnedSubject(job.request_subject_id && job.request_subject_type ? {subject_id: job.request_subject_id, subject_type: job.request_subject_type} : null);
+                setInput(job.request_message);
+                fileInputs.restore((job.request_attachments ?? []).map((receipt) => ({key: receipt.id, name: receipt.name, bytes: receipt.size_bytes, state: "ready", receipt})));
+                setUseSessionAttachments(job.use_session_attachments ?? true);
+                setActiveSessionId(job.session_id ?? null);
+                setMessages((current) => !job.session_id || job.session_id !== activeSessionId ? [] : current.at(-1)?.role === "user" && current.at(-1)?.content === job.request_message ? current.slice(0, -1) : current);
+                setFailedJob(null); setError(null); persistActiveJob(null);
+              }}>Restore question and files</button>
+              {input.trim() || attachments.length ? <span className="text-xs text-muted">Send or clear your current draft first.</span> : null}
+            </div> : null}
             {loadingHistory ? (
               <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                 Loading saved conversation...
@@ -1578,33 +1591,15 @@ function ChatWorkspace() {
               <div className="space-y-6">
                 {messages.map((m, idx) => (linkedReport && m.role === "user" && m.content.startsWith("Autonomous review for ") ? null : (
                   <div key={idx} className={`flex w-full ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div className={`flex w-full gap-4 ${m.role === "user" ? "max-w-[720px] flex-row-reverse" : "max-w-[960px] flex-row"}`}>
-                      <div className="mt-1 flex-shrink-0">
-                        <div className={`flex h-8 w-8 items-center justify-center ${
-                          m.role === "assistant"
-                            ? "rounded-lg bg-sky-600"
-                            : m.role === "user"
-                              ? "rounded-none border border-slate-300 bg-slate-200 dark:border-slate-700 dark:bg-slate-800"
-                              : "rounded-lg border border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900"
-                        }`}>
-                          <span className={`${
-                            m.role === "assistant"
-                              ? "font-mono text-white"
-                              : m.role === "user"
-                                ? "text-slate-600 dark:text-slate-300"
-                                : "font-mono text-slate-500 dark:text-slate-400"
-                          } text-xs font-bold`}>
-                            {m.role === "assistant" ? "AI" : m.role === "user" ? "U" : "S"}
-                          </span>
-                        </div>
-                      </div>
+                    <div className={`flex min-w-0 gap-4 ${m.role === "user" ? "w-fit max-w-[85%] flex-row-reverse" : "w-full flex-row"}`}>
+                      {m.role === "system" ? <div aria-hidden="true" className="mt-1 shrink-0 font-mono text-xs text-muted">S</div> : null}
                       <div
-                        className={`w-full min-w-0 rounded-lg p-4 text-sm leading-relaxed md:text-base ${
+                        className={`min-w-0 text-sm leading-relaxed md:text-base ${
                           m.role === "user"
-                            ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
+                            ? "w-fit rounded-none bg-panel px-4 py-3 text-foreground"
                             : m.role === "system"
                               ? "border border-dashed border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
-                            : "border border-slate-200 bg-white text-slate-800 dark:border-slate-800 dark:bg-[#111] dark:text-slate-200"
+                            : "w-full bg-transparent py-3 text-foreground"
                         }`}
                       >
                         {formatTimestamp(m.createdAt) || m.role === "assistant" ? (
@@ -1639,9 +1634,10 @@ function ChatWorkspace() {
                         ) : (
                           <div className="whitespace-pre-wrap break-words leading-7">{m.content}</div>
                         )}
-                        {!linkedReport && m.role === "assistant" && (m.meta?.research_receipt || m.meta?.process_mode === "attached_text") && !messages.slice(idx + 1).some((entry) => entry.role === "assistant") ? (
+                        {!linkedReport && m.role === "assistant" && (m.meta?.research_receipt || ["attached_text", "attached_files"].includes(m.meta?.process_mode ?? "")) && !messages.slice(idx + 1).some((entry) => entry.role === "assistant") ? (
                           <button type="button" className="workspace-control mt-3" onClick={() => draftFollowUp("What evidence would change your conclusion, and how would you check it?")}>Draft follow-up</button>
                         ) : null}
+                        <AttachmentReceipts attachments={m.meta?.attachments} showReadStatus={m.role === "assistant"} />
                         {m.meta?.research_receipt ? <ResearchReceipt receipt={m.meta.research_receipt} /> : null}
                         {m.role === "assistant" && m.meta ? (
                           <div className="mt-4 space-y-3 border-t border-slate-200 pt-4 dark:border-slate-800">
@@ -1712,7 +1708,7 @@ function ChatWorkspace() {
                   </div>
                 )))}
                 {isTyping ? (
-                  <section className="w-full max-w-[960px] border border-line bg-panel p-4 text-sm" aria-label="Research activity">
+                  <section className="w-full border-l-2 border-line pl-4 py-3 text-sm" aria-label="Research activity">
                     <div className="flex flex-wrap justify-between gap-2">
                       <span className="font-semibold">{liveEvents.at(-1) ? formatUserLabel(liveEvents.at(-1)!.phase) : "Starting turn"}</span>
                       <span className="text-xs tabular-nums text-muted">{elapsedSeconds}s elapsed</span>
@@ -1750,7 +1746,7 @@ function ChatWorkspace() {
           </div>
 
           <div className="shrink-0 border-t border-line bg-background/90 px-4 py-3 backdrop-blur sm:px-6">
-            {linkedReport ? <button type="button" className="workspace-control" onClick={() => setOpenReport(linkedReport)}>Open autonomous review</button> : <form onSubmit={handleSubmit} className="mx-auto max-w-5xl">
+            {linkedReport ? <button type="button" className="workspace-control" onClick={() => setOpenReport(linkedReport)}>Open autonomous review</button> : <form onSubmit={handleSubmit} className="w-full" onPointerDownCapture={() => {conversationChosenRef.current = true;}} onKeyDownCapture={(event) => {if (event.key !== "Tab") conversationChosenRef.current = true;}} onDragOver={(event) => {if (event.dataTransfer.types.includes("Files")) event.preventDefault();}} onDrop={(event) => {if (event.dataTransfer.files.length) {event.preventDefault(); conversationChosenRef.current = true; fileInputs.addFiles(event.dataTransfer.files);}}}>
               <div className="mb-2 flex min-h-8 items-center justify-between gap-3">
                 <button
                   type="button"
@@ -1777,27 +1773,14 @@ function ChatWorkspace() {
                   <span className="w-5 text-left text-muted">{executionActive ? "On" : "Off"}</span>
                 </button>
                 <div className="ml-auto flex items-center gap-2">
-                  <input ref={attachmentInput} type="file" multiple hidden accept=".txt,.md,.csv,.tsv,.json" onChange={(event) => { void addAttachments(event.currentTarget.files); event.currentTarget.value = ""; }} />
-                  <button type="button" className="workspace-control" disabled={isTyping} onClick={() => attachmentInput.current?.click()}><Paperclip size={15} aria-hidden="true" /> Attach text</button>
+                  <AttachmentButton files={fileInputs} disabled={isTyping} />
                 </div>
                 {activeJob && isActiveTurnJob(activeJob) ? (
                   <span className="truncate text-xs text-muted">Turn running in background</span>
                 ) : null}
               </div>
-              {attachments.length ? (
-                <div className="mb-2 space-y-1.5">
-                  <ul aria-label="Attached files" className="flex flex-wrap gap-2">
-                    {attachments.map((file, index) => (
-                      <li key={`${file.name}-${index}`} className="inline-flex min-w-0 items-center gap-2 border border-line bg-panel px-2 py-1 text-xs">
-                        <span className="max-w-52 truncate">{file.name}</span>
-                        <button type="button" aria-label={`Remove ${file.name}`} onClick={() => setAttachments((previous) => previous.filter((_, i) => i !== index))}><X size={14} /></button>
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="text-xs text-muted">This turn uses the attached text only. The configured model receives it. Prophet saves filenames and the answer, including any excerpts it quotes.</p>
-                </div>
-              ) : null}
-              {attachmentError ? <p role="alert" className="mb-2 text-xs text-red-500">{attachmentError}</p> : null}
+              {sessionAttachments.length ? <label className="mb-2 flex items-center gap-2 text-xs text-muted"><input type="checkbox" checked={useSessionAttachments} disabled={isTyping} onChange={(event) => setUseSessionAttachments(event.target.checked)} /> Include files from this chat: {sessionAttachments.map((file) => file.name).join(", ")}</label> : null}
+              <AttachmentDrafts files={fileInputs} />
               <div className="relative">
                 <textarea
                   ref={composerRef}
@@ -1807,13 +1790,21 @@ function ChatWorkspace() {
                     resizeComposer(e.target.value);
                   }}
                   onKeyDown={handleComposerKeyDown}
+                  onPaste={(event) => {
+                    const pastedFiles = transferredFiles(event.clipboardData);
+                    if (!pastedFiles.length) return;
+                    event.preventDefault();
+                    fileInputs.addFiles(pastedFiles);
+                    const pasted = event.clipboardData.getData("text/plain");
+                    if (pasted) {const field = event.currentTarget; const position = field.selectionStart; const next = input.slice(0, position) + pasted + input.slice(field.selectionEnd); setInput(next); resizeComposer(next); window.requestAnimationFrame(() => field.setSelectionRange(position + pasted.length, position + pasted.length));}
+                  }}
                   placeholder="Tell Prophet what you think, what changed, or what to analyze next..."
                   rows={1}
                   className="min-h-[64px] w-full resize-none overflow-y-auto rounded-lg border border-slate-300 bg-white py-4 pl-5 pr-20 outline-none transition-[border-color,box-shadow,height] focus:border-sky-500 focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
                 />
                 <button
                   type="submit"
-                  disabled={isTyping || Boolean(activeJob && isActiveTurnJob(activeJob)) || !input.trim()}
+                  disabled={fileInputs.blocked || isTyping || Boolean(activeJob && isActiveTurnJob(activeJob)) || !input.trim()}
                   className="absolute bottom-2.5 right-2.5 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-700 disabled:opacity-50"
                 >
                   Send
@@ -1840,7 +1831,7 @@ function ChatWorkspace() {
               <h2 id="focused-answer-title" className="font-semibold">Prophet answer</h2>
               <button type="button" className="workspace-control" onClick={() => answerDialog.current?.close()}><X size={16} aria-hidden="true" /> Close full screen</button>
             </div>
-            <article className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-8">
+            <article className="w-full px-4 py-6 sm:px-8">
               <div className={ANSWER_TEXT_CLASS}><ReactMarkdown remarkPlugins={[remarkGfm]} components={ANSWER_COMPONENTS}>{focusedAnswer.content}</ReactMarkdown></div>
               {focusedAnswer.meta?.rationale_summary ? <p className="mt-5 border-t border-line pt-4 text-sm"><strong>Rationale:</strong> {focusedAnswer.meta.rationale_summary}</p> : null}
               {focusedAnswer.meta?.research_receipt ? <ResearchReceipt receipt={focusedAnswer.meta.research_receipt} /> : null}
@@ -1927,7 +1918,7 @@ function AutonomousReport({
   return (
     <dialog ref={dialog} onClose={onClose} aria-labelledby="autonomous-report-title"
       className="fixed inset-0 m-0 h-dvh max-h-none w-screen max-w-none border-none bg-background p-0 text-foreground backdrop:bg-background">
-      <article className="mx-auto min-h-full w-full max-w-5xl px-4 py-5 sm:px-8">
+      <article className="min-h-full w-full px-4 py-5 sm:px-8">
         <header className="mb-5 flex flex-wrap items-start justify-between gap-3 border-b border-line pb-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-muted">Autonomous finding · {formatTimestamp(report.updated_at)}</p>

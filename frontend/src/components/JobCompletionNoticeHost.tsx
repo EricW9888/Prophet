@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { apiFetch, AgentTurnJob } from "@/lib/api";
 import { ACTIVE_JOB_STORAGE_KEY, COMPLETED_JOB_NOTICE_KEY } from "@/lib/job-notifications";
@@ -9,10 +9,12 @@ import { ACTIVE_JOB_STORAGE_KEY, COMPLETED_JOB_NOTICE_KEY } from "@/lib/job-noti
 type NoticeState = {
   message: string;
   sessionId?: string | null;
+  jobId?: string;
 };
 
 export default function JobCompletionNoticeHost() {
   const [notice, setNotice] = useState<NoticeState | null>(null);
+  const terminalJobId = useRef<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -21,7 +23,9 @@ export default function JobCompletionNoticeHost() {
     if (existing) {
       setTimeout(() => {
         try {
-          setNotice(JSON.parse(existing) as NoticeState);
+          const saved = JSON.parse(existing) as NoticeState;
+          terminalJobId.current = saved.jobId ?? null;
+          setNotice(saved);
         } catch {
           window.sessionStorage.removeItem(COMPLETED_JOB_NOTICE_KEY);
         }
@@ -33,19 +37,22 @@ export default function JobCompletionNoticeHost() {
       if (!raw) return;
       try {
         const active = JSON.parse(raw) as { job_id?: string; request_message?: string | null; session_id?: string | null };
-        if (!active.job_id) return;
+        if (!active.job_id || active.job_id === terminalJobId.current) return;
         void apiFetch<AgentTurnJob>(`/agent/turn-jobs/${active.job_id}`)
           .then((job) => {
             if (job.status !== "completed" && job.status !== "error") {
               return;
             }
-            window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
+            terminalJobId.current = job.job_id;
+            if (job.status === "completed") window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
             const nextNotice: NoticeState = {
               message:
                 job.status === "completed"
                   ? "Prophet finished the latest analysis."
                   : "Prophet stopped on an error. Open chat to inspect it.",
-              sessionId: job.session_id ?? active.session_id ?? null,
+              // Error recovery reads the retained job reference on the chat root.
+              sessionId: job.status === "error" ? null : job.session_id ?? active.session_id ?? null,
+              jobId: job.job_id,
             };
             window.sessionStorage.setItem(COMPLETED_JOB_NOTICE_KEY, JSON.stringify(nextNotice));
             setNotice(nextNotice);

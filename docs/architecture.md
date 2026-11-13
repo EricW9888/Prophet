@@ -314,6 +314,36 @@ rather than introducing another renderer to correct a text-coordinate defect.
 
 ## Structured model execution
 
+Chat uses full-width assistant answers and compact user bubbles. Private uploads
+are stored in `chat_attachments`, separate from research evidence, with their
+original bytes, hashes and representation metadata. Choosing a file, dropping
+it, or pasting an image uploads locally; model calls begin when the user sends
+the question. PDFium extracts page-qualified text and renders PDF pages under
+a shared mutex off the API event loop. Pillow validates and normalizes image
+inputs. Word and spreadsheet readers retain text/tables/cell coordinates and
+formulas without executing them; representation omissions are explicit.
+
+Images and PDF page graphics use the configured provider's vision model in
+documented provider-sized batches. Completed page observations are retained
+and resumed after an interruption. These are provisional model readings, not
+accepted facts. The main model answers from file representations with filename
+and page/row/section references. Text-only provider recovery cannot replace a
+failed image read. Health probes and cooldowns use the same endpoint,
+credential and model identity; one model cannot clear or block a different
+model's circuit. All hosted calls still share request pacing and concurrency
+limits. NVIDIA's default image reader follows its documented
+[Nemotron 3.5 Super VL API](https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3_5-super-vl-120b-a12b),
+and can be changed in Settings independently of the main analyst model.
+
+File references survive conversation reloads and follow-up questions. The
+job record also retains file receipts and the context choice so a failed or
+interrupted question can be restored without uploading its files again. The
+composer lets the user stop including prior files. Attachment turns never
+execute portfolio actions, create watches, or promote uploads into research
+evidence. Size, text and cell-processing limits are configurable and partial
+representations are visible. Binary uploads use multipart requests and the
+Next proxy's buffered-body allowance follows the configured file limit.
+
 The hosted request limiter rechecks the provider circuit before and after
 waiting for admission. A queued call denied admission is a deferral, not a new
 provider failure. Shared recovery uses one transport attempt, the configured

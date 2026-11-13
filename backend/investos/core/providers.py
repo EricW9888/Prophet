@@ -44,6 +44,9 @@ class LLMProviderCapability:
     structured_output_mode: str = "json_schema"
     default_model: str = ""
     default_base_url: str = ""
+    default_vision_model: str = ""
+    max_vision_images: int = 4
+    supports_images: bool = False
 
     def public_dict(self) -> dict[str, object]:
         return {
@@ -57,6 +60,8 @@ class LLMProviderCapability:
             "structured_output_mode": self.structured_output_mode,
             "default_model": self.default_model,
             "default_base_url": self.default_base_url,
+            "default_vision_model": self.default_vision_model,
+            "supports_images": self.supports_images,
         }
 
 
@@ -87,6 +92,8 @@ LLM_PROVIDER_CAPABILITIES: dict[str, LLMProviderCapability] = {
         recovery_priority=20,
         structured_output_mode="json_object",
         default_model="nvidia/nemotron-3-ultra-550b-a55b",
+        default_vision_model="nvidia/nemotron-3.5-super-vl-120b-a12b",
+        supports_images=True,
         default_base_url="https://integrate.api.nvidia.com/v1",
     ),
     "codex_cli": LLMProviderCapability(
@@ -131,7 +138,7 @@ LLM_MODEL_CAPABILITIES: tuple[LLMModelCapability, ...] = (
     ),
     LLMModelCapability(
         provider="nvidia_nim",
-        model_prefixes=("nvidia/nemotron-3-",),
+        model_prefixes=("nvidia/nemotron-3-", "nvidia/nemotron-3.5-super-vl-"),
         structured_request_options=(
             ("chat_template_kwargs", {"enable_thinking": False}),
         ),

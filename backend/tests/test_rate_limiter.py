@@ -193,3 +193,37 @@ def isolated_provider_health(monkeypatch, tmp_path):
         "_path",
         staticmethod(lambda: tmp_path / "provider-health.json"),
     )
+
+
+async def test_hosted_cooldown_keeps_other_model_available_without_retrying_failed_model(
+    monkeypatch,
+):
+    from investos.core import llm
+    from investos.core.provider_health import LLMProviderCooldownError
+
+    monkeypatch.setattr(llm, "_provider_cooldowns", {})
+    calls = []
+
+    @retry_with_backoff(max_retries=0)
+    async def nvidia_synthetic_request(*, payload):
+        calls.append(payload["model"])
+        if payload["model"] == "example/analyst":
+            response = httpx.Response(
+                429,
+                headers={"Retry-After": "120"},
+                request=httpx.Request(
+                    "POST", "https://llm.example.test/v1/chat/completions"
+                ),
+            )
+            response.raise_for_status()
+        return {"ok": True}
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await nvidia_synthetic_request(payload={"model": "example/analyst"})
+    assert _cooldown_remaining("nvidia_nim", "example/analyst") > 100
+    assert await nvidia_synthetic_request(payload={"model": "example/reader"}) == {
+        "ok": True
+    }
+    with pytest.raises(LLMProviderCooldownError):
+        await nvidia_synthetic_request(payload={"model": "example/analyst"})
+    assert calls == ["example/analyst", "example/reader"]

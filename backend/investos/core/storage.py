@@ -1,3 +1,4 @@
+import asyncio
 import os
 import shutil
 from pathlib import Path
@@ -40,8 +41,11 @@ class LocalStorage:
 
         target_path = target_dir / safe_name
 
-        with target_path.open("wb") as out_file:
-            shutil.copyfileobj(file_stream, out_file)
+        def write_stream():
+            with target_path.open("wb") as out_file:
+                shutil.copyfileobj(file_stream, out_file)
+
+        await asyncio.to_thread(write_stream)
 
         # Return path relative to base_dir (e.g., "2024-03-25/1234abc.pdf")
         return f"{today}/{safe_name}"
@@ -52,8 +56,7 @@ class LocalStorage:
         if not target_path.exists():
             raise FileNotFoundError(f"Storage object not found: {object_path}")
 
-        with target_path.open("rb") as f:
-            return f.read()
+        return await asyncio.to_thread(target_path.read_bytes)
 
     async def get_object_path(self, object_path: str) -> Path:
         """Returns the absolute Path to the object for tools that need actual files."""

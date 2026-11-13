@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from uuid import UUID, uuid4
+
 import pytest
 from fastapi import HTTPException
 
@@ -81,3 +84,38 @@ def test_restart_marks_persisted_active_job_as_interrupted(tmp_path, monkeypatch
     assert recovered.status == "error"
     assert recovered.error == "Job interrupted by backend restart."
     assert recovered.events[-1].phase == "error"
+
+
+def test_failed_file_question_retains_retry_references_after_restart(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(settings, "STORAGE_DIR", str(tmp_path))
+    tracker = LiveJobTracker()
+    attachment = {
+        "id": str(uuid4()),
+        "name": "synthetic.pdf",
+        "content_type": "application/pdf",
+        "size_bytes": 4096,
+        "status": "ready",
+        "page_count": 2,
+        "text_chars": 50,
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+    job = tracker.create_job(
+        request_message="Compare these files",
+        session_id=None,
+        request_context={
+            "attachments": [attachment],
+            "use_session_attachments": False,
+            "subject_id": attachment["id"],
+            "subject_type": "entity",
+        },
+    )
+    tracker.fail(job.id, error="Provider temporarily unavailable")
+    response = agent_job_response(LiveJobTracker(), job.id)
+    assert response.status == "error"
+    assert response.request_message == "Compare these files"
+    assert response.request_attachments[0].id == UUID(attachment["id"])
+    assert response.use_session_attachments is False
+    assert response.request_subject_id == UUID(attachment["id"])
+    assert response.request_subject_type == "entity"

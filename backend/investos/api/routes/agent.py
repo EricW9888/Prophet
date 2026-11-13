@@ -1,7 +1,8 @@
 import asyncio
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.db import async_session_maker, get_session
@@ -17,12 +18,58 @@ from investos.schemas.agent import (
     AgentTurnJobResponse,
     AgentTurnRequest,
     AgentTurnResponse,
+    ChatAttachmentResponse,
 )
 from investos.services.agent import AgentService
 from investos.services.agent_action_log import AgentActionLogService
+from investos.services.chat_attachments import ChatAttachmentService
 from investos.services.live_jobs import LiveJobTracker
 
 router = APIRouter(prefix="/agent", tags=["agent"])
+
+
+@router.get("/attachments/capabilities")
+async def attachment_capabilities():
+    return ChatAttachmentService.capabilities()
+
+
+@router.post("/attachments", response_model=ChatAttachmentResponse)
+async def upload_chat_attachment(
+    file: UploadFile = File(...), session: AsyncSession = Depends(get_session)
+):
+    service = ChatAttachmentService(session)
+    try:
+        return service.response(await service.upload(file))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/attachments/{attachment_id}/content")
+async def chat_attachment_content(
+    attachment_id: UUID, session: AsyncSession = Depends(get_session)
+):
+    service = ChatAttachmentService(session)
+    try:
+        row = await service.get(attachment_id)
+        path = await service.storage.get_object_path(row.storage_path)
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(404, "Attachment not found.") from exc
+    return FileResponse(
+        path,
+        media_type=row.content_type,
+        filename=row.name,
+        content_disposition_type=(
+            "inline"
+            if row.content_type.startswith("image/")
+            or row.content_type == "application/pdf"
+            else "attachment"
+        ),
+        headers={
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+            "Content-Security-Policy": "sandbox; default-src 'none'",
+        },
+    )
 
 
 def _job_response(tracker: LiveJobTracker, job_id: UUID) -> AgentTurnJobResponse:
@@ -34,6 +81,12 @@ def _job_response(tracker: LiveJobTracker, job_id: UUID) -> AgentTurnJobResponse
         job_id=record.id,
         status=record.status,
         request_message=record.request_message,
+        request_subject_id=record.request_context.get("subject_id"),
+        request_subject_type=record.request_context.get("subject_type"),
+        request_attachments=record.request_context.get("attachments", []),
+        use_session_attachments=record.request_context.get(
+            "use_session_attachments", True
+        ),
         session_id=record.session_id,
         created_at=record.created_at,
         updated_at=record.updated_at,
@@ -67,11 +120,29 @@ async def run_agent_turn(
 async def create_agent_turn_job(
     payload: AgentTurnRequest,
     request: Request,
+    session: AsyncSession = Depends(get_session),
 ):
     tracker: LiveJobTracker = request.app.state.live_jobs
+    attachments = ChatAttachmentService(session)
+    try:
+        files = (
+            await attachments.resolve(payload.attachment_ids)
+            if payload.attachment_ids
+            else []
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     record = tracker.create_job(
         request_message=payload.message,
         session_id=payload.session_id,
+        request_context={
+            "subject_id": str(payload.subject_id) if payload.subject_id else None,
+            "subject_type": payload.subject_type,
+            "attachments": [
+                attachments.response(row).model_dump(mode="json") for row in files
+            ],
+            "use_session_attachments": payload.use_session_attachments,
+        },
     )
 
     async def run_job() -> None:
