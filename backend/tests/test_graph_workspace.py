@@ -29,6 +29,50 @@ from investos.services.graph import (
 
 
 @pytest.mark.asyncio(loop_scope="session")
+async def test_bounded_neighborhood_shares_slots_across_frontier_branches():
+    async with async_session_maker() as session:
+        nodes = [
+            Entity(name=f"Synthetic branch {uuid4()}", entity_type="company")
+            for _ in range(24)
+        ]
+        session.add_all(nodes)
+        await session.flush()
+        root, crowded, quiet, counterparty, *leaves = nodes
+        now = datetime.now(UTC)
+
+        def link(source, target, created_at):
+            return Edge(
+                source_type="entity",
+                source_id=source.id,
+                target_type="entity",
+                target_id=target.id,
+                relationship_type="related_to",
+                created_at=created_at,
+            )
+
+        session.add_all(
+            [
+                link(root, crowded, now + timedelta(seconds=1)),
+                link(root, quiet, now),
+                link(quiet, counterparty, now + timedelta(seconds=2)),
+            ]
+            + [link(crowded, leaf, now + timedelta(seconds=2)) for leaf in leaves]
+        )
+        await session.flush()
+        view = await GraphService(session).get_neighborhood(
+            node_type="entity", node_id=root.id, depth=2, limit=6
+        )
+        assert len(view.nodes) == 6
+        keys = {node.key for node in view.nodes}
+        assert f"entity:{counterparty.id}" in keys
+        assert any(f"entity:{leaf.id}" in keys for leaf in leaves)
+        assert all(
+            edge.source_key in keys and edge.target_key in keys for edge in view.edges
+        )
+        await session.rollback()
+
+
+@pytest.mark.asyncio(loop_scope="session")
 async def test_graph_batches_node_provenance_and_autonomous_profiles():
     async with async_session_maker() as session:
         source = Source(name="Synthetic graph provenance", source_type="web_research")

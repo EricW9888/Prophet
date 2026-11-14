@@ -44,6 +44,7 @@ from investos.services.knowledge_audit import KnowledgeAuditService
 from investos.services.knowledge_time import (
     assess_knowledge_time,
     infer_expired_forecast_time,
+    knowledge_available_at,
 )
 
 # Substrings that mark a "thesis" that is actually an echoed LLM prompt or a
@@ -126,7 +127,13 @@ class IntegrityService:
         source_dupes = await self._duplicate_source_groups()
 
         missing_storage_objects = await self._missing_storage_object_count()
+        relationship_gaps = await self.session.scalar(
+            select(func.count()).select_from(
+                self._relationship_availability_query().subquery()
+            )
+        )
         counts = IntegrityAuditCounts(
+            relationship_availability_gaps=int(relationship_gaps or 0),
             profiles=await self._count(Profile),
             coverage_maps=await self._count(CoverageMap),
             conclusion_states=await self._count(ConclusionState),
@@ -191,7 +198,8 @@ class IntegrityService:
             and not edge_rows
             and counts.orphan_edges == 0
             and counts.unknown_edge_node_types == 0
-            and counts.missing_storage_objects == 0,
+            and counts.missing_storage_objects == 0
+            and counts.relationship_availability_gaps == 0,
             counts=counts,
             duplicate_sources=source_rows,
             duplicate_coverage_subjects=coverage_rows,
@@ -535,6 +543,9 @@ class IntegrityService:
             limit=500,
             dry_run=dry_run,
         )
+        relationship_repairs = await self._repair_relationship_availability(
+            limit=500, dry_run=dry_run
+        )
 
         actions = {
             "orphan_edges_removed": len(orphan_edge_ids),
@@ -545,6 +556,7 @@ class IntegrityService:
             "duplicate_conclusions_removed": len(dup_conclusion_ids),
             "stale_zero_holdings_closed": len(stale_holding_ids),
             "legacy_knowledge_times_repaired": temporal_repairs["repaired"],
+            "relationship_availability_repaired": relationship_repairs["repaired"],
         }
 
         if not dry_run:
@@ -677,6 +689,63 @@ class IntegrityService:
         self._write_repair_audit(summary)
         return summary
 
+    @staticmethod
+    def _relationship_availability_query():
+        return (
+            select(Claim, RawEvidence)
+            .join(SourceItem, Claim.source_item_id == SourceItem.id)
+            .join(RawEvidence, SourceItem.raw_evidence_id == RawEvidence.id)
+            .where(
+                Claim.claim_type.startswith("relationship:"),
+                or_(
+                    Claim.eligible_action_time.is_(None),
+                    Claim.eligible_action_time
+                    < func.greatest(
+                        Claim.created_at,
+                        RawEvidence.public_time,
+                        RawEvidence.ingest_time,
+                    ),
+                ),
+            )
+        )
+
+    async def _repair_relationship_availability(
+        self, *, limit: int, dry_run: bool
+    ) -> dict:
+        rows = (
+            await self.session.execute(
+                self._relationship_availability_query()
+                .order_by(Claim.created_at, Claim.id)
+                .limit(limit)
+            )
+        ).all()
+        if not dry_run:
+            audit = KnowledgeAuditService(self.session)
+            for claim, evidence in rows:
+                before = claim.eligible_action_time
+                available_at = knowledge_available_at(
+                    claim.created_at,
+                    public_time=evidence.public_time,
+                    ingest_time=evidence.ingest_time,
+                )
+                claim.eligible_action_time = available_at
+                await audit.record_change(
+                    node_type="claim",
+                    node_id=claim.id,
+                    change_type="availability_corrected",
+                    actor="integrity_repair",
+                    reason="A source relationship cannot be actionable before its assertion was recorded.",
+                    source_type="source_item",
+                    source_id=claim.source_item_id,
+                    metadata={
+                        "previous_eligible_action_time": (
+                            before.isoformat() if before else None
+                        ),
+                        "eligible_action_time": available_at.isoformat(),
+                    },
+                )
+        return {"repaired": len(rows), "node_ids": [str(claim.id) for claim, _ in rows]}
+
     async def _repair_legacy_knowledge_time(
         self,
         *,
@@ -731,7 +800,11 @@ class IntegrityService:
                 reference_time=reference_time,
             )
             valid_until = row.valid_until
-            if node_type == "claim" and valid_until is None:
+            if (
+                node_type == "claim"
+                and valid_until is None
+                and not row.claim_type.startswith("relationship:")
+            ):
                 valid_until = infer_expired_forecast_time(
                     text,
                     reference_time=reference_time,

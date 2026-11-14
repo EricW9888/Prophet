@@ -1258,6 +1258,7 @@ class AutomationCoordinator:
                     f"source_duplicates={len(audit.duplicate_sources)} "
                     f"unknown_node_types={','.join(audit.unknown_edge_node_types) or 'none'} "
                     f"missing_storage_objects={audit.counts.missing_storage_objects} "
+                    f"relationship_availability_gaps={audit.counts.relationship_availability_gaps} "
                     f"profiles={audit.counts.profiles} edges={audit.counts.edges}"
                 )
                 unresolved_summary = "; ".join(
@@ -1297,6 +1298,11 @@ class AutomationCoordinator:
                         (
                             f"{audit.counts.missing_storage_objects} missing storage object(s)"
                             if audit.counts.missing_storage_objects
+                            else None
+                        ),
+                        (
+                            f"{audit.counts.relationship_availability_gaps} relationship availability gap(s)"
+                            if audit.counts.relationship_availability_gaps
                             else None
                         ),
                     )

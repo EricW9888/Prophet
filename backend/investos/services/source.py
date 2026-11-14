@@ -2052,6 +2052,12 @@ class SourceService:
                 "origin_label": label,
                 "origin_detail": detail,
             }
+        if origin == "manual_url_ingestion":
+            return {
+                "origin_kind": "manual",
+                "origin_label": "Submitted URL",
+                "origin_detail": "Supplied through URL ingestion; the source content was fetched, not independently discovered.",
+            }
         if origin == "source_workspace" or item_type in NOTE_SOURCE_ITEM_TYPES:
             label_by_type = {
                 "cagr_test": "Manual CAGR test",

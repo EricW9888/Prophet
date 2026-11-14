@@ -28,6 +28,17 @@ def as_utc(value: datetime | None) -> datetime | None:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
+def knowledge_available_at(
+    recorded_at: datetime, *, public_time: datetime | None, ingest_time: datetime | None
+) -> datetime:
+    """Later extraction cannot make an assertion actionable before it existed."""
+    return max(
+        value
+        for value in (as_utc(recorded_at), as_utc(public_time), as_utc(ingest_time))
+        if value is not None
+    )
+
+
 def referenced_years(text: str | None) -> tuple[int, ...]:
     return tuple(sorted({int(value) for value in YEAR_RE.findall(text or "")}))
 

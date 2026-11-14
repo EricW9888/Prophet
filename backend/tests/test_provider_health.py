@@ -759,6 +759,8 @@ async def test_mixed_foreground_and_unattended_work_survives_a_short_http_read_d
 
     received = []
     handlers = set()
+    short_received = asyncio.Event()
+    release_short = asyncio.Event()
 
     async def serve(reader, writer):
         task = asyncio.current_task()
@@ -774,7 +776,11 @@ async def test_mixed_foreground_and_unattended_work_survives_a_short_http_read_d
             )
             data = json.loads(await reader.readexactly(length))
             received.append(data["messages"][-1]["content"])
-            await asyncio.sleep(0.08)
+            if data["messages"][-1]["content"] == "short_background":
+                short_received.set()
+                await release_short.wait()
+            else:
+                await asyncio.sleep(0.08)
             body = json.dumps(
                 {
                     "choices": [
@@ -812,10 +818,20 @@ async def test_mixed_foreground_and_unattended_work_survives_a_short_http_read_d
         "additionalProperties": False,
     }
     try:
-        with pytest.raises(httpx.ReadTimeout):
-            await call_llm_json(
-                "Return JSON", "short_background", schema, timeout_seconds=0.01
+        short = asyncio.create_task(
+            call_llm_json(
+                "Return JSON",
+                "short_background",
+                schema,
+                timeout_seconds=1,
             )
+        )
+        # Observe delivery before testing a read deadline. A 10ms total HTTPX
+        # timeout can instead fail during TCP setup on a loaded Windows runner.
+        await asyncio.wait_for(short_received.wait(), timeout=10)
+        with pytest.raises(httpx.ReadTimeout):
+            await short
+        release_short.set()
         kinds = [
             "foreground_a",
             "background_deep_a",
@@ -833,6 +849,7 @@ async def test_mixed_foreground_and_unattended_work_survives_a_short_http_read_d
         assert ProviderHealthStore.read().state == "healthy"
         assert ProviderHealthStore.read().caller_timeout_count == 1
     finally:
+        release_short.set()
         server.close()
         await server.wait_closed()
         if handlers:

@@ -221,7 +221,7 @@ async def test_peer_or_sector_object_keeps_explicit_context_edge_to_primary_subj
     primary_id = uuid4()
     object_id = uuid4()
 
-    await worker.link_investment_object_context(
+    await worker.link_object_context(
         object_type="market_setup_signal",
         object_id=object_id,
         object_subject={

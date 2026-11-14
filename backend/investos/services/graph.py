@@ -4,6 +4,7 @@ import re
 import uuid
 from collections import OrderedDict
 from datetime import UTC, datetime
+from itertools import zip_longest
 from typing import Any, Literal
 from uuid import UUID
 
@@ -24,6 +25,7 @@ from investos.models.evidence import RawEvidence, SourceItem
 from investos.models.fundamental import FundamentalMetric
 from investos.models.graph import Edge
 from investos.models.knowledge import Claim, Event, Fact
+from investos.models.knowledge_mutation import KnowledgeMutation
 from investos.models.lesson import Lesson, LessonObservation
 from investos.models.market_setup import MarketSetupSignal
 from investos.models.portfolio import Position
@@ -430,12 +432,13 @@ class GraphService:
         for _level in range(effective_depth):
             await reads.prefetch_edges(frontier)
             neighbors = []
+            branches = []
             for current_type, current_id in frontier:
                 current = await reads.node(current_type, current_id)
                 if current is not None:
-                    neighbors.extend(
-                        await reads.edges(current_type, current_id, current)
-                    )
+                    edges = await reads.edges(current_type, current_id, current)
+                    neighbors.extend(edges)
+                    branches.append((self._node_key(current_type, current_id), edges))
             if len(node_map) < limit:
                 await reads.prefetch_nodes(
                     [
@@ -445,36 +448,24 @@ class GraphService:
                     ]
                 )
             next_frontier: list[tuple[str, UUID | str]] = []
-            for current_type, current_id in frontier:
-                current_node = await reads.node(current_type, current_id)
-                if current_node is None:
-                    continue
-                edges = await reads.edges(current_type, current_id, current_node)
-                current_key = self._node_key(current_type, current_id)
-                if len(node_map) < limit:
-                    await reads.prefetch_nodes(
-                        [
-                            (
-                                edge.target_key
-                                if edge.source_key == current_key
-                                else edge.source_key
-                            )
-                            for edge in edges
-                        ]
-                    )
-                for edge in edges:
+            # Share the bounded view across this breadth-first frontier. A large
+            # first branch must not consume every slot before its siblings run.
+            for wave in zip_longest(*(edges for _, edges in branches)):
+                for branch_index, edge in enumerate(wave):
+                    if edge is None:
+                        continue
+                    current_key = branches[branch_index][0]
                     if edge.id not in edge_map:
                         edge_map[edge.id] = edge
                     other_type = (
                         edge.target_key.split(":", 1)[0]
-                        if edge.source_key == self._node_key(current_type, current_id)
+                        if edge.source_key == current_key
                         else edge.source_key.split(":", 1)[0]
                     )
                     try:
                         other_id = (
                             UUID(edge.target_key.split(":", 1)[1])
-                            if edge.source_key
-                            == self._node_key(current_type, current_id)
+                            if edge.source_key == current_key
                             else UUID(edge.source_key.split(":", 1)[1])
                         )
                     except (ValueError, IndexError):
@@ -517,6 +508,8 @@ class GraphService:
         for edge_id, edge in list(edge_map.items()):
             if edge.source_key not in node_keys or edge.target_key not in node_keys:
                 edge_map.pop(edge_id, None)
+
+        await self._project_source_relationships(node_map, edge_map, reads=reads)
 
         if _include_layouts:
             await self._attach_layouts(node_map)
@@ -621,13 +614,85 @@ class GraphService:
         )
         for node in nodes.values():
             node.is_root = node.key == root_key
+        edge_projection = OrderedDict((edge.id, edge) for edge in edges.values())
+        await self._project_source_relationships(nodes, edge_projection, reads=reads)
         await self._attach_layouts(nodes)
         return GraphNeighborhoodResponse(
             root_key=root_key,
             depth=WEB_NEIGHBORHOOD_DEPTH,
             nodes=list(nodes.values()),
-            edges=list(edges.values()),
+            edges=list(edge_projection.values()),
         )
+
+    async def _project_source_relationships(
+        self,
+        nodes: dict[str, GraphWebNodeResponse],
+        edges: dict[UUID, GraphWebEdgeResponse],
+        *,
+        reads: _NeighborhoodReads | None = None,
+    ) -> list[GraphWebEdgeResponse]:
+        """Expose a direct view of an admitted, cited two-endpoint assertion.
+
+        The claim remains authoritative; its projection disappears when the
+        claim is withdrawn or outside the admitted view. No second durable
+        relationship is written that could outlive the source assertion.
+        """
+        roles: dict[str, dict[str, set[str]]] = {}
+        for edge in list(edges.values()):
+            if edge.source_key not in nodes or edge.target_key not in nodes:
+                continue
+            if nodes[edge.source_key].node_type != "claim":
+                continue
+            if edge.relationship_type in {
+                "relationship_subject",
+                "relationship_object",
+            }:
+                role = edge.relationship_type.removeprefix("relationship_")
+                roles.setdefault(edge.source_key, {}).setdefault(role, set()).add(
+                    edge.target_key
+                )
+        if not roles:
+            return []
+        reads = reads or _NeighborhoodReads(self)
+        await reads.prefetch_nodes(list(roles))
+        projected = []
+        for key, endpoints in roles.items():
+            if set(endpoints) != {"subject", "object"}:
+                continue
+            if any(len(values) != 1 for values in endpoints.values()):
+                continue
+            claim = await reads.node("claim", nodes[key].id)
+            if (
+                claim is None
+                or claim.is_deprecated
+                or not claim.claim_type.startswith("relationship:")
+            ):
+                continue
+            source_key, target_key = next(iter(endpoints["subject"])), next(
+                iter(endpoints["object"])
+            )
+            if source_key == target_key:
+                continue
+            predicate = claim.claim_type.removeprefix("relationship:")
+            edge_id = self._synthetic_edge_id(
+                source_type=nodes[source_key].node_type,
+                source_id=nodes[source_key].id,
+                target_type=nodes[target_key].node_type,
+                target_id=nodes[target_key].id,
+                relationship_type=f"{predicate}:{claim.id}",
+            )
+            edge = GraphWebEdgeResponse(
+                id=edge_id,
+                source_key=source_key,
+                target_key=target_key,
+                relationship_type=predicate,
+                confidence=float(claim.confidence or 0),
+                supporting_claim_id=claim.id,
+                supporting_claim_verified=bool(claim.is_verified),
+            )
+            edges[edge_id] = edge
+            projected.append(edge)
+        return projected
 
     async def compare_nodes(
         self,
@@ -765,6 +830,12 @@ class GraphService:
                 relationship_type=edge.relationship_type,
                 confidence=float(edge.confidence or 0.0),
             )
+        source_relationships = await self._project_source_relationships(nodes, edge_map)
+        source_direct = [
+            edge
+            for edge in source_relationships
+            if {edge.source_key, edge.target_key} == {key_a, key_b}
+        ]
         direct_relation_names = [edge.relationship_type for edge in direct_edges]
         summary_parts: list[str] = []
         if direct_relation_names:
@@ -776,6 +847,11 @@ class GraphService:
             summary_parts.append(
                 f"Direct links: {', '.join(dict.fromkeys(synthetic_names))}."
             )
+        if source_direct:
+            names = ", ".join(
+                dict.fromkeys(edge.relationship_type for edge in source_direct)
+            )
+            summary_parts.append(f"Source-attributed relationships: {names}.")
         if shared_keys:
             shared_labels = [nodes[key].label for key in shared_keys if key in nodes]
             summary_parts.append(f"Shared context: {', '.join(shared_labels[:4])}.")
@@ -798,7 +874,8 @@ class GraphService:
                     confidence=float(edge.confidence or 0.0),
                 )
                 for edge in direct_edges
-            ],
+            ]
+            + source_direct,
             shared_neighbor_keys=shared_keys,
             summary=" ".join(summary_parts),
             nodes=list(nodes_dict.values()),
@@ -1365,7 +1442,47 @@ class GraphService:
                     if getattr(node, "ingest_time", None)
                     else None
                 ),
+                "recorded_at": node.created_at.isoformat(),
+                "available_to_prophet_at": (
+                    node.eligible_action_time.isoformat()
+                    if node.eligible_action_time
+                    else None
+                ),
             }
+            if node_type == "claim" and node.claim_type.startswith("relationship:"):
+                creation = await self.session.scalar(
+                    select(KnowledgeMutation)
+                    .where(
+                        KnowledgeMutation.node_type == "claim",
+                        KnowledgeMutation.node_id == node.id,
+                        KnowledgeMutation.change_type == "created",
+                    )
+                    .order_by(KnowledgeMutation.created_at)
+                    .limit(1)
+                )
+                properties["relationship"] = node.claim_type.removeprefix(
+                    "relationship:"
+                ).replace("_", " ")
+                properties["corroborated"] = bool(node.is_verified)
+                roles = await self.session.scalars(
+                    select(Edge).where(
+                        Edge.source_type == "claim",
+                        Edge.source_id == node.id,
+                        Edge.relationship_type.in_(
+                            ["relationship_subject", "relationship_object"]
+                        ),
+                    )
+                )
+                for role in roles:
+                    provenance = role.properties_json or {}
+                    properties[role.relationship_type] = {
+                        "name": provenance.get("subject_name"),
+                        "document_name_anchor": provenance.get("name_anchor_quote"),
+                    }
+                properties["creation_method"] = {
+                    "source_relationship_backfill": "Retained-source recovery",
+                    "structured_relationship_extraction": "Source extraction",
+                }.get(creation.actor if creation else "", "Recorded assertion")
         elif node_type == "event":
             properties = {
                 "event_type": node.event_type,

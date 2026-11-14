@@ -77,6 +77,7 @@ async def ingest_url(
             source_id=payload.source_id,
             source_item_type=payload.source_item_type,
             author=payload.author,
+            metadata_json={"origin": "manual_url_ingestion"},
             process_now=payload.process_now,
         )
     except UnsafeUrlError as exc:

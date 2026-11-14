@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from investos.schemas.provenance import EvidenceSourceReferenceResponse
 
@@ -71,6 +71,12 @@ class GraphLayoutSyncRequest(BaseModel):
 
 
 class GraphWebEdgeResponse(BaseModel):
+    supporting_claim_id: Optional[UUID] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    supporting_claim_verified: Optional[bool] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     id: UUID
     source_key: str
     target_key: str

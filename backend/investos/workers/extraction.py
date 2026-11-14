@@ -1,3 +1,4 @@
+import math
 import re
 from datetime import UTC, datetime
 from uuid import UUID
@@ -13,6 +14,7 @@ from investos.core.storage import LocalStorage
 from investos.models.catalog import SourceClaimRecord
 from investos.models.entity import Entity, Security
 from investos.models.evidence import RawEvidence, SourceItem
+from investos.models.graph import Edge
 from investos.models.knowledge import Claim, Event, Fact
 from investos.models.profile import Profile
 from investos.models.source import Source
@@ -34,6 +36,7 @@ from investos.services.knowledge_audit import KnowledgeAuditService
 from investos.services.knowledge_time import (
     assess_knowledge_time,
     infer_expired_forecast_time,
+    knowledge_available_at,
 )
 from investos.services.market_setup import MarketSetupSignalService
 from investos.services.operating_loop import OperatingLoopService
@@ -54,6 +57,30 @@ CAPITALIZED_PHRASE_RE = re.compile(
 )
 
 _UNCLASSIFIED_SUBJECT = "Unclassified Research"
+SOURCE_RELATIONSHIP_EXTRACTOR_VERSION = 2
+
+SOURCE_RELATIONSHIP_INSTRUCTIONS = (
+    "Extract only source-attributed relationships supported by the supplied document. "
+    "Each assertion needs a named source, named targets, an accurate open-ended snake_case "
+    "predicate and a verbatim supporting_quote. Each endpoint must be explicitly named "
+    "somewhere in the supplied document. Use the full, unambiguous names given there. "
+    "The relationship quotation may use pronouns or "
+    "shortened names; resolve them from document context and omit ambiguous resolutions. "
+    "Group counterparties explicitly listed under the same predicate in targets; do not "
+    "infer a Cartesian product or omit counterparties merely to repeat the same quotation. "
+    "Prioritize relationships explaining the material development and business dependencies, "
+    "including unexpected ties, before incidental biography. Endpoint kinds "
+    "are open-ended: people, companies, products, technologies and themes are distinct. "
+    "Preserve direction, negation, allegations, conditions, former roles and dates. "
+    "Co-occurrence, background knowledge and the user's theory do not establish a "
+    "relationship. Omit it if the text does not support the predicate. A resignation "
+    "does not establish a current employment role or the hidden cause of an event. "
+    "For event_time_raw copy the source's exact date phrase for the underlying "
+    "relationship event or assertion; use null when it is not stated. Do not infer "
+    "a date from background knowledge or the current date. A historical role is "
+    "not a forecast deadline. "
+    "Confidence is model confidence, not independent verification. "
+)
 
 
 EXTRACTION_SCHEMA = {
@@ -323,6 +350,61 @@ EXTRACTION_SCHEMA = {
         "market_setup_signals",
     ],
 }
+
+
+# Relationships reuse cited claims as assertion nodes. Their two role edges keep
+# predicate, source, time and lifecycle together instead of asserting an uncited
+# company/person edge that survives a withdrawn source.
+RELATION_ENDPOINT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "name": {"type": "string"},
+        "subject_type": {"type": "string", "enum": ["entity", "theme"]},
+        "entity_type": {"type": ["string", "null"]},
+    },
+    "required": ["name", "subject_type", "entity_type"],
+}
+RELATIONSHIPS_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "source": RELATION_ENDPOINT_SCHEMA,
+            "targets": {
+                "type": "array",
+                "items": RELATION_ENDPOINT_SCHEMA,
+                "minItems": 1,
+            },
+            "relationship_type": {"type": "string"},
+            "supporting_quote": {"type": "string"},
+            "confidence": {"type": "number"},
+            "event_time_raw": {"type": ["string", "null"]},
+            "target_horizon": {
+                "type": "string",
+                "enum": ["tactical", "strategic", "visionary"],
+            },
+        },
+        "required": [
+            "source",
+            "targets",
+            "relationship_type",
+            "supporting_quote",
+            "confidence",
+            "event_time_raw",
+            "target_horizon",
+        ],
+    },
+}
+EXTRACTION_SCHEMA["properties"]["relationships"] = RELATIONSHIPS_SCHEMA
+EXTRACTION_SCHEMA["required"].append("relationships")
+# Subject kinds are an open ontology: a product or technology is not a company.
+EXTRACTION_SCHEMA["properties"]["entity_type"].pop("enum", None)
+for _object_kind in ("events", "facts", "claims"):
+    _item_schema = EXTRACTION_SCHEMA["properties"][_object_kind]["items"]
+    _item_schema["properties"]["entity_type"] = {"type": ["string", "null"]}
+    _item_schema["required"].append("entity_type")
 
 
 INVESTMENT_OBJECT_SCHEMA = {
@@ -619,6 +701,8 @@ class ExtractionWorker:
             "raw_evidence_id": str(evidence.id),
             "source_item_id": str(source_item.id),
             "extraction_degraded": False,
+            "primary_subject_type": subject_type,
+            "primary_subject_id": str(subject_id),
         }
         reason = f"Extracted from source evidence: {evidence.title or evidence.url or 'untitled evidence'}"
 
@@ -672,6 +756,18 @@ class ExtractionWorker:
                 relationship_type="mentions",
                 reasoning=payload.get("relationship_to_primary_subject"),
                 properties={"origin": "structured_extraction"},
+            )
+            await self.link_object_context(
+                object_type="event",
+                object_id=event.id,
+                object_subject={
+                    "subject_type": object_subject_type,
+                    "subject_id": object_subject_id,
+                    "subject_name": _object_subject_name,
+                },
+                primary_subject_type=subject_type,
+                primary_subject_id=subject_id,
+                payload=payload,
             )
 
         for payload in extracted["facts"]:
@@ -743,6 +839,18 @@ class ExtractionWorker:
                 relationship_type="supports",
                 reasoning=payload.get("relationship_to_primary_subject"),
                 properties={"origin": "structured_extraction"},
+            )
+            await self.link_object_context(
+                object_type="fact",
+                object_id=fact.id,
+                object_subject={
+                    "subject_type": object_subject_type,
+                    "subject_id": object_subject_id,
+                    "subject_name": _object_subject_name,
+                },
+                primary_subject_type=subject_type,
+                primary_subject_id=subject_id,
+                payload=payload,
             )
 
         for payload in extracted["claims"]:
@@ -820,6 +928,19 @@ class ExtractionWorker:
                 reasoning=payload.get("relationship_to_primary_subject"),
                 properties={"origin": "structured_extraction"},
             )
+            await self.link_object_context(
+                object_type="claim",
+                object_id=claim.id,
+                object_subject={
+                    "subject_type": object_subject_type,
+                    "subject_id": object_subject_id,
+                    "subject_name": object_subject_name,
+                },
+                primary_subject_type=subject_type,
+                primary_subject_id=subject_id,
+                payload=payload,
+            )
+
             self.session.add(
                 SourceClaimRecord(
                     source_id=source_item.source_id,
@@ -831,6 +952,22 @@ class ExtractionWorker:
                     ),
                 )
             )
+
+        relationship_result = await self.persist_source_relationships(
+            evidence,
+            source_item,
+            text_content,
+            extracted.get("relationships", []),
+        )
+        metadata = dict(evidence.metadata_json or {})
+        metadata["relationship_extraction"] = {
+            "version": SOURCE_RELATIONSHIP_EXTRACTOR_VERSION,
+            "status": "partial" if relationship_result["rejected"] else "completed",
+            **relationship_result,
+            "actor": "structured_relationship_extraction",
+            "recorded_at": datetime.now(UTC).isoformat(),
+        }
+        evidence.metadata_json = metadata
 
         # Persist open-ended investment objects from the same structured pass.
         # These are source-dated evidence lanes, not thesis promotions; later
@@ -873,7 +1010,7 @@ class ExtractionWorker:
                     "primary_subject_id": str(subject_id),
                 },
             )
-            await self.link_investment_object_context(
+            await self.link_object_context(
                 object_type="fundamental_metric",
                 object_id=metric.id,
                 object_subject=object_subject,
@@ -923,7 +1060,7 @@ class ExtractionWorker:
                     "primary_subject_id": str(subject_id),
                 },
             )
-            await self.link_investment_object_context(
+            await self.link_object_context(
                 object_type="market_setup_signal",
                 object_id=signal.id,
                 object_subject=object_subject,
@@ -940,7 +1077,7 @@ class ExtractionWorker:
             raw_evidence_id=evidence.id,
         )
         evidence.is_processed = True
-        persisted_object_count = sum(
+        persisted_object_count = relationship_result["created"] + sum(
             len(extracted[key])
             for key in (
                 "events",
@@ -976,7 +1113,388 @@ class ExtractionWorker:
         )
         loop_result["watchers_triggered"] = watcher_trigger_count
         loop_result["processing"] = processing.summary(processing_state)
+        loop_result["relationships"] = relationship_result
         return loop_result
+
+    @staticmethod
+    def _relationship_available_at(
+        evidence: RawEvidence, recorded_at: datetime
+    ) -> datetime:
+        return knowledge_available_at(
+            recorded_at,
+            public_time=evidence.public_time,
+            ingest_time=evidence.ingest_time,
+        )
+
+    async def persist_source_relationships(
+        self,
+        evidence: RawEvidence,
+        source_item: SourceItem,
+        text_content: str,
+        payloads: list[dict],
+        *,
+        actor: str = "structured_relationship_extraction",
+    ) -> dict[str, int]:
+        """Retain attributed assertions; lexical binding is not semantic verification.
+
+        A relationship is a cited claim with subject/object role edges, rather
+        than a timeless direct edge detached from its evidence lifecycle.
+        """
+        result = {"created": 0, "existing": 0, "rejected": 0}
+        if (
+            source_item.raw_evidence_id != evidence.id
+            or source_item.processing_status
+            not in {
+                "processed",
+                "processed_adjacent_context",
+            }
+        ):
+            return {**result, "rejected": len(payloads)}
+        await self.session.execute(
+            select(SourceItem.id)
+            .where(SourceItem.id == source_item.id)
+            .with_for_update()
+        )
+        normalized_text = " ".join(text_content.split())
+        source_type = await self.session.scalar(
+            select(Source.source_type).where(Source.id == source_item.source_id)
+        )
+        directness = source_authority(source_type, evidence.metadata_json)
+        audit = KnowledgeAuditService(self.session)
+        pairs = []
+        for payload in payloads:
+            targets = payload.get("targets")
+            if not isinstance(targets, list) or not targets:
+                result["rejected"] += 1
+                continue
+            pairs.extend({**payload, "target": target} for target in targets)
+        for payload in pairs:
+            quote = " ".join(str(payload.get("supporting_quote") or "").split())
+            predicate = str(payload.get("relationship_type") or "").strip()
+            endpoints = [payload.get("source") or {}, payload.get("target") or {}]
+            names = [
+                " ".join(str(endpoint.get("name") or "").split())
+                for endpoint in endpoints
+            ]
+            try:
+                confidence = float(payload.get("confidence"))
+            except (TypeError, ValueError):
+                confidence = float("nan")
+            valid = (
+                bool(quote)
+                and quote in normalized_text
+                and re.fullmatch(r"[a-z][a-z0-9_]*", predicate) is not None
+                and math.isfinite(confidence)
+                and 0 <= confidence <= 1
+                and names[0].casefold() != names[1].casefold()
+                and all(
+                    name
+                    and not is_unusable_subject(name)
+                    and re.search(
+                        r"(?<!\w)" + re.escape(" ".join(name.split())) + r"(?!\w)",
+                        normalized_text,
+                        re.I,
+                    )
+                    and endpoint.get("subject_type") in {"entity", "theme"}
+                    and (
+                        endpoint.get("subject_type") == "theme"
+                        or bool(endpoint.get("entity_type"))
+                    )
+                    for name, endpoint in zip(names, endpoints)
+                )
+            )
+            if not valid:
+                result["rejected"] += 1
+                await audit.record_change(
+                    node_type="raw_evidence",
+                    node_id=evidence.id,
+                    change_type="relationship_candidate_rejected",
+                    actor=actor,
+                    reason="The proposed relationship did not satisfy source binding or structural validation.",
+                    source_type="source_item",
+                    source_id=source_item.id,
+                    metadata={
+                        "admitted": False,
+                        "source": payload.get("source"),
+                        "target": payload.get("target"),
+                        "relationship_type": predicate,
+                        "supporting_quote": quote,
+                    },
+                )
+                continue
+            subjects = []
+            for name, endpoint in zip(names, endpoints):
+                subject_id = await self._get_or_create_subject(
+                    name,
+                    endpoint["subject_type"],
+                    endpoint.get("entity_type"),
+                    update_entity_type=False,
+                )
+                subjects.append((endpoint["subject_type"], subject_id))
+            if subjects[0] == subjects[1]:
+                result["rejected"] += 1
+                continue
+            statement = select(Claim).where(
+                Claim.source_item_id == source_item.id,
+                Claim.statement == quote,
+                Claim.claim_type == f"relationship:{predicate}",
+                Claim.is_deprecated.is_(False),
+            )
+            for role, (subject_type, subject_id) in zip(
+                ("subject", "object"), subjects
+            ):
+                statement = statement.where(
+                    select(Edge.id)
+                    .where(
+                        Edge.source_type == "claim",
+                        Edge.source_id == Claim.id,
+                        Edge.target_type == subject_type,
+                        Edge.target_id == subject_id,
+                        Edge.relationship_type == f"relationship_{role}",
+                    )
+                    .exists()
+                )
+            existing = (await self.session.scalars(statement.limit(1))).first()
+            if existing is not None:
+                available_at = self._relationship_available_at(
+                    evidence, existing.created_at
+                )
+                if (
+                    existing.eligible_action_time is None
+                    or existing.eligible_action_time < available_at
+                ):
+                    before = existing.eligible_action_time
+                    existing.eligible_action_time = available_at
+                    await audit.record_change(
+                        node_type="claim",
+                        node_id=existing.id,
+                        change_type="availability_corrected",
+                        actor=actor,
+                        reason="An extracted relationship cannot be actionable before it was recorded.",
+                        source_type="source_item",
+                        source_id=source_item.id,
+                        metadata={
+                            "previous_eligible_action_time": (
+                                before.isoformat() if before else None
+                            ),
+                            "eligible_action_time": available_at.isoformat(),
+                        },
+                    )
+                result["existing"] += 1
+                continue
+            raw_date = " ".join(str(payload.get("event_time_raw") or "").split())
+            date_bound = bool(raw_date) and raw_date in normalized_text
+            event_time = (
+                self._event_time_from_payload(payload, evidence) if date_bound else None
+            )
+            # A historical relationship assertion has no forecast review deadline.
+            valid_until = None
+            temporal = assess_knowledge_time(
+                quote,
+                event_time=event_time,
+                public_time=evidence.public_time,
+                ingest_time=evidence.ingest_time,
+                valid_until=valid_until,
+                item_type="claim",
+            )
+            recorded_at = datetime.now(UTC)
+            available_at = self._relationship_available_at(evidence, recorded_at)
+            claim = Claim(
+                statement=quote,
+                claim_type=f"relationship:{predicate}",
+                confidence=confidence,
+                source_item_id=source_item.id,
+                is_verified=False,
+                promotion_eligible=False,
+                tier="credible_interpretation",
+                importance="medium",
+                directness=directness,
+                novelty=temporal.novelty,
+                contradiction_role="neutral",
+                event_time=event_time,
+                public_time=evidence.public_time,
+                ingest_time=evidence.ingest_time,
+                created_at=recorded_at,
+                eligible_action_time=available_at,
+                valid_until=valid_until,
+                target_horizon=payload.get("target_horizon") or "strategic",
+            )
+            self.session.add(claim)
+            await self.session.flush()
+            await audit.record_change(
+                node_type="claim",
+                node_id=claim.id,
+                change_type="created",
+                actor=actor,
+                reason="Retained a source-attributed relationship assertion; not independently verified.",
+                source_type="source_item",
+                source_id=source_item.id,
+                metadata={
+                    "raw_evidence_id": str(evidence.id),
+                    "relationship_type": predicate,
+                    "event_date_source_bound": date_bound,
+                    "proposed_event_time_raw": payload.get("event_time_raw"),
+                },
+            )
+            await self.edge_state.ensure_edge(
+                source_type="claim",
+                source_id=claim.id,
+                target_type="source_item",
+                target_id=source_item.id,
+                relationship_type="extracted_from",
+                properties={"origin": actor},
+            )
+            for role, (subject_type, subject_id), name in zip(
+                ("subject", "object"), subjects, names
+            ):
+                await self.edge_state.ensure_edge(
+                    source_type="claim",
+                    source_id=claim.id,
+                    target_type=subject_type,
+                    target_id=subject_id,
+                    relationship_type=f"relationship_{role}",
+                    confidence=confidence,
+                    reasoning=quote,
+                    properties={
+                        "origin": actor,
+                        "predicate": predicate,
+                        "source_item_id": str(source_item.id),
+                        "subject_name": name,
+                        "name_anchor_quote": re.search(
+                            re.escape(name), normalized_text, re.I
+                        ).group(0),
+                    },
+                )
+            self.session.add(
+                SourceClaimRecord(
+                    source_id=source_item.source_id,
+                    claim_id=claim.id,
+                    claim_time=claim.public_time or claim.ingest_time,
+                    assessment="pending",
+                )
+            )
+            result["created"] += 1
+        return result
+
+    async def extract_source_relationships(
+        self, title: str, text_content: str
+    ) -> list[dict]:
+        """The same source-binding contract for a retained-source repair pass."""
+        excerpt = bounded_document_excerpt(
+            text_content, head_chars=5000, tail_chars=1800
+        )
+        result = await call_llm_json(
+            system_prompt=SOURCE_RELATIONSHIP_INSTRUCTIONS,
+            user_prompt=f"Evidence title: {title}\n\nEvidence text:\n{excerpt}",
+            schema={
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {"relationships": RELATIONSHIPS_SCHEMA},
+                "required": ["relationships"],
+            },
+        )
+        return result.get("relationships", [])
+
+    async def reindex_source_relationships(
+        self,
+        evidence_id: UUID,
+        *,
+        apply: bool = False,
+        retry_completed: bool = False,
+    ) -> dict[str, object]:
+        """Augment retained evidence without recreating existing extraction objects.
+
+        Applying commits this operation; callers should use a dedicated session.
+        A dry run rolls back only its savepoint and retains no assertion writes.
+        """
+        evidence = await self.session.get(RawEvidence, evidence_id)
+        item = await self.session.scalar(
+            select(SourceItem).where(SourceItem.raw_evidence_id == evidence_id)
+        )
+        base = {"evidence_id": str(evidence_id), "dry_run": not apply, "model_calls": 0}
+        if evidence is None or item is None:
+            return {**base, "status": "missing_evidence"}
+        if evidence.source_item_type in {
+            "conversation_turn",
+            "source_feedback",
+            "manual_note",
+        } or (evidence.metadata_json or {}).get("origin") in {
+            "agent_chat",
+            "agent_reflection",
+        }:
+            return {**base, "status": "skipped_derived_origin"}
+        if item.processing_status not in {"processed", "processed_adjacent_context"}:
+            return {**base, "status": "source_not_eligible"}
+        checkpoint = (evidence.metadata_json or {}).get("relationship_extraction") or {}
+        if (
+            not retry_completed
+            and checkpoint.get("version") == SOURCE_RELATIONSHIP_EXTRACTOR_VERSION
+            and checkpoint.get("status") in {"completed", "partial"}
+        ):
+            return {
+                **base,
+                "status": (
+                    "partial_requires_review"
+                    if checkpoint["status"] == "partial"
+                    else "already_completed"
+                ),
+            }
+        try:
+            text_content = (
+                (await self.storage.get_object(evidence.raw_content_ref)).decode(
+                    "utf-8", errors="replace"
+                )
+                if evidence.raw_content_ref
+                else ""
+            )
+        except FileNotFoundError:
+            text_content = ""
+        # Retained extracted_text is source text; a model-written summary is not.
+        text_content = text_content or item.extracted_text or ""
+        if not text_content.strip():
+            return {**base, "status": "missing_source_text"}
+        payloads = await self.extract_source_relationships(
+            evidence.title or "Untitled evidence", text_content
+        )
+        savepoint = await self.session.begin_nested()
+        try:
+            counts = await self.persist_source_relationships(
+                evidence,
+                item,
+                text_content,
+                payloads,
+                actor="source_relationship_backfill",
+            )
+            status = "partial" if counts["rejected"] else "completed"
+            if apply:
+                metadata = dict(evidence.metadata_json or {})
+                metadata["relationship_extraction"] = {
+                    "version": SOURCE_RELATIONSHIP_EXTRACTOR_VERSION,
+                    "status": status,
+                    **counts,
+                    "actor": "source_relationship_backfill",
+                    "recorded_at": datetime.now(UTC).isoformat(),
+                }
+                evidence.metadata_json = metadata
+                await savepoint.commit()
+                await self.session.commit()
+            else:
+                await savepoint.rollback()
+            return {
+                **base,
+                "model_calls": 1,
+                "status": status,
+                "assertion_groups": len(payloads),
+                "candidates": sum(
+                    len(payload.get("targets") or []) for payload in payloads
+                ),
+                "proposed_relationships": payloads,
+                **counts,
+            }
+        except BaseException:
+            if savepoint.is_active:
+                await savepoint.rollback()
+            raise
 
     async def reassess_evidence_relevance(self, evidence_id: UUID) -> dict[str, object]:
         evidence = await self.session.get(RawEvidence, evidence_id)
@@ -1095,7 +1613,8 @@ class ExtractionWorker:
             subject_name,
             subject_type,
             (
-                self._fallback_entity_type(subject_name, subject_name)
+                payload.get("entity_type")
+                or self._fallback_entity_type(subject_name, subject_name)
                 if subject_type == "entity"
                 else None
             ),
@@ -1134,7 +1653,9 @@ class ExtractionWorker:
         source_item_id = (await self.session.execute(stmt)).scalar_one()
         source_item = (
             await self.session.execute(
-                select(SourceItem).where(SourceItem.id == source_item_id)
+                select(SourceItem)
+                .where(SourceItem.id == source_item_id)
+                .execution_options(populate_existing=True)
             )
         ).scalar_one()
         return source_item
@@ -1205,6 +1726,7 @@ class ExtractionWorker:
                 supported_subjects=relevance.supported_subjects,
             )
         extracted["relevance_assessment"] = relevance.as_metadata()
+        extracted["relationships"] = extracted.get("relationships", [])
         extracted["events"] = extracted.get("events", [])[:5]
         extracted["facts"] = extracted.get("facts", [])[:8]
         extracted["claims"] = extracted.get("claims", [])[:6]
@@ -1215,6 +1737,7 @@ class ExtractionWorker:
             :MAX_MARKET_SETUP_SIGNALS
         ]
         if not relevance.knowledge_eligible:
+            extracted["relationships"] = []
             extracted["events"] = []
             extracted["facts"] = []
             extracted["claims"] = []
@@ -1270,7 +1793,8 @@ class ExtractionWorker:
     @staticmethod
     def _structured_extraction_system_prompt() -> str:
         return (
-            "Extract atomic market research objects from stored evidence for Prophet. "
+            SOURCE_RELATIONSHIP_INSTRUCTIONS
+            + "Extract atomic market research objects from stored evidence for Prophet. "
             "Begin by assessing the supplied document itself against the stated research intent. The research title, intended "
             "subject, query, ticker, or fallback guess are context to test and are not evidence that the document supports them. "
             "Set relevance_assessment.status to relevant only when the document directly supports the intended subject or question; "
@@ -1281,7 +1805,10 @@ class ExtractionWorker:
             "irrelevant or uncertain document, return empty event, fact, claim, fundamental-metric, and market-setup arrays. "
             "Preserve the distinction between event, fact, and claim. "
             "Facts should reflect stronger evidence than claims. "
-            "When subject_type is entity, also classify entity_type as company, person, organization, index, commodity, or currency. "
+            "When subject_type is entity, classify its entity_type with an accurate open-ended kind. "
+            "Examples include company, person, organization, product, technology, index, commodity and currency. "
+            "A product, an article title, an investment idea or a group of people must not be mislabeled as a company. "
+            "Provide entity_type for secondary subjects too, rather than borrowing the primary subject's kind. "
             "Use tiers from this set only: hard_fact, strong_derived, credible_interpretation, weak_signal. "
             "Use importance from: critical, high, medium, low. "
             "Use contradiction_role from: supports_consensus, contradicts_consensus, neutral, ambiguous. "
@@ -1387,6 +1914,7 @@ class ExtractionWorker:
                 else None
             ),
             "summary": summary,
+            "relationships": [],
             "events": [],
             "facts": [],
             "claims": [],
@@ -1484,7 +2012,7 @@ class ExtractionWorker:
             "relationship": relationship,
         }
 
-    async def link_investment_object_context(
+    async def link_object_context(
         self,
         *,
         object_type: str,
@@ -1505,8 +2033,9 @@ class ExtractionWorker:
             target_type=primary_subject_type,
             target_id=primary_subject_id,
             relationship_type="context_for",
-            confidence=max(0.0, min(1.0, float(payload.get("confidence") or 0.0))),
-            reasoning=payload.get("investment_relevance"),
+            confidence=max(0.0, min(1.0, float(payload.get("confidence", 1.0)))),
+            reasoning=payload.get("investment_relevance")
+            or payload.get("relationship_to_primary_subject"),
             properties={
                 "origin": "structured_extraction",
                 "relationship_to_primary_subject": payload.get(
@@ -1593,7 +2122,12 @@ class ExtractionWorker:
         return "company"
 
     async def _get_or_create_subject(
-        self, subject_name: str, subject_type: str, entity_type: str | None = None
+        self,
+        subject_name: str,
+        subject_type: str,
+        entity_type: str | None = None,
+        *,
+        update_entity_type: bool = True,
     ) -> UUID:
         # Clean internal run-label prefixes before anything touches the entity table.
         cleaned = normalize_subject_name(subject_name)
@@ -1631,7 +2165,11 @@ class ExtractionWorker:
             inferred_type = entity_type or self._fallback_entity_type(
                 subject_name, subject_name
             )
-            if entity.entity_type == "company" and inferred_type != "company":
+            if (
+                update_entity_type
+                and entity.entity_type == "company"
+                and inferred_type != "company"
+            ):
                 entity.entity_type = inferred_type
             return entity.id
         entity = Entity(
