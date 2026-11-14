@@ -402,16 +402,25 @@ and can be changed in Settings independently of the main analyst model.
 
 File references survive conversation reloads and follow-up questions. The
 job record also retains file receipts and the context choice so a failed
-question can be restored without uploading its files again. File-analysis jobs
-freeze their original file set and session, and remain deferred through transient
-provider failures. The existing provider circuit owns the next eligible probe;
-completed page readings are reused. The single-instance job tracker checkpoints
-requests atomically and resumes eligible work after restart. Stable job identity
+question can be restored without uploading its files again. Background chat jobs
+freeze their original file set, session and permission choice. Completed scope,
+conversation context, hydrated evidence, source checks, analysis and review stages
+are checkpointed in the existing single-instance job tracker, with database
+references committed before the atomic file checkpoint. Transient provider
+failures defer unfinished work through the existing provider circuit; it owns
+the next eligible probe. Completed file readings and analysis stages are reused
+after restart, and the evidence receipt retains its original assembly time.
+Recovery does not silently refresh the graph or conversation beneath a paused
+answer. Ask a new question when a fresh snapshot is needed. Stable job identity
 on both conversation messages prevents replay from duplicating a committed
 answer or a user message saved before an interruption. Deferred work is active,
 cancellable and visibly waiting, rather than reported as completed analysis.
-Permanent configuration/model errors stop the job. Requests that may execute
-actions are not automatically replayed. The
+Permanent configuration/model errors stop the job. Before a turn can promote
+state or execute actions, a durable replay barrier disables automatic recovery.
+An interrupted turn beyond that boundary requires activity review and an
+explicit retry; the tracker does not claim exactly-once action execution.
+A completed response checkpoint can still be delivered without executing it
+again. The
 composer lets the user stop including prior files. Attachment turns never
 execute portfolio actions, create watches, or promote uploads into research
 evidence. Size, text and cell-processing limits are configurable and partial
@@ -429,6 +438,11 @@ separate. Cancellation releases its trial lease; expiry permits a new fenced
 trial after a restart. This follows the standard
 [half-open circuit breaker](https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker)
 pattern without raising provider quotas or bypassing admission limits.
+Both transport retries and the durable circuit use the same parser for
+[RFC 9110 Retry-After](https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.3)
+seconds and HTTP dates. Server-requested waits are not shortened by local
+backoff caps; long waits defer through shared health instead of occupying a
+request worker.
 Autonomous model work
 waits for a verified configuration; deterministic maintenance can continue.
 Health identities include model request options so an observed failure is not

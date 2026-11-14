@@ -1,21 +1,20 @@
-"""Resume only the file-analysis path whose product contract forbids actions."""
+"""Resume checkpointed chat work until a non-replayable state-change boundary."""
 
 import asyncio
 from datetime import UTC, datetime, timedelta
 
-import httpx
-
 from investos.config import settings
 from investos.core.llm import _cooldown_remaining
 from investos.core.provider_health import (
-    LLMProviderCooldownError,
     ProviderHealthStore,
     probe_llm_provider,
+    retryable_provider_failure,
 )
 from investos.core.providers import llm_provider_capability
 from investos.db import async_session_maker
 from investos.schemas.agent import AgentTurnRequest
 from investos.services.agent import AgentService
+from investos.services.chat_turn_state import ChatTurnState
 from investos.services.runtime_settings import RuntimeSettingsStore
 
 PERMANENT_CODES = {
@@ -29,12 +28,7 @@ PERMANENT_CODES = {
 
 
 def retryable(exc):
-    return isinstance(
-        exc, (LLMProviderCooldownError, httpx.RequestError, TimeoutError)
-    ) or (
-        isinstance(exc, httpx.HTTPStatusError)
-        and (exc.response.status_code == 429 or exc.response.status_code >= 500)
-    )
+    return retryable_provider_failure(exc)
 
 
 def waiting_configuration(record):
@@ -103,15 +97,21 @@ def start_agent_turn_job(tracker, record, payload=None):
     if request is None:
         raise ValueError("The original question is unavailable.")
     if saved and (
-        not (request.attachments or request.attachment_ids)
-        or request.auto_execute
-        or request.use_session_attachments
+        request.use_session_attachments
         or request.session_id is None
         or record.session_id != request.session_id
+        or not ChatTurnState.can_resume(record.request_context)
+        or (not record.request_context.get("turn_state") and request.auto_execute)
     ):
         raise ValueError(
-            "The saved request is not an eligible read-only file question."
+            "The saved request cannot be safely replayed; inspect its activity before retrying."
         )
+
+    state = (
+        ChatTurnState(record.request_context["turn_state"], tracker._save_to_disk)
+        if "turn_state" in record.request_context
+        else None
+    )
 
     async def run():
         role = record.request_context.get("wait_role", "analyst")
@@ -143,11 +143,16 @@ def start_agent_turn_job(tracker, record, payload=None):
                             request,
                             progress_callback=progress,
                             **({"conversation_request_id": record.id} if saved else {}),
+                            **({"turn_state": state} if state is not None else {}),
                         )
                     tracker.complete(record.id, result=result.model_dump(mode="json"))
                     return
                 except Exception as exc:
-                    if not saved or not retryable(exc):
+                    if (
+                        not saved
+                        or not ChatTurnState.can_resume(record.request_context)
+                        or not retryable(exc)
+                    ):
                         raise
                     record.request_context["wait_role"] = role
                     provider, model = waiting_configuration(record)
@@ -159,7 +164,7 @@ def start_agent_turn_job(tracker, record, payload=None):
                         retry_at=retry_time(
                             health, _cooldown_remaining(provider, model)
                         ),
-                        message="Waiting for the AI provider. Completed file readings are saved; this question will resume automatically.",
+                        message="Waiting for the AI provider. Completed work is saved; this question will resume automatically.",
                     )
         except asyncio.CancelledError:
             # User cancellation is already marked; shutdown leaves a resumable job.
@@ -175,7 +180,7 @@ def start_agent_turn_job(tracker, record, payload=None):
     return task
 
 
-def resume_file_questions(tracker):
+def resume_agent_turns(tracker):
     for record in tracker.list_jobs(status="active", job_kind="agent_turn", limit=None):
         if record.request_context.get("resume_payload"):
             try:

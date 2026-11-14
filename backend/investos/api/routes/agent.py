@@ -23,6 +23,7 @@ from investos.services.agent import AgentService
 from investos.services.agent_action_log import AgentActionLogService
 from investos.services.agent_turn_jobs import start_agent_turn_job
 from investos.services.chat_attachments import ChatAttachmentService
+from investos.services.chat_turn_state import ChatTurnState
 from investos.services.live_jobs import LiveJobTracker
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -91,7 +92,8 @@ def _job_response(tracker: LiveJobTracker, job_id: UUID) -> AgentTurnJobResponse
         created_at=record.created_at,
         updated_at=record.updated_at,
         retry_at=record.retry_at,
-        resumable=bool(record.request_context.get("resume_payload")),
+        resumable=bool(record.request_context.get("resume_payload"))
+        and ChatTurnState.can_resume(record.request_context),
         events=[
             {
                 "phase": event.phase,
@@ -136,15 +138,14 @@ async def create_agent_turn_job(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    resumable = bool(payload.attachments or payload.attachment_ids)
-    if resumable:
-        payload = payload.model_copy(
-            update={
-                "session_id": payload.session_id or uuid4(),
-                "use_session_attachments": False,
-                "auto_execute": False,
-            }
-        )
+    has_files = bool(payload.attachments or payload.attachment_ids)
+    payload = payload.model_copy(
+        update={
+            "session_id": payload.session_id or uuid4(),
+            "use_session_attachments": False,
+            **({"auto_execute": False} if has_files else {}),
+        }
+    )
     record = tracker.create_job(
         request_message=payload.message,
         session_id=payload.session_id,
@@ -155,9 +156,8 @@ async def create_agent_turn_job(
                 attachments.response(row).model_dump(mode="json") for row in files
             ],
             "use_session_attachments": original.use_session_attachments,
-            **(
-                {"resume_payload": payload.model_dump(mode="json")} if resumable else {}
-            ),
+            "resume_payload": payload.model_dump(mode="json"),
+            "turn_state": ChatTurnState.initial(),
         },
     )
     start_agent_turn_job(tracker, record, payload)

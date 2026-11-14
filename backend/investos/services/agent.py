@@ -31,7 +31,10 @@ from investos.core.prompting import (
     compact_reasoning_result,
     estimate_tokens_from_payload,
 )
-from investos.core.provider_health import LLMProviderCooldownError
+from investos.core.provider_health import (
+    LLMProviderCooldownError,
+    provider_failure_cause,
+)
 from investos.core.storage import LocalStorage
 from investos.models.conclusion import ConclusionState
 from investos.models.coverage import UnresolvedQuestion
@@ -40,6 +43,7 @@ from investos.models.evidence import RawEvidence, SourceItem
 from investos.models.lesson import Lesson
 from investos.models.portfolio import Position
 from investos.models.profile import Profile
+from investos.models.reasoning import EvidencePacket, ReasoningRun
 from investos.models.review import ReviewQueueItem
 from investos.models.shadow import ExperimentResult
 from investos.models.source import Source
@@ -62,6 +66,7 @@ from investos.schemas.verification import VerificationRequest
 from investos.services.agent_action_log import AgentActionLogService
 from investos.services.artifact_hygiene import is_internal_artifact_text
 from investos.services.chat_attachments import ChatAttachmentService
+from investos.services.chat_turn_state import ChatTurnState
 from investos.services.corroboration import CorroborationService
 from investos.services.decision import DecisionService
 from investos.services.ingestion import IngestionService
@@ -610,6 +615,8 @@ class AgentService:
         self.session = session
         self.ingestion = IngestionService(session)
         self.storage = LocalStorage()
+        self._turn_state = ChatTurnState()
+        self._conversation_request_id = None
         self._operating_intent_cache: OrderedDict[
             tuple[str, str, str, str, str], str
         ] = OrderedDict()
@@ -723,8 +730,46 @@ class AgentService:
         review_evidence: bool = False,
         review_trigger: str | None = None,
         conversation_request_id: UUID | None = None,
+        turn_state: ChatTurnState | None = None,
     ) -> AgentTurnResponse:
+        state = turn_state or ChatTurnState()
+        self._turn_state = state
+        self._conversation_request_id = conversation_request_id
+
+        async def run():
+            return await self._handle_turn_once(
+                payload,
+                progress_callback,
+                review_evidence=review_evidence,
+                review_trigger=review_trigger,
+                conversation_request_id=conversation_request_id,
+            )
+
+        return await state.run(
+            "response",
+            run,
+            session=self.session,
+            encode=lambda response: response.model_dump(mode="json"),
+            decode=AgentTurnResponse.model_validate,
+        )
+
+    async def _handle_turn_once(
+        self,
+        payload: AgentTurnRequest,
+        progress_callback=None,
+        *,
+        review_evidence=False,
+        review_trigger=None,
+        conversation_request_id=None,
+    ) -> AgentTurnResponse:
+        state = self._turn_state
         session_id = payload.session_id or uuid4()
+        if conversation_request_id:
+            completed = await self._completed_conversation_response(
+                session_id, conversation_request_id
+            )
+            if completed is not None:
+                return completed
         if not review_evidence:
             payload = await self.resolve_file_context(payload)
         if payload.attachments or payload.attachment_ids:
@@ -744,7 +789,9 @@ class AgentService:
                 "routing",
                 "Classifying the turn intent before attaching portfolio context.",
             )
-            turn_intent = await self._classify_turn_intent(payload.message)
+            turn_intent = await state.run(
+                "intent", lambda: self._classify_turn_intent(payload.message)
+            )
         if turn_intent.get("route") == "conversation":
             await self._emit_progress(
                 progress_callback,
@@ -842,20 +889,30 @@ class AgentService:
         )
         # Load recent session history early so context resolution can preserve
         # legitimate follow-up continuity instead of falling back to portfolio scope.
-        history_resp = await self.conversation_history(
-            session_id=session_id,
-            subject_id=None,
-            subject_type="portfolio",
+        history_resp = await state.run(
+            "history",
+            lambda: self.conversation_history(
+                session_id=session_id, subject_id=None, subject_type="portfolio"
+            ),
+            encode=lambda history: history.model_dump(mode="json"),
+            decode=AgentConversationHistoryResponse.model_validate,
         )
         recent_turns = history_resp.entries[-8:] if history_resp.entries else []
 
-        resolved = await self.resolve_context(
-            message=payload.message,
-            subject_id=payload.subject_id,
-            subject_type=payload.subject_type,
-            session_id=session_id,
-            intent_route=str(turn_intent.get("route") or ""),
-            subject_hint=turn_intent.get("subject_hint") or {"subject_kind": "none"},
+        resolved = await state.run(
+            "context",
+            lambda: self.resolve_context(
+                message=payload.message,
+                subject_id=payload.subject_id,
+                subject_type=payload.subject_type,
+                session_id=session_id,
+                intent_route=str(turn_intent.get("route") or ""),
+                subject_hint=turn_intent.get("subject_hint")
+                or {"subject_kind": "none"},
+            ),
+            session=self.session,
+            encode=lambda context: context.model_dump(mode="json"),
+            decode=AgentResolveResponse.model_validate,
         )
         await self._emit_progress(
             progress_callback,
@@ -933,11 +990,14 @@ class AgentService:
 
         conversational_handoff = None
         if turn_intent.get("route") == "continue":
-            conversational_handoff = await self._maybe_conversational_handoff(
-                message=payload.message,
-                resolved_subject_name=resolved.subject_name,
-                resolved_subject_type=resolved.subject_type,
-                history=recent_turns,
+            conversational_handoff = await state.run(
+                "handoff",
+                lambda: self._maybe_conversational_handoff(
+                    message=payload.message,
+                    resolved_subject_name=resolved.subject_name,
+                    resolved_subject_type=resolved.subject_type,
+                    history=recent_turns,
+                ),
             )
         if conversational_handoff is not None:
             assistant_message = conversational_handoff
@@ -991,14 +1051,20 @@ class AgentService:
 
         direct_answer = None
         if turn_intent.get("route") == "operate":
-            direct_answer = await self._maybe_operating_context_answer(
-                session_id=session_id,
-                message=payload.message,
-                resolved_subject_id=resolved.subject_id,
-                resolved_subject_type=resolved.subject_type,
-                resolved_subject_name=resolved.subject_name,
-                allow_actions=payload.auto_execute,
-                history=recent_turns,
+            if payload.auto_execute:
+                state.block_replay()
+            direct_answer = await state.run(
+                "operating_answer",
+                lambda: self._maybe_operating_context_answer(
+                    session_id=session_id,
+                    message=payload.message,
+                    resolved_subject_id=resolved.subject_id,
+                    resolved_subject_type=resolved.subject_type,
+                    resolved_subject_name=resolved.subject_name,
+                    allow_actions=payload.auto_execute,
+                    history=recent_turns,
+                ),
+                session=self.session,
             )
         else:
             await self._emit_progress(
@@ -1111,11 +1177,14 @@ class AgentService:
             "planning",
             "Deriving the evidence requirements from the question before retrieval.",
         )
-        question_research_plan = await self._plan_question_research(
-            message=payload.message,
-            subject_name=resolved.subject_name,
-            subject_type=resolved.subject_type,
-            freshness_requirement=turn_intent,
+        question_research_plan = await state.run(
+            "research_plan",
+            lambda: self._plan_question_research(
+                message=payload.message,
+                subject_name=resolved.subject_name,
+                subject_type=resolved.subject_type,
+                freshness_requirement=turn_intent,
+            ),
         )
         await self._emit_progress(
             progress_callback,
@@ -1141,8 +1210,12 @@ class AgentService:
                 "research",
                 "Checking Prophet's opportunity universe instead of treating the current portfolio as the search universe.",
             )
-            opportunity_context = await self._question_opportunity_context(
-                run_due_scan=payload.auto_execute
+            opportunity_context = await state.run(
+                "opportunities",
+                lambda: self._question_opportunity_context(
+                    run_due_scan=payload.auto_execute
+                ),
+                session=self.session,
             )
 
         retrieval = RetrievalService(self.session)
@@ -1159,33 +1232,62 @@ class AgentService:
                 else "Assembling direct, connected, historical, and contradiction evidence."
             ),
         )
-        packet = await retrieval.retrieve_evidence(
-            query=str(question_research_plan.get("retrieval_query") or payload.message),
-            subject_id=resolved.subject_id,
-            subject_type=resolved.subject_type,
-            max_depth=6,
-            recent_portfolio_update=broad_portfolio_update,
+
+        async def prepare_evidence():
+            packet = await retrieval.retrieve_evidence(
+                query=str(
+                    question_research_plan.get("retrieval_query") or payload.message
+                ),
+                subject_id=resolved.subject_id,
+                subject_type=resolved.subject_type,
+                max_depth=6,
+                recent_portfolio_update=broad_portfolio_update,
+            )
+            context = await retrieval.hydrate_packet(packet)
+            self._apply_question_research_plan(context, question_research_plan)
+            if opportunity_context is not None:
+                context["opportunity_context"] = opportunity_context
+            conversation = self._build_conversation_context(
+                recent_turns=recent_turns,
+                current_message=payload.message,
+                subject_name=resolved.subject_name,
+                subject_type=resolved.subject_type,
+            )
+            if conversation:
+                context["conversation_context"] = conversation
+            return packet, context, conversation
+
+        async def load_evidence(saved):
+            packet = await self.session.get(EvidencePacket, UUID(saved["packet_id"]))
+            if packet is None:
+                raise ValueError(
+                    "The saved evidence packet is unavailable; start a new question."
+                )
+            return packet, saved["context"], saved["conversation"]
+
+        packet, packet_context, conversation_context = await state.run(
+            "evidence",
+            prepare_evidence,
+            session=self.session,
+            encode=lambda prepared: {
+                "packet_id": str(prepared[0].id),
+                "context": prepared[1],
+                "conversation": prepared[2],
+            },
+            decode=load_evidence,
         )
-        packet_context = await retrieval.hydrate_packet(packet)
-        self._apply_question_research_plan(packet_context, question_research_plan)
-        if opportunity_context is not None:
-            packet_context["opportunity_context"] = opportunity_context
-        conversation_context = self._build_conversation_context(
-            recent_turns=recent_turns,
-            current_message=payload.message,
-            subject_name=resolved.subject_name,
-            subject_type=resolved.subject_type,
-        )
-        if conversation_context:
-            packet_context["conversation_context"] = conversation_context
-        fresh_research_context = await self._maybe_fresh_research_context(
-            message=payload.message,
-            subject_name=resolved.subject_name,
-            subject_type=resolved.subject_type,
-            packet_context=packet_context,
-            freshness_requirement=turn_intent,
-            question_research_plan=question_research_plan,
-            progress_callback=progress_callback,
+        fresh_research_context = await state.run(
+            "fresh_research",
+            lambda: self._maybe_fresh_research_context(
+                message=payload.message,
+                subject_name=resolved.subject_name,
+                subject_type=resolved.subject_type,
+                packet_context=packet_context,
+                freshness_requirement=turn_intent,
+                question_research_plan=question_research_plan,
+                progress_callback=progress_callback,
+            ),
+            session=self.session,
         )
         if fresh_research_context:
             packet_context["fresh_research_context"] = fresh_research_context
@@ -1255,17 +1357,46 @@ class AgentService:
             supplemental_context["fresh_research_context"] = fresh_research_context
 
         reasoning_service = ReasoningService(self.session)
-        reasoning_run, reasoning_result = await reasoning_service.run_analysis(
-            packet.id,
-            include_critique=False,
-            supplemental_context=supplemental_context or None,
-            allow_state_update=False,
+
+        async def load_analysis(saved):
+            run = await self.session.get(ReasoningRun, UUID(saved["run_id"]))
+            if run is None:
+                raise ValueError(
+                    "The saved analysis is unavailable; start a new question."
+                )
+            return run, saved["result"]
+
+        reasoning_run, reasoning_result = await state.run(
+            "analysis",
+            lambda: reasoning_service.run_analysis(
+                packet.id,
+                include_critique=False,
+                supplemental_context=supplemental_context or None,
+                allow_state_update=False,
+                **(
+                    {
+                        "evidence_context": packet_context,
+                        "defer_on_provider_failure": True,
+                    }
+                    if state.enabled
+                    else {}
+                ),
+            ),
+            session=self.session,
+            encode=lambda analysis: {
+                "run_id": str(analysis[0].id),
+                "result": analysis[1],
+            },
+            decode=load_analysis,
         )
         reasoning_result.pop("state_update_blocked_reason", None)
         subagent_insights: dict[str, str] = {}
         if not reasoning_result.get("is_fallback"):
-            subagent_insights = await self._dispatch_dynamic_subagents(
-                payload, resolved, packet_context, progress_callback
+            subagent_insights = await state.run(
+                "analysis_lenses",
+                lambda: self._dispatch_dynamic_subagents(
+                    payload, resolved, packet_context, progress_callback
+                ),
             )
 
         # Strategic Deliberation & Refinement Phase
@@ -1274,8 +1405,11 @@ class AgentService:
             "reasoning",
             "Synthesizing the answer.",
         )
-        reasoning_result = await self._synthesize_and_refine(
-            payload, resolved, packet_context, reasoning_result, subagent_insights
+        reasoning_result = await state.run(
+            "synthesis",
+            lambda: self._synthesize_and_refine(
+                payload, resolved, packet_context, reasoning_result, subagent_insights
+            ),
         )
         reasoning_result["research_plan"] = question_research_plan
         if opportunity_context is not None:
@@ -1286,10 +1420,15 @@ class AgentService:
             near_duplicate_max_distance=settings.CORROBORATION_NEAR_DUPLICATE_MAX_DISTANCE,
         )
         corroboration.assess_result(reasoning_result, packet_context)
-        independent_review = await reasoning_service._create_critique(
-            reasoning_run,
-            compact_packet_context(packet_context),
-            reasoning_result,
+        independent_review = await state.run(
+            "independent_review",
+            lambda: reasoning_service._create_critique(
+                reasoning_run,
+                compact_packet_context(packet_context),
+                reasoning_result,
+                **({"defer_on_provider_failure": True} if state.enabled else {}),
+            ),
+            session=self.session,
         )
         corroboration.apply_independent_review(reasoning_result, independent_review)
         self._apply_independent_answerability_gate(
@@ -1307,13 +1446,17 @@ class AgentService:
                 "confidence_band": reasoning_result.get("confidence_band"),
             },
         )
-        auto_research = await self._maybe_auto_research_after_gap(
-            payload=payload,
-            resolved_subject_id=resolved.subject_id,
-            resolved_subject_type=resolved.subject_type,
-            resolved_subject_name=resolved.subject_name,
-            packet_context=packet_context,
-            reasoning_result=reasoning_result,
+        auto_research = await state.run(
+            "followup_research",
+            lambda: self._maybe_auto_research_after_gap(
+                payload=payload,
+                resolved_subject_id=resolved.subject_id,
+                resolved_subject_type=resolved.subject_type,
+                resolved_subject_name=resolved.subject_name,
+                packet_context=packet_context,
+                reasoning_result=reasoning_result,
+            ),
+            session=self.session,
         )
         if auto_research is not None:
             await self._emit_progress(
@@ -1335,15 +1478,20 @@ class AgentService:
             "planning",
             "Translating the result into possible operating actions.",
         )
-        orchestration = await self._plan_agent_actions(
-            payload=payload,
-            subject_id=resolved.subject_id,
-            subject_type=resolved.subject_type,
-            packet_context=packet_context,
-            reasoning_result=reasoning_result,
-            subagent_insights=subagent_insights,
+        orchestration = await state.run(
+            "answer_plan",
+            lambda: self._plan_agent_actions(
+                payload=payload,
+                subject_id=resolved.subject_id,
+                subject_type=resolved.subject_type,
+                packet_context=packet_context,
+                reasoning_result=reasoning_result,
+                subagent_insights=subagent_insights,
+            ),
         )
         self._audit_delivered_quantities(orchestration, reasoning_result)
+        if payload.auto_execute:
+            state.block_replay()
         if self._state_updates_allowed(
             auto_execute=payload.auto_execute,
             has_fresh_research=bool(fresh_research_context),
@@ -1483,6 +1631,7 @@ class AgentService:
         fresh = fresh_research_context or {}
         research_receipt = (
             {
+                "evidence_prepared_at": packet.assembled_at.isoformat(),
                 "holdings_count": (
                     portfolio_scope.get("holdings_count", 0)
                     if resolved.subject_type == "portfolio"
@@ -1516,7 +1665,7 @@ class AgentService:
                     if item.get("url")
                 ],
             }
-            if portfolio_scope or fresh
+            if portfolio_scope or fresh or state.enabled
             else None
         )
         should_persist = self._should_persist_conversation_exchange(
@@ -1548,6 +1697,7 @@ class AgentService:
                 assistant_metadata={
                     "origin": "agent_chat",
                     "reasoning_run_id": str(reasoning_run.id),
+                    "subject_name": resolved.subject_name,
                     "actions": [item.model_dump(mode="json") for item in actions],
                     "process_mode": "reasoning_analysis",
                     "resolution_reason": resolved.resolution_reason,
@@ -2796,6 +2946,8 @@ class AgentService:
         except Exception as exc:
             import logging
 
+            if self._turn_state.enabled and provider_failure_cause(exc) is not None:
+                raise
             logging.getLogger(__name__).warning(
                 "Action planning skipped after LLM failure: %s",
                 self._compact_exception(exc),
@@ -3142,6 +3294,28 @@ class AgentService:
             process_now=False,
         )
 
+    async def _completed_conversation_response(self, session_id, request_id):
+        completed = await self.session.scalar(
+            select(RawEvidence)
+            .where(
+                RawEvidence.source_item_type == "conversation_turn",
+                RawEvidence.metadata_json["session_id"].astext == str(session_id),
+                RawEvidence.metadata_json["chat_job_id"].astext == str(request_id),
+                RawEvidence.metadata_json["role"].astext == "assistant",
+            )
+            .limit(1)
+        )
+        if completed is None:
+            return None
+        return AgentTurnResponse.model_validate(
+            {
+                **(completed.metadata_json or {}),
+                "session_id": session_id,
+                "assistant_message": await self._load_raw_content(completed),
+                "responded_at": completed.created_at,
+            }
+        )
+
     async def _handle_attachment_turn(
         self, payload, session_id, progress_callback, *, request_id=None
     ) -> AgentTurnResponse:
@@ -3299,6 +3473,11 @@ class AgentService:
         assistant_metadata: dict,
         autonomous_reason: str | None = None,
     ) -> None:
+        if self._conversation_request_id:
+            assistant_metadata = {
+                **assistant_metadata,
+                "chat_job_id": str(self._conversation_request_id),
+            }
         source = await self._get_or_create_conversation_source()
         session_title = self._session_title_from_message(user_message)
         origin = {"origin": "agent_chat"}
@@ -4811,6 +4990,12 @@ class AgentService:
         except Exception as exc:
             import logging
 
+            if (
+                self._turn_state.enabled
+                and provider_failure_cause(exc) is not None
+                and not isinstance(exc, (TimeoutError, httpx.TimeoutException))
+            ):
+                raise
             logging.getLogger(__name__).warning(
                 "Question research planner fell back after LLM failure: %s",
                 self._compact_exception(exc),

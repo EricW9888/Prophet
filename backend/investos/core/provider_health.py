@@ -7,6 +7,7 @@ import math
 import threading
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from functools import wraps
 from inspect import signature
 from pathlib import Path
@@ -30,6 +31,55 @@ _recovery_owner = ContextVar("provider_recovery_owner", default=None)
 
 class LLMProviderCooldownError(RuntimeError):
     """Provider work is deferred; only the shared health probe can reopen it."""
+
+
+def provider_failure_cause(exc: Exception) -> Exception | None:
+    """Preserve typed transport causes through user-facing scope errors."""
+    visited = set()
+    while exc is not None and id(exc) not in visited:
+        visited.add(id(exc))
+        if isinstance(
+            exc,
+            (LLMProviderCooldownError, httpx.HTTPError, httpx.InvalidURL, TimeoutError),
+        ):
+            return exc
+        exc = exc.__cause__
+    return None
+
+
+def retryable_provider_failure(exc: Exception) -> bool:
+    failure = provider_failure_cause(exc)
+    if isinstance(failure, httpx.HTTPStatusError):
+        return (
+            failure.response.status_code == 429
+            or 500 <= failure.response.status_code < 600
+        )
+    if isinstance(failure, (httpx.UnsupportedProtocol, httpx.LocalProtocolError)):
+        return False
+    return isinstance(
+        failure, (LLMProviderCooldownError, httpx.RequestError, TimeoutError)
+    )
+
+
+def retry_after_seconds(headers, *, now=None) -> float | None:
+    """Parse RFC 9110 delay-seconds or HTTP-date without shortening the wait."""
+    raw = (headers.get("Retry-After") or "").strip()
+    if not raw:
+        return None
+    now = now or datetime.now(UTC)
+    try:
+        if raw.isascii() and raw.isdigit():
+            seconds = float(raw)
+            # Reject invalid/unrepresentable headers rather than persisting an
+            # infinite or overflowing timestamp in the durable circuit.
+            now + timedelta(seconds=seconds)
+            return seconds
+        deadline = parsedate_to_datetime(raw)
+        if deadline.tzinfo is None:
+            deadline = deadline.replace(tzinfo=UTC)
+        return max(0.0, (deadline - now).total_seconds())
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 class ProviderHealthRecord(BaseModel):
@@ -271,13 +321,9 @@ class ProviderHealthStore:
             )
             delay = min(3600, 60 * 2 ** min(record.failure_count - 1, 6))
             if isinstance(exc, httpx.HTTPStatusError):
-                try:
-                    delay = max(
-                        delay,
-                        min(3600, float(exc.response.headers.get("Retry-After", "0"))),
-                    )
-                except ValueError:
-                    pass
+                retry_after = retry_after_seconds(exc.response.headers)
+                if retry_after is not None:
+                    delay = max(delay, retry_after)
                 if exc.response.status_code in {401, 403, 429}:
                     delay = max(delay, 300)
             record.next_probe_at = datetime.now(UTC) + timedelta(seconds=delay)

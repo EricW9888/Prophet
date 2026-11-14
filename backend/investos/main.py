@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 from investos.config import settings
 from investos.core.request_security import api_request_allowed
-from investos.services.agent_turn_jobs import resume_file_questions
+from investos.services.agent_turn_jobs import resume_agent_turns
 from investos.services.automation import AutomationCoordinator
 from investos.services.live_jobs import LiveJobTracker
 
@@ -21,7 +21,7 @@ async def lifespan(app: FastAPI):
     automation = AutomationCoordinator()
     app.state.automation = automation
     app.state.live_jobs = LiveJobTracker()
-    resume_file_questions(app.state.live_jobs)
+    resume_agent_turns(app.state.live_jobs)
     try:
         automation.start()
     except Exception:

@@ -3,6 +3,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from email.utils import format_datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -18,6 +19,7 @@ from investos.core.provider_health import (
     LLMProviderCooldownError,
     ProviderHealthStore,
     probe_llm_provider,
+    retry_after_seconds,
 )
 from investos.core.providers import StructuredGenerationError
 from investos.models.evidence import EvidenceProcessingState, RawEvidence
@@ -59,6 +61,62 @@ def make_probe_due():
     for record in registry.records.values():
         record.next_probe_at = datetime.now(UTC) - timedelta(seconds=1)
     ProviderHealthStore._write(registry)
+
+
+@pytest.mark.parametrize(
+    "header,expected",
+    [
+        ("7200", 7200),
+        ("0", 0),
+        ("Sat, 14 Nov 2026 08:00:00 GMT", 7200),
+        ("Saturday, 14-Nov-26 08:00:00 GMT", 7200),
+        ("Sat Nov 14 08:00:00 2026", 7200),
+        ("Sat, 14 Nov 2026 05:00:00 GMT", 0),
+        ("not-a-date", None),
+        ("-1", None),
+        ("NaN", None),
+        ("inf", None),
+        ("9" * 400, None),
+    ],
+)
+def test_retry_after_accepts_standard_dates_and_seconds_without_a_local_cap(
+    header, expected
+):
+    assert (
+        retry_after_seconds(
+            httpx.Headers({"Retry-After": header}),
+            now=datetime(2026, 11, 14, 6, tzinfo=UTC),
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize("status", [429, 503])
+@pytest.mark.parametrize("date_form", [False, True])
+async def test_server_requested_wait_survives_in_the_durable_circuit(
+    monkeypatch, status, date_form
+):
+    deadline = datetime.now(UTC) + timedelta(hours=2)
+    header = format_datetime(deadline, usegmt=True) if date_form else "7200"
+    response = httpx.Response(
+        status,
+        headers={"Retry-After": header},
+        request=httpx.Request("POST", "https://example.test"),
+    )
+    model = AsyncMock(
+        side_effect=httpx.HTTPStatusError(
+            "Synthetic provider maintenance",
+            request=response.request,
+            response=response,
+        )
+    )
+    monkeypatch.setattr("investos.core.llm._call_nvidia_json", model)
+    with pytest.raises(httpx.HTTPStatusError):
+        await call_llm_json("system", "work", {"type": "object"})
+    record = ProviderHealthStore.read()
+    assert record.next_probe_at >= deadline - timedelta(seconds=2)
+    assert not ProviderHealthStore.can_admit_work(ProviderHealthStore.public_status())
+    assert model.await_count == 1
 
 
 async def test_cancelled_probe_releases_its_lease_without_fabricating_success(
