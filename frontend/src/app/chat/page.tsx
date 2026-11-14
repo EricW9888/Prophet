@@ -1263,7 +1263,7 @@ function ChatWorkspace() {
   const activeConversation = conversations.find((item) => item.session_id === activeSessionId) ?? null;
   const linkedReport = autonomousReviews.find((item) => item.session_id === activeSessionId) ?? null;
   const liveEvents = activeJob?.events.filter((event) => event.phase !== "thinking") ?? [];
-  const fileContextActive = attachments.length > 0 || usingSessionFiles || Boolean(activeJob?.resumable);
+  const fileContextActive = attachments.length > 0 || usingSessionFiles || Boolean(activeJob?.request_attachments?.length);
   const executionActive = allowActionsLoaded && !fileContextActive ? allowActions : false;
 
   return (

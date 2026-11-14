@@ -32,6 +32,33 @@ class LLMProviderCooldownError(RuntimeError):
     """Provider work is deferred; only the shared health probe can reopen it."""
 
 
+def provider_failure_cause(exc: Exception) -> Exception | None:
+    """Preserve typed transport causes through user-facing scope errors."""
+    visited = set()
+    while exc is not None and id(exc) not in visited:
+        visited.add(id(exc))
+        if isinstance(
+            exc,
+            (LLMProviderCooldownError, httpx.HTTPError, httpx.InvalidURL, TimeoutError),
+        ):
+            return exc
+        exc = exc.__cause__
+    return None
+
+
+def retryable_provider_failure(exc: Exception) -> bool:
+    failure = provider_failure_cause(exc)
+    if isinstance(failure, httpx.HTTPStatusError):
+        return (
+            failure.response.status_code == 429 or failure.response.status_code >= 500
+        )
+    if isinstance(failure, (httpx.UnsupportedProtocol, httpx.LocalProtocolError)):
+        return False
+    return isinstance(
+        failure, (LLMProviderCooldownError, httpx.RequestError, TimeoutError)
+    )
+
+
 class ProviderHealthRecord(BaseModel):
     provider: str
     state: Literal["unobserved", "healthy", "open", "probing", "recovering"] = (

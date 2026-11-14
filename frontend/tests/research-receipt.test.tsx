@@ -10,7 +10,7 @@ test("research receipts distinguish searched holdings, candidate misses, and ski
   const root = createRoot(container);
   try {
     await act(async () => root.render(<ResearchReceipt receipt={{
-      holdings_count: 5, holdings_with_linked_evidence: ["AAA"],
+      evidence_prepared_at: "2026-11-14T06:00:00Z", holdings_count: 5, holdings_with_linked_evidence: ["AAA"],
       holding_search_coverage: [
         {ticker: "AAA", status: "candidate_found", searched: true, candidate_count: 2, candidate_urls: []},
         {ticker: "BBB", status: "no_matching_candidate", searched: true, candidate_count: 0, candidate_urls: []},
@@ -30,5 +30,6 @@ test("research receipts distinguish searched holdings, candidate misses, and ski
     assert.match(rows[4]!, /EEEIncomplete · Research Failed/);
     assert.match(container.textContent!, /Stored evidence explicitly linked to 1 of 5/);
     assert.equal(container.querySelectorAll("a").length, 0);
+    assert.equal(container.querySelector("time")!.dateTime, "2026-11-14T06:00:00Z");
   } finally {await act(async () => root.unmount()); container.remove();}
 });

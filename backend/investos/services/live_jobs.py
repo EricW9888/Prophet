@@ -9,6 +9,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
+from investos.services.chat_turn_state import ChatTurnState
+
 
 @dataclass
 class LiveJobEvent:
@@ -294,26 +296,32 @@ class LiveJobTracker:
             if record.status not in {"queued", "running", "deferred"}:
                 continue
             recovered = True
-            if record.job_kind == "agent_turn" and record.request_context.get(
-                "resume_payload"
+            if (
+                record.job_kind == "agent_turn"
+                and record.request_context.get("resume_payload")
+                and ChatTurnState.can_resume(record.request_context)
             ):
                 record.status = "deferred"
                 record.retry_at = record.retry_at or now
                 record.events.append(
                     LiveJobEvent(
                         phase="deferred",
-                        message="Resuming the saved read-only file question after restart.",
+                        message="Resuming the saved question from completed stages after restart.",
                         created_at=now,
                     )
                 )
                 continue
             record.status = "error"
             record.updated_at = now
-            record.error = "Job interrupted by backend restart."
+            record.error = (
+                "State updates may have started; automatic replay is disabled. Review recorded activity before retrying."
+                if record.request_context.get("resume_payload")
+                else "Job interrupted by backend restart."
+            )
             record.events.append(
                 LiveJobEvent(
                     phase="error",
-                    message="Job interrupted by backend restart.",
+                    message=record.error,
                     created_at=now,
                 )
             )

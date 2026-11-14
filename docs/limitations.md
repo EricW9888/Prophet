@@ -87,11 +87,16 @@ File/page citations and matching amounts do not establish a common account or
 snapshot identity. File interpretations are provisional, not portfolio
 reconciliation; per-record arithmetic and aggregate account state are different
 claims.
-File questions can wait through temporary model failures and resume after a
-single-backend restart. This is not a distributed job queue or a provider-capacity
-guarantee. Other analysis/action jobs are not automatically replayed; permanent
-provider errors still require correction and an explicit retry. A long outage
-can leave a file question waiting until capacity returns or the user cancels it.
+Background chat questions can wait through temporary model failures and resume
+after a single-backend restart. This is not a distributed job queue or a
+provider-capacity guarantee. Completed text-analysis stages reuse their original evidence snapshot,
+whose assembly time remains in the receipt; resuming an old question is not a
+new current-events check. In-progress work can repeat if interrupted before its
+checkpoint. Once state promotion or action execution may have started, the turn
+is not automatically replayed. Permanent provider errors still require
+correction and an explicit retry. A long outage can leave a question waiting
+until capacity returns or the user cancels it. This recovery does not increase
+provider capacity or establish research accuracy or unattended throughput.
 This does not imply support for arbitrary binary formats, executable files,
 encrypted documents or all embedded Office objects. Visual reading requires a
 supported, configured hosted image-reader model and shares provider availability

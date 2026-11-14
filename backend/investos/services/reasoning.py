@@ -21,6 +21,7 @@ from investos.core.prompting import (
     estimate_tokens_from_text,
     hash_llm_request,
 )
+from investos.core.provider_health import provider_failure_cause
 from investos.core.providers import llm_provider_capability, normalize_llm_provider
 from investos.models.conclusion import ConclusionRevision, ConclusionState
 from investos.models.profile import Profile
@@ -372,13 +373,19 @@ class ReasoningService:
         supplemental_context: dict | None = None,
         allow_state_update: bool = True,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
+        evidence_context: dict | None = None,
+        defer_on_provider_failure: bool = False,
     ) -> tuple[ReasoningRun, dict]:
         packet = (
             await self.session.execute(
                 select(EvidencePacket).where(EvidencePacket.id == packet_id)
             )
         ).scalar_one()
-        packet_context = await RetrievalService(self.session).hydrate_packet(packet)
+        packet_context = (
+            evidence_context
+            if evidence_context is not None
+            else await RetrievalService(self.session).hydrate_packet(packet)
+        )
         if supplemental_context:
             packet_context = {**packet_context, **supplemental_context}
         prompt_context = compact_packet_context(packet_context)
@@ -427,7 +434,14 @@ class ReasoningService:
             ProviderHealthStore.require_available()
             started_at = perf_counter()
             result = await self._reason_with_llm(
-                prompt_context, system_prompt=system_prompt, on_chunk=on_chunk
+                prompt_context,
+                system_prompt=system_prompt,
+                on_chunk=on_chunk,
+                **(
+                    {"defer_on_provider_failure": True}
+                    if defer_on_provider_failure
+                    else {}
+                ),
             )
             duration_ms = int((perf_counter() - started_at) * 1000)
             run = ReasoningRun(
@@ -613,7 +627,12 @@ class ReasoningService:
         profile.active_contradictions = result.get("active_contradictions", [])
 
     async def _create_critique(
-        self, run: ReasoningRun, packet_context: dict, result: dict
+        self,
+        run: ReasoningRun,
+        packet_context: dict,
+        result: dict,
+        *,
+        defer_on_provider_failure: bool = False,
     ) -> dict | None:
         # The second pass is blind to the first answer. Independence is more
         # useful than asking one model to endorse its own wording.
@@ -651,7 +670,9 @@ class ReasoningService:
                 user_prompt=json_dumps(critique_payload),
                 schema=CRITIQUE_SCHEMA,
             )
-        except Exception:
+        except Exception as exc:
+            if defer_on_provider_failure and provider_failure_cause(exc) is not None:
+                raise
             return None
         CorroborationService().assess_result(critique, packet_context)
         numerical_review = critique["quantity_grounding"]
@@ -702,9 +723,18 @@ class ReasoningService:
         *,
         system_prompt: str,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
+        defer_on_provider_failure: bool = False,
     ) -> dict:
         if self._is_thin_packet(packet_context):
-            return await self._thin_packet_reasoning(packet_context, on_chunk=on_chunk)
+            return await self._thin_packet_reasoning(
+                packet_context,
+                on_chunk=on_chunk,
+                **(
+                    {"defer_on_provider_failure": True}
+                    if defer_on_provider_failure
+                    else {}
+                ),
+            )
         try:
             result = await call_llm_json(
                 system_prompt=system_prompt,
@@ -716,6 +746,8 @@ class ReasoningService:
             result = self._bounded_reasoning_result(result)
             return self._attach_source_feedback_influence(result, packet_context)
         except Exception as exc:
+            if defer_on_provider_failure and provider_failure_cause(exc) is not None:
+                raise
             recovery_context = self._recovery_packet_context(packet_context)
             recovery_result = await self._reduced_context_recovery(
                 packet_context,
@@ -878,6 +910,8 @@ class ReasoningService:
         self,
         packet_context: dict,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
+        *,
+        defer_on_provider_failure: bool = False,
     ) -> dict:
         thin_payload = {
             "query_text": packet_context.get("query_text"),
@@ -907,6 +941,8 @@ class ReasoningService:
                 result["confidence_band"] = "low"
             return self._attach_source_feedback_influence(result, thin_payload)
         except Exception as exc:
+            if defer_on_provider_failure and provider_failure_cause(exc) is not None:
+                raise
             alternate_result = await self._alternate_provider_recovery(
                 thin_payload,
                 system_prompt=self._thin_packet_system_prompt() + QUANTITY_RULES,

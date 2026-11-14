@@ -11,6 +11,7 @@ export default function ResearchReceipt({ receipt }: { receipt: AgentResearchRec
       <summary className="cursor-pointer font-medium">
         Evidence coverage{coverage.length ? ` · ${completedCount} of ${coverage.length} holding checks complete${incompleteCount ? ` · ${incompleteCount} incomplete` : ""}` : receipt.holdings_count != null ? ` · ${linkedCount} of ${receipt.holdings_count} holdings with linked evidence` : ""}
       </summary>
+      {receipt.evidence_prepared_at ? <p className="mt-2 text-muted">Evidence assembled <time dateTime={receipt.evidence_prepared_at}>{new Date(receipt.evidence_prepared_at).toLocaleString()}</time>.</p> : null}
       {coverage.length ? (
         <div className="mt-3">
           <p className="text-muted">Bounded searches for this answer. Candidates need source verification; a search miss does not mean there was no news.</p>
