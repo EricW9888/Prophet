@@ -36,6 +36,7 @@ from investos.services.knowledge_audit import KnowledgeAuditService
 from investos.services.knowledge_time import (
     assess_knowledge_time,
     infer_expired_forecast_time,
+    knowledge_available_at,
 )
 from investos.services.market_setup import MarketSetupSignalService
 from investos.services.operating_loop import OperatingLoopService
@@ -1119,10 +1120,10 @@ class ExtractionWorker:
     def _relationship_available_at(
         evidence: RawEvidence, recorded_at: datetime
     ) -> datetime:
-        return max(
-            value if value.tzinfo else value.replace(tzinfo=UTC)
-            for value in (recorded_at, evidence.public_time, evidence.ingest_time)
-            if value is not None
+        return knowledge_available_at(
+            recorded_at,
+            public_time=evidence.public_time,
+            ingest_time=evidence.ingest_time,
         )
 
     async def persist_source_relationships(

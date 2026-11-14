@@ -18,6 +18,7 @@ class IntegrityAuditCounts(BaseModel):
     orphan_edges: int = 0
     unknown_edge_node_types: int = 0
     missing_storage_objects: int = 0
+    relationship_availability_gaps: int = 0
 
 
 class IntegrityDuplicateSubject(BaseModel):

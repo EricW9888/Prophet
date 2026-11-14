@@ -8,6 +8,7 @@ import remarkGfm from "remark-gfm";
 
 import { Maximize2, PanelRightClose, PanelRightOpen, RotateCcw, Search, ZoomIn, ZoomOut } from "lucide-react";
 import { GraphEdgeGlyph, GraphNodeGlyph, getNodeStyle } from "@/components/GraphGlyphs";
+import { GraphConnectionSelect } from "@/components/GraphConnectionSelect";
 import GraphNodeNavigator from "@/components/GraphNodeNavigator";
 import GraphMetricSummary from "@/components/GraphMetricSummary";
 import HintMarker from "@/components/HintMarker";
@@ -1336,6 +1337,7 @@ export default function GraphPage() {
                 </button>
               </div>
               <div className="mt-5 space-y-3">
+                <GraphConnectionSelect edges={displayedEdges} selected={activeEdge} nodes={nodeByKey} edgeKey={graphEdgeIdentity} onSelect={selectGraphEdge} />
                 <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900 dark:bg-amber-950/20">
                   <div className="text-[11px] uppercase tracking-wider text-amber-500 dark:text-amber-300">
                     {activeEdge.relationship_type.replaceAll("_", " ")}

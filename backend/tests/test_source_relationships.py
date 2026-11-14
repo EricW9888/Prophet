@@ -17,6 +17,7 @@ from investos.services.evidence_relevance import (
     EvidenceRelevanceService,
 )
 from investos.services.graph import GraphService
+from investos.services.integrity import IntegrityService
 from investos.workers.extraction import EXTRACTION_SCHEMA, ExtractionWorker
 from tests.test_investor_workflows import workflow_session
 
@@ -269,6 +270,38 @@ def test_relationship_schema_is_open_ended_and_not_limited_to_company_subjects()
     assert "enum" not in schema["properties"]["relationship_type"]
     assert "enum" not in schema["properties"]["source"]["properties"]["entity_type"]
     assert "enum" not in EXTRACTION_SCHEMA["properties"]["entity_type"]
+
+
+@pytest.mark.asyncio
+async def test_integrity_reports_and_repairs_backdated_relationship_availability(
+    workflow_session,
+):
+    session = workflow_session
+    person, company = f"Casey Vale {uuid4().hex[:8]}", f"Helix Labs {uuid4().hex[:8]}"
+    quote = f"{person} co-founded {company}."
+    evidence, item = await source_fixture(session, quote)
+    await ExtractionWorker(session).persist_source_relationships(
+        evidence, item, quote, [relationship(person, company, quote)]
+    )
+    claim = (
+        await session.scalars(select(Claim).where(Claim.source_item_id == item.id))
+    ).one()
+    source_time = evidence.ingest_time
+    claim.eligible_action_time = source_time
+    await session.flush()
+    service = IntegrityService(session)
+    assert (await service.audit_state()).counts.relationship_availability_gaps == 1
+    assert (await service._repair_relationship_availability(limit=20, dry_run=True))[
+        "repaired"
+    ] == 1
+    assert claim.eligible_action_time == source_time
+    assert (await service._repair_relationship_availability(limit=20, dry_run=False))[
+        "repaired"
+    ] == 1
+    await session.flush()
+    assert claim.eligible_action_time >= claim.created_at
+    assert evidence.ingest_time == source_time
+    assert (await service.audit_state()).counts.relationship_availability_gaps == 0
 
 
 @pytest.mark.asyncio

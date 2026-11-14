@@ -152,9 +152,10 @@ CASES.extend(
         ),
         (
             "relationship_subject_kinds",
-            "Source: Ion Compiler is a software product developed by Cedar Tools, a company. Return ion_compiler_kind and cedar_tools_kind as open-ended subject-kind labels.",
-            schema({"ion_compiler_kind": TEXT, "cedar_tools_kind": TEXT}),
-            {"ion_compiler_kind": "product", "cedar_tools_kind": "company"},
+            "Source: Ion Compiler is a software product developed by Cedar Tools, a company. Return ion_compiler_is_company and cedar_tools_is_company. A product and the company that develops it are distinct subject kinds.",
+            # Score the distinction, not an arbitrary spelling of an open kind.
+            schema({"ion_compiler_is_company": BOOL, "cedar_tools_is_company": BOOL}),
+            {"ion_compiler_is_company": False, "cedar_tools_is_company": True},
         ),
     ]
 )

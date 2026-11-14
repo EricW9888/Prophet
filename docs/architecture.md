@@ -338,7 +338,9 @@ The named endpoints and anchors remain inspectable with the claim. These checks
 establish attribution, not semantic entailment or independent verification.
 Claims retain source, event and observation clocks. Availability is bounded by
 when the assertion was actually recorded, including retained-source recovery,
-so later extraction cannot backdate actionable knowledge. Claims remain unverified until
+so later extraction cannot backdate actionable knowledge. The normal integrity
+audit reports and conservatively repairs older violations with a mutation receipt.
+Claims remain unverified until
 separate evidence policy admits them. Historical roles do not create forecast
 review deadlines. Source withdrawal uses the existing claim lifecycle. Rejected proposals remain
 in the mutation audit as unadmitted diagnostics rather than disappearing or
