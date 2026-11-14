@@ -1793,6 +1793,10 @@ class GraphService:
                 properties["portfolio_route_depth"] = attachment[
                     "portfolio_route_depth"
                 ]
+            if attachment.get("portfolio_linkage_status"):
+                properties["portfolio_linkage_status"] = attachment[
+                    "portfolio_linkage_status"
+                ]
 
         if node_type in {"entity", "theme"}:
             profile = (
@@ -2243,13 +2247,14 @@ class GraphService:
             }
         if direct_connections:
             reason = (
-                f"This node has {len(direct_connections)} stored graph relationship"
-                f"{'' if len(direct_connections) == 1 else 's'}, but none currently reaches a live holding."
+                f"This bounded check inspected {len(direct_connections)} direct graph relationship"
+                f"{'' if len(direct_connections) == 1 else 's'} and did not establish a path to a live holding. "
+                "Other paths may exist; expand the graph or review subject identity."
             )
         else:
             reason = (
-                "This node is isolated: no stored relationship currently connects it to a holding, thesis, "
-                "watch item, or source-backed risk factor."
+                "No direct relationship was found by this bounded check. "
+                "Portfolio linkage remains unresolved."
             )
         return {
             "category": "broad context",
@@ -2259,6 +2264,8 @@ class GraphService:
             "direct_portfolio_link": False,
             "portfolio_connection_count": 0,
             "graph_connection_count": len(direct_connections),
+            "portfolio_linkage_status": "unresolved",
+            "portfolio_route_depth": 2,
             "nearest_connections": nearest_connections[:6],
         }
 

@@ -48,6 +48,9 @@ is verified. Overview labels are intentionally bounded; the navigator and
 inspector retain full names. Manual anchors take precedence over automatic
 packing, so conflicting pins can require manual adjustment or a layout reset.
 Large, densely connected groups still require zooming or a focused view.
+Portfolio attachment checks inspect direct and one-hop paths. An unresolved
+result describes that bounded check; longer paths or unresolved identities may
+still connect the subject to holdings.
 Dashed, source-attributed relationships are projections of inspectable claims.
 Document name anchors and a matching quotation do not establish that a model correctly
 interpreted the predicate, negation, dates or entity identity. Model confidence
