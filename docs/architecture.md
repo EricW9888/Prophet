@@ -343,6 +343,10 @@ report attributable evidence and its gaps. Genuine off-topic or inadequate
 coverage remains a blocked conclusion. Numerical banners qualify financial
 quantities actually present in the delivered text; internal rejected amounts
 remain inspectable in the review receipt.
+When action planning times out, its no-action response reuses the ordinary
+fallback renderer. The delivered response retains the completed summary,
+explanation, evidence checks and assessed coverage gaps. Delivery quantity
+validation and promotion/action limits still apply to that text.
 
 ## Accepted State and Graph
 

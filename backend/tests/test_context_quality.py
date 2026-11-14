@@ -1038,11 +1038,22 @@ def test_timeout_orchestration_explains_no_actions_created():
         {
             "thesis_summary": "Portfolio loss likely needs fresh setup and price evidence.",
             "reasoning": "Memory exposure and high-beta holdings can amplify drawdowns.",
+            "answerability": {
+                "status": "partial",
+                "reason": "Memory exposure and high-beta holdings can amplify drawdowns.",
+                "missing_information": ["Dated price evidence", "Dated price evidence"],
+            },
         }
     )
 
     assert "follow-up action planner timed out" in orchestration["rationale_summary"]
     assert "did not create" in orchestration["rationale_summary"]
+    assert "Portfolio loss likely" in orchestration["assistant_message"]
+    assert "Memory exposure and high-beta" in orchestration["assistant_message"]
+    assert (
+        orchestration["assistant_message"].count("Memory exposure and high-beta") == 1
+    )
+    assert orchestration["assistant_message"].count("Dated price evidence") == 1
     assert orchestration["shadow_experiment"]["should_create"] is False
 
 

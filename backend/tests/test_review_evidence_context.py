@@ -38,8 +38,9 @@ def review_payload(assertions=None, summary="The issuer announced collaboration.
 
 
 @pytest.mark.parametrize("copy_kind", ["exact", "near"])
+@pytest.mark.parametrize("planner_timeout", [False, True])
 async def test_chat_and_analysis_review_validate_full_evidence_and_duplicate_lineage(
-    workflow_session, monkeypatch, copy_kind
+    workflow_session, monkeypatch, copy_kind, planner_timeout
 ):
     session = workflow_session
     topic = f"Zythera{uuid4().hex[:8]} supplier collaboration"
@@ -153,11 +154,17 @@ async def test_chat_and_analysis_review_validate_full_evidence_and_duplicate_lin
         )
 
     monkeypatch.setattr(AgentService, "_synthesize_and_refine", unchanged)
-    monkeypatch.setattr(AgentService, "_plan_agent_actions", answer_plan)
+    if not planner_timeout:
+        monkeypatch.setattr(AgentService, "_plan_agent_actions", answer_plan)
     response = await AgentService(session).handle_turn(
         AgentTurnRequest(message=topic, auto_execute=False)
     )
     assert "announced collaboration" in response.assistant_message
+    assert "Fulfillment remains unknown." in response.assistant_message
+    assert "later fulfillment evidence" in response.assistant_message
+    assert not response.actions
+    if planner_timeout:
+        assert "action planner timed out" in response.rationale_summary
     assert "defensible answer" not in response.assistant_message
     run = await session.get(ReasoningRun, response.reasoning_run_id)
     await ReasoningService(session).run_analysis(
