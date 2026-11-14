@@ -33,3 +33,20 @@ test("research receipts distinguish searched holdings, candidate misses, and ski
     assert.equal(container.querySelector("time")!.dateTime, "2026-11-14T06:00:00Z");
   } finally {await act(async () => root.unmount()); container.remove();}
 });
+
+test("a focused research scope is not presented as holdings coverage", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<ResearchReceipt receipt={{
+      question_scope: {subject_kind: "theme", search_text: "Synthetic supplier collaboration", reason: "Cross-company question"},
+      holdings_count: null, holdings_with_linked_evidence: [], holding_search_coverage: [],
+      checks: [{lane: "Focused search", query: "Synthetic supplier collaboration", status: "ok", result_count: 1}],
+      candidate_sources: [],
+    }} />));
+    assert.match(container.textContent!, /Research scope: Synthetic supplier collaboration/);
+    assert.match(container.textContent!, /Focused search/);
+    assert.doesNotMatch(container.textContent!, /holdings with linked evidence|Holding search coverage/);
+  } finally {await act(async () => root.unmount()); container.remove();}
+});

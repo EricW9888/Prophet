@@ -66,6 +66,7 @@ class ChatAttachmentResponse(BaseModel):
 
 class AgentResearchReceipt(BaseModel):
     evidence_prepared_at: datetime | None = None
+    question_scope: dict[str, str] | None = None
     holdings_count: int | None = None
     holdings_with_linked_evidence: list[str] = Field(default_factory=list)
     holding_search_coverage: list[dict] = Field(default_factory=list)
