@@ -23,7 +23,9 @@ from tests.test_investor_workflows import workflow_session
 def relationship(person: str, company: str, quote: str) -> dict:
     return {
         "source": {"name": person, "subject_type": "entity", "entity_type": "person"},
-        "target": {"name": company, "subject_type": "entity", "entity_type": "company"},
+        "targets": [
+            {"name": company, "subject_type": "entity", "entity_type": "company"}
+        ],
         "relationship_type": "co_founded",
         "supporting_quote": quote,
         "confidence": 0.9,
@@ -206,6 +208,47 @@ async def test_unbound_dates_and_role_ends_do_not_create_assertion_deadlines(
         await session.scalars(select(Claim).where(Claim.source_item_id == item.id))
     ).one()
     assert claim.event_time is None and claim.valid_until is None
+
+
+@pytest.mark.asyncio
+async def test_contextual_names_and_grouped_counterparties_keep_each_cited_connection(
+    workflow_session,
+):
+    session = workflow_session
+    token = uuid4().hex[:8]
+    person, first, second = (
+        f"Casey Vale {token}",
+        f"Helix Labs {token}",
+        f"Cedar Tools {token}",
+    )
+    quote = "He co-founded both companies."
+    document = f"{person} worked with {first} and {second}. {quote}"
+    evidence, item = await source_fixture(session, document)
+    payload = relationship(person, first, quote)
+    payload["targets"].append(
+        {"name": second, "subject_type": "entity", "entity_type": "company"}
+    )
+    worker = ExtractionWorker(session)
+    result = await worker.persist_source_relationships(
+        evidence, item, document, [payload]
+    )
+    assert result["created"] == 2 and result["rejected"] == 0
+    assert (
+        await worker.persist_source_relationships(evidence, item, document, [payload])
+    )["existing"] == 2
+    claims = (
+        await session.scalars(select(Claim).where(Claim.source_item_id == item.id))
+    ).all()
+    assert len(claims) == 2 and all(
+        claim.statement == quote and not claim.is_verified for claim in claims
+    )
+    person_entity = (
+        await session.scalars(select(Entity).where(Entity.name == person))
+    ).one()
+    view = await GraphService(session).get_neighborhood(
+        node_type="entity", node_id=person_entity.id, depth=2, limit=30
+    )
+    assert len([edge for edge in view.edges if edge.supporting_claim_id]) == 2
 
 
 def test_relationship_schema_is_open_ended_and_not_limited_to_company_subjects():

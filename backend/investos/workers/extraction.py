@@ -56,11 +56,19 @@ CAPITALIZED_PHRASE_RE = re.compile(
 )
 
 _UNCLASSIFIED_SUBJECT = "Unclassified Research"
+SOURCE_RELATIONSHIP_EXTRACTOR_VERSION = 2
 
 SOURCE_RELATIONSHIP_INSTRUCTIONS = (
     "Extract only source-attributed relationships supported by the supplied document. "
-    "Each assertion needs two named endpoints, an accurate open-ended snake_case "
-    "predicate and a verbatim supporting_quote naming both endpoints. Endpoint kinds "
+    "Each assertion needs a named source, named targets, an accurate open-ended snake_case "
+    "predicate and a verbatim supporting_quote. Each endpoint must be explicitly named "
+    "somewhere in the supplied document. Use the full, unambiguous names given there. "
+    "The relationship quotation may use pronouns or "
+    "shortened names; resolve them from document context and omit ambiguous resolutions. "
+    "Group counterparties explicitly listed under the same predicate in targets; do not "
+    "infer a Cartesian product or omit counterparties merely to repeat the same quotation. "
+    "Prioritize relationships explaining the material development and business dependencies, "
+    "including unexpected ties, before incidental biography. Endpoint kinds "
     "are open-ended: people, companies, products, technologies and themes are distinct. "
     "Preserve direction, negation, allegations, conditions, former roles and dates. "
     "Co-occurrence, background knowledge and the user's theory do not establish a "
@@ -364,7 +372,11 @@ RELATIONSHIPS_SCHEMA = {
         "additionalProperties": False,
         "properties": {
             "source": RELATION_ENDPOINT_SCHEMA,
-            "target": RELATION_ENDPOINT_SCHEMA,
+            "targets": {
+                "type": "array",
+                "items": RELATION_ENDPOINT_SCHEMA,
+                "minItems": 1,
+            },
             "relationship_type": {"type": "string"},
             "supporting_quote": {"type": "string"},
             "confidence": {"type": "number"},
@@ -376,7 +388,7 @@ RELATIONSHIPS_SCHEMA = {
         },
         "required": [
             "source",
-            "target",
+            "targets",
             "relationship_type",
             "supporting_quote",
             "confidence",
@@ -949,7 +961,7 @@ class ExtractionWorker:
         )
         metadata = dict(evidence.metadata_json or {})
         metadata["relationship_extraction"] = {
-            "version": 1,
+            "version": SOURCE_RELATIONSHIP_EXTRACTOR_VERSION,
             "status": "partial" if relationship_result["rejected"] else "completed",
             **relationship_result,
             "actor": "structured_relationship_extraction",
@@ -1139,11 +1151,21 @@ class ExtractionWorker:
         )
         directness = source_authority(source_type, evidence.metadata_json)
         audit = KnowledgeAuditService(self.session)
+        pairs = []
         for payload in payloads:
+            targets = payload.get("targets")
+            if not isinstance(targets, list) or not targets:
+                result["rejected"] += 1
+                continue
+            pairs.extend({**payload, "target": target} for target in targets)
+        for payload in pairs:
             quote = " ".join(str(payload.get("supporting_quote") or "").split())
             predicate = str(payload.get("relationship_type") or "").strip()
             endpoints = [payload.get("source") or {}, payload.get("target") or {}]
-            names = [str(endpoint.get("name") or "").strip() for endpoint in endpoints]
+            names = [
+                " ".join(str(endpoint.get("name") or "").split())
+                for endpoint in endpoints
+            ]
             try:
                 confidence = float(payload.get("confidence"))
             except (TypeError, ValueError):
@@ -1162,7 +1184,7 @@ class ExtractionWorker:
                     and not is_unusable_subject(name)
                     and re.search(
                         r"(?<!\w)" + re.escape(" ".join(name.split())) + r"(?!\w)",
-                        quote,
+                        normalized_text,
                         re.I,
                     )
                     and endpoint.get("subject_type") in {"entity", "theme"}
@@ -1270,8 +1292,8 @@ class ExtractionWorker:
                 relationship_type="extracted_from",
                 properties={"origin": actor},
             )
-            for role, (subject_type, subject_id) in zip(
-                ("subject", "object"), subjects
+            for role, (subject_type, subject_id), name in zip(
+                ("subject", "object"), subjects, names
             ):
                 await self.edge_state.ensure_edge(
                     source_type="claim",
@@ -1285,6 +1307,10 @@ class ExtractionWorker:
                         "origin": actor,
                         "predicate": predicate,
                         "source_item_id": str(source_item.id),
+                        "subject_name": name,
+                        "name_anchor_quote": re.search(
+                            re.escape(name), normalized_text, re.I
+                        ).group(0),
                     },
                 )
             self.session.add(
@@ -1350,7 +1376,7 @@ class ExtractionWorker:
         checkpoint = (evidence.metadata_json or {}).get("relationship_extraction") or {}
         if (
             not retry_completed
-            and checkpoint.get("version") == 1
+            and checkpoint.get("version") == SOURCE_RELATIONSHIP_EXTRACTOR_VERSION
             and checkpoint.get("status") == "completed"
         ):
             return {**base, "status": "already_completed"}
@@ -1384,7 +1410,7 @@ class ExtractionWorker:
             if apply:
                 metadata = dict(evidence.metadata_json or {})
                 metadata["relationship_extraction"] = {
-                    "version": 1,
+                    "version": SOURCE_RELATIONSHIP_EXTRACTOR_VERSION,
                     "status": status,
                     **counts,
                     "actor": "source_relationship_backfill",
@@ -1399,7 +1425,10 @@ class ExtractionWorker:
                 **base,
                 "model_calls": 1,
                 "status": status,
-                "candidates": len(payloads),
+                "assertion_groups": len(payloads),
+                "candidates": sum(
+                    len(payload.get("targets") or []) for payload in payloads
+                ),
                 "proposed_relationships": payloads,
                 **counts,
             }

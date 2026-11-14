@@ -1468,6 +1468,21 @@ class GraphService:
                     "relationship:"
                 ).replace("_", " ")
                 properties["corroborated"] = bool(node.is_verified)
+                roles = await self.session.scalars(
+                    select(Edge).where(
+                        Edge.source_type == "claim",
+                        Edge.source_id == node.id,
+                        Edge.relationship_type.in_(
+                            ["relationship_subject", "relationship_object"]
+                        ),
+                    )
+                )
+                for role in roles:
+                    provenance = role.properties_json or {}
+                    properties[role.relationship_type] = {
+                        "name": provenance.get("subject_name"),
+                        "document_name_anchor": provenance.get("name_anchor_quote"),
+                    }
                 properties["creation_method"] = {
                     "source_relationship_backfill": "Retained-source recovery",
                     "structured_relationship_extraction": "Source extraction",

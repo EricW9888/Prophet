@@ -331,8 +331,11 @@ state promotion still passes through evidence policy.
 
 Source-attributed relationships are cited `Claim` assertions with two role
 edges (`relationship_subject` and `relationship_object`) and an open predicate
-in `claim_type`. Literal quotation and endpoint binding precede persistence;
-this checks attribution, not semantic entailment or independent verification.
+in `claim_type`. A grouped list of counterparties becomes individually cited
+binary assertions. Literal quotation and document-name anchoring precede
+persistence; a relationship quote can use contextual pronouns or shortened names.
+The named endpoints and anchors remain inspectable with the claim. These checks
+establish attribution, not semantic entailment or independent verification.
 Claims retain source, event and observation clocks and remain unverified until
 separate evidence policy admits them. Historical roles do not create forecast
 review deadlines. Source withdrawal uses the existing claim lifecycle.
