@@ -336,9 +336,13 @@ binary assertions. Literal quotation and document-name anchoring precede
 persistence; a relationship quote can use contextual pronouns or shortened names.
 The named endpoints and anchors remain inspectable with the claim. These checks
 establish attribution, not semantic entailment or independent verification.
-Claims retain source, event and observation clocks and remain unverified until
+Claims retain source, event and observation clocks. Availability is bounded by
+when the assertion was actually recorded, including retained-source recovery,
+so later extraction cannot backdate actionable knowledge. Claims remain unverified until
 separate evidence policy admits them. Historical roles do not create forecast
-review deadlines. Source withdrawal uses the existing claim lifecycle.
+review deadlines. Source withdrawal uses the existing claim lifecycle. Rejected proposals remain
+in the mutation audit as unadmitted diagnostics rather than disappearing or
+entering the market-claim graph.
 The map projects a direct, dashed relationship from an admitted assertion and
 links it back to the supporting claim and source. It does not persist a second
 edge that could outlive withdrawn evidence. Projection reuses batched node

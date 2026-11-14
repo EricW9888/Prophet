@@ -10,6 +10,7 @@ from investos.models.entity import Entity
 from investos.models.evidence import RawEvidence, SourceItem
 from investos.models.graph import Edge
 from investos.models.knowledge import Claim
+from investos.models.knowledge_mutation import KnowledgeMutation
 from investos.models.source import Source
 from investos.services.evidence_relevance import (
     EvidenceRelevanceAssessment,
@@ -31,7 +32,6 @@ def relationship(person: str, company: str, quote: str) -> dict:
         "confidence": 0.9,
         "event_time_raw": "April 1, 1993",
         "target_horizon": "strategic",
-        "valid_until_raw": None,
     }
 
 
@@ -129,6 +129,7 @@ async def test_relationship_assertions_keep_both_endpoints_provenance_and_source
     assert str(detail.citations[0].raw_evidence_id) == str(evidence.id)
     assert detail.properties["creation_method"] == "Source extraction"
     assert assertion.valid_until is None
+    assert assertion.eligible_action_time >= assertion.created_at
     second_evidence, second_item = await source_fixture(session, quote)
     assert (
         await worker.persist_source_relationships(
@@ -184,6 +185,17 @@ async def test_unsupported_quotes_endpoints_and_self_links_create_no_relationshi
     assert not (
         await session.scalars(select(Claim).where(Claim.source_item_id == item.id))
     ).all()
+    rejected = (
+        await session.scalars(
+            select(KnowledgeMutation).where(
+                KnowledgeMutation.node_id == evidence.id,
+                KnowledgeMutation.change_type == "relationship_candidate_rejected",
+            )
+        )
+    ).all()
+    assert len(rejected) == 3 and all(
+        event.metadata_json["admitted"] is False for event in rejected
+    )
     await session.rollback()
 
 
@@ -252,10 +264,47 @@ async def test_contextual_names_and_grouped_counterparties_keep_each_cited_conne
 
 
 def test_relationship_schema_is_open_ended_and_not_limited_to_company_subjects():
+    assert "maxItems" not in EXTRACTION_SCHEMA["properties"]["relationships"]
     schema = EXTRACTION_SCHEMA["properties"]["relationships"]["items"]
     assert "enum" not in schema["properties"]["relationship_type"]
     assert "enum" not in schema["properties"]["source"]["properties"]["entity_type"]
     assert "enum" not in EXTRACTION_SCHEMA["properties"]["entity_type"]
+
+
+@pytest.mark.asyncio
+async def test_validated_relationship_groups_are_not_silently_sliced(monkeypatch):
+    import fastjsonschema
+
+    quote = "Casey Vale co-founded Helix Labs on April 1, 1993."
+    groups = [relationship("Casey Vale", "Helix Labs", quote) for _ in range(12)]
+    payload = {
+        "primary_subject": "Helix Labs",
+        "subject_type": "entity",
+        "entity_type": "company",
+        "summary": quote,
+        "relevance_assessment": {
+            "status": "relevant",
+            "target_supported": True,
+            "reason": "Explicit source",
+            "supported_subjects": ["Helix Labs"],
+        },
+        "events": [],
+        "facts": [],
+        "claims": [],
+        "fundamental_metrics": [],
+        "market_setup_signals": [],
+        "relationships": groups,
+    }
+    fastjsonschema.validate(EXTRACTION_SCHEMA, payload)
+    monkeypatch.setattr(
+        "investos.workers.extraction.call_llm_json", AsyncMock(return_value=payload)
+    )
+    worker = ExtractionWorker(None)
+    normalized = await worker._extract_structured_data("Synthetic filing", quote)
+    assert normalized["relationships"] == groups
+    assert (
+        await worker.extract_source_relationships("Synthetic filing", quote) == groups
+    )
 
 
 @pytest.mark.asyncio
@@ -288,6 +337,28 @@ async def test_reindex_preview_is_reversible_and_apply_is_checkpointed(
         "model_calls"
     ] == 0
     assert worker.extract_source_relationships.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_partial_reindex_waits_for_explicit_review_instead_of_repeating_model_calls(
+    workflow_session,
+):
+    session = workflow_session
+    person, company = f"Casey Vale {uuid4().hex[:8]}", f"Helix Labs {uuid4().hex[:8]}"
+    quote = f"{person} co-founded {company}."
+    evidence, item = await source_fixture(session, quote)
+    await session.commit()
+    bad = relationship(person, company, "A quotation absent from the document.")
+    worker = ExtractionWorker(session)
+    worker.extract_source_relationships = AsyncMock(
+        return_value=[relationship(person, company, quote), bad]
+    )
+    assert (await worker.reindex_source_relationships(evidence.id, apply=True))[
+        "status"
+    ] == "partial"
+    repeat = await worker.reindex_source_relationships(evidence.id, apply=True)
+    assert repeat["status"] == "partial_requires_review" and repeat["model_calls"] == 0
+    worker.extract_source_relationships.assert_awaited_once()
 
 
 @pytest.mark.asyncio

@@ -53,6 +53,8 @@ Document name anchors and a matching quotation do not establish that a model cor
 interpreted the predicate, negation, dates or entity identity. Model confidence
 is not verification, a relationship does not prove a market transmission
 mechanism, and assisted recovery is not autonomous detection before an event.
+A completed extraction pass is not a claim of exhaustive relationship coverage;
+source excerpts, generation budgets and model interpretation can still omit material connections.
 
 ## Data and Connector Coverage
 

@@ -128,7 +128,8 @@ and `--max-model-calls` control work. The pass stops on a provider failure and
 never enables a local model or changes provider settings. Derived conversation
 or reflection records and ineligible sources are skipped. Original source text
 or its retained excerpt is required; a generated summary is not a substitute.
-Completed sources are skipped unless `--retry-completed` is explicit. Recovery
+Completed and partial passes are skipped unless `--retry-completed` is explicit;
+partial passes retain their review gaps rather than repeatedly spending model calls. Recovery
 is assisted reprocessing, not evidence of autonomous or pre-event discovery.
 
 ## Guardrails

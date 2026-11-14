@@ -366,7 +366,6 @@ RELATION_ENDPOINT_SCHEMA = {
 }
 RELATIONSHIPS_SCHEMA = {
     "type": "array",
-    "maxItems": 8,
     "items": {
         "type": "object",
         "additionalProperties": False,
@@ -1116,6 +1115,16 @@ class ExtractionWorker:
         loop_result["relationships"] = relationship_result
         return loop_result
 
+    @staticmethod
+    def _relationship_available_at(
+        evidence: RawEvidence, recorded_at: datetime
+    ) -> datetime:
+        return max(
+            value if value.tzinfo else value.replace(tzinfo=UTC)
+            for value in (recorded_at, evidence.public_time, evidence.ingest_time)
+            if value is not None
+        )
+
     async def persist_source_relationships(
         self,
         evidence: RawEvidence,
@@ -1172,15 +1181,13 @@ class ExtractionWorker:
                 confidence = float("nan")
             valid = (
                 bool(quote)
-                and len(quote) <= 2000
                 and quote in normalized_text
-                and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", predicate) is not None
+                and re.fullmatch(r"[a-z][a-z0-9_]*", predicate) is not None
                 and math.isfinite(confidence)
                 and 0 <= confidence <= 1
                 and names[0].casefold() != names[1].casefold()
                 and all(
                     name
-                    and len(name) <= 120
                     and not is_unusable_subject(name)
                     and re.search(
                         r"(?<!\w)" + re.escape(" ".join(name.split())) + r"(?!\w)",
@@ -1197,6 +1204,22 @@ class ExtractionWorker:
             )
             if not valid:
                 result["rejected"] += 1
+                await audit.record_change(
+                    node_type="raw_evidence",
+                    node_id=evidence.id,
+                    change_type="relationship_candidate_rejected",
+                    actor=actor,
+                    reason="The proposed relationship did not satisfy source binding or structural validation.",
+                    source_type="source_item",
+                    source_id=source_item.id,
+                    metadata={
+                        "admitted": False,
+                        "source": payload.get("source"),
+                        "target": payload.get("target"),
+                        "relationship_type": predicate,
+                        "supporting_quote": quote,
+                    },
+                )
                 continue
             subjects = []
             for name, endpoint in zip(names, endpoints):
@@ -1232,6 +1255,30 @@ class ExtractionWorker:
                 )
             existing = (await self.session.scalars(statement.limit(1))).first()
             if existing is not None:
+                available_at = self._relationship_available_at(
+                    evidence, existing.created_at
+                )
+                if (
+                    existing.eligible_action_time is None
+                    or existing.eligible_action_time < available_at
+                ):
+                    before = existing.eligible_action_time
+                    existing.eligible_action_time = available_at
+                    await audit.record_change(
+                        node_type="claim",
+                        node_id=existing.id,
+                        change_type="availability_corrected",
+                        actor=actor,
+                        reason="An extracted relationship cannot be actionable before it was recorded.",
+                        source_type="source_item",
+                        source_id=source_item.id,
+                        metadata={
+                            "previous_eligible_action_time": (
+                                before.isoformat() if before else None
+                            ),
+                            "eligible_action_time": available_at.isoformat(),
+                        },
+                    )
                 result["existing"] += 1
                 continue
             raw_date = " ".join(str(payload.get("event_time_raw") or "").split())
@@ -1249,6 +1296,8 @@ class ExtractionWorker:
                 valid_until=valid_until,
                 item_type="claim",
             )
+            recorded_at = datetime.now(UTC)
+            available_at = self._relationship_available_at(evidence, recorded_at)
             claim = Claim(
                 statement=quote,
                 claim_type=f"relationship:{predicate}",
@@ -1264,7 +1313,8 @@ class ExtractionWorker:
                 event_time=event_time,
                 public_time=evidence.public_time,
                 ingest_time=evidence.ingest_time,
-                eligible_action_time=evidence.public_time or evidence.ingest_time,
+                created_at=recorded_at,
+                eligible_action_time=available_at,
                 valid_until=valid_until,
                 target_horizon=payload.get("target_horizon") or "strategic",
             )
@@ -1282,6 +1332,7 @@ class ExtractionWorker:
                     "raw_evidence_id": str(evidence.id),
                     "relationship_type": predicate,
                     "event_date_source_bound": date_bound,
+                    "proposed_event_time_raw": payload.get("event_time_raw"),
                 },
             )
             await self.edge_state.ensure_edge(
@@ -1341,7 +1392,7 @@ class ExtractionWorker:
                 "required": ["relationships"],
             },
         )
-        return result.get("relationships", [])[:8]
+        return result.get("relationships", [])
 
     async def reindex_source_relationships(
         self,
@@ -1377,9 +1428,16 @@ class ExtractionWorker:
         if (
             not retry_completed
             and checkpoint.get("version") == SOURCE_RELATIONSHIP_EXTRACTOR_VERSION
-            and checkpoint.get("status") == "completed"
+            and checkpoint.get("status") in {"completed", "partial"}
         ):
-            return {**base, "status": "already_completed"}
+            return {
+                **base,
+                "status": (
+                    "partial_requires_review"
+                    if checkpoint["status"] == "partial"
+                    else "already_completed"
+                ),
+            }
         try:
             text_content = (
                 (await self.storage.get_object(evidence.raw_content_ref)).decode(
@@ -1667,7 +1725,7 @@ class ExtractionWorker:
                 supported_subjects=relevance.supported_subjects,
             )
         extracted["relevance_assessment"] = relevance.as_metadata()
-        extracted["relationships"] = extracted.get("relationships", [])[:8]
+        extracted["relationships"] = extracted.get("relationships", [])
         extracted["events"] = extracted.get("events", [])[:5]
         extracted["facts"] = extracted.get("facts", [])[:8]
         extracted["claims"] = extracted.get("claims", [])[:6]
