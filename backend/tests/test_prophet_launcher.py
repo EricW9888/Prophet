@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import ipaddress
 import json
 import socket
 import sys
@@ -268,10 +269,32 @@ def test_process_environment_overrides_remote_access_file_setting():
     assert result["PROPHET_REMOTE_ACCESS_USER"] == "process@example.com"
 
 
+def test_database_defaults_match_the_local_ipv4_loopback_contract(monkeypatch):
+    from investos.config import Settings
+
+    monkeypatch.delenv("POSTGRES_SERVER", raising=False)
+    monkeypatch.delenv("POSTGRES_PORT", raising=False)
+    backend = Settings(_env_file=None, POSTGRES_PASSWORD="synthetic")
+    example = prophet.env_values(SCRIPT_PATH.parents[1] / ".env.example")
+    host, port = prophet.configured_database_endpoint({})
+    assert host == backend.POSTGRES_SERVER == example["POSTGRES_SERVER"]
+    address = ipaddress.ip_address(host)
+    assert address.version == 4 and address.is_loopback
+    assert port == int(backend.POSTGRES_PORT) == int(example["POSTGRES_PORT"])
+
+
 def test_configured_database_endpoint_validates_port():
     assert prophet.configured_database_endpoint(
         {"POSTGRES_SERVER": "db.internal", "POSTGRES_PORT": "5544"}
     ) == ("db.internal", 5544)
+    assert prophet.configured_database_endpoint({"POSTGRES_SERVER": "::1"}) == (
+        "::1",
+        5432,
+    )
+    assert prophet.configured_database_endpoint({"POSTGRES_SERVER": "localhost"}) == (
+        "localhost",
+        5432,
+    )
 
     with pytest.raises(prophet.StartupError, match="must be an integer"):
         prophet.configured_database_endpoint({"POSTGRES_PORT": "not-a-port"})
