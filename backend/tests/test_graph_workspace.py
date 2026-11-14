@@ -29,6 +29,62 @@ from investos.services.graph import (
 
 
 @pytest.mark.asyncio(loop_scope="session")
+async def test_longer_portfolio_path_remains_unresolved_by_bounded_detail_check():
+    async with async_session_maker() as session:
+        nodes = [
+            Entity(name=f"Synthetic linkage {uuid4()}", entity_type="company")
+            for _ in range(4)
+        ]
+        session.add_all(nodes)
+        await session.flush()
+        root, intermediary, second, held = nodes
+        security = Security(
+            entity_id=held.id,
+            ticker=f"G{uuid4().hex[:8]}",
+            asset_class="equity",
+            instrument_type="common_stock",
+        )
+        session.add(security)
+        await session.flush()
+        session.add(
+            Position(
+                security_id=security.id,
+                direction="long",
+                list_type="holding",
+                quantity=1,
+            )
+        )
+        session.add_all(
+            Edge(
+                source_type="entity",
+                source_id=source.id,
+                target_type="entity",
+                target_id=target.id,
+                relationship_type="related_to",
+            )
+            for source, target in zip(nodes, nodes[1:])
+        )
+        await session.flush()
+        graph = GraphService(session)
+        expanded = await graph.get_neighborhood(
+            node_type="entity", node_id=root.id, depth=3, limit=8
+        )
+        assert f"entity:{held.id}" in {node.key for node in expanded.nodes}
+        detail = await graph.get_node_detail(node_type="entity", node_id=root.id)
+        assert detail.properties["portfolio_linkage_status"] == "unresolved"
+        assert detail.properties["portfolio_route_depth"] == 2
+        assert "bounded check" in detail.relevance_reasoning
+        nearer = await graph.get_node_detail(
+            node_type="entity", node_id=intermediary.id
+        )
+        assert (
+            nearer.properties["portfolio_significance"] == "connected portfolio context"
+        )
+        assert "portfolio_linkage_status" not in nearer.properties
+        await session.rollback()
+
+
+@pytest.mark.asyncio(loop_scope="session")
 async def test_bounded_neighborhood_shares_slots_across_frontier_branches():
     async with async_session_maker() as session:
         nodes = [
