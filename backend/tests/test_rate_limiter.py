@@ -97,6 +97,34 @@ async def test_medium_timeout_retry_policy_allows_one_retry():
     assert calls == 2
 
 
+@pytest.mark.parametrize("status", [429, 503])
+async def test_long_server_wait_defers_instead_of_retrying_early(monkeypatch, status):
+    from unittest.mock import AsyncMock
+
+    from investos.core import llm
+
+    monkeypatch.setattr(llm, "_provider_cooldowns", {})
+    sleep = AsyncMock()
+    monkeypatch.setattr(llm.asyncio, "sleep", sleep)
+    calls = 0
+
+    @retry_with_backoff(max_retries=3)
+    async def nvidia_synthetic_request(*, model):
+        nonlocal calls
+        calls += 1
+        httpx.Response(
+            status,
+            headers={"Retry-After": "7200"},
+            request=httpx.Request("POST", "https://example.test"),
+        ).raise_for_status()
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await nvidia_synthetic_request(model="synthetic/maintenance")
+    assert calls == 1
+    assert _cooldown_remaining("nvidia_nim", "synthetic/maintenance") > 7195
+    sleep.assert_not_awaited()
+
+
 def test_codex_cli_failure_summary_omits_prompt_payload():
     stderr = "\n".join(
         [

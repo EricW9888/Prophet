@@ -438,6 +438,11 @@ separate. Cancellation releases its trial lease; expiry permits a new fenced
 trial after a restart. This follows the standard
 [half-open circuit breaker](https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker)
 pattern without raising provider quotas or bypassing admission limits.
+Both transport retries and the durable circuit use the same parser for
+[RFC 9110 Retry-After](https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.3)
+seconds and HTTP dates. Server-requested waits are not shortened by local
+backoff caps; long waits defer through shared health instead of occupying a
+request worker.
 Autonomous model work
 waits for a verified configuration; deterministic maintenance can continue.
 Health identities include model request options so an observed failure is not

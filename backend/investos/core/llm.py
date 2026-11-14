@@ -20,6 +20,8 @@ from investos.core.provider_health import (
     ProviderHealthStore,
     _probe_call,
     guarded_provider_call,
+    retry_after_seconds,
+    retryable_provider_failure,
 )
 from investos.core.providers import (
     StructuredGenerationError,
@@ -159,7 +161,7 @@ def _raise_if_provider_cooling_down(provider: str, model: str | None = None) -> 
 def _open_provider_cooldown(
     provider: str, seconds: float, model: str | None = None
 ) -> None:
-    duration = max(30.0, min(seconds, 600.0))
+    duration = max(30.0, seconds)
     key = _cooldown_key(provider, model)
     _provider_cooldowns[key] = max(
         _provider_cooldowns.get(key, 0.0),
@@ -208,20 +210,14 @@ def compact_exception_message(exc: BaseException) -> str:
 
 
 def _retry_after_seconds(exc: Exception) -> float | None:
-    """Parse a Retry-After header (seconds form) from a 429/503 response."""
+    """Parse a Retry-After header from a provider response."""
     if not isinstance(exc, httpx.HTTPStatusError):
         return None
     return _retry_after_seconds_from_headers(exc.response.headers)
 
 
 def _retry_after_seconds_from_headers(headers: httpx.Headers) -> float | None:
-    raw = headers.get("Retry-After")
-    if not raw:
-        return None
-    try:
-        return max(0.0, float(raw))
-    except (TypeError, ValueError):
-        return None
+    return retry_after_seconds(headers)
 
 
 def retry_with_backoff(
@@ -265,7 +261,10 @@ def retry_with_backoff(
                         status_code = exc.response.status_code
 
                     if status_code == 429:
-                        cooldown_seconds = _retry_after_seconds(exc) or 300.0
+                        retry_after = _retry_after_seconds(exc)
+                        cooldown_seconds = (
+                            retry_after if retry_after is not None else 300.0
+                        )
                         _open_provider_cooldown(
                             provider_label, cooldown_seconds, request_model
                         )
@@ -277,9 +276,7 @@ def retry_with_backoff(
                         raise
 
                     # Only retry on 5xx or general request errors (timeouts, connection issues)
-                    should_retry = isinstance(exc, httpx.RequestError) or (
-                        status_code and 500 <= status_code < 600
-                    )
+                    should_retry = retryable_provider_failure(exc)
 
                     if not should_retry or attempt == effective_max_retries:
                         if (
@@ -305,7 +302,14 @@ def retry_with_backoff(
 
                     retry_after = _retry_after_seconds(exc)
                     if retry_after is not None:
-                        delay = min(retry_after, 60.0)
+                        if retry_after > max_delay:
+                            # Let the shared circuit/job own a long wait instead
+                            # of shortening it or occupying a request worker.
+                            _open_provider_cooldown(
+                                provider_label, retry_after, request_model
+                            )
+                            raise
+                        delay = retry_after
                     else:
                         delay = (
                             min(
