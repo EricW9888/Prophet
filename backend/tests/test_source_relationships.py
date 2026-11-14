@@ -27,7 +27,7 @@ def relationship(person: str, company: str, quote: str) -> dict:
         "relationship_type": "co_founded",
         "supporting_quote": quote,
         "confidence": 0.9,
-        "event_time_raw": "1993-04-01",
+        "event_time_raw": "April 1, 1993",
         "target_horizon": "strategic",
         "valid_until_raw": None,
     }
@@ -109,6 +109,7 @@ async def test_relationship_assertions_keep_both_endpoints_provenance_and_source
     assert f"entity:{entities[company].id}" in {n.key for n in view.nodes}
     projected = [e for e in view.edges if e.supporting_claim_id == assertion.id]
     assert len(projected) == 1 and projected[0].relationship_type == "co_founded"
+    assert projected[0].supporting_claim_verified is False
     assert projected[0].source_key == f"entity:{entities[person].id}"
     assert projected[0].target_key == f"entity:{entities[company].id}"
     compared = await GraphService(session).compare_nodes(
@@ -124,6 +125,8 @@ async def test_relationship_assertions_keep_both_endpoints_provenance_and_source
         node_type="claim", node_id=assertion.id
     )
     assert str(detail.citations[0].raw_evidence_id) == str(evidence.id)
+    assert detail.properties["creation_method"] == "Source extraction"
+    assert assertion.valid_until is None
     second_evidence, second_item = await source_fixture(session, quote)
     assert (
         await worker.persist_source_relationships(
@@ -180,6 +183,29 @@ async def test_unsupported_quotes_endpoints_and_self_links_create_no_relationshi
         await session.scalars(select(Claim).where(Claim.source_item_id == item.id))
     ).all()
     await session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_unbound_dates_and_role_ends_do_not_create_assertion_deadlines(
+    workflow_session,
+):
+    session = workflow_session
+    token = uuid4().hex[:8]
+    person, company = f"Casey Vale {token}", f"Helix Labs {token}"
+    quote = f"{person} co-founded {company}."
+    evidence, item = await source_fixture(session, quote)
+    payload = relationship(person, company, quote)
+    payload["event_time_raw"] = "2026-11-12"
+    payload["valid_until_raw"] = "2026-11-12"
+    assert (
+        await ExtractionWorker(session).persist_source_relationships(
+            evidence, item, quote, [payload]
+        )
+    )["created"] == 1
+    claim = (
+        await session.scalars(select(Claim).where(Claim.source_item_id == item.id))
+    ).one()
+    assert claim.event_time is None and claim.valid_until is None
 
 
 def test_relationship_schema_is_open_ended_and_not_limited_to_company_subjects():

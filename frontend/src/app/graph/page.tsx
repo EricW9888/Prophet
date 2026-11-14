@@ -1362,7 +1362,7 @@ export default function GraphPage() {
                   </div>
                 </div>
                 {activeEdge.supporting_claim_id && <div className="space-y-2 border border-line p-3 text-sm">
-                  <p>Source-attributed relationship · not independently verified</p>
+                  <p>Source-attributed relationship · {activeEdge.supporting_claim_verified ? "corroborated claim" : "corroboration not established"}</p>
                   <button type="button" className="workspace-control" onClick={() => {
                     const id = activeEdge.supporting_claim_id!;
                     handleNodeClick({key: `claim:${id}`, node_type: "claim", id});

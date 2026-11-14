@@ -66,8 +66,10 @@ SOURCE_RELATIONSHIP_INSTRUCTIONS = (
     "Co-occurrence, background knowledge and the user's theory do not establish a "
     "relationship. Omit it if the text does not support the predicate. A resignation "
     "does not establish a current employment role or the hidden cause of an event. "
-    "Use null event_time_raw unless the source states the underlying relationship event "
-    "or assertion date. A historical role is not a forecast deadline. "
+    "For event_time_raw copy the source's exact date phrase for the underlying "
+    "relationship event or assertion; use null when it is not stated. Do not infer "
+    "a date from background knowledge or the current date. A historical role is "
+    "not a forecast deadline. "
     "Confidence is model confidence, not independent verification. "
 )
 
@@ -1210,7 +1212,11 @@ class ExtractionWorker:
             if existing is not None:
                 result["existing"] += 1
                 continue
-            event_time = self._event_time_from_payload(payload, evidence)
+            raw_date = " ".join(str(payload.get("event_time_raw") or "").split())
+            date_bound = bool(raw_date) and raw_date in normalized_text
+            event_time = (
+                self._event_time_from_payload(payload, evidence) if date_bound else None
+            )
             # A historical relationship assertion has no forecast review deadline.
             valid_until = None
             temporal = assess_knowledge_time(
@@ -1253,6 +1259,7 @@ class ExtractionWorker:
                 metadata={
                     "raw_evidence_id": str(evidence.id),
                     "relationship_type": predicate,
+                    "event_date_source_bound": date_bound,
                 },
             )
             await self.edge_state.ensure_edge(

@@ -24,6 +24,7 @@ from investos.models.evidence import RawEvidence, SourceItem
 from investos.models.fundamental import FundamentalMetric
 from investos.models.graph import Edge
 from investos.models.knowledge import Claim, Event, Fact
+from investos.models.knowledge_mutation import KnowledgeMutation
 from investos.models.lesson import Lesson, LessonObservation
 from investos.models.market_setup import MarketSetupSignal
 from investos.models.portfolio import Position
@@ -697,6 +698,7 @@ class GraphService:
                 relationship_type=predicate,
                 confidence=float(claim.confidence or 0),
                 supporting_claim_id=claim.id,
+                supporting_claim_verified=bool(claim.is_verified),
             )
             edges[edge_id] = edge
             projected.append(edge)
@@ -1451,6 +1453,25 @@ class GraphService:
                     else None
                 ),
             }
+            if node_type == "claim" and node.claim_type.startswith("relationship:"):
+                creation = await self.session.scalar(
+                    select(KnowledgeMutation)
+                    .where(
+                        KnowledgeMutation.node_type == "claim",
+                        KnowledgeMutation.node_id == node.id,
+                        KnowledgeMutation.change_type == "created",
+                    )
+                    .order_by(KnowledgeMutation.created_at)
+                    .limit(1)
+                )
+                properties["relationship"] = node.claim_type.removeprefix(
+                    "relationship:"
+                ).replace("_", " ")
+                properties["corroborated"] = bool(node.is_verified)
+                properties["creation_method"] = {
+                    "source_relationship_backfill": "Retained-source recovery",
+                    "structured_relationship_extraction": "Source extraction",
+                }.get(creation.actor if creation else "", "Recorded assertion")
         elif node_type == "event":
             properties = {
                 "event_type": node.event_type,

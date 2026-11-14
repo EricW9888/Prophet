@@ -15,9 +15,8 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 from sqlalchemy import select  # noqa: E402
 
+from investos.core import provider_health  # noqa: E402
 from investos.core.llm import compact_exception_message  # noqa: E402
-from investos.core.provider_health import \
-    LLMProviderCooldownError  # noqa: E402
 from investos.db import async_session_maker  # noqa: E402
 from investos.models.evidence import RawEvidence, SourceItem  # noqa: E402
 from investos.workers.extraction import ExtractionWorker  # noqa: E402
@@ -65,7 +64,7 @@ async def main() -> None:
                         "evidence_id": str(evidence_id),
                         "status": (
                             "deferred"
-                            if isinstance(exc, LLMProviderCooldownError)
+                            if isinstance(exc, provider_health.LLMProviderCooldownError)
                             else "error"
                         ),
                         "error": compact_exception_message(exc),
