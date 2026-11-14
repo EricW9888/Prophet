@@ -329,6 +329,22 @@ edge-state, alias, integrity, pruning, and mutation-audit services keep graph
 changes inspectable. The graph does not grant truth status to a connected node;
 state promotion still passes through evidence policy.
 
+Source-attributed relationships are cited `Claim` assertions with two role
+edges (`relationship_subject` and `relationship_object`) and an open predicate
+in `claim_type`. Literal quotation and endpoint binding precede persistence;
+this checks attribution, not semantic entailment or independent verification.
+Claims retain source, event and observation clocks and remain unverified until
+separate evidence policy admits them. Historical roles do not create forecast
+review deadlines. Source withdrawal uses the existing claim lifecycle.
+The map projects a direct, dashed relationship from an admitted assertion and
+links it back to the supporting claim and source. It does not persist a second
+edge that could outlive withdrawn evidence. Projection reuses batched node
+reads, preserves per-source assertion identity, and is absent when its claim
+or either endpoint is outside the admitted view. Ordinary cross-subject events,
+facts and claims also retain their document-primary context, as investment
+metrics already did. Subject kinds remain open; creating a product assertion
+does not silently reclassify or consolidate existing issuer identities.
+
 Workspace graph reads batch node and provenance dependencies within each
 request while retaining per-node admission limits. D3 runs layout and collision
 resolution in a browser worker. Each connected component has its own force

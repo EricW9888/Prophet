@@ -71,6 +71,7 @@ class GraphLayoutSyncRequest(BaseModel):
 
 
 class GraphWebEdgeResponse(BaseModel):
+    supporting_claim_id: Optional[UUID] = None
     id: UUID
     source_key: str
     target_key: str

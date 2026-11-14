@@ -382,7 +382,7 @@ class InvestmentObjectBackfillService:
                     "primary_subject_id": str(subject["entity_id"]),
                 },
             )
-            await self.extraction.link_investment_object_context(
+            await self.extraction.link_object_context(
                 object_type="fundamental_metric",
                 object_id=metric.id,
                 object_subject=object_subject,
@@ -458,7 +458,7 @@ class InvestmentObjectBackfillService:
                     "primary_subject_id": str(subject["entity_id"]),
                 },
             )
-            await self.extraction.link_investment_object_context(
+            await self.extraction.link_object_context(
                 object_type="market_setup_signal",
                 object_id=signal.id,
                 object_subject=object_subject,

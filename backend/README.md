@@ -105,8 +105,31 @@ backend/.venv/Scripts/python.exe scripts/benchmark_structured_generation.py --pr
 Start an already installed local server separately. The screen never downloads
 a model. It records the corpus hash, contract/semantic results and end-to-end
 latencies, stops on a provider failure and refuses to overwrite a prior report.
-Eight small synthetic cases are an initial screen; they do not qualify a model
+Repeat `--case` to select frozen checks, including relationship co-occurrence,
+role/cause boundaries and subject kinds. The report hashes the selected corpus.
+Small synthetic cases are an initial screen; they do not qualify a model
 for long evidence packets, autonomous actions or investment conclusions.
+
+## Retained-source relationship recovery
+
+New extraction retains source-attributed relationships automatically. Existing
+processed sources can be re-read without recreating their other extraction
+objects. From the repository root:
+
+```bash
+backend/.venv/Scripts/python.exe scripts/backfill_source_relationships.py --evidence-id <uuid>
+backend/.venv/Scripts/python.exe scripts/backfill_source_relationships.py --evidence-id <uuid> --apply
+```
+
+The default is a reversible preview, including the proposed assertions, using
+the configured model. `--apply` checkpoints and retains cited, unverified
+claims. Omit the evidence ID for a bounded recent-source pass; `--scan-limit`
+and `--max-model-calls` control work. The pass stops on a provider failure and
+never enables a local model or changes provider settings. Derived conversation
+or reflection records and ineligible sources are skipped. Original source text
+or its retained excerpt is required; a generated summary is not a substitute.
+Completed sources are skipped unless `--retry-completed` is explicit. Recovery
+is assisted reprocessing, not evidence of autonomous or pre-event discovery.
 
 ## Guardrails
 

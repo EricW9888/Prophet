@@ -518,6 +518,8 @@ class GraphService:
             if edge.source_key not in node_keys or edge.target_key not in node_keys:
                 edge_map.pop(edge_id, None)
 
+        await self._project_source_relationships(node_map, edge_map, reads=reads)
+
         if _include_layouts:
             await self._attach_layouts(node_map)
 
@@ -621,13 +623,84 @@ class GraphService:
         )
         for node in nodes.values():
             node.is_root = node.key == root_key
+        edge_projection = OrderedDict((edge.id, edge) for edge in edges.values())
+        await self._project_source_relationships(nodes, edge_projection, reads=reads)
         await self._attach_layouts(nodes)
         return GraphNeighborhoodResponse(
             root_key=root_key,
             depth=WEB_NEIGHBORHOOD_DEPTH,
             nodes=list(nodes.values()),
-            edges=list(edges.values()),
+            edges=list(edge_projection.values()),
         )
+
+    async def _project_source_relationships(
+        self,
+        nodes: dict[str, GraphWebNodeResponse],
+        edges: dict[UUID, GraphWebEdgeResponse],
+        *,
+        reads: _NeighborhoodReads | None = None,
+    ) -> list[GraphWebEdgeResponse]:
+        """Expose a direct view of an admitted, cited two-endpoint assertion.
+
+        The claim remains authoritative; its projection disappears when the
+        claim is withdrawn or outside the admitted view. No second durable
+        relationship is written that could outlive the source assertion.
+        """
+        roles: dict[str, dict[str, set[str]]] = {}
+        for edge in list(edges.values()):
+            if edge.source_key not in nodes or edge.target_key not in nodes:
+                continue
+            if nodes[edge.source_key].node_type != "claim":
+                continue
+            if edge.relationship_type in {
+                "relationship_subject",
+                "relationship_object",
+            }:
+                role = edge.relationship_type.removeprefix("relationship_")
+                roles.setdefault(edge.source_key, {}).setdefault(role, set()).add(
+                    edge.target_key
+                )
+        if not roles:
+            return []
+        reads = reads or _NeighborhoodReads(self)
+        await reads.prefetch_nodes(list(roles))
+        projected = []
+        for key, endpoints in roles.items():
+            if set(endpoints) != {"subject", "object"}:
+                continue
+            if any(len(values) != 1 for values in endpoints.values()):
+                continue
+            claim = await reads.node("claim", nodes[key].id)
+            if (
+                claim is None
+                or claim.is_deprecated
+                or not claim.claim_type.startswith("relationship:")
+            ):
+                continue
+            source_key, target_key = next(iter(endpoints["subject"])), next(
+                iter(endpoints["object"])
+            )
+            if source_key == target_key:
+                continue
+            predicate = claim.claim_type.removeprefix("relationship:")
+            edge_id = self._synthetic_edge_id(
+                source_type=nodes[source_key].node_type,
+                source_id=nodes[source_key].id,
+                target_type=nodes[target_key].node_type,
+                target_id=nodes[target_key].id,
+                relationship_type=f"{predicate}:{claim.id}",
+            )
+            edge = GraphWebEdgeResponse(
+                id=edge_id,
+                source_key=source_key,
+                target_key=target_key,
+                relationship_type=predicate,
+                confidence=float(claim.confidence or 0),
+                supporting_claim_id=claim.id,
+            )
+            edges[edge_id] = edge
+            projected.append(edge)
+        return projected
 
     async def compare_nodes(
         self,
@@ -765,6 +838,12 @@ class GraphService:
                 relationship_type=edge.relationship_type,
                 confidence=float(edge.confidence or 0.0),
             )
+        source_relationships = await self._project_source_relationships(nodes, edge_map)
+        source_direct = [
+            edge
+            for edge in source_relationships
+            if {edge.source_key, edge.target_key} == {key_a, key_b}
+        ]
         direct_relation_names = [edge.relationship_type for edge in direct_edges]
         summary_parts: list[str] = []
         if direct_relation_names:
@@ -776,6 +855,11 @@ class GraphService:
             summary_parts.append(
                 f"Direct links: {', '.join(dict.fromkeys(synthetic_names))}."
             )
+        if source_direct:
+            names = ", ".join(
+                dict.fromkeys(edge.relationship_type for edge in source_direct)
+            )
+            summary_parts.append(f"Source-attributed relationships: {names}.")
         if shared_keys:
             shared_labels = [nodes[key].label for key in shared_keys if key in nodes]
             summary_parts.append(f"Shared context: {', '.join(shared_labels[:4])}.")
@@ -798,7 +882,8 @@ class GraphService:
                     confidence=float(edge.confidence or 0.0),
                 )
                 for edge in direct_edges
-            ],
+            ]
+            + source_direct,
             shared_neighbor_keys=shared_keys,
             summary=" ".join(summary_parts),
             nodes=list(nodes_dict.values()),

@@ -254,6 +254,7 @@ export const GraphNodeGlyph = memo(function GraphNodeGlyph({ node, isSelected, i
 
 type EdgeProps = {
   edgeKey: string;
+  sourceAttributed?: boolean;
   source: PositionedNode;
   target: PositionedNode;
   description: string;
@@ -263,7 +264,7 @@ type EdgeProps = {
   onSelect: (key: string) => void;
 };
 
-export const GraphEdgeGlyph = memo(function GraphEdgeGlyph({ edgeKey, source, target, description, selected, highlighted, onHover, onSelect }: EdgeProps) {
+export const GraphEdgeGlyph = memo(function GraphEdgeGlyph({ edgeKey, sourceAttributed, source, target, description, selected, highlighted, onHover, onSelect }: EdgeProps) {
   return (
     <g key={edgeKey}>
       <title>{description}</title>
@@ -276,6 +277,7 @@ export const GraphEdgeGlyph = memo(function GraphEdgeGlyph({ edgeKey, source, ta
         x2={target.x ?? 0} y2={target.y ?? 0}
         stroke="currentColor"
         vectorEffect="non-scaling-stroke"
+        strokeDasharray={sourceAttributed ? "6 4" : undefined}
         strokeWidth={selected ? 2.5 : highlighted ? 1.8 : 1}
         strokeOpacity={selected ? 1 : highlighted ? 0.9 : 0.5}
       />

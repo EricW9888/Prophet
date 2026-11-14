@@ -211,7 +211,8 @@ function makeEdgeAskPrompt(edge: GraphWebEdge, nodeByKey: Record<string, Positio
   const target = nodeByKey[edge.target_key];
   const sourceLabel = source?.label ?? edge.source_key;
   const targetLabel = target?.label ?? edge.target_key;
-  return `Explain this graph connection: ${sourceLabel} ${edge.relationship_type.replaceAll("_", " ")} ${targetLabel}. Why does this relationship matter, what evidence supports it, what could weaken it, and what are the portfolio implications?`;
+  const sourceClaim = edge.supporting_claim_id ? ` Inspect the source-attributed claim ${edge.supporting_claim_id} and its original evidence; distinguish its assertion from independently verified facts.` : "";
+  return `Explain this graph connection: ${sourceLabel} ${edge.relationship_type.replaceAll("_", " ")} ${targetLabel}. Why does this relationship matter, what evidence supports it, what could weaken it, and what are the portfolio implications?${sourceClaim}`;
 }
 
 export default function GraphPage() {
@@ -745,7 +746,8 @@ export default function GraphPage() {
     const target = nodeByKey[edge.target_key];
     const sName = source?.label ?? edge.source_key;
     const tName = target?.label ?? edge.target_key;
-    return `${sName} ${edge.relationship_type.replace(/_/g, " ")} ${tName}`;
+    const attribution = edge.supporting_claim_id ? "Source reports: " : "";
+    return `${attribution}${sName} ${edge.relationship_type.replace(/_/g, " ")} ${tName}`;
   }, [nodeByKey]);
 
   const handleNodeClick = useCallback(
@@ -1215,7 +1217,7 @@ export default function GraphPage() {
                         if (!source || !target) return null;
                         const edgeKey = graphEdgeIdentity(edge);
                         return <GraphEdgeGlyph key={edgeKey} edgeKey={edgeKey} source={source} target={target}
-                          description={describeEdge(edge)} selected={selectedEdgeId === edgeKey}
+                          description={describeEdge(edge)} sourceAttributed={Boolean(edge.supporting_claim_id)} selected={selectedEdgeId === edgeKey}
                           highlighted={hoveredEdgeId === edgeKey || Boolean(selectedKey && (edge.source_key === selectedKey || edge.target_key === selectedKey))}
                           onHover={setHoveredEdgeId} onSelect={selectGraphEdge} />;
                       })}
@@ -1342,7 +1344,7 @@ export default function GraphPage() {
                     {describeEdge(activeEdge)}
                   </div>
                   <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                    Confidence {Math.round(activeEdge.confidence * 100)}%
+                    {activeEdge.supporting_claim_id ? "Model confidence" : "Confidence"} {Math.round(activeEdge.confidence * 100)}%
                   </div>
                 </div>
                 <div className="grid grid-cols-1 gap-2">
@@ -1359,6 +1361,13 @@ export default function GraphPage() {
                     </div>
                   </div>
                 </div>
+                {activeEdge.supporting_claim_id && <div className="space-y-2 border border-line p-3 text-sm">
+                  <p>Source-attributed relationship · not independently verified</p>
+                  <button type="button" className="workspace-control" onClick={() => {
+                    const id = activeEdge.supporting_claim_id!;
+                    handleNodeClick({key: `claim:${id}`, node_type: "claim", id});
+                  }}>Inspect supporting claim and source</button>
+                </div>}
                 <button
                   type="button"
                   onClick={() => {

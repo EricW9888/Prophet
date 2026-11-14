@@ -310,6 +310,7 @@ export type GraphNodeLayoutItem = {
 };
 
 export type GraphWebEdge = {
+  supporting_claim_id?: string | null;
   id: string;
   source_key: string;
   target_key: string;

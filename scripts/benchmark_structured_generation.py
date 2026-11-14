@@ -122,6 +122,44 @@ CASES = [
 ]
 
 
+# These cases screen evidence boundaries; real extraction still needs end-to-end
+# interpretation review against its retained source and assertion lifecycle.
+CASES.extend(
+    [
+        (
+            "relationship_cooccurrence",
+            "Source: Dana Park attended an industry conference in Denver. Helix Labs sponsored a concert in Chicago. Using only this source, return relationship_between_dana_and_helix_established.",
+            schema({"relationship_between_dana_and_helix_established": BOOL}),
+            {"relationship_between_dana_and_helix_established": False},
+        ),
+        (
+            "relationship_role_and_cause",
+            "Source: Dana Park resigned as chief executive of Helix Labs on November 12, 2026. Morgan Lake was appointed interim chief executive. Return dana_current_ceo_confirmed, dana_departure_confirmed, hidden_product_failure_established, and forecast_review_due_date. Use null for a date the source does not supply as a forecast review deadline.",
+            schema(
+                {
+                    "dana_current_ceo_confirmed": BOOL,
+                    "dana_departure_confirmed": BOOL,
+                    "hidden_product_failure_established": BOOL,
+                    "forecast_review_due_date": {"type": ["string", "null"]},
+                }
+            ),
+            {
+                "dana_current_ceo_confirmed": False,
+                "dana_departure_confirmed": True,
+                "hidden_product_failure_established": False,
+                "forecast_review_due_date": None,
+            },
+        ),
+        (
+            "relationship_subject_kinds",
+            "Source: Ion Compiler is a software product developed by Cedar Tools, a company. Return ion_compiler_kind and cedar_tools_kind as open-ended subject-kind labels.",
+            schema({"ion_compiler_kind": TEXT, "cedar_tools_kind": TEXT}),
+            {"ion_compiler_kind": "product", "cedar_tools_kind": "company"},
+        ),
+    ]
+)
+
+
 async def run(args):
     if args.timeout <= 0 or args.max_output_tokens <= 0:
         raise SystemExit("Timeout and output token budget must be positive.")
@@ -130,16 +168,21 @@ async def run(args):
     if args.allow_local:
         settings.LLM_ALLOW_LOCAL_PROVIDER = True
     settings.LLM_STRUCTURED_MAX_TOKENS = args.max_output_tokens
+    cases = [
+        case
+        for case in CASES
+        if not getattr(args, "case", None) or case[0] in args.case
+    ]
     rows = []
     report = dict(
         corpus_sha256=hashlib.sha256(
-            json.dumps(CASES, sort_keys=True).encode()
+            json.dumps(cases, sort_keys=True).encode()
         ).hexdigest(),
         provider=args.provider,
         model=args.model,
         started_at=datetime.now(UTC).isoformat(),
         max_output_tokens=args.max_output_tokens,
-        planned_cases=len(CASES),
+        planned_cases=len(cases),
         results=rows,
     )
     output = Path(args.output)
@@ -148,7 +191,7 @@ async def run(args):
             "Choose a new output path; previous measurements are retained."
         )
     output.parent.mkdir(parents=True, exist_ok=True)
-    for name, prompt, contract, expected in CASES:
+    for name, prompt, contract, expected in cases:
         started = time.perf_counter()
         row = dict(case=name, schema_success=False, evidence_boundary_pass=False)
         try:
@@ -174,7 +217,8 @@ async def run(args):
             row["error"] = type(exc).__name__
         row["end_to_end_ms"] = round((time.perf_counter() - started) * 1000, 1)
         rows.append(row)
-        report["completed_cases"] = len(rows)
+        report["attempted_cases"] = len(rows)
+        report["completed_cases"] = sum(item["schema_success"] for item in rows)
         report["passed_cases"] = sum(item["evidence_boundary_pass"] for item in rows)
         output.write_text(json.dumps(report, indent=2), encoding="utf-8")
         print(
@@ -207,6 +251,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--provider", choices=["nvidia_nim", "ollama", "codex_cli"], required=True
+    )
+    parser.add_argument(
+        "--case",
+        action="append",
+        choices=[case[0] for case in CASES],
+        help="Run a selected frozen case; repeat to select more",
     )
     parser.add_argument("--model", required=True)
     parser.add_argument("--output", required=True)

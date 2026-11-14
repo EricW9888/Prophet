@@ -48,6 +48,11 @@ is verified. Overview labels are intentionally bounded; the navigator and
 inspector retain full names. Manual anchors take precedence over automatic
 packing, so conflicting pins can require manual adjustment or a layout reset.
 Large, densely connected groups still require zooming or a focused view.
+Dashed, source-attributed relationships are projections of inspectable claims.
+A matching quotation and endpoint names do not establish that a model correctly
+interpreted the predicate, negation, dates or entity identity. Model confidence
+is not verification, a relationship does not prove a market transmission
+mechanism, and assisted recovery is not autonomous detection before an event.
 
 ## Data and Connector Coverage
 
