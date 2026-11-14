@@ -355,7 +355,10 @@ metrics already did. Subject kinds remain open; creating a product assertion
 does not silently reclassify or consolidate existing issuer identities.
 
 Workspace graph reads batch node and provenance dependencies within each
-request while retaining per-node admission limits. D3 runs layout and collision
+request while retaining per-node admission limits. Bounded neighborhoods share
+each breadth-first frontier across branches, preserving branch edge order so a
+large first branch cannot exhaust the view before its siblings contribute.
+D3 runs layout and collision
 resolution in a browser worker. Each connected component has its own force
 simulation; D3 front-chain circle packing separates disconnected groups. Layout
 coordinates are unbounded: camera fitting owns the viewport rather than a clamp

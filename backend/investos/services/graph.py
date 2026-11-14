@@ -4,6 +4,7 @@ import re
 import uuid
 from collections import OrderedDict
 from datetime import UTC, datetime
+from itertools import zip_longest
 from typing import Any, Literal
 from uuid import UUID
 
@@ -431,12 +432,13 @@ class GraphService:
         for _level in range(effective_depth):
             await reads.prefetch_edges(frontier)
             neighbors = []
+            branches = []
             for current_type, current_id in frontier:
                 current = await reads.node(current_type, current_id)
                 if current is not None:
-                    neighbors.extend(
-                        await reads.edges(current_type, current_id, current)
-                    )
+                    edges = await reads.edges(current_type, current_id, current)
+                    neighbors.extend(edges)
+                    branches.append((self._node_key(current_type, current_id), edges))
             if len(node_map) < limit:
                 await reads.prefetch_nodes(
                     [
@@ -446,36 +448,24 @@ class GraphService:
                     ]
                 )
             next_frontier: list[tuple[str, UUID | str]] = []
-            for current_type, current_id in frontier:
-                current_node = await reads.node(current_type, current_id)
-                if current_node is None:
-                    continue
-                edges = await reads.edges(current_type, current_id, current_node)
-                current_key = self._node_key(current_type, current_id)
-                if len(node_map) < limit:
-                    await reads.prefetch_nodes(
-                        [
-                            (
-                                edge.target_key
-                                if edge.source_key == current_key
-                                else edge.source_key
-                            )
-                            for edge in edges
-                        ]
-                    )
-                for edge in edges:
+            # Share the bounded view across this breadth-first frontier. A large
+            # first branch must not consume every slot before its siblings run.
+            for wave in zip_longest(*(edges for _, edges in branches)):
+                for branch_index, edge in enumerate(wave):
+                    if edge is None:
+                        continue
+                    current_key = branches[branch_index][0]
                     if edge.id not in edge_map:
                         edge_map[edge.id] = edge
                     other_type = (
                         edge.target_key.split(":", 1)[0]
-                        if edge.source_key == self._node_key(current_type, current_id)
+                        if edge.source_key == current_key
                         else edge.source_key.split(":", 1)[0]
                     )
                     try:
                         other_id = (
                             UUID(edge.target_key.split(":", 1)[1])
-                            if edge.source_key
-                            == self._node_key(current_type, current_id)
+                            if edge.source_key == current_key
                             else UUID(edge.source_key.split(":", 1)[1])
                         )
                     except (ValueError, IndexError):
