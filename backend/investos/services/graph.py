@@ -1442,6 +1442,12 @@ class GraphService:
                     if getattr(node, "ingest_time", None)
                     else None
                 ),
+                "recorded_at": node.created_at.isoformat(),
+                "available_to_prophet_at": (
+                    node.eligible_action_time.isoformat()
+                    if node.eligible_action_time
+                    else None
+                ),
             }
             if node_type == "claim" and node.claim_type.startswith("relationship:"):
                 creation = await self.session.scalar(

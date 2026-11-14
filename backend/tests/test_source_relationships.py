@@ -129,6 +129,11 @@ async def test_relationship_assertions_keep_both_endpoints_provenance_and_source
     )
     assert str(detail.citations[0].raw_evidence_id) == str(evidence.id)
     assert detail.properties["creation_method"] == "Source extraction"
+    assert detail.properties["recorded_at"] == assertion.created_at.isoformat()
+    assert (
+        detail.properties["available_to_prophet_at"]
+        == assertion.eligible_action_time.isoformat()
+    )
     assert assertion.valid_until is None
     assert assertion.eligible_action_time >= assertion.created_at
     second_evidence, second_item = await source_fixture(session, quote)

@@ -9,6 +9,7 @@ import remarkGfm from "remark-gfm";
 import { Maximize2, PanelRightClose, PanelRightOpen, RotateCcw, Search, ZoomIn, ZoomOut } from "lucide-react";
 import { GraphEdgeGlyph, GraphNodeGlyph, getNodeStyle } from "@/components/GraphGlyphs";
 import { GraphConnectionSelect } from "@/components/GraphConnectionSelect";
+import RecordFields from "@/components/RecordFields";
 import GraphNodeNavigator from "@/components/GraphNodeNavigator";
 import GraphMetricSummary from "@/components/GraphMetricSummary";
 import HintMarker from "@/components/HintMarker";
@@ -1608,9 +1609,7 @@ export default function GraphPage() {
 	                        .map(([key, value]) => (
                         <div key={key} className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 dark:border-slate-800 dark:bg-slate-900">
                           <div className="text-[10px] text-slate-500">{formatUserLabel(key)}</div>
-                          <div className="mt-0.5 break-words text-xs font-medium text-slate-900 dark:text-white">
-                            {Array.isArray(value) ? value.join(", ") : String(value)}
-                          </div>
+                          <div className="mt-0.5"><RecordFields value={value} /></div>
                         </div>
                       ))}
                     </div>
