@@ -274,5 +274,6 @@ async def test_independent_reviewer_does_not_launder_unbound_amounts(
         SimpleNamespace(id=uuid4()), {"quantity_measurements": [sample()]}, {}
     )
     assert review["summary"] == raw["independent_summary"]
-    assert review["question_answerability"] == "inadequate"
+    assert review["question_answerability"] == "adequate"
     assert not review["quantity_grounding"]["verified"]
+    assert "unverified numerical claims" in " ".join(review["issues_found"])

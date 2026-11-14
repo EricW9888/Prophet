@@ -1002,6 +1002,7 @@ class RetrievalService:
         return {
             "name": source.name,
             "type": source.source_type,
+            "acquisition_kind": evidence.source_item_type,
             "is_trusted": bool(source.is_trusted),
             "evidence_title": evidence.title,
             "url": evidence.url,

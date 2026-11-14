@@ -636,11 +636,21 @@ class AgentService:
 
     @staticmethod
     def _has_invalid_account_quantities(result: dict) -> bool:
-        return (result.get("quantity_grounding") or {}).get("verified") is False or any(
-            item.get("evidence_basis")
-            in {"portfolio_ledger", "market_data_calculation"}
-            and (item.get("quantity_verification") or {}).get("verified") is False
-            for item in (result.get("corroboration") or {}).get("assertions", [])
+        return (
+            (result.get("quantity_grounding") or {}).get("verified") is False
+            or (
+                (
+                    (result.get("independent_review") or {}).get("quantity_grounding")
+                    or {}
+                ).get("verified")
+                is False
+            )
+            or any(
+                item.get("evidence_basis")
+                in {"portfolio_ledger", "market_data_calculation"}
+                and (item.get("quantity_verification") or {}).get("verified") is False
+                for item in (result.get("corroboration") or {}).get("assertions", [])
+            )
         )
 
     @staticmethod
@@ -1439,7 +1449,7 @@ class AgentService:
             "independent_review",
             lambda: reasoning_service._create_critique(
                 reasoning_run,
-                compact_packet_context(packet_context),
+                packet_context,
                 reasoning_result,
                 **({"defer_on_provider_failure": True} if state.enabled else {}),
             ),

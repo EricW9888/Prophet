@@ -292,14 +292,27 @@ class CorroborationService:
             )
             if answerability == "inadequate":
                 return
+        review_quantities = review.get("quantity_grounding") or {}
+        if review_quantities.get("verified") is False:
+            assessment = result.setdefault("corroboration", {})
+            assessment["can_promote"] = False
+            assessment["independent_quantity_grounding"] = review_quantities
+            assessment["confidence_cap"] = "very_low"
+            if answerability == "adequate":
+                assessment["status"] = "independent_review_quantities_unverified"
+            result["confidence_band"] = self._cap_confidence(
+                result.get("confidence_band"), "very_low"
+            )
         if not disagreement:
             return
         assessment = result.setdefault("corroboration", {})
         assessment["status"] = "analyst_disagreement"
         assessment["can_promote"] = False
-        assessment["confidence_cap"] = "low"
+        assessment["confidence_cap"] = (
+            "very_low" if review_quantities.get("verified") is False else "low"
+        )
         result["confidence_band"] = self._cap_confidence(
-            result.get("confidence_band"), "low"
+            result.get("confidence_band"), assessment["confidence_cap"]
         )
 
     def _assess_assertion(

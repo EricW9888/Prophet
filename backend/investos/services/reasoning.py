@@ -465,7 +465,7 @@ class ReasoningService:
         corroboration.assess_result(result, packet_context)
         if include_critique:
             independent_review = await self._create_critique(
-                run, prompt_context, result
+                run, packet_context, result
             )
             corroboration.apply_independent_review(result, independent_review)
         if allow_state_update:
@@ -651,6 +651,11 @@ class ReasoningService:
             "assumptions and falsifiers, plausible alternative hypotheses, and any evidence-quality issues. "
             "Do not invent facts or fill gaps. Distinguish copied coverage from independent sources, check that "
             "the subject/security and time period match, and use uncertain or no_view when the packet cannot decide. "
+            "Judge coverage of the actual question, not an invented requirement for private contract terms or a complete investment thesis. "
+            "Use partial when attributable evidence answers some requested parts and other parts remain unresolved; identify both. "
+            "An issuer announcement is primary evidence of what that issuer announced, not proof that future plans will be fulfilled. "
+            "Acquisition kind, manual submission, and internal promotion status do not identify authorship or prove a source false. "
+            "Use publisher identity and actual publication/event times; an unreviewed trust default is not a negative factual finding. "
             "Portfolio ledger values and deterministic calculations may be supported by exact packet context paths "
             "instead of external evidence IDs; do not mislabel those account facts as unsupported merely because "
             "they lack a publication. External factual or causal claims still require retrieved sources. "
@@ -663,7 +668,7 @@ class ReasoningService:
         system_prompt += QUANTITY_RULES + presentation_instruction(
             "independent_summary"
         )
-        critique_payload = {"packet_context": packet_context}
+        critique_payload = {"packet_context": compact_packet_context(packet_context)}
         try:
             critique = await call_llm_json(
                 system_prompt=system_prompt,
@@ -677,7 +682,6 @@ class ReasoningService:
         CorroborationService().assess_result(critique, packet_context)
         numerical_review = critique["quantity_grounding"]
         if not numerical_review["verified"]:
-            critique["question_answerability"] = "inadequate"
             critique["issues_found"] = [
                 *critique.get("issues_found", []),
                 "The independent review contains unverified numerical claims.",
