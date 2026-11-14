@@ -113,7 +113,7 @@
   .knowledge-split[data-inspector-open="true"] {
     grid-template-columns: minmax(0, 1fr) 0.75rem clamp(260px, var(--pane-width), min(720px, 50%));
   }
-  .knowledge-canvas { height: max(24rem, calc(100dvh - 13rem)); }
+  .knowledge-canvas { height: max(24rem, calc(100dvh - var(--knowledge-canvas-top, 13rem) - 1.5rem)); }
 }
 
 @media (prefers-color-scheme: dark) {

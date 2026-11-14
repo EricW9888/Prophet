@@ -1,215 +1,20 @@
 import * as d3 from "d3";
-import type { GraphNeighborhood, GraphWebNode } from "./api";
-import { CENTER_X, CENTER_Y, HEIGHT, WIDTH, nodeVisualRadius, type PositionedNode } from "./graph-layout-geometry";
+import type { GraphNeighborhood } from "./api";
+import { CENTER_X, CENTER_Y, nodeVisualRadius, type PositionedNode } from "./graph-layout-geometry";
 
 type PositionedLink = d3.SimulationLinkDatum<PositionedNode>;
-const GRAPH_LAYOUT_PADDING = 96;
 const NODE_COLLISION_PADDING = 10;
+const COMPONENT_PADDING = 40;
 const OVERLAP_RESOLUTION_ITERATIONS = 36;
 
-function stableHash(value: string) {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-function stableUnit(value: string, salt: string) {
-  return stableHash(`${salt}:${value}`) / 0xffffffff;
-}
-
-function stableSignedUnit(value: string, salt: string) {
-  return stableUnit(value, salt) * 2 - 1;
-}
-
-function nodeLayoutAnchor(node: GraphWebNode) {
-  if (node.is_root) {
-    return { x: CENTER_X, y: CENTER_Y, spreadX: 0, spreadY: 0 };
-  }
-  if (node.node_type === "portfolio") {
-    return { x: CENTER_X, y: CENTER_Y, spreadX: 120, spreadY: 80 };
-  }
-  const angle = stableUnit(node.key, "layout-angle") * Math.PI * 2;
-  const band =
-    node.node_type === "position"
-      ? 260
-      : node.layer === "source"
-        ? 660
-        : node.layer === "operating"
-          ? 560
-          : 420;
-  return {
-    x: CENTER_X + Math.cos(angle) * band,
-    y: CENTER_Y + Math.sin(angle) * band * 0.72,
-    spreadX: 220,
-    spreadY: 150,
-  };
-}
-
-function nodeLayoutStrength(node: PositionedNode) {
-  if (node.is_root) return 0.18;
-  if (node.node_type === "portfolio") return 0.1;
-  return 0.025;
-}
-
-function organicSeedPosition(node: GraphWebNode, index: number) {
-  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-  const sequenceOffset = stableUnit(node.key, "organic-sequence") * 0.45;
-  const angle = (index + 1 + sequenceOffset) * goldenAngle + stableUnit(node.key, "organic-angle") * 0.38;
-  const radialUnit = Math.sqrt(Math.min(0.98, Math.max(0.06, stableUnit(node.key, "organic-radius"))));
-  const extentX = WIDTH * 0.38;
-  const extentY = HEIGHT * 0.34;
-  const anchor = nodeLayoutAnchor(node);
-  const anchorWeight = node.node_type === "portfolio" ? 0.45 : 0.08;
-  const organicX = CENTER_X + Math.cos(angle) * extentX * radialUnit + stableSignedUnit(node.key, "organic-x") * 90;
-  const organicY = CENTER_Y + Math.sin(angle) * extentY * radialUnit + stableSignedUnit(node.key, "organic-y") * 70;
-  return {
-    x: organicX * (1 - anchorWeight) + anchor.x * anchorWeight,
-    y: organicY * (1 - anchorWeight) + anchor.y * anchorWeight,
-  };
-}
-
-function deterministicNodePosition(
-  node: GraphWebNode,
-  index: number,
-) {
-  if (node.is_root) {
-    return { x: CENTER_X, y: CENTER_Y };
-  }
-  return organicSeedPosition(node, index);
-}
-
-function normalizeGraphLayout(
-  graphNodes: PositionedNode[],
-  rootKey: string | null,
-) {
-  if (!graphNodes.length) {
-    return graphNodes;
-  }
-  const root = graphNodes.find((node) => node.key === rootKey) ?? graphNodes.find((node) => node.is_root);
-  const anchorX =
-    root?.x ??
-    graphNodes.reduce((sum, node) => sum + (node.x ?? CENTER_X), 0) / graphNodes.length;
-  const anchorY =
-    root?.y ??
-    graphNodes.reduce((sum, node) => sum + (node.y ?? CENTER_Y), 0) / graphNodes.length;
-  const offsetX = CENTER_X - anchorX;
-  const offsetY = CENTER_Y - anchorY;
-  return graphNodes.map((node) => {
-    if (node.key === rootKey || (!rootKey && node.is_root)) {
-      return { ...node, x: CENTER_X, y: CENTER_Y, vx: 0, vy: 0 };
-    }
-    return {
-      ...node,
-      x: (node.x ?? CENTER_X) + offsetX,
-      y: (node.y ?? CENTER_Y) + offsetY,
-      vx: 0,
-      vy: 0,
-    };
-  });
-}
-
-function keepNodeWithinLayoutBounds(node: PositionedNode) {
-  const beforeX = node.x ?? CENTER_X;
-  const beforeY = node.y ?? CENTER_Y;
-  const radius = nodeVisualRadius(node, { selected: false, compare: false });
-  const minX = GRAPH_LAYOUT_PADDING + radius;
-  const maxX = WIDTH - GRAPH_LAYOUT_PADDING - radius;
-  const minY = GRAPH_LAYOUT_PADDING + radius;
-  const maxY = HEIGHT - GRAPH_LAYOUT_PADDING - radius;
-  node.x = Math.min(maxX, Math.max(minX, beforeX));
-  node.y = Math.min(maxY, Math.max(minY, beforeY));
-  return Math.abs((node.x ?? CENTER_X) - beforeX) > 0.001 || Math.abs((node.y ?? CENTER_Y) - beforeY) > 0.001;
-}
-
-function separateOverlappingNodes(
-  nodes: PositionedNode[],
-  rootKeys: Set<string>,
-  iterations: number,
-) {
-  const collision = d3.forceSimulation<PositionedNode>(nodes)
-    .force("collision", d3.forceCollide<PositionedNode>()
-      .radius((node) => nodeVisualRadius(node, { selected: false, compare: false }) + NODE_COLLISION_PADDING / 2)
-      .strength(1))
-    .stop();
-  for (let iteration = 0; iteration < iterations; iteration += 1) {
-    collision.tick();
-    for (const node of nodes) {
-      if (!rootKeys.has(node.key)) {
-        keepNodeWithinLayoutBounds(node);
-      }
-    }
-  }
-}
-
-function resolveNodeOverlaps(
-  graphNodes: PositionedNode[],
-  rootKey: string | null,
-  targetAspect: number,
-) {
-  const resolved = graphNodes.map((node) => ({
-    ...node,
-    x: node.x ?? CENTER_X,
-    y: node.y ?? CENTER_Y,
-    vx: 0,
-    vy: 0,
-  }));
-  const rootKeys = new Set(
-    resolved
-      .filter((node) => node.is_root || node.key === rootKey)
-      .map((node) => node.key),
-  );
-
-  for (const node of resolved) {
-    if (rootKeys.has(node.key)) {
-      node.fx = CENTER_X;
-      node.fy = CENTER_Y;
-    }
-  }
-  for (const node of resolved) {
-    if (!rootKeys.has(node.key)) {
-      keepNodeWithinLayoutBounds(node);
-    }
-  }
-  separateOverlappingNodes(resolved, rootKeys, OVERLAP_RESOLUTION_ITERATIONS);
-  for (const node of resolved) {
-    node.fx = null;
-    node.fy = null;
-  }
-
-  const normalized = normalizeGraphLayout(resolved, rootKey);
-  const positioned = normalized.filter(
-    (node): node is PositionedNode & { x: number; y: number } =>
-      Number.isFinite(node.x) && Number.isFinite(node.y),
-  );
-  if (positioned.length > 1) {
-    const minX = Math.min(...positioned.map((node) => node.x));
-    const maxX = Math.max(...positioned.map((node) => node.x));
-    const minY = Math.min(...positioned.map((node) => node.y));
-    const maxY = Math.max(...positioned.map((node) => node.y));
-    const spanX = Math.max(1, maxX - minX);
-    const spanY = Math.max(1, maxY - minY);
-    const currentAspect = spanX / spanY;
-    if (currentAspect < targetAspect) {
-      const horizontalScale = Math.min(2.5, targetAspect / currentAspect);
-      for (const node of normalized) {
-        if (node.key !== rootKey && !node.is_root) {
-          node.x = CENTER_X + ((node.x ?? CENTER_X) - CENTER_X) * horizontalScale;
-        }
-      }
-    } else if (currentAspect > targetAspect) {
-      const verticalScale = Math.min(2.5, currentAspect / targetAspect);
-      for (const node of normalized) {
-        if (node.key !== rootKey && !node.is_root) {
-          node.y = CENTER_Y + ((node.y ?? CENTER_Y) - CENTER_Y) * verticalScale;
-        }
-      }
-    }
-  }
-  return normalized;
-}
+type Component = d3.SimulationNodeDatum & {
+  nodes: PositionedNode[];
+  links: PositionedLink[];
+  r: number;
+  centerX: number;
+  centerY: number;
+  anchored: boolean;
+};
 
 export type GraphLayoutRequest = {
   graph: GraphNeighborhood;
@@ -218,67 +23,160 @@ export type GraphLayoutRequest = {
   targetAspect: number;
 };
 
+// Components describe actual connectivity, not inferred subjects or merged identities.
+function connectedComponents(nodes: PositionedNode[], graph: GraphNeighborhood): Component[] {
+  const byKey = new Map(nodes.map(node => [node.key, node]));
+  const adjacent = new Map(nodes.map(node => [node.key, new Set<string>()]));
+  for (const edge of graph.edges) {
+    adjacent.get(edge.source_key)?.add(edge.target_key);
+    adjacent.get(edge.target_key)?.add(edge.source_key);
+  }
+  const membership = new Map<string, Component>();
+  const components: Component[] = [];
+  for (const node of nodes) {
+    if (membership.has(node.key)) continue;
+    const component: Component = { nodes: [], links: [], r: 0, centerX: 0, centerY: 0, anchored: false };
+    const pending = [node.key];
+    membership.set(node.key, component);
+    while (pending.length) {
+      const key = pending.pop()!;
+      component.nodes.push(byKey.get(key)!);
+      for (const neighbor of adjacent.get(key) ?? []) {
+        if (byKey.has(neighbor) && !membership.has(neighbor)) {
+          membership.set(neighbor, component);
+          pending.push(neighbor);
+        }
+      }
+    }
+    for (const member of component.nodes) member.layout_component = node.key;
+    components.push(component);
+  }
+  for (const edge of graph.edges) {
+    if (byKey.has(edge.source_key) && byKey.has(edge.target_key)) {
+      membership.get(edge.source_key)!.links.push({ source: edge.source_key, target: edge.target_key });
+    }
+  }
+  return components;
+}
+
+function layoutComponent(component: Component) {
+  // D3 initializes missing positions with its deterministic phyllotaxis seeds.
+  const simulation = d3.forceSimulation(component.nodes)
+    .force("link", d3.forceLink<PositionedNode, PositionedLink>(component.links)
+      .id(node => node.key)
+      .strength(0.32)
+      .distance(link => {
+        const source = link.source as PositionedNode, target = link.target as PositionedNode;
+        if (source.is_root || target.is_root) return 260;
+        if (source.node_type === "position" || target.node_type === "position") return 200;
+        if (source.node_type === "entity" || target.node_type === "entity") return 180;
+        return 160;
+      }))
+    .force("charge", d3.forceManyBody<PositionedNode>().strength(-420))
+    .force("x", d3.forceX<PositionedNode>(0).strength(0.025))
+    .force("y", d3.forceY<PositionedNode>(0).strength(0.025))
+    .force("collision", d3.forceCollide<PositionedNode>()
+      .radius(node => nodeVisualRadius(node, { selected: false, compare: false }) + NODE_COLLISION_PADDING))
+    .alphaDecay(0.07)
+    .stop();
+  simulation.alpha(0.9);
+  while (simulation.alpha() >= simulation.alphaMin()) simulation.tick();
+
+  // Resolve collisions without projecting nodes onto an artificial world boundary.
+  simulation.force("link", null).force("charge", null).force("x", null).force("y", null);
+  simulation.tick(OVERLAP_RESOLUTION_ITERATIONS);
+  const circle = d3.packEnclose(component.nodes.map(node => ({
+    x: node.x!, y: node.y!, r: nodeVisualRadius(node, { selected: false, compare: false }),
+  })));
+  component.centerX = circle.x;
+  component.centerY = circle.y;
+  component.r = circle.r + COMPONENT_PADDING;
+  component.anchored = component.nodes.some(node => node.fx != null && node.fy != null);
+}
+
+function packComponents(components: Component[]) {
+  // The front-chain packing provided by D3 keeps disconnected groups apart.
+  // Largest first is stable for a given input and avoids scattering tiny groups
+  // through the interior of a large connected component.
+  const packed = [...components].sort((a, b) => b.r - a.r);
+  d3.packSiblings(packed);
+  const anchor = packed.find(component => component.nodes.some(node => node.is_root))
+    ?? packed.find(component => component.anchored);
+  const enclosing = d3.packEnclose(packed as (Component & { x: number; y: number })[]);
+  const offsetX = anchor ? anchor.centerX - anchor.x! : -enclosing.x;
+  const offsetY = anchor ? anchor.centerY - anchor.y! : -enclosing.y;
+  for (const component of packed) {
+    component.x = component.anchored ? component.centerX : component.x! + offsetX;
+    component.y = component.anchored ? component.centerY : component.y! + offsetY;
+    if (component.anchored) {
+      component.fx = component.centerX;
+      component.fy = component.centerY;
+    }
+  }
+  // A manually positioned component may lie outside its automatic packed slot.
+  // Move free groups around fixed groups; never move an owner's fixed nodes.
+  if (packed.some(component => component.anchored)) {
+    d3.forceSimulation(packed)
+      .force("collision", d3.forceCollide<Component>().radius(component => component.r).iterations(4))
+      .stop().tick(OVERLAP_RESOLUTION_ITERATIONS);
+  }
+  for (const component of packed) {
+    const dx = component.x! - component.centerX, dy = component.y! - component.centerY;
+    for (const node of component.nodes) {
+      node.x = node.x! + dx + CENTER_X;
+      node.y = node.y! + dy + CENTER_Y;
+      node.vx = 0; node.vy = 0;
+      node.fx = null; node.fy = null;
+    }
+  }
+}
+
+function expandToAspect(nodes: PositionedNode[], targetAspect: number) {
+  if (nodes.length < 2 || !Number.isFinite(targetAspect) || targetAspect <= 0) return;
+  const minX = d3.min(nodes, node => node.x!)!, maxX = d3.max(nodes, node => node.x!)!;
+  const minY = d3.min(nodes, node => node.y!)!, maxY = d3.max(nodes, node => node.y!)!;
+  const aspect = Math.max(1, maxX - minX) / Math.max(1, maxY - minY);
+  // Expand only: compression would reintroduce node and component collisions.
+  const scaleX = Math.max(1, targetAspect / aspect), scaleY = Math.max(1, aspect / targetAspect);
+  for (const node of nodes) {
+    node.x = CENTER_X + (node.x! - CENTER_X) * scaleX;
+    node.y = CENTER_Y + (node.y! - CENTER_Y) * scaleY;
+  }
+}
+
 export function calculateGraphLayout({ graph, positions, manual, targetAspect }: GraphLayoutRequest): PositionedNode[] {
+  if (!graph.nodes.length) return [];
   const degreeByKey = new Map<string, number>();
   for (const edge of graph.edges) {
     degreeByKey.set(edge.source_key, (degreeByKey.get(edge.source_key) ?? 0) + 1);
     degreeByKey.set(edge.target_key, (degreeByKey.get(edge.target_key) ?? 0) + 1);
   }
-
-  // Stable Layout: Use target positions from the persistent ref map
-  const initialNodes: PositionedNode[] = graph.nodes.map((n, index) => {
-    const manualPosition = manual[n.key];
-    const existing = positions.get(n.key);
-    const fallback = deterministicNodePosition(n, index);
-    const degree = degreeByKey.get(n.key) ?? 0;
+  let hasManual = false;
+  const nodes: PositionedNode[] = graph.nodes.map(node => {
+    const pin = manual[node.key];
+    const fixed = pin && Number.isFinite(pin.x) && Number.isFinite(pin.y) ? pin : null;
+    hasManual ||= !!fixed;
+    const existing = positions.get(node.key);
+    const root = node.key === graph.root_key || node.is_root;
     return {
-      ...n,
-      degree,
-      layout_node_count: graph.nodes.length,
-      x: manualPosition?.x ?? existing?.x ?? fallback.x,
-      y: manualPosition?.y ?? existing?.y ?? fallback.y,
-      vx: existing?.vx ?? 0,
-      vy: existing?.vy ?? 0,
-      fx: manualPosition?.x,
-      fy: manualPosition?.y,
+      ...node, degree: degreeByKey.get(node.key) ?? 0, layout_node_count: graph.nodes.length,
+      x: existing && Number.isFinite(existing.x) ? existing.x - CENTER_X : undefined,
+      y: existing && Number.isFinite(existing.y) ? existing.y - CENTER_Y : undefined,
+      vx: 0, vy: 0,
+      fx: fixed ? fixed.x - CENTER_X : root ? 0 : undefined,
+      fy: fixed ? fixed.y - CENTER_Y : root ? 0 : undefined,
     };
   });
-
-  const initialLinks: PositionedLink[] = graph.edges.map(e => ({
-    source: e.source_key,
-    target: e.target_key,
-  }));
-
-  const simulation = d3.forceSimulation<PositionedNode>(initialNodes)
-      .force("link", d3.forceLink<PositionedNode, PositionedLink>()
-        .id(d => d.key)
-        .strength(0.32)
-      )
-      .force("charge", d3.forceManyBody<PositionedNode>().strength(d => (d.degree ?? 0) === 0 ? -120 : -420))
-      .force("x", d3.forceX<PositionedNode>(CENTER_X).strength(nodeLayoutStrength))
-      .force("y", d3.forceY<PositionedNode>(CENTER_Y).strength(nodeLayoutStrength))
-      .force("collision", d3.forceCollide<PositionedNode>().radius(d => {
-        const r = nodeVisualRadius(d, { selected: false, compare: false });
-        return r + NODE_COLLISION_PADDING;
-      }))
-      .alphaDecay(0.07);
-
-
-  const linkForce = simulation.force("link") as d3.ForceLink<PositionedNode, PositionedLink>;
-  linkForce.links(initialLinks)
-    .distance(l => {
-      const s = l.source as PositionedNode;
-      const t = l.target as PositionedNode;
-      if (s.is_root || t.is_root) return 260;
-      if (s.node_type === "position" || t.node_type === "position") return 200;
-      if (s.node_type === "entity" || t.node_type === "entity") return 180;
-      return 160;
-    });
-
-  simulation.stop();
-  simulation.alpha(0.9);
-  while (simulation.alpha() >= simulation.alphaMin()) {
-    simulation.tick();
+  const components = connectedComponents(nodes, graph);
+  for (const component of components) layoutComponent(component);
+  packComponents(components);
+  // Explicit manual coordinates take precedence over automatic aspect fitting.
+  if (!hasManual) expandToAspect(nodes, targetAspect);
+  for (const node of nodes) {
+    const pin = manual[node.key];
+    if (pin && Number.isFinite(pin.x) && Number.isFinite(pin.y)) {
+      node.x = pin.x; node.y = pin.y;
+    }
   }
-  return resolveNodeOverlaps(normalizeGraphLayout(initialNodes, graph.root_key), graph.root_key, targetAspect);
+  return nodes;
 }

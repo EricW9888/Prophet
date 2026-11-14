@@ -39,6 +39,16 @@ must keep the page running; suspended or closed mobile pages cannot rely on
 this polling path. Background Web Push remains a separate subscription and
 host setup. Neither mode guarantees delivery or replaces the Monitor view.
 
+## Knowledge Map
+
+The map visualizes stored relationships, not importance or proven causality.
+Connected groups follow actual edges; proximity, edge length and group size are
+layout properties. Separate issuer records can remain separate until identity
+is verified. Overview labels are intentionally bounded; the navigator and
+inspector retain full names. Manual anchors take precedence over automatic
+packing, so conflicting pins can require manual adjustment or a layout reset.
+Large, densely connected groups still require zooming or a focused view.
+
 ## Data and Connector Coverage
 
 Numerical evidence checks compare literal quantities and model-selected metadata

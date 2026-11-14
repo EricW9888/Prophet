@@ -43,8 +43,7 @@ type GraphMode = "portfolio" | "all" | "focused";
 
 const INSPECTOR_DEFAULT_WIDTH = 420;
 const DEFAULT_GRAPH_VIEW_BOX: GraphViewBox = { x: 0, y: 0, width: WIDTH, height: HEIGHT };
-const MAX_GRAPH_LAYOUT_TARGET_ASPECT = (WIDTH / HEIGHT) * 0.92;
-const MIN_GRAPH_LAYOUT_TARGET_ASPECT = 0.65;
+const DEFAULT_GRAPH_LAYOUT_TARGET_ASPECT = WIDTH / HEIGHT;
 const NODE_DRAG_THRESHOLD_PX = 6;
 const FOCUSED_NEIGHBORHOOD_DEPTH = 2;
 const FOCUSED_NEIGHBORHOOD_LIMIT = 56;
@@ -83,10 +82,7 @@ function graphViewBoxForViewport(width: number, height: number): GraphViewBox {
 }
 
 function graphLayoutTargetAspect(viewBox: GraphViewBox): number {
-  return Math.max(
-    MIN_GRAPH_LAYOUT_TARGET_ASPECT,
-    Math.min(MAX_GRAPH_LAYOUT_TARGET_ASPECT, (viewBox.width / viewBox.height) * 0.9),
-  );
+  return viewBox.width / viewBox.height;
 }
 
 function formatCount(value: number): string {
@@ -269,7 +265,7 @@ export default function GraphPage() {
   const [layoutNonce, setLayoutNonce] = useState(0);
   const [graphViewBox, setGraphViewBox] = useState<GraphViewBox>(DEFAULT_GRAPH_VIEW_BOX);
   const graphViewBoxRef = useRef<GraphViewBox>(DEFAULT_GRAPH_VIEW_BOX);
-  const layoutTargetAspectRef = useRef(MAX_GRAPH_LAYOUT_TARGET_ASPECT);
+  const layoutTargetAspectRef = useRef(DEFAULT_GRAPH_LAYOUT_TARGET_ASPECT);
 
   const activeNodeDragRef = useRef<{
     key: string;
@@ -380,6 +376,25 @@ export default function GraphPage() {
 
     let animationFrame = 0;
     let initialFit = hasGraphSurface;
+    let offsetFrame = 0;
+    const updateCanvasOffset = () => {
+      const offset = `${Math.ceil(viewport.getBoundingClientRect().top + window.scrollY)}px`;
+      if (viewport.style.getPropertyValue("--knowledge-canvas-top") !== offset) {
+        viewport.style.setProperty("--knowledge-canvas-top", offset);
+      }
+      layoutTargetAspectRef.current = graphLayoutTargetAspect(graphViewBoxForViewport(viewport.clientWidth, viewport.clientHeight));
+    };
+    const scheduleCanvasOffset = () => {
+      cancelAnimationFrame(offsetFrame);
+      offsetFrame = requestAnimationFrame(updateCanvasOffset);
+    };
+    // Measure the actual toolbar/header footprint rather than assuming a fixed
+    // number of rows. Expanded controls and wrapped labels may change it.
+    updateCanvasOffset();
+    const controlsObserver = new ResizeObserver(scheduleCanvasOffset);
+    const panel = viewport.parentElement?.parentElement;
+    if (panel) controlsObserver.observe(panel);
+    window.addEventListener("resize", scheduleCanvasOffset);
     const resizeObserver = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect;
       if (!rect) return;
@@ -406,6 +421,9 @@ export default function GraphPage() {
     return () => {
       cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
+      controlsObserver.disconnect();
+      cancelAnimationFrame(offsetFrame);
+      window.removeEventListener("resize", scheduleCanvasOffset);
     };
   }, [fitNodesToViewport, hasGraphSurface, showMap]);
 
@@ -744,6 +762,10 @@ export default function GraphPage() {
 
   const labelCandidates = useMemo(() => graphLabelCandidates(displayedNodes, selectedKey, hoveredNodeKey, connectedKeys),
     [displayedNodes, selectedKey, hoveredNodeKey, connectedKeys]);
+  const connectedGroupCount = useMemo(() => new Set(displayedNodes.map(node => node.layout_component)).size, [displayedNodes]);
+  const selectedComponent = nodeByKey[selectedKey ?? ""]?.layout_component;
+  const selectedGroup = useMemo(() => selectedComponent ? displayedNodes.filter(node => node.layout_component === selectedComponent) : [], [displayedNodes, selectedComponent]);
+
   const jumpToNode = useCallback((node: PositionedNode) => {
     handleNodeClick(node);
     const neighborhood = new Set([node.key]);
@@ -979,6 +1001,7 @@ export default function GraphPage() {
                 <span className="rounded-none bg-slate-100 px-3 py-1 dark:bg-slate-900">
                   {modeLabel}
                 </span>
+                {showMap && connectedGroupCount > 0 && <span title="Groups follow stored connections. Distance on the map does not imply relevance or a causal relationship.">{connectedGroupCount} connected groups</span>}
                 {(graphView?.filteredNodeCount ?? 0) > 0 || (graphView?.filteredEdgeCount ?? 0) > 0 ? (
                   <span className="text-muted">Filters exclude {graphView?.filteredNodeCount} records and {graphView?.filteredEdgeCount} connections</span>
                 ) : null}
@@ -988,7 +1011,7 @@ export default function GraphPage() {
                   </span>
                 ) : null}
               </div>
-              {showMap && <div className="flex items-center gap-2">
+              {showMap && <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -1001,6 +1024,14 @@ export default function GraphPage() {
                 >
                   <ZoomOut className="h-4 w-4" aria-hidden="true" />
                 </button>
+                {selectedGroup.length > 0 && <button
+                  type="button"
+                  onClick={() => fitNodesToViewport(selectedGroup, true)}
+                  className="workspace-control"
+                  title="Zoom to this connected group while keeping the full map loaded"
+                >
+                  Fit selected group ({selectedGroup.length})
+                </button>}
                 <button
                   type="button"
                   onClick={() => fitNodesToViewport(displayedNodes, true)}
@@ -1133,7 +1164,7 @@ export default function GraphPage() {
                   <InventoryMetric label="Stored links" value={graphStats.total_edges} />
                 </dl>
                 <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400">
-                  The canvas shows a bounded neighborhood of the stored knowledge base, so the visible node count is intentionally smaller than the inventory.
+                  The map follows the selected scope and filters. The inventory counts all stored knowledge, including records outside that view.
                 </p>
               </details>
             ) : null}
