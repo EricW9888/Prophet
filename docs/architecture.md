@@ -331,6 +331,18 @@ the delivered answer and blocks its decisions, new watches, shadow creation,
 pruning and memory promotion. Qualitative research can continue. Chat exposes
 matched dimensions and unresolved checks on demand, including an explicit
 unverified state for historical records without a numerical receipt.
+Independent-review callers pass the complete captured evidence packet to the
+review service. Only the outbound model payload is compacted; deterministic
+source-independence, duplicate and quantity checks use the complete snapshot.
+Prompt compaction retains evidence IDs, publisher lineage, copy signatures,
+authority, acquisition kind and distinct publication/event/ingestion clocks.
+It preserves explicit false trust flags without inventing authority or dates.
+Coverage and numeric validity are separate: a review's unverified amount blocks
+promotion and numerical actions, while an otherwise partial answer can still
+report attributable evidence and its gaps. Genuine off-topic or inadequate
+coverage remains a blocked conclusion. Numerical banners qualify financial
+quantities actually present in the delivered text; internal rejected amounts
+remain inspectable in the review receipt.
 
 ## Accepted State and Graph
 

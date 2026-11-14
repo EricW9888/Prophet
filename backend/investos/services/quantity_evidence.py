@@ -462,7 +462,9 @@ def audit_numeric_narrative(texts: list[str], assertions: list[dict]) -> dict:
 
 
 def qualify_numeric_message(message: str, result: dict) -> str:
-    if (result.get("quantity_grounding") or {}).get("verified") is False:
+    if (result.get("quantity_grounding") or {}).get(
+        "verified"
+    ) is False and financial_quotes(message):
         return (
             "**Numerical claims need verification.** The generated amounts or percentages below are not fully supported by the supplied measurements; they were not accepted as verified guidance.\n\n"
             + message

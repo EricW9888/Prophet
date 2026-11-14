@@ -1735,6 +1735,7 @@ def test_compact_evidence_nodes_preserves_source_feedback():
 def test_retrieval_source_context_includes_quality_profiles():
     evidence = SimpleNamespace(
         title="Memory prices again",
+        source_item_type="url",
         url="https://example.com/memory",
         metadata_json={
             "user_feedback": {

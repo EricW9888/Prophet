@@ -112,6 +112,24 @@ def compact_node_source(source: Any) -> dict[str, Any]:
             source.get("evidence_title"), max_chars=160
         ),
     }
+    # Evidence identity and timing are not prose to shorten for a prompt.
+    for key in (
+        "source_id",
+        "source_item_id",
+        "raw_evidence_id",
+        "publisher_host",
+        "lineage_key",
+        "authority",
+        "public_time",
+        "event_time",
+        "ingest_time",
+        "acquisition_kind",
+        "content_hash",
+        "near_duplicate_signature",
+        "signature_token_count",
+    ):
+        if key in source:
+            compacted[key] = source[key]
     if source.get("url"):
         compacted["url"] = source.get("url")
     quality = source.get("quality") if isinstance(source.get("quality"), dict) else {}
@@ -154,7 +172,11 @@ def compact_node_source(source: Any) -> dict[str, Any]:
             "note": compact_context_text(feedback.get("note"), max_chars=180),
             "flagged_at": feedback.get("flagged_at"),
         }
-    return {key: value for key, value in compacted.items() if value}
+    return {
+        key: value
+        for key, value in compacted.items()
+        if value is not None and value != ""
+    }
 
 
 def compact_source_feedback(
