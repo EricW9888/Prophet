@@ -299,7 +299,7 @@ def configured_database_endpoint(
     values: dict[str, str] | None = None,
 ) -> tuple[str, int]:
     current = values if values is not None else env_values()
-    host = current.get("POSTGRES_SERVER", "localhost")
+    host = current.get("POSTGRES_SERVER", "127.0.0.1")
     raw_port = current.get("POSTGRES_PORT", "5432")
     try:
         port = int(raw_port)

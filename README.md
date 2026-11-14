@@ -136,6 +136,13 @@ The API health endpoint is `http://127.0.0.1:8000/health`. If the database port
 is already in use, set another loopback `POSTGRES_PORT` in the private `.env`
 before retrying.
 
+The local database defaults to `127.0.0.1`, matching Compose's IPv4-only
+loopback listener. On systems that resolve `localhost` to IPv6 first, an
+explicit `POSTGRES_SERVER=localhost` can delay each fresh connection while the
+IPv6 attempt fails. Existing explicit hosts are preserved; use the published
+address for local Compose, or your server's actual hostname for an external
+database. No system IPv6 setting needs changing.
+
 Configure model and research integrations from **Settings > Research**.
 Prophet's implemented LLM provider registry currently contains:
 

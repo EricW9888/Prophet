@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     POSTGRES_USER: str = "investos"
     POSTGRES_PASSWORD: str
-    POSTGRES_SERVER: str = "localhost"
+    POSTGRES_SERVER: str = "127.0.0.1"
     POSTGRES_PORT: str = "5432"
     POSTGRES_DB: str = "investos"
 
