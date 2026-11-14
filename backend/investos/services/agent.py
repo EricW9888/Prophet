@@ -3009,7 +3009,7 @@ class AgentService:
                 timeout=12,
             )
         except TimeoutError:
-            return self._timeout_orchestration(reasoning_result)
+            return self._timeout_orchestration(reasoning_result, payload=payload)
         except Exception as exc:
             import logging
 
@@ -3042,7 +3042,7 @@ class AgentService:
     def _fast_path_orchestration(
         self, payload: AgentTurnRequest, reasoning_result: dict
     ) -> dict:
-        """Only used when the agent LLM times out. Build a readable response from reasoning result."""
+        """Render available analysis without proposing new actions."""
         thesis = (reasoning_result.get("thesis_summary") or "").strip()
         reasoning = (reasoning_result.get("reasoning") or "").strip()
         strengthen = [
@@ -3067,6 +3067,21 @@ class AgentService:
             sections.append(
                 f"Current read: I do not have enough source-backed context to form a high-conviction view on '{query}'."
             )
+        coverage = reasoning_result.get("answerability") or {}
+        if coverage.get("status") in {"partial", "inadequate"}:
+            limits = []
+            coverage_reason = str(coverage.get("reason") or "").strip()
+            if coverage_reason and coverage_reason not in {thesis, reasoning}:
+                limits.append(coverage_reason)
+            missing = dict.fromkeys(
+                str(item).strip()
+                for item in coverage.get("missing_information") or []
+                if str(item).strip()
+            )
+            if missing:
+                limits.append("\n".join(f"- {item}" for item in missing))
+            if limits:
+                sections.append("Coverage limits:\n" + "\n\n".join(limits))
         if strengthen:
             sections.append(
                 "What would strengthen this:\n"
@@ -3106,46 +3121,17 @@ class AgentService:
             "rationale_summary": "Fast path execution used the available structured reasoning result.",
         }
 
-    def _timeout_orchestration(self, reasoning_result: dict) -> dict:
-        thesis = (reasoning_result.get("thesis_summary") or "").strip()
-        reasoning = (reasoning_result.get("reasoning") or "").strip()
-        message = (
-            thesis
-            or reasoning
-            or (
-                "The analysis took too long for this interactive turn. "
-                "Try again or check the timeline for background updates."
-            )
+    def _timeout_orchestration(
+        self, reasoning_result: dict, *, payload: AgentTurnRequest | None = None
+    ) -> dict:
+        orchestration = self._fast_path_orchestration(
+            payload or AgentTurnRequest(message="this topic"), reasoning_result
         )
-        return {
-            "assistant_message": message,
-            "decision": {
-                "should_create": False,
-                "decision_type": None,
-                "rationale": None,
-                "expected_catalyst_timeframe": None,
-                "expected_return": None,
-            },
-            "shadow_experiment": {
-                "should_create": False,
-                "name": None,
-                "policy_description": None,
-                "auto_run": False,
-            },
-            "verification": {
-                "should_run": False,
-                "challenge_text": None,
-            },
-            "pruning": {
-                "should_run": False,
-                "reason": None,
-            },
-            "memory_note": "",
-            "rationale_summary": (
-                "The evidence analysis completed, but the follow-up action planner timed out; "
-                "Prophet returned the analysis and did not create decision, verification, pruning, or shadow actions from the timed-out planner."
-            ),
-        }
+        orchestration["rationale_summary"] = (
+            "The evidence analysis completed, but the follow-up action planner timed out; "
+            "Prophet returned the analysis and did not create decision, verification, pruning, or shadow actions from the timed-out planner."
+        )
+        return orchestration
 
     async def _execute_actions(
         self,
