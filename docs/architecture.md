@@ -164,6 +164,22 @@ takes precedence over lexical ticker matches when resolving context, so naming
 one held company as an example does not narrow a whole-portfolio question.
 An explicitly pinned subject remains authoritative; model-unavailable fallback
 resolution cannot provide the same semantic guarantee.
+The classified company or thematic question also survives a missing stored
+subject and a research-planner timeout. Its query and question-specific coverage
+travel through the existing research plan, evidence packet and receipt; the
+portfolio can remain a storage/context anchor without becoming the research
+objective. Query-matched evidence and focused source checks remain available
+without creating an issuer, theme or accepted thesis merely to anchor a question.
+Unmatched questions preview subject-state changes rather than promoting them
+against that portfolio anchor. Known entities can resolve without a security
+record. Receipts and saved-chat labels retain the question scope, and genuine
+same-session follow-ups reuse it unless a new scope or manual pin is supplied.
+Query expansion and portfolio-anchored topic retrieval rank existing keyword
+candidates with PostgreSQL's built-in cover-density text-search rank before
+recency, so newer generic word matches cannot win solely on ingestion time.
+Ties use recency and stable identity. This is lexical relevance, not source
+verification, semantic entailment or an exhaustive coverage claim. See
+[PostgreSQL text-search ranking](https://www.postgresql.org/docs/16/textsearch-controls.html#TEXTSEARCH-RANKING).
 Draft typing does not call the model. Submitted questions classify intent,
 freshness and primary scope in one call with the configured model timeout.
 If interpretation is unavailable, ordinary investment analysis stops visibly

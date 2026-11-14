@@ -306,6 +306,12 @@ def compact_packet_context(
         "fresh_research_context": compact_fresh_research,
         "research_plan": (
             {
+                "question_scope": (packet_context.get("research_plan") or {}).get(
+                    "question_scope"
+                ),
+                "coverage_scope": (packet_context.get("research_plan") or {}).get(
+                    "coverage_scope"
+                ),
                 "original_question": compact_context_text(
                     (packet_context.get("research_plan") or {}).get(
                         "original_question"

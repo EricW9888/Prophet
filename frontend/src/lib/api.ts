@@ -1751,6 +1751,7 @@ export type ShadowOpportunityProfile = {
 
 export type AgentResearchReceipt = {
   evidence_prepared_at?: string | null;
+  question_scope?: {subject_kind: string; search_text: string; reason: string} | null;
   holdings_count?: number | null;
   holdings_with_linked_evidence: string[];
   holding_search_coverage?: {

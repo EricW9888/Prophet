@@ -898,6 +898,21 @@ class AgentService:
             decode=AgentConversationHistoryResponse.model_validate,
         )
         recent_turns = history_resp.entries[-8:] if history_resp.entries else []
+        if (
+            turn_intent.get("route") == "continue"
+            and (turn_intent.get("subject_hint") or {}).get("subject_kind")
+            in {None, "none"}
+            and payload.subject_id is None
+        ):
+            for previous in reversed(recent_turns):
+                scope = (
+                    previous.research_receipt.question_scope
+                    if previous.role == "assistant" and previous.research_receipt
+                    else None
+                )
+                if scope:
+                    turn_intent = {**turn_intent, "subject_hint": scope}
+                    break
 
         resolved = await state.run(
             "context",
@@ -1490,10 +1505,15 @@ class AgentService:
             ),
         )
         self._audit_delivered_quantities(orchestration, reasoning_result)
-        if payload.auto_execute:
+        subject_resolved = not (
+            resolved.subject_type == "portfolio"
+            and question_research_plan.get("question_scope")
+        )
+        execute_subject_actions = payload.auto_execute and subject_resolved
+        if execute_subject_actions:
             state.block_replay()
         if self._state_updates_allowed(
-            auto_execute=payload.auto_execute,
+            auto_execute=execute_subject_actions,
             has_fresh_research=bool(fresh_research_context),
         ):
             state_updated = await reasoning_service._update_conclusion_state(
@@ -1508,6 +1528,10 @@ class AgentService:
                     packet.subject_type,
                     reasoning_result,
                 )
+        elif not subject_resolved:
+            reasoning_result["state_update_blocked_reason"] = (
+                "question_subject_unresolved"
+            )
         elif fresh_research_context:
             reasoning_result.setdefault(
                 "state_update_blocked_reason", "fresh_search_context_not_promoted"
@@ -1524,7 +1548,7 @@ class AgentService:
         reasoning_run.structured_output_json = dict(reasoning_result)
 
         actions: list[AgentActionResponse] = []
-        if payload.auto_execute:
+        if execute_subject_actions:
             await self._emit_progress(
                 progress_callback,
                 "actions",
@@ -1542,7 +1566,11 @@ class AgentService:
             await self._emit_progress(
                 progress_callback,
                 "actions",
-                "State updates are off, so Prophet is previewing actions only.",
+                (
+                    "The question has no matching stored subject, so state changes are previewed only."
+                    if not subject_resolved
+                    else "State updates are off, so Prophet is previewing actions only."
+                ),
             )
             actions.extend(self._preview_actions(orchestration))
         if auto_research and auto_research.get("started"):
@@ -1612,13 +1640,14 @@ class AgentService:
                 assistant_message,
                 "I found a recent targeted research pass for this same gap, so I reused that instead of spending another external search call.",
             )
-        if not payload.auto_execute and any(
+        if not execute_subject_actions and any(
             action.status == "planned" for action in actions
         ):
             assistant_message = (
-                "Preview only: state updates are off, so Prophet has not changed portfolio state, watchlists, or experiments yet. "
-                + assistant_message
-            )
+                "Preview only: this question has no matching stored subject for state changes. "
+                if not subject_resolved
+                else "Preview only: state updates are off, so Prophet has not changed portfolio state, watchlists, or experiments yet. "
+            ) + assistant_message
         assistant_message = qualify_numeric_message(assistant_message, reasoning_result)
         historical_analogy_lenses = self._compact_historical_analogy_lenses(
             packet_context
@@ -1626,15 +1655,23 @@ class AgentService:
         portfolio_scope = (
             (packet_context.get("portfolio_context") or {})
             if resolved.subject_type == "portfolio"
+            and question_research_plan.get("portfolio_context_role")
+            == "primary_evidence"
             else {}
         )
         fresh = fresh_research_context or {}
+        display_subject_name = (
+            (question_research_plan.get("question_scope") or {}).get("search_text")
+            if resolved.subject_type == "portfolio"
+            else None
+        ) or resolved.subject_name
         research_receipt = (
             {
                 "evidence_prepared_at": packet.assembled_at.isoformat(),
+                "question_scope": question_research_plan.get("question_scope"),
                 "holdings_count": (
                     portfolio_scope.get("holdings_count", 0)
-                    if resolved.subject_type == "portfolio"
+                    if portfolio_scope
                     else None
                 ),
                 "holdings_with_linked_evidence": [
@@ -1665,7 +1702,10 @@ class AgentService:
                     if item.get("url")
                 ],
             }
-            if portfolio_scope or fresh or state.enabled
+            if portfolio_scope
+            or fresh
+            or state.enabled
+            or question_research_plan.get("question_scope")
             else None
         )
         should_persist = self._should_persist_conversation_exchange(
@@ -1697,7 +1737,7 @@ class AgentService:
                 assistant_metadata={
                     "origin": "agent_chat",
                     "reasoning_run_id": str(reasoning_run.id),
-                    "subject_name": resolved.subject_name,
+                    "subject_name": display_subject_name,
                     "actions": [item.model_dump(mode="json") for item in actions],
                     "process_mode": "reasoning_analysis",
                     "resolution_reason": resolved.resolution_reason,
@@ -1719,7 +1759,7 @@ class AgentService:
             assistant_message=assistant_message,
             subject_id=resolved.subject_id,
             subject_type=resolved.subject_type,
-            subject_name=resolved.subject_name,
+            subject_name=display_subject_name,
             resolution_reason=resolved.resolution_reason,
             process_mode="reasoning_analysis",
             reasoning_run_id=reasoning_run.id,
@@ -1757,7 +1797,7 @@ class AgentService:
         # Process active watchers if returned by the agent
         watchers = self._watchers_allowed(
             reasoning_result,
-            auto_execute=payload.auto_execute,
+            auto_execute=execute_subject_actions,
         )
         for w_data in watchers:
             try:
@@ -2343,7 +2383,21 @@ class AgentService:
                 message, hint=subject_hint
             )
         merged = self._merge_context_candidates(candidates, hinted)
-        if not merged:
+        semantic_kind = (subject_hint or {}).get("subject_kind")
+        hinted_keys = {
+            (candidate.subject_id, candidate.subject_type) for candidate in hinted
+        }
+        scoped_candidates = (
+            [
+                candidate
+                for candidate in merged
+                if candidate.subject_type == semantic_kind
+                and (candidate.subject_id, candidate.subject_type) in hinted_keys
+            ]
+            if semantic_kind in {"entity", "theme"}
+            else merged
+        )
+        if not scoped_candidates:
             if session_id is not None and should_continue_session:
                 recent_subject = await self._recent_session_subject(session_id)
                 if recent_subject is not None:
@@ -2364,12 +2418,14 @@ class AgentService:
                 subject_type="portfolio",
                 subject_name=PORTFOLIO_SUBJECT_NAME,
                 resolution_reason=(
-                    "Using portfolio-wide context because no stronger stored subject match was found."
+                    "No stored subject matched the classified question. Portfolio data is available as supporting context; the question still governs research."
+                    if semantic_kind in {"entity", "theme"}
+                    else "Using portfolio-wide context because no stronger stored subject match was found."
                 ),
-                candidates=[],
+                candidates=merged[:5],
             )
 
-        best = merged[0]
+        best = scoped_candidates[0]
         return AgentResolveResponse(
             subject_id=best.subject_id,
             subject_type=best.subject_type,
@@ -2821,7 +2877,8 @@ class AgentService:
                 "subject_id": subject_uuid,
                 "subject_type": subject_type_value,
                 "subject_name": (
-                    await self._subject_name(subject_uuid, subject_type_value)
+                    self._conversation_scope_label(metadata)
+                    or await self._subject_name(subject_uuid, subject_type_value)
                     if subject_uuid is not None and subject_type_value
                     else None
                 ),
@@ -4123,7 +4180,7 @@ class AgentService:
             entity_rows = (
                 await self.session.execute(
                     select(Entity, Security)
-                    .join(Security, Security.entity_id == Entity.id)
+                    .outerjoin(Security, Security.entity_id == Entity.id)
                     .where(
                         or_(
                             Security.ticker.ilike(f"%{ticker}%") if ticker else False,
@@ -4139,9 +4196,13 @@ class AgentService:
             ).all()
             for entity, security in entity_rows:
                 label = (
-                    security.ticker
-                    if not entity.name
-                    else f"{security.ticker} · {entity.name}"
+                    entity.name
+                    if security is None
+                    else (
+                        security.ticker
+                        if not entity.name
+                        else f"{security.ticker} · {entity.name}"
+                    )
                 )
                 candidates.append(
                     AgentContextCandidateResponse(
@@ -4968,6 +5029,9 @@ class AgentService:
             "question": normalized,
             "resolved_subject": subject_name,
             "subject_type": subject_type,
+            "classified_question_scope": self._classified_question_scope(
+                freshness_requirement
+            ),
             "freshness_requirement": {
                 "required": bool(
                     (freshness_requirement or {}).get("requires_fresh_research")
@@ -5088,7 +5152,13 @@ class AgentService:
             coverage_scope = fallback["coverage_scope"]
         if subject_type != "portfolio" or mode == "opportunity_universe":
             coverage_scope = "question_specific"
+        question_scope = self._classified_question_scope(freshness_requirement)
+        if question_scope:
+            coverage_scope = "question_specific"
+            if portfolio_role == "primary_evidence":
+                portfolio_role = "secondary_read_through"
         return {
+            "question_scope": question_scope,
             "research_objective": objective or fallback["research_objective"],
             "retrieval_query": query or fallback["retrieval_query"],
             "information_needs": needs or fallback["information_needs"],
@@ -5110,7 +5180,12 @@ class AgentService:
         subject_type: str,
         freshness_requirement: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        query = " ".join((message or "").split()).strip()
+        question_scope = self._classified_question_scope(freshness_requirement)
+        query = (
+            question_scope["search_text"]
+            if question_scope
+            else " ".join((message or "").split()).strip()
+        )
         if (
             subject_type == "entity"
             and subject_name
@@ -5120,7 +5195,7 @@ class AgentService:
         freshness_required = bool(
             (freshness_requirement or {}).get("requires_fresh_research")
         )
-        normalized = query.lower()
+        normalized = f"{message} {query}".lower()
         use_history = bool(
             re.search(
                 r"\b(histor(?:y|ic|ical)|analogy|rhyme|cycle|era|depression|recession|crisis|versus|vs\.?|compare)\b",
@@ -5130,7 +5205,7 @@ class AgentService:
         from investos.services.opportunity import OpportunityDiscoveryService
 
         opportunity_request = OpportunityDiscoveryService.looks_like_discovery_request(
-            query
+            message
         )
         external_required = freshness_required or use_history or opportunity_request
         research_mode = (
@@ -5139,10 +5214,11 @@ class AgentService:
             else "focused_external" if external_required else "stored_context"
         )
         return {
+            "question_scope": question_scope,
             "research_objective": (
                 "Canvass Prophet's configured investable universe and report only source-backed active candidates."
                 if opportunity_request
-                else f"Answer the user's question about {subject_name or subject_type} with evidence matched to its actual scope."
+                else f"Answer the user's question about {question_scope['search_text'] if question_scope else subject_name or subject_type} with evidence matched to its actual scope."
             ),
             "retrieval_query": query or subject_name or message,
             "information_needs": (
@@ -5163,7 +5239,7 @@ class AgentService:
                 if opportunity_request
                 else (
                     "primary_evidence"
-                    if subject_type == "portfolio"
+                    if subject_type == "portfolio" and not question_scope
                     else "secondary_read_through"
                 )
             ),
@@ -5171,6 +5247,7 @@ class AgentService:
             "coverage_scope": (
                 "portfolio_wide"
                 if subject_type == "portfolio"
+                and not question_scope
                 and not opportunity_request
                 and not use_history
                 and self._is_broad_portfolio_update(message)
@@ -5184,6 +5261,30 @@ class AgentService:
             "planner_fallback": True,
             "original_question": message,
         }
+
+    @staticmethod
+    def _classified_question_scope(requirement):
+        hint = (requirement or {}).get("subject_hint") or {}
+        kind = hint.get("subject_kind")
+        query = " ".join(
+            str(hint.get("search_text") or hint.get("ticker") or "").split()
+        )
+        if kind not in {"entity", "theme"} or not query:
+            return None
+        return {
+            "subject_kind": kind,
+            "search_text": query,
+            "reason": str(hint.get("reason") or "Classified from the user's question."),
+        }
+
+    @staticmethod
+    def _conversation_scope_label(metadata):
+        scope = (metadata.get("research_receipt") or {}).get("question_scope") or {}
+        return (
+            scope.get("search_text")
+            if metadata.get("subject_type") == "portfolio"
+            else None
+        )
 
     @staticmethod
     def _apply_question_research_plan(

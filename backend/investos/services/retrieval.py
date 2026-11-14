@@ -2,7 +2,8 @@ import re
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import desc, func, literal, or_, select, union_all
+from sqlalchemy import cast, desc, func, literal, or_, select, union_all
+from sqlalchemy.dialects.postgresql import REGCONFIG
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.core.valuation import mark_rows
@@ -288,7 +289,11 @@ class RetrievalService:
                     await self.session.execute(
                         select(Fact)
                         .where(fact_filter)
-                        .order_by(desc(Fact.created_at))
+                        .order_by(
+                            self._query_rank(terms, Fact.statement).desc(),
+                            desc(Fact.created_at),
+                            Fact.id,
+                        )
                         .limit(max_depth)
                     )
                 )
@@ -300,7 +305,11 @@ class RetrievalService:
                     await self.session.execute(
                         select(Claim)
                         .where(claim_filter)
-                        .order_by(desc(Claim.created_at))
+                        .order_by(
+                            self._query_rank(terms, Claim.statement).desc(),
+                            desc(Claim.created_at),
+                            Claim.id,
+                        )
                         .limit(max_depth)
                     )
                 )
@@ -312,7 +321,13 @@ class RetrievalService:
                     await self.session.execute(
                         select(Event)
                         .where(event_filter)
-                        .order_by(desc(Event.created_at))
+                        .order_by(
+                            self._query_rank(
+                                terms, Event.title, Event.description
+                            ).desc(),
+                            desc(Event.created_at),
+                            Event.id,
+                        )
                         .limit(max_depth)
                     )
                 )
@@ -513,11 +528,13 @@ class RetrievalService:
             Fact,
             or_(*[Fact.statement.ilike(f"%{term}%") for term in terms]),
             limit=max_items * 3,
+            query_terms=terms,
         )
         candidate_claim_ids = await self._matching_node_ids(
             Claim,
             or_(*[Claim.statement.ilike(f"%{term}%") for term in terms]),
             limit=max_items * 3,
+            query_terms=terms,
         )
         candidate_event_ids = await self._matching_node_ids(
             Event,
@@ -533,6 +550,7 @@ class RetrievalService:
                 )
             ),
             limit=max_items * 3,
+            query_terms=terms,
         )
 
         expanded: list[UUID] = []
@@ -659,13 +677,33 @@ class RetrievalService:
             refs.add((str(target_type), target_id))
         return refs
 
-    async def _matching_node_ids(self, model, text_filter, *, limit: int) -> list[UUID]:
+    @staticmethod
+    def _query_rank(terms, *fields):
+        if not terms:
+            return literal(0)
+        config = cast(literal("english"), REGCONFIG)
+        query = func.plainto_tsquery(config, terms[0])
+        for term in terms[1:]:
+            query = query.op("||")(func.plainto_tsquery(config, term))
+        document = func.to_tsvector(config, func.concat_ws(" ", *fields))
+        return func.ts_rank_cd(document, query, 32)
+
+    async def _matching_node_ids(
+        self, model, text_filter, *, limit: int, query_terms=None
+    ) -> list[UUID]:
+        fields = (
+            (model.title, model.description) if model is Event else (model.statement,)
+        )
         rows = (
             (
                 await self.session.execute(
                     select(model.id)
                     .where(model.is_deprecated.is_(False), text_filter)
-                    .order_by(desc(model.created_at))
+                    .order_by(
+                        self._query_rank(query_terms, *fields).desc(),
+                        desc(model.created_at),
+                        model.id,
+                    )
                     .limit(limit)
                 )
             )
