@@ -140,7 +140,7 @@ async def test_real_scheduler_resumes_pattern_work_and_rechecks_provider(monkeyp
         "investos.services.pattern_discovery.PortfolioPeerContextService.peer_exposures",
         AsyncMock(return_value=[]),
     )
-    model = AsyncMock(return_value=_result())
+    model = AsyncMock(return_value=_result(evidence_refs=["signal:1", "signal:2"]))
     monkeypatch.setattr("investos.services.pattern_discovery.call_llm_json", model)
     completed = asyncio.Event()
     results = []

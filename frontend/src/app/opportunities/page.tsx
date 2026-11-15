@@ -413,7 +413,8 @@ export default function OpportunitiesPage() {
           ))}
         </section>
 
-        <div className="flex gap-1 border-b border-slate-200 py-4 dark:border-slate-800" role="tablist" aria-label="Opportunity workspace views">
+        <div className="flex flex-wrap gap-1 border-b border-slate-200 py-4 dark:border-slate-800">
+          <div className="flex flex-wrap gap-1" role="tablist" aria-label="Opportunity workspace views">
           {([
             ["queue", "Queue"],
             ["universe", "Universe"],
@@ -430,6 +431,8 @@ export default function OpportunitiesPage() {
               {label}
             </button>
           ))}
+          </div>
+          <Link href="/opportunities/patterns" className="px-3 py-2 text-sm font-medium text-sky-500 hover:underline">Pattern reviews</Link>
         </div>
 
         {status[tab]?.error ? (

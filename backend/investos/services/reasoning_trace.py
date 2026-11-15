@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.models.evidence import RawEvidence, SourceItem
@@ -14,6 +14,8 @@ from investos.schemas.provenance import ReasoningEvidenceSourceResponse
 from investos.schemas.reasoning import (
     CritiqueTraceResponse,
     EvidencePacketSummaryResponse,
+    PatternReviewPageResponse,
+    PatternReviewSummaryResponse,
     ReasoningRunTraceResponse,
 )
 from investos.services.evidence_provenance import build_evidence_source_reference
@@ -22,6 +24,60 @@ from investos.services.evidence_provenance import build_evidence_source_referenc
 class ReasoningTraceService:
     def __init__(self, session: AsyncSession):
         self.session = session
+
+    async def list_pattern_reviews(
+        self, *, limit: int, offset: int
+    ) -> PatternReviewPageResponse:
+        run = ReasoningRun
+        predicate = run.run_type == "pattern_discovery"
+        total = await self.session.scalar(
+            select(func.count()).select_from(run).where(predicate)
+        )
+        # Project only summary fields; source packets and model output are fetched
+        # on demand, never transferred for every row of the review list.
+        rows = (
+            (
+                await self.session.execute(
+                    select(
+                        run.id,
+                        run.created_at,
+                        run.model_used,
+                        run.model_version,
+                        run.duration_ms,
+                        run.structured_output_json["review"]["status"].astext.label(
+                            "status"
+                        ),
+                        run.structured_output_json["review"]["detail"].astext.label(
+                            "detail"
+                        ),
+                        run.structured_output_json["proposal"]["hypothesis"][
+                            "label"
+                        ].astext.label("label"),
+                    )
+                    .where(predicate)
+                    .order_by(run.created_at.desc(), run.id.desc())
+                    .offset(offset)
+                    .limit(limit)
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return PatternReviewPageResponse(
+            items=[
+                PatternReviewSummaryResponse(
+                    **{
+                        **row,
+                        "status": row["status"] or "unknown",
+                        "detail": row["detail"] or "not_recorded",
+                    }
+                )
+                for row in rows
+            ],
+            total=total or 0,
+            offset=offset,
+            limit=limit,
+        )
 
     @staticmethod
     def effective_model_used(model_used: str, structured_output: dict | None) -> str:

@@ -51,3 +51,21 @@ class ReasoningRunTraceResponse(BaseModel):
     structured_output_json: dict[str, Any] = Field(default_factory=dict)
     evidence_packet: Optional[EvidencePacketSummaryResponse] = None
     critique: Optional[CritiqueTraceResponse] = None
+
+
+class PatternReviewSummaryResponse(BaseModel):
+    id: UUID
+    created_at: datetime
+    model_used: str
+    model_version: Optional[str] = None
+    duration_ms: Optional[int] = None
+    status: str
+    detail: str
+    label: Optional[str] = None
+
+
+class PatternReviewPageResponse(BaseModel):
+    items: list[PatternReviewSummaryResponse]
+    total: int
+    offset: int
+    limit: int

@@ -1970,6 +1970,22 @@ export type ReasoningTrace = {
   } | null;
 };
 
+export type PatternReviewPage = {
+  items: Array<{
+    id: string;
+    created_at: string;
+    model_used: string;
+    model_version: string | null;
+    duration_ms: number | null;
+    status: string;
+    detail: string;
+    label: string | null;
+  }>;
+  total: number;
+  offset: number;
+  limit: number;
+};
+
 export type PortfolioRiskState = {
   portfolio_data_review_count?: number;
   checked_at: string;

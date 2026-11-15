@@ -205,6 +205,17 @@ signals, and inferred relationships are investigation aids. They are not
 predictions or independent proof. Material decisions require inspection of the
 underlying dated sources and contrary evidence.
 
+Pattern-discovery receipts retain proposals, including rejected and duplicate
+ones, only from deployment of that feature onward. Previously discarded model
+output cannot be recovered. A model's confidence score is uncalibrated; passing
+the configured threshold does not verify causality, profitability or predictive
+skill. Captured source signals record what Prophet observed at capture, not
+proof that it had those observations before a historical market move. Unknown
+publication times stay unknown. Requested model identity is recorded; provider
+defaults and mutable model aliases do not establish immutable model weights.
+Retaining a proposal makes later evaluation possible; held-out decision and
+outcome calibration remain necessary before claiming investment effectiveness.
+
 Opportunity discovery covers only the operator-defined investable universe and
 the subjects reached within each bounded run. A candidate rank is a provisional
 comparison among inspected subjects, not proof that Prophet surveyed the whole
