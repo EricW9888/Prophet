@@ -46,6 +46,12 @@ does not discard a separate input change. Mixed deterministic queues also retain
 their existing recovery wakeups. Wakeup and successful model generation do not
 establish a useful investment finding.
 
+Workers retain an explicit provider-deferral marker until admission resumes.
+A ready probe reconciles those held workers even if an in-flight request already
+restored health between probe samples. Recovery does not depend on observing the
+transient outage state. Other deferred conditions alone do not trigger this
+reconciliation, and current admission, pauses and spacing still apply.
+
 This coordination supports Prophet's single-primary-process runtime. It is not a
 distributed multi-worker lease system. Preserve the ignored provider-health file
 across restarts; investigate storage failure rather than deleting a hold to force
