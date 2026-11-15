@@ -75,6 +75,7 @@ class JobTelemetry:
     detail: str | None = None
     last_trigger: str | None = None
     is_running: bool = False
+    provider_deferred: bool = False
 
 
 class AutomationCoordinator:
@@ -148,6 +149,7 @@ class AutomationCoordinator:
             detail = f"provider={health.get('provider', 'unknown')} state={health['state']} next_probe={health.get('next_probe_at')}"
             changed = telemetry.last_status != "deferred" or telemetry.detail != detail
             telemetry.last_status = "deferred"
+            telemetry.provider_deferred = True
             telemetry.detail = detail
             if changed:
                 self._log_job_action(
@@ -162,6 +164,7 @@ class AutomationCoordinator:
         status = "deferred" if isinstance(error, LLMProviderCooldownError) else "error"
         telemetry = self.telemetry[job_name]
         telemetry.last_status = status
+        telemetry.provider_deferred = status == "deferred"
         telemetry.detail = detail if detail is not None else str(error)
         self._log_job_action(
             job_name=job_name,
@@ -187,7 +190,19 @@ class AutomationCoordinator:
             else "warning" if health["state"] == "recovering" else "deferred"
         )
         telemetry.detail = f"provider_health={health['state']} next_probe={health.get('next_probe_at')}"
-        if recovered:
+        ready_deferred_work = (
+            health["state"] in {"healthy", "recovering"}
+            and ProviderHealthStore.can_admit_work(health)
+            and any(
+                item.enabled
+                and item.last_status == "deferred"
+                and item.provider_deferred
+                for name, item in self.telemetry.items()
+                if name in self.LLM_DEPENDENT_JOBS
+                or name in self.SIGNAL_JOBS["provider_recovered"]
+            )
+        )
+        if recovered or ready_deferred_work:
             self.signal_ready_work("provider_recovered")
 
     def start(self) -> None:
@@ -353,6 +368,7 @@ class AutomationCoordinator:
             telemetry.detail = None
             telemetry.last_trigger = None
             telemetry.last_status = "idle" if telemetry.enabled else "disabled"
+            telemetry.provider_deferred = False
         self.sync_runtime_jobs()
 
     @staticmethod
@@ -488,6 +504,8 @@ class AutomationCoordinator:
         try:
             if self._provider_defers(name):
                 return
+            if telemetry is not None:
+                telemetry.provider_deferred = False
             result = func()
             if hasattr(result, "__await__"):
                 await result
@@ -1785,6 +1803,7 @@ class AutomationCoordinator:
                     model_available=model_available
                 )
                 if not evidence:
+                    telemetry.provider_deferred = not model_available
                     telemetry.last_status = (
                         "no_new_evidence" if model_available else "deferred"
                     )
