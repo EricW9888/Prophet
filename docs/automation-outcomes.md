@@ -36,6 +36,16 @@ The operator can request that same probe in Agent Desk; it honors the shared lea
 and backoff. A successful probe reopens work; another failure increases the backoff.
 An older request/probe cannot erase a newer failure or probe result.
 
+Recovery wakeups derive from the same declaration that identifies model-dependent
+workers. Only their deferred work is expedited; completed, paused and disabled
+workers retain ordinary scheduling. Existing per-worker attempt spacing and
+current provider admission still apply. A recovery signal arriving during active
+work cannot replay a request that subsequently completes. New evidence takes
+precedence over that recovery hint, so discarding an obsolete recovery signal
+does not discard a separate input change. Mixed deterministic queues also retain
+their existing recovery wakeups. Wakeup and successful model generation do not
+establish a useful investment finding.
+
 This coordination supports Prophet's single-primary-process runtime. It is not a
 distributed multi-worker lease system. Preserve the ignored provider-health file
 across restarts; investigate storage failure rather than deleting a hold to force

@@ -87,11 +87,7 @@ class AutomationCoordinator:
         "question_actionable": ("research_loop",),
         "shadow_evidence_queued": ("shadow_refresh",),
         "provider_recovered": (
-            "opportunity_discovery",
             "evidence_processing",
-            "question_resolution",
-            "research_loop",
-            "agent_reflection",
             "shadow_refresh",
         ),
         "queue_catchup": (
@@ -420,17 +416,26 @@ class AutomationCoordinator:
         """Wake existing workers; the signal itself cannot make work eligible."""
         if not self.enabled or self._shutting_down:
             return
-        for name in self.SIGNAL_JOBS.get(signal, ()):
+        names = self.SIGNAL_JOBS.get(signal, ())
+        if signal == "provider_recovered":
+            # The dependency declaration owns recovery coverage too. A second
+            # hand-maintained model-worker list can strand long-interval work.
+            names = tuple(dict.fromkeys((*names, *sorted(self.LLM_DEPENDENT_JOBS))))
+        for name in names:
             telemetry = self.telemetry.get(name)
             if telemetry is not None and telemetry.enabled:
                 if (
                     signal == "provider_recovered"
-                    and name == "opportunity_discovery"
+                    and name in self.LLM_DEPENDENT_JOBS
                     and telemetry.last_status != "deferred"
                 ):
                     continue
                 pending = self._pending_signals.get(name)
-                if pending is None or pending == "queue_catchup":
+                if (
+                    pending is None
+                    or pending == "queue_catchup"
+                    or (pending == "provider_recovered" and signal != pending)
+                ):
                     self._pending_signals[name] = signal
                 self._expedite_pending_job(name)
 
@@ -440,6 +445,15 @@ class AutomationCoordinator:
             or name in self._active_jobs
             or name not in self._pending_signals
         ):
+            return
+        if (
+            self._pending_signals[name] == "provider_recovered"
+            and name in self.LLM_DEPENDENT_JOBS
+            and self.telemetry[name].last_status != "deferred"
+        ):
+            # Recovery can arrive during an active request. Once that request
+            # finishes, do not replay it merely because the wake hint survived.
+            self._pending_signals.pop(name)
             return
         job = self.scheduler.get_job(name)
         if job is None or job.next_run_time is None:
