@@ -313,6 +313,27 @@ analysis result and visible trace. `services/corroboration.py`,
 Material contradictions, unsupported assertions, weak source independence, or
 unresolved evidence gaps can narrow or block promotion.
 
+Pattern discovery uses the same `ReasoningRun` ledger with
+`run_type=pattern_discovery`. Applying runs commit a captured input, source
+registry, prompt/schema, requested provider/model and non-secret validation
+configuration before generation. The unmodified structured proposal is committed
+before admission; rejection, duplicate, provisional output, deferral, interruption and
+failure remain distinct dispositions. Provisional output and its final receipt
+commit together; a failed output transaction retains the earlier proposal.
+Explicit `apply=False` previews remain write-free. A process crash can leave an
+unfinished receipt, which is not evidence that a worker is still running.
+The model cites short packet-local signal labels. An exact, frozen reference map
+resolves these labels to canonical signal IDs before persistence and deduplication;
+partial UUIDs and invented labels are rejected rather than guessed.
+
+`GET /api/reasoning/pattern-reviews` paginates projected summaries; the existing
+run trace endpoint loads the complete capture on demand. Ideas links to Pattern
+reviews, where source attribution, unknown publication times, the proposed
+mechanism, falsifier and next test can be inspected. Draft investigation prepares
+an unsent Research question containing bounded proposal/source excerpts and the
+full receipt link. It does not queue research, promise a later answer, accept a
+conclusion or alter a position.
+
 Account and calculated amounts also pass through `services/quantity_evidence.py`.
 The ledger, stored portfolio-risk capture and cached performance-attribution
 receipt supply immutable measurement references with value, unit, basis,

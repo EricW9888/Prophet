@@ -1,17 +1,26 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
+from time import perf_counter
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import delete, desc, func, or_, select
+from sqlalchemy import delete, desc, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.config import settings
-from investos.core.llm import call_llm_json
+from investos.core.llm import LLMProviderCooldownError, call_llm_json
+from investos.core.prompting import (
+    estimate_tokens_from_payload,
+    estimate_tokens_from_text,
+    hash_llm_request,
+)
+from investos.core.providers import normalize_llm_provider
 from investos.models.catalog import HistoricalEpisode
 from investos.models.coverage import CoverageMap, UnresolvedQuestion
 from investos.models.entity import Entity, Security
@@ -20,6 +29,7 @@ from investos.models.graph import Edge
 from investos.models.market_setup import MarketSetupSignal
 from investos.models.portfolio import Position
 from investos.models.quant import RegimeState
+from investos.models.reasoning import ReasoningRun
 from investos.models.source import Source
 from investos.services.canonical_state import CanonicalStateService
 from investos.services.corroboration import source_lineage_key
@@ -28,6 +38,7 @@ from investos.services.knowledge_audit import KnowledgeAuditService
 from investos.services.market_setup import MarketSetupSignalService
 from investos.services.portfolio_peers import PortfolioPeerContextService
 from investos.services.question_lifecycle import QuestionLifecycleService
+from investos.services.runtime_settings import RuntimeSettingsStore
 
 PATTERN_DISCOVERY_SCHEMA = {
     "type": "object",
@@ -119,38 +130,220 @@ class PatternDiscoveryService:
             }
 
         episodes = await self._historical_episodes()
-        result = await call_llm_json(
-            system_prompt=self._system_prompt(),
-            user_prompt=json.dumps(
-                {
-                    "instruction": (
-                        "Find at most one material, testable pattern that is not already obvious from a single item. "
-                        "Return actionable=false when the packet does not support one."
-                    ),
-                    "tracked_universe": [
-                        self._tracked_context(item) for item in tracked.values()
-                    ],
-                    "current_regime": await self._current_regime(),
-                    "peer_exposures": await PortfolioPeerContextService(
-                        self.session
-                    ).peer_exposures(limit=12),
-                    "historical_episodes": episodes,
-                    "source_dated_signals": list(evidence.values()),
-                },
-                ensure_ascii=True,
-                default=str,
+        # Short packet-local labels avoid asking the model to transcribe UUIDs.
+        # Resolution is exact and captured; durable references remain canonical.
+        reference_map = {
+            f"signal:{index}": canonical_ref
+            for index, canonical_ref in enumerate(evidence, start=1)
+        }
+        model_evidence = {
+            ref: {**deepcopy(evidence[canonical_ref]), "ref": ref}
+            for ref, canonical_ref in reference_map.items()
+        }
+        payload = {
+            "instruction": (
+                "Find at most one material, testable pattern that is not already obvious from a single item. "
+                "Return actionable=false when the packet does not support one."
             ),
-            schema=PATTERN_DISCOVERY_SCHEMA,
-            timeout_seconds=settings.PATTERN_DISCOVERY_LLM_TIMEOUT_SECONDS,
-        )
+            "tracked_universe": [
+                self._tracked_context(item) for item in tracked.values()
+            ],
+            "current_regime": await self._current_regime(),
+            "peer_exposures": await PortfolioPeerContextService(
+                self.session
+            ).peer_exposures(limit=12),
+            "historical_episodes": episodes,
+            "source_dated_signals": list(model_evidence.values()),
+        }
+        # Freeze exactly what this invocation saw, not a later reconstruction.
+        payload = json.loads(json.dumps(payload, ensure_ascii=True, default=str))
+        system_prompt = self._system_prompt()
+        user_prompt = json.dumps(payload, ensure_ascii=True)
+        runtime = RuntimeSettingsStore.load().llm
+        provider = normalize_llm_provider(runtime.provider)
+        model = {
+            "nvidia_nim": runtime.hosted_model or settings.NVIDIA_MODEL,
+            "codex_cli": settings.CODEX_MODEL,
+            "ollama": settings.OLLAMA_MODEL,
+        }.get(provider)
+        policy = {
+            "minimum_confidence": settings.PATTERN_DISCOVERY_MIN_CONFIDENCE,
+            "minimum_independent_sources": minimum_sources,
+            "lookback_days": settings.PATTERN_DISCOVERY_LOOKBACK_DAYS,
+            "max_signals": settings.PATTERN_DISCOVERY_MAX_SIGNALS,
+            "dedup_days": settings.PATTERN_DISCOVERY_DEDUP_DAYS,
+            "dedup_ticker_containment": settings.PATTERN_DISCOVERY_DEDUP_TICKER_CONTAINMENT,
+            "dedup_evidence_containment": settings.PATTERN_DISCOVERY_DEDUP_EVIDENCE_CONTAINMENT,
+            "dedup_token_containment": settings.PATTERN_DISCOVERY_DEDUP_TOKEN_CONTAINMENT,
+        }
+        generation = {
+            "provider": provider,
+            "requested_model": model,
+            "timeout_seconds": settings.PATTERN_DISCOVERY_LLM_TIMEOUT_SECONDS,
+            "structured_max_tokens": settings.LLM_STRUCTURED_MAX_TOKENS,
+            "token_usage_basis": "estimated_from_text_not_provider_billing",
+        }
+        receipt = {
+            "receipt_version": 1,
+            "snapshot": {
+                "captured_at": datetime.now(UTC).isoformat(),
+                "selection_cutoff": now.isoformat(),
+                "availability_policy": (
+                    "Observed in Prophet at capture; not proof it was available before a historical market move. "
+                    "Unknown publication times remain unknown. Historical episodes are analogy seeds."
+                ),
+                "input": payload,
+                "source_reference_map": reference_map,
+                "system_prompt": system_prompt,
+                "output_schema": deepcopy(PATTERN_DISCOVERY_SCHEMA),
+                "generation": generation,
+                "validation_policy": policy,
+                "configuration_hash": hashlib.sha256(
+                    json.dumps(
+                        {"generation": generation, "policy": policy}, sort_keys=True
+                    ).encode()
+                ).hexdigest(),
+            },
+            "review": {"status": "generating", "detail": "model_request_started"},
+        }
+        run = None
+        started = perf_counter()
+        if apply:
+            run = ReasoningRun(
+                run_type="pattern_discovery",
+                model_used=provider,
+                model_version=model,
+                prompt_hash=hash_llm_request(
+                    label="pattern_discovery:v1",
+                    system_prompt=system_prompt,
+                    user_payload=payload,
+                    schema=PATTERN_DISCOVERY_SCHEMA,
+                ),
+                input_tokens=(
+                    estimate_tokens_from_text(system_prompt)
+                    + estimate_tokens_from_payload(payload)
+                    + estimate_tokens_from_payload(PATTERN_DISCOVERY_SCHEMA)
+                ),
+                structured_output_json=deepcopy(receipt),
+            )
+            self.session.add(run)
+            await self.session.flush()
+            run_id = run.id
+            await self.session.commit()
+        else:
+            run_id = None  # Explicit previews remain write-free.
 
+        async def save_receipt(status: str, detail: str, **extra: Any) -> None:
+            receipt["review"] = {
+                "status": status,
+                "detail": detail,
+                "updated_at": datetime.now(UTC).isoformat(),
+                **extra,
+            }
+            if run_id is not None:
+                await self.session.execute(
+                    update(ReasoningRun)
+                    .where(ReasoningRun.id == run_id)
+                    .values(
+                        structured_output_json=deepcopy(receipt),
+                        output_text=str(
+                            (receipt.get("proposal") or {}).get("reasoning_summary")
+                            or ""
+                        ),
+                        duration_ms=int((perf_counter() - started) * 1000),
+                        output_tokens=(
+                            estimate_tokens_from_payload(receipt["proposal"])
+                            if "proposal" in receipt
+                            else None
+                        ),
+                        **({"input_tokens": None} if status == "deferred" else {}),
+                    )
+                )
+                await self.session.commit()
+
+        try:
+            result = await call_llm_json(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                schema=PATTERN_DISCOVERY_SCHEMA,
+                timeout_seconds=generation["timeout_seconds"],
+                provider_override=provider,
+                model=model,
+            )
+            receipt["proposal"] = deepcopy(result)
+            await save_receipt("validating", "proposal_received")
+            outcome = await self._review_proposal(
+                result=result,
+                evidence=evidence,
+                tracked=tracked,
+                episodes=episodes,
+                now=now,
+                apply=apply,
+                policy=policy,
+                reference_map=reference_map,
+                model_evidence=model_evidence,
+            )
+            detail = outcome["detail"]
+            status = (
+                "provisional"
+                if outcome.get("created")
+                else (
+                    "duplicate"
+                    if outcome.get("existing_signal_id")
+                    else "preview" if outcome["status"] == "preview" else "rejected"
+                )
+            )
+            await save_receipt(status, detail, outcome=outcome)
+            return {
+                **outcome,
+                "reasoning_run_id": None if run_id is None else str(run_id),
+            }
+        except (Exception, asyncio.CancelledError) as exc:
+            if run_id is not None:
+                await self.session.rollback()
+                await save_receipt(
+                    (
+                        "interrupted"
+                        if isinstance(exc, asyncio.CancelledError)
+                        else (
+                            "deferred"
+                            if isinstance(exc, LLMProviderCooldownError)
+                            else "failed"
+                        )
+                    ),
+                    (
+                        "proposal_processing_failed"
+                        if "proposal" in receipt
+                        else (
+                            "provider_admission_deferred"
+                            if isinstance(exc, LLMProviderCooldownError)
+                            else "generation_failed"
+                        )
+                    ),
+                    error_type=type(exc).__name__,
+                )
+            raise
+
+    async def _review_proposal(
+        self,
+        *,
+        result,
+        evidence,
+        tracked,
+        episodes,
+        now,
+        apply,
+        policy,
+        reference_map,
+        model_evidence,
+    ) -> dict[str, Any]:
         hypothesis, rejection = self._validate_hypothesis(
             result=result,
-            evidence_registry=evidence,
+            evidence_registry=model_evidence,
             tracked_tickers=set(tracked),
             historical_episode_ids={item["id"] for item in episodes},
-            minimum_confidence=settings.PATTERN_DISCOVERY_MIN_CONFIDENCE,
-            minimum_independent_sources=minimum_sources,
+            minimum_confidence=policy["minimum_confidence"],
+            minimum_independent_sources=policy["minimum_independent_sources"],
         )
         if hypothesis is None:
             return {
@@ -160,30 +353,34 @@ class PatternDiscoveryService:
                 "evidence_count": len(evidence),
             }
 
+        hypothesis["evidence_refs"] = [
+            reference_map[ref] for ref in hypothesis["evidence_refs"]
+        ]
         hypothesis["pattern_fingerprint"] = self._pattern_fingerprint(hypothesis)
         duplicate = await self._find_duplicate(hypothesis, now=now)
         if duplicate is not None:
-            await KnowledgeAuditService(self.session).record_change(
-                node_type="market_setup_signal",
-                node_id=duplicate.id,
-                change_type="duplicate_proposal_rejected",
-                reason="A new model proposal repeated an existing provisional pattern.",
-                actor="pattern_discovery",
-                subject_type=duplicate.subject_type,
-                subject_id=duplicate.subject_id,
-                metadata={
-                    "candidate_label": hypothesis["label"],
-                    "candidate_pattern_type": hypothesis["pattern_type"],
-                    "candidate_fingerprint": hypothesis["pattern_fingerprint"],
-                    "candidate_affected_tickers": hypothesis["affected_tickers"],
-                    "candidate_evidence_refs": hypothesis["evidence_refs"],
-                },
-            )
-            await self.session.commit()
+            if apply:
+                await KnowledgeAuditService(self.session).record_change(
+                    node_type="market_setup_signal",
+                    node_id=duplicate.id,
+                    change_type="duplicate_proposal_rejected",
+                    reason="A new model proposal repeated an existing provisional pattern.",
+                    actor="pattern_discovery",
+                    subject_type=duplicate.subject_type,
+                    subject_id=duplicate.subject_id,
+                    metadata={
+                        "candidate_label": hypothesis["label"],
+                        "candidate_pattern_type": hypothesis["pattern_type"],
+                        "candidate_fingerprint": hypothesis["pattern_fingerprint"],
+                        "candidate_affected_tickers": hypothesis["affected_tickers"],
+                        "candidate_evidence_refs": hypothesis["evidence_refs"],
+                    },
+                )
             return {
                 "status": "ok",
                 "detail": "duplicate_pattern_hypothesis",
                 "created": 0,
+                "hypothesis": hypothesis,
                 "pattern_fingerprint": hypothesis["pattern_fingerprint"],
                 "existing_signal_id": str(duplicate.id),
             }
@@ -205,6 +402,7 @@ class PatternDiscoveryService:
             "status": "ok",
             "detail": f"pattern_created={signal.signal_name}",
             "created": 1,
+            "hypothesis": hypothesis,
             "signal_id": str(signal.id),
             "question_id": None if question is None else str(question.id),
             "affected_tickers": hypothesis["affected_tickers"],
@@ -219,7 +417,8 @@ class PatternDiscoveryService:
             "Name pattern_type in your own words; there is no fixed taxonomy. "
             "A useful pattern must connect multiple observations through a plausible investment mechanism that could affect "
             "future earnings, expectations, valuation, timing, or portfolio risk. Correlation alone is not causation. "
-            "Use only supplied evidence_refs and affected tracked tickers. Cite at least two genuinely independent source "
+            "Use only the exact short ref labels in source_dated_signals (for example signal:1); never abbreviate or invent references. "
+            "Use only affected tracked tickers. Cite at least two genuinely independent source "
             "lineages. State what would falsify the mechanism and the next source-backed test. Historical episodes are analogy "
             "seeds only and cannot count as current evidence. Return actionable=false when the evidence is thin, copied, stale, "
             "already explained, or lacks a concrete portfolio transmission route."
@@ -444,8 +643,11 @@ class PatternDiscoveryService:
                 "direction": signal.direction,
                 "confidence": float(signal.confidence or 0.0),
                 "public_time": (
-                    signal.public_time or signal.as_of or signal.created_at
-                ).isoformat(),
+                    signal.public_time.isoformat() if signal.public_time else None
+                ),
+                "as_of": signal.as_of.isoformat() if signal.as_of else None,
+                "signal_created_at": signal.created_at.isoformat(),
+                "evidence_ingest_time": evidence.ingest_time.isoformat(),
                 "raw_evidence_id": str(evidence.id),
                 "source_item_id": (
                     None if source_item is None else str(source_item.id)
@@ -453,6 +655,7 @@ class PatternDiscoveryService:
                 "source_name": source.name,
                 "source_type": source.source_type,
                 "source_url": source.url,
+                "evidence_url": evidence.url,
                 "lineage_key": source_lineage_key(
                     source_id=source.id,
                     source_url=source.url,
@@ -630,10 +833,8 @@ class PatternDiscoveryService:
             primary=primary,
             first_raw_id=first_raw_id,
         )
-        await self.session.commit()
-        await self.session.refresh(signal)
-        if question is not None:
-            await self.session.refresh(question)
+        # The caller commits the provisional output and its receipt together.
+        await self.session.flush()
         return signal, question
 
     async def _ensure_research_question(
