@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Callable
@@ -74,6 +74,7 @@ class JobTelemetry:
     last_status: str = "idle"
     detail: str | None = None
     last_trigger: str | None = None
+    is_running: bool = False
 
 
 class AutomationCoordinator:
@@ -345,7 +346,10 @@ class AutomationCoordinator:
 
     def status(self) -> list[JobTelemetry]:
         self.sync_runtime_jobs()
-        return list(self.telemetry.values())
+        return [
+            replace(item, is_running=item.name in self._active_jobs)
+            for item in self.telemetry.values()
+        ]
 
     def reset_state(self) -> None:
         for telemetry in self.telemetry.values():

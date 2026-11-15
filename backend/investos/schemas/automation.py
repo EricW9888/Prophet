@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 class AutomationJobStatus(BaseModel):
     name: str
     enabled: bool
+    is_running: bool = False
     interval_seconds: Optional[int] = None
     last_run_at: Optional[datetime] = None
     last_status: str = "idle"

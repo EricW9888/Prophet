@@ -4,6 +4,7 @@ import JobCompletionNoticeHost from "@/components/JobCompletionNoticeHost";
 import MobileRefreshControl from "@/components/MobileRefreshControl";
 import PwaRegistration from "@/components/PwaRegistration";
 import PresentationLanguageProvider from "@/components/PresentationLanguageProvider";
+import WorkStatusProvider from "@/components/WorkStatusProvider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -51,9 +52,11 @@ export default function RootLayout({
     >
       <body className="flex min-h-full min-w-0 flex-col bg-background font-sans text-foreground">
         <PwaRegistration>
+          <WorkStatusProvider>
           <MobileRefreshControl />
           <JobCompletionNoticeHost />
           <PresentationLanguageProvider>{children}</PresentationLanguageProvider>
+          </WorkStatusProvider>
         </PwaRegistration>
       </body>
     </html>

@@ -46,6 +46,9 @@ class ChatTurnState:
             self.data["replay_blocked"] = True
             self.persist()
 
+    def has_completed(self, name):
+        return self.enabled and name in self.data.get("stages", {})
+
     async def run(self, name, operation, *, session=None, encode=None, decode=None):
         stages = self.data.setdefault("stages", {})
         if self.enabled and name in stages:

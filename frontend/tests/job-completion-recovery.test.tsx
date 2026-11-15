@@ -37,7 +37,7 @@ test("starting another question clears an older terminal notice immediately", as
   }
 });
 
-for (const status of ["error", "completed"] as const) {
+for (const status of ["error", "completed", "cancelled"] as const) {
   test(`the global ${status} notice preserves the right chat recovery state`, async () => {
     const originalFetch = globalThis.fetch;
     const originalInterval = window.setInterval;
@@ -77,9 +77,10 @@ for (const status of ["error", "completed"] as const) {
       );
       assert.equal(
         container.querySelector("a")?.getAttribute("href"),
-        status === "error" ? "/chat" : "/chat?session_id=synthetic-session",
+        status === "cancelled" ? undefined : status === "error" ? "/chat" : "/chat?session_id=synthetic-session",
       );
-      assert.equal(
+      if (status === "cancelled") assert.equal(window.sessionStorage.getItem(COMPLETED_JOB_NOTICE_KEY), null);
+      else assert.equal(
         JSON.parse(window.sessionStorage.getItem(COMPLETED_JOB_NOTICE_KEY)!)
           .jobId,
         "synthetic-job",
@@ -99,3 +100,30 @@ for (const status of ["error", "completed"] as const) {
     }
   });
 }
+
+test("a slow older completion cannot erase a newer question or create duplicate polls", async () => {
+  const originalFetch = globalThis.fetch, originalInterval = window.setInterval, originalClear = window.clearInterval;
+  let poll!: () => void, resolve!: (response: Response) => void, requests = 0;
+  window.setInterval = ((callback: () => void) => { poll = callback; return 1; }) as typeof window.setInterval;
+  window.clearInterval = () => {};
+  globalThis.fetch = async () => { requests += 1; return new Promise<Response>((done) => { resolve = done; }); };
+  window.sessionStorage.removeItem(COMPLETED_JOB_NOTICE_KEY);
+  window.sessionStorage.setItem(ACTIVE_JOB_STORAGE_KEY, JSON.stringify({ job_id: "earlier" }));
+  const container = document.createElement("div"); document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<JobCompletionNoticeHost />));
+    await act(async () => { poll(); poll(); });
+    assert.equal(requests, 1);
+    const newer = JSON.stringify({ job_id: "newer" });
+    window.sessionStorage.setItem(ACTIVE_JOB_STORAGE_KEY, newer);
+    await act(async () => resolve(Response.json({ job_id: "earlier", status: "completed" })));
+    assert.equal(window.sessionStorage.getItem(ACTIVE_JOB_STORAGE_KEY), newer);
+    assert.equal(window.sessionStorage.getItem(COMPLETED_JOB_NOTICE_KEY), null);
+    assert.equal(container.textContent, "");
+  } finally {
+    await act(async () => root.unmount()); container.remove();
+    window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
+    globalThis.fetch = originalFetch; window.setInterval = originalInterval; window.clearInterval = originalClear;
+  }
+});

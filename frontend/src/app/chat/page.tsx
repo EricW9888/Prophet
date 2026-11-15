@@ -5,7 +5,12 @@ import QuantityEvidence from "@/components/QuantityEvidence";
 import WorkspaceDivider, { useWorkspacePane } from "@/components/WorkspaceDivider";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Check, Maximize2, PanelLeftOpen, Pencil, X } from "lucide-react";
+import { ArrowUp, Check, Maximize2, PanelLeftOpen, Pencil, Square, X } from "lucide-react";
+import ChatTurnStatus from "@/components/ChatTurnStatus";
+import ActivityIndicator from "@/components/ActivityIndicator";
+import WorkspaceState from "@/components/WorkspaceState";
+import { useChatWorkStatus } from "@/components/WorkStatusProvider";
+import { chatActivity, isActiveChatJob as isActiveTurnJob, isMissingChatJob, sameChatJob } from "@/lib/work-status";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -20,7 +25,6 @@ import {
   AgentConversationSummary,
   AgentResearchReceipt,
   AgentTurnJob,
-  AgentTurnJobList,
   AgentTurn,
   ChatAttachment,
   ActiveWatcher,
@@ -30,14 +34,11 @@ import {
 
 import { formatModelUsedLabel, formatUserLabel } from "@/lib/formatting";
 import { readResearchEntry, researchTurnContext, type ResearchSubject } from "@/lib/workflows";
-import { ACTIVE_JOB_STORAGE_KEY, COMPLETED_JOB_NOTICE_KEY, clearCompletedJobNotice } from "@/lib/job-notifications";
+import { ACTIVE_JOB_STORAGE_KEY, COMPLETED_JOB_NOTICE_KEY, clearActiveJobReference, clearCompletedJobNotice } from "@/lib/job-notifications";
 
 const ALLOW_ACTIONS_STORAGE_KEY = "prophet:allow-agent-actions";
 const RESEARCH_SIDEBAR_WIDTH = 320;
 const RESEARCH_VIEWS = ["Chats", "Autonomous", "Watches"] as const;
-const ACTIVE_JOBS_POLL_ACTIVE_MS = 5000;
-const ACTIVE_JOBS_POLL_IDLE_MS = 15000;
-const ACTIVE_JOBS_POLL_HIDDEN_MS = 60000;
 const ANSWER_TEXT_CLASS = "prose prose-slate max-w-none break-words text-sm leading-7 dark:prose-invert md:text-base prose-headings:mb-2 prose-headings:mt-5 prose-headings:text-current prose-p:my-3 prose-li:my-1 prose-strong:text-current prose-a:text-sky-600 dark:prose-a:text-sky-400";
 const ANSWER_COMPONENTS: Components = {
   table: ({ children }) => <div className="overflow-x-auto"><table>{children}</table></div>,
@@ -66,10 +67,6 @@ type Message = {
     subagents?: Record<string, string> | null;
   };
 };
-
-function isActiveTurnJob(job: Pick<AgentTurnJob, "status">) {
-  return job.status === "queued" || job.status === "running" || job.status === "deferred";
-}
 
 function stripInternalReasoningBlock(content: string) {
   return content.replace(/\n\n---\n\*\*CHAIN OF THOUGHT\*\*[\s\S]*$/i, "").trim();
@@ -493,10 +490,12 @@ function RunningChats({
   jobs,
   onFocus,
   onCancel,
+  stoppingJobId,
 }: {
   jobs: AgentTurnJob[];
   onFocus: (job: AgentTurnJob) => void;
   onCancel: (jobId: string) => void;
+  stoppingJobId?: string | null;
 }) {
   if (jobs.length === 0) return null;
 
@@ -507,23 +506,23 @@ function RunningChats({
       </p>
       <div className="space-y-2">
         {jobs.slice(0, 5).map((job) => (
-          <div key={job.job_id} className="rounded-lg border border-amber-200 bg-amber-50/40 p-3 text-xs dark:border-amber-900/40 dark:bg-amber-950/10">
+          <div key={job.job_id} className="border border-line bg-background p-3 text-xs">
             <button type="button" onClick={() => onFocus(job)} className="w-full text-left">
               <div className="flex items-center justify-between gap-2">
-                <span className="font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">
-                  {job.status === "deferred" ? "Waiting for AI" : job.status}
+                <span className="flex items-center gap-2 font-medium text-foreground">
+                  <ActivityIndicator state={chatActivity(job).state} />{chatActivity(job).label}
                 </span>
                 <span className="text-[10px] text-slate-400">{formatTimestamp(job.updated_at)}</span>
               </div>
               <p className="mt-1 line-clamp-2 font-medium text-slate-700 dark:text-slate-200">{job.request_message}</p>
-              <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">Turn ID {job.job_id.slice(0, 8)}</p>
             </button>
             <button
               type="button"
               onClick={() => onCancel(job.job_id)}
-              className="mt-2 text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-rose-600 dark:text-slate-400"
+              disabled={Boolean(stoppingJobId)}
+              className="mt-2 min-h-8 text-xs text-muted hover:text-negative disabled:opacity-50"
             >
-              Cancel
+              {stoppingJobId === job.job_id ? "Stopping…" : "Stop response"}
             </button>
           </div>
         ))}
@@ -533,7 +532,7 @@ function RunningChats({
 }
 
 export default function ChatPage() {
-  return <Suspense fallback={<p className="p-6 text-muted">Loading research workspace…</p>}><ChatWorkspace /></Suspense>;
+  return <Suspense fallback={<div className="workspace-frame py-6"><WorkspaceState kind="loading" title="Loading research workspace" description="Opening your chats and research context." /></div>}><ChatWorkspace /></Suspense>;
 }
 
 function ChatWorkspace() {
@@ -564,14 +563,20 @@ function ChatWorkspace() {
   const answerDialog = useRef<HTMLDialogElement>(null);
   const [allowActions, setAllowActions] = useState(false);
   const [allowActionsLoaded, setAllowActionsLoaded] = useState(false);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [openTraceRunId, setOpenTraceRunId] = useState<string | null>(null);
   const [traceCache, setTraceCache] = useState<Record<string, ReasoningTrace>>({});
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [activeJob, setActiveJob] = useState<AgentTurnJob | null>(null);
+  const [restoringJobId, setRestoringJobId] = useState<string | null>(null);
   const [jobConnectionError, setJobConnectionError] = useState<string | null>(null);
   const [failedJob, setFailedJob] = useState<AgentTurnJob | null>(null);
-  const [activeJobs, setActiveJobs] = useState<AgentTurnJob[]>([]);
+  const work = useChatWorkStatus();
+  const activeJobs = work.jobs;
+  const updateJob = work.updateJob;
+  const refreshWork = work.refresh;
+  const observeJob = work.observeJob;
+  const [stoppingJobId, setStoppingJobId] = useState<string | null>(null);
+  const [turnStopped, setTurnStopped] = useState(false);
   const [activeJobRequestMessage, setActiveJobRequestMessage] = useState<string | null>(null);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
@@ -583,7 +588,7 @@ function ChatWorkspace() {
   const lastEntryRef = useRef<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const activeJobsRef = useRef<AgentTurnJob[]>([]);
-  const loadActiveJobsRef = useRef<() => Promise<void>>(async () => undefined);
+  const restorationRef = useRef<{ jobId: string } | null>(null);
   const mobileWorkspacePanelRef = useRef<HTMLElement>(null);
   const mobileWorkspaceTriggerRef = useRef<HTMLButtonElement>(null);
 
@@ -620,7 +625,8 @@ function ChatWorkspace() {
   function persistActiveJob(job: AgentTurnJob | null) {
     if (typeof window === "undefined") return;
     if (!job || job.status === "completed" || job.status === "cancelled") {
-      window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
+      if (job) clearActiveJobReference(job.job_id);
+      else window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
       return;
     }
     const notice = window.sessionStorage.getItem(COMPLETED_JOB_NOTICE_KEY);
@@ -639,26 +645,18 @@ function ChatWorkspace() {
   }
 
   function upsertActiveJob(job: AgentTurnJob) {
-    setActiveJobs((current) => {
-      const withoutJob = current.filter((item) => item.job_id !== job.job_id);
-      return isActiveTurnJob(job) ? [job, ...withoutJob].slice(0, 30) : withoutJob;
-    });
+    updateJob(job);
   }
 
-  async function loadActiveJobs() {
-    try {
-      const result = await apiFetch<AgentTurnJobList>("/agent/turn-jobs?status=active&limit=30");
-      setActiveJobs(result.jobs);
-    } catch {
-      // Active job visibility is helpful, but it should never break chat.
-    }
-  }
-  loadActiveJobsRef.current = loadActiveJobs;
+  const loadActiveJobs = useCallback(async () => { await refreshWork(); }, [refreshWork]);
 
   function focusJob(job: AgentTurnJob) {
+    setTurnStopped(false);
     setJobConnectionError(null);
     setFailedJob(null);
     selectionEpochRef.current += 1;
+    restorationRef.current = null;
+    setRestoringJobId(null);
     setPinnedSubject(null);
     conversationChosenRef.current = true;
     if (entryKey) router.replace("/chat", { scroll: false });
@@ -681,16 +679,27 @@ function ChatWorkspace() {
   }
 
   async function cancelJob(jobId: string) {
+    if (stoppingJobId) return;
+    const cancellationEpoch = selectionEpochRef.current;
+    setStoppingJobId(jobId);
     try {
       await apiFetch(`/agent/turn-jobs/${jobId}/cancel`, { method: "POST" });
-      setActiveJobs((current) => current.filter((job) => job.job_id !== jobId));
-      if (activeJob?.job_id === jobId) {
+      work.removeJob(jobId);
+      if (cancellationEpoch === selectionEpochRef.current && (activeJob?.job_id === jobId || restoringJobId === jobId)) {
+        selectionEpochRef.current += 1;
+        clearActiveJobReference(jobId);
+        restorationRef.current = null;
+        setRestoringJobId(null);
         setActiveJob(null);
         setActiveJobRequestMessage(null);
         setIsTyping(false);
+        setTurnStopped(true);
+        setJobConnectionError(null);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to cancel this chat turn.");
+      if (cancellationEpoch === selectionEpochRef.current) setError(err instanceof Error ? err.message : "Unable to cancel this chat turn.");
+    } finally {
+      setStoppingJobId(null);
     }
   }
 
@@ -748,7 +757,7 @@ function ChatWorkspace() {
 
   useEffect(() => {
     void Promise.all([loadConversations(), loadActiveJobs()]).catch(() => undefined);
-  }, [loadConversations]);
+  }, [loadConversations, loadActiveJobs]);
 
   useEffect(() => {
     activeJobsRef.current = activeJobs;
@@ -810,87 +819,22 @@ function ChatWorkspace() {
   }, [closeMobileWorkspace, mobileWorkspaceOpen]);
 
   useEffect(() => {
-    // Local job restoration remains in useEffect
-    let cancelled = false;
     if (entry.hasEntry || conversationChosenRef.current) return;
-    const restorationEpoch = selectionEpochRef.current;
     const raw = window.sessionStorage.getItem(ACTIVE_JOB_STORAGE_KEY);
     if (!raw) return;
     try {
-      const saved = JSON.parse(raw) as { job_id?: string; request_message?: string | null };
-      if (saved.job_id) {
-        setActiveJobRequestMessage(saved.request_message ?? null);
-        void apiFetch<AgentTurnJob>(`/agent/turn-jobs/${saved.job_id}`)
-          .then((job) => {
-            if (cancelled || restorationEpoch !== selectionEpochRef.current) return;
-            setIsTyping(isActiveTurnJob(job));
-            if (job.status === "error") {
-              setFailedJob(job);
-              setError(job.error || "Unable to complete this turn.");
-              setActiveJobRequestMessage(null);
-            } else {
-              if (conversationChosenRef.current) return;
-              conversationChosenRef.current = true;
-              if (job.session_id) setActiveSessionId(job.session_id);
-              setActiveJob(job);
-            }
-            persistActiveJob(job);
-          })
-          .catch(() => {
-            if (cancelled) return;
-            window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
-          });
-      }
-    } catch {
-      window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
-    }
-    return () => { cancelled = true; };
+      const saved = JSON.parse(raw) as { job_id?: string; session_id?: string | null; request_message?: string | null };
+      if (!saved.job_id) { window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY); return; }
+      conversationChosenRef.current = true;
+      restorationRef.current = { jobId: saved.job_id };
+      setRestoringJobId(saved.job_id);
+      if (saved.session_id) setActiveSessionId(saved.session_id);
+      setActiveJobRequestMessage(saved.request_message ?? null);
+      setIsTyping(true);
+      setJobConnectionError("Restoring your saved question. Checking its current status.");
+    } catch { window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY); }
   }, [entry.hasEntry]);
 
-  useEffect(() => {
-    let cancelled = false;
-    let inFlight = false;
-    let timeoutId: number | null = null;
-
-    const hasActiveJobs = () => activeJobsRef.current.some(isActiveTurnJob);
-    const nextDelay = () => {
-      if (document.hidden) return ACTIVE_JOBS_POLL_HIDDEN_MS;
-      return hasActiveJobs() ? ACTIVE_JOBS_POLL_ACTIVE_MS : ACTIVE_JOBS_POLL_IDLE_MS;
-    };
-    const schedule = (delay = nextDelay()) => {
-      if (cancelled) return;
-      timeoutId = window.setTimeout(tick, delay);
-    };
-    const tick = () => {
-      if (cancelled) return;
-      if (inFlight) {
-        schedule();
-        return;
-      }
-      inFlight = true;
-      void loadActiveJobsRef.current().finally(() => {
-        inFlight = false;
-        schedule();
-      });
-    };
-    const refreshWhenVisible = () => {
-      if (document.hidden) return;
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
-      schedule(250);
-    };
-
-    schedule();
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    return () => {
-      cancelled = true;
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-    };
-  }, []);
 
   useEffect(() => {
     if (pinnedSubject && !activeSessionId) return;
@@ -1035,6 +979,8 @@ function ChatWorkspace() {
     lastEntryRef.current = entryKey;
     if (!entry.hasEntry) return;
     selectionEpochRef.current += 1;
+    restorationRef.current = null;
+    setRestoringJobId(null);
     conversationChosenRef.current = true;
     setActiveSessionId(entry.sessionId);
     setPinnedSubject(entry.subject);
@@ -1059,56 +1005,69 @@ function ChatWorkspace() {
     resizeComposer(input);
   }, [input]);
 
+  const activeJobId = activeJob?.job_id ?? restoringJobId;
+  const activeJobPending = Boolean((activeJob && isActiveTurnJob(activeJob)) || restoringJobId);
+  const foregroundJobId = activeJobPending ? activeJobId : failedJob?.job_id ?? null;
   useEffect(() => {
-    if (!isTyping) {
-      setElapsedSeconds(0);
-      return;
-    }
-    const startedAt = activeJob?.created_at ? Date.parse(activeJob.created_at) : Date.now();
-    const interval = window.setInterval(() => {
-      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
-    }, 1000);
-    return () => window.clearInterval(interval);
-  }, [isTyping, activeJob?.created_at]);
-
+    observeJob(foregroundJobId);
+    return () => observeJob(null);
+  }, [foregroundJobId, observeJob]);
   useEffect(() => {
-    if (!activeJob || !isActiveTurnJob(activeJob)) {
-      return;
-    }
+    if (!activeJobId || !activeJobPending) return;
     let cancelled = false;
-    persistActiveJob(activeJob);
-    const interval = window.setInterval(() => {
-      void apiFetch<AgentTurnJob>(`/agent/turn-jobs/${activeJob.job_id}`)
-        .then((job) => {
-          if (cancelled) return;
+    const pollingEpoch = selectionEpochRef.current;
+    let timer: number;
+    const controller = new AbortController();
+    const poll = async () => {
+      try {
+        const job = await apiFetch<AgentTurnJob>(`/agent/turn-jobs/${activeJobId}`, { signal: controller.signal });
+        if (cancelled || pollingEpoch !== selectionEpochRef.current) return;
+        if (restorationRef.current?.jobId === job.job_id) {
+          if (job.session_id) setActiveSessionId(job.session_id);
+          setActiveJobRequestMessage(job.request_message);
+          restorationRef.current = null;
+          setRestoringJobId(null);
+        }
+        setJobConnectionError(null);
+        setIsTyping(isActiveTurnJob(job));
+        setActiveJob((previous) => sameChatJob(previous, job) ? previous : job);
+        updateJob(job);
+        persistActiveJob(job);
+        if (job.status === "completed" && job.result) {
+          setError(null);
+          setActiveJobRequestMessage(null);
+          mergeAssistantTurn(job.result, job.request_message, job.created_at, job.job_id);
+          setActiveJob(null);
+          return;
+        }
+        if (job.status === "error" || job.status === "cancelled") {
+          if (job.status === "error") { setError(job.error || "Unable to complete this turn."); setFailedJob(job); }
+          else setTurnStopped(true);
+          setActiveJobRequestMessage(null);
+          setActiveJob(null);
+          return;
+        }
+      } catch (error) {
+        if (cancelled || pollingEpoch !== selectionEpochRef.current) return;
+        if (isMissingChatJob(error)) {
+          clearActiveJobReference(activeJobId);
+          restorationRef.current = null;
+          setRestoringJobId(null);
+          setActiveJob(null);
+          setIsTyping(false);
           setJobConnectionError(null);
-          setIsTyping(isActiveTurnJob(job));
-          setActiveJob(job);
-          upsertActiveJob(job);
-          persistActiveJob(job);
-          if (job.status === "completed" && job.result) {
-            setIsTyping(false);
-            setError(null);
-            setActiveJobRequestMessage(null);
-            mergeAssistantTurn(job.result, job.request_message, job.created_at, job.job_id);
-            setActiveJob(null);
-            upsertActiveJob(job);
-          } else if (job.status === "error") {
-            setIsTyping(false);
-            setError(job.error || "Unable to complete this turn.");
-            setFailedJob(job);
-            setActiveJobRequestMessage(null);
-            setActiveJob(null);
-            upsertActiveJob(job);
-          }
-        })
-        .catch(() => {
-          if (cancelled) return;
-          setJobConnectionError("Connection interrupted. Your saved question will continue when Prophet reconnects.");
-        });
-    }, 1200);
-    return () => { cancelled = true; window.clearInterval(interval); };
-  }, [activeJob, mergeAssistantTurn, entryKey]);
+          setError("This activity record is no longer available. Its saved conversation may still be available.");
+          return;
+        }
+        setJobConnectionError("Connection interrupted. Checking for your saved question; its current progress is unknown until Prophet reconnects.");
+      }
+      if (!cancelled) timer = window.setTimeout(poll, 1200);
+    };
+    timer = window.setTimeout(poll, 1200);
+    return () => { cancelled = true; controller.abort(); window.clearTimeout(timer); };
+  }, [activeJobId, activeJobPending, mergeAssistantTurn, entryKey, updateJob]);
+
+  useEffect(() => { setTurnStopped(false); }, [activeSessionId]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1117,6 +1076,8 @@ function ChatWorkspace() {
     const userMessage = input.trim();
     setJobConnectionError(null);
     setFailedJob(null);
+    setTurnStopped(false);
+    clearCompletedJobNotice();
     const submittedAttachments = attachments;
     const submissionEpoch = selectionEpochRef.current;
     setInput("");
@@ -1186,6 +1147,7 @@ function ChatWorkspace() {
   }
 
   function startNewChat() {
+    setTurnStopped(false);
     setJobConnectionError(null);
     setFailedJob(null);
     if (failedJob) persistActiveJob(null);
@@ -1193,6 +1155,8 @@ function ChatWorkspace() {
     setResearchView("Chats");
     fileInputs.clear();
     selectionEpochRef.current += 1;
+    restorationRef.current = null;
+    setRestoringJobId(null);
     conversationChosenRef.current = true;
     setPinnedSubject(null);
     setSelectedSubjectName("Portfolio");
@@ -1262,7 +1226,6 @@ function ChatWorkspace() {
 
   const activeConversation = conversations.find((item) => item.session_id === activeSessionId) ?? null;
   const linkedReport = autonomousReviews.find((item) => item.session_id === activeSessionId) ?? null;
-  const liveEvents = activeJob?.events.filter((event) => event.phase !== "thinking") ?? [];
   const fileContextActive = attachments.length > 0 || usingSessionFiles || Boolean(activeJob?.request_attachments?.length);
   const executionActive = allowActionsLoaded && !fileContextActive ? allowActions : false;
 
@@ -1335,6 +1298,7 @@ function ChatWorkspace() {
           </div>
           <RunningChats
             jobs={activeJobs}
+            stoppingJobId={stoppingJobId}
             onFocus={(job) => {
               focusJob(job);
               setMobileWorkspaceOpen(false);
@@ -1406,6 +1370,8 @@ function ChatWorkspace() {
                           type="button"
                           onClick={() => {
                             selectionEpochRef.current += 1;
+                            restorationRef.current = null;
+                            setRestoringJobId(null);
                             conversationChosenRef.current = true;
                             setPinnedSubject(null);
                             setInput("");
@@ -1580,6 +1546,8 @@ function ChatWorkspace() {
               <button type="button" className="workspace-control" disabled={Boolean(input.trim() || attachments.length || isTyping)} onClick={() => {
                 const job = failedJob;
                 selectionEpochRef.current += 1;
+                restorationRef.current = null;
+                setRestoringJobId(null);
                 conversationChosenRef.current = true;
                 setPinnedSubject(job.request_subject_id && job.request_subject_type ? {subject_id: job.request_subject_id, subject_type: job.request_subject_type} : null);
                 setInput(job.request_message);
@@ -1592,14 +1560,12 @@ function ChatWorkspace() {
               {input.trim() || attachments.length ? <span className="text-xs text-muted">Send or clear your current draft first.</span> : null}
             </div> : null}
             {loadingHistory ? (
-              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                Loading saved conversation...
-              </p>
+              <p role="status" className="mt-2 flex items-center gap-2 text-xs text-muted"><ActivityIndicator state="working" />Loading saved conversation…</p>
             ) : null}
           </div>
 
           <div ref={messagesScrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-6 pt-6 sm:px-6">
-            {messages.length === 0 ? (
+            {messages.length === 0 && !isTyping && !turnStopped ? (
               <div className="mx-auto mt-16 max-w-2xl text-center">
                 <div className="inline-flex h-16 w-16 items-center justify-center rounded-lg bg-sky-100 dark:bg-sky-900/30">
                   <svg className="h-8 w-8 text-sky-600 dark:text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1735,40 +1701,8 @@ function ChatWorkspace() {
                     </div>
                   </div>
                 )))}
-                {isTyping ? (
-                  <section className="w-full border-l-2 border-line pl-4 py-3 text-sm" aria-label="Research activity">
-                    <div className="flex flex-wrap justify-between gap-2">
-                      <span className="font-semibold">{jobConnectionError ? "Reconnecting" : activeJob?.status === "deferred" ? "Waiting for AI" : liveEvents.at(-1) ? formatUserLabel(liveEvents.at(-1)!.phase) : "Starting turn"}</span>
-                      <span className="text-xs tabular-nums text-muted">{elapsedSeconds}s elapsed</span>
-                    </div>
-                    <p role="status" className="mt-1 text-muted">{jobConnectionError ?? liveEvents.at(-1)?.message ?? "Sending your request to Prophet."}</p>
-                    {activeJob?.status === "deferred" && activeJob.retry_at ? <p className="mt-1 text-xs text-muted">Next planned availability check: {formatTimestamp(activeJob.retry_at)}. You can leave this page; Cancel stops this question.</p> : null}
-                    {activeJobRequestMessage && !messages.some((message) => message.role === "user" && message.content.startsWith(activeJobRequestMessage)) ? (
-                      <p className="mt-1 truncate text-xs text-muted">{activeJobRequestMessage}</p>
-                    ) : null}
-                    {liveEvents.length ? (
-                      <details className="mt-3 border-t border-line pt-2">
-                        <summary className="cursor-pointer text-xs font-medium">Work log · {liveEvents.length} updates</summary>
-                        <ol className="mt-2 max-h-64 space-y-2 overflow-auto">
-                          {liveEvents.map((event, index) => {
-                            const detail = event.detail ?? event.metadata;
-                            const query = typeof detail?.query === "string" ? detail.query : null;
-                            const direct = detail?.direct_evidence_count;
-                            const linked = detail?.holdings_with_evidence;
-                            return (
-                              <li key={`${event.phase}-${event.created_at}-${index}`} className="border-l border-line pl-2">
-                                <p><span className="font-medium">{formatUserLabel(event.phase)}:</span> {event.message}</p>
-                                {query ? <p className="break-words text-xs text-muted">Search: {query}</p> : null}
-                                {typeof direct === "number" ? <p className="text-xs text-muted">{direct} direct evidence items · {Number(detail?.contradiction_evidence_count ?? 0)} contradictory</p> : null}
-                                {Array.isArray(linked) && typeof detail?.holding_count === "number" ? <p className="text-xs text-muted">{linked.length} of {detail.holding_count} holdings linked in this packet</p> : null}
-                              </li>
-                            );
-                          })}
-                        </ol>
-                      </details>
-                    ) : null}
-                  </section>
-                ) : null}
+                {isTyping ? <ChatTurnStatus key={activeJob?.job_id ?? "sending"} job={activeJob} connectionError={jobConnectionError} requestMessage={activeJobRequestMessage && !messages.some((message) => message.role === "user" && message.content.startsWith(activeJobRequestMessage)) ? activeJobRequestMessage : null} /> : null}
+                {turnStopped && !isTyping ? <p role="status" className="flex items-center gap-2 py-3 text-sm text-muted"><ActivityIndicator state="cancelled" />Response stopped.</p> : null}
                 <div ref={endRef} />
               </div>
             )}
@@ -1805,7 +1739,7 @@ function ChatWorkspace() {
                   <AttachmentButton files={fileInputs} disabled={isTyping} />
                 </div>
                 {activeJob && isActiveTurnJob(activeJob) ? (
-                  <span className="truncate text-xs text-muted">Turn running in background</span>
+                  <button type="button" onClick={() => { const pane = messagesScrollRef.current; if (pane) pane.scrollTop = pane.scrollHeight; }} className="truncate text-xs text-muted hover:text-foreground" aria-label="Back to current work">{chatActivity(activeJob, jobConnectionError).label} · Current work</button>
                 ) : null}
               </div>
               {sessionAttachments.length ? <label className="mb-2 flex items-center gap-2 text-xs text-muted"><input type="checkbox" checked={useSessionAttachments} disabled={isTyping} onChange={(event) => setUseSessionAttachments(event.target.checked)} /> Include files from this chat: {sessionAttachments.map((file) => file.name).join(", ")}</label> : null}
@@ -1831,13 +1765,19 @@ function ChatWorkspace() {
                   rows={1}
                   className="min-h-[64px] w-full resize-none overflow-y-auto rounded-lg border border-slate-300 bg-white py-4 pl-5 pr-20 outline-none transition-[border-color,box-shadow,height] focus:border-sky-500 focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
                 />
-                <button
+                {isTyping ? <button
+                  type="button"
+                  aria-label={stoppingJobId ? "Stopping response" : activeJobId ? "Stop response" : "Sending question"}
+                  title={activeJobId ? "Stop this response" : "Sending question"}
+                  disabled={!activeJobId || Boolean(stoppingJobId)}
+                  onClick={() => { if (activeJobId) void cancelJob(activeJobId); }}
+                  className="absolute bottom-2.5 right-2.5 inline-flex h-10 w-10 items-center justify-center border border-line-strong bg-panel text-foreground hover:bg-panel-muted disabled:opacity-60"
+                >{!activeJobId || stoppingJobId ? <ActivityIndicator state="working" /> : <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />}</button> : <button
                   type="submit"
-                  disabled={fileInputs.blocked || isTyping || Boolean(activeJob && isActiveTurnJob(activeJob)) || !input.trim()}
-                  className="absolute bottom-2.5 right-2.5 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-700 disabled:opacity-50"
-                >
-                  Send
-                </button>
+                  aria-label="Send message"
+                  disabled={fileInputs.blocked || Boolean(activeJob && isActiveTurnJob(activeJob)) || !input.trim()}
+                  className="absolute bottom-2.5 right-2.5 inline-flex h-10 w-10 items-center justify-center bg-foreground text-background hover:opacity-80 disabled:opacity-40"
+                ><ArrowUp className="h-4 w-4" aria-hidden="true" /></button>}
               </div>
             </form>}
           </div>

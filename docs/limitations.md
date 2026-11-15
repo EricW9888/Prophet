@@ -97,6 +97,10 @@ is not automatically replayed. Permanent provider errors still require
 correction and an explicit retry. A long outage can leave a question waiting
 until capacity returns or the user cancels it. This recovery does not increase
 provider capacity or establish research accuracy or unattended throughput.
+Work indicators report backend state and stage summaries, not proof that useful
+research was produced. They are polled snapshots rather than a token stream or
+completion-time prediction. Waiting work may remain paused indefinitely during
+a provider outage; connection loss makes its current progress unknown.
 This does not imply support for arbitrary binary formats, executable files,
 encrypted documents or all embedded Office objects. Visual reading requires a
 supported, configured hosted image-reader model and shares provider availability

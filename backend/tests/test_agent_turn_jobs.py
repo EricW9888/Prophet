@@ -217,6 +217,32 @@ async def test_text_analysis_resumes_frozen_stages_after_restart_without_repeati
     assert analysis.await_count == (2 if failure_stage == "analysis" else 1)
     assert scope_calls == (2 if failure_stage == "scope" else 1)
     assert attempts == (2 if failure_stage == "independent_review" else 1)
+    progress = [event.message for event in recovered.events]
+    assert (
+        progress.count(
+            "Classifying the turn intent before attaching portfolio context."
+        )
+        == 1
+    )
+    assert (
+        progress.count(
+            "Deriving the evidence requirements from the question before retrieval."
+        )
+        == 1
+    )
+    assert progress.count("Evidence packet assembled.") == 1
+    assert (
+        progress.count("Checking fresh-source requirements and available coverage.")
+        == fresh.await_count
+    )
+    assert progress.count("Running the evidence analyst pass.") == (
+        2 if failure_stage == "analysis" else 1
+    )
+    assert (
+        progress.count("Checking evidence support, quantities and answer coverage.")
+        == attempts
+    )
+    assert any(event.phase == "answering" for event in recovered.events)
     if snapshot is not None:
         assert (
             recovered.request_context["turn_state"]["stages"]["evidence"]["value"]

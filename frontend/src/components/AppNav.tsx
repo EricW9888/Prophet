@@ -20,7 +20,9 @@ import {
   TableProperties,
   X,
 } from "lucide-react";
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
+import WorkspaceWorkIndicator from "@/components/WorkspaceWorkIndicator";
+import ActivityIndicator from "@/components/ActivityIndicator";
 import { useTranslation } from "react-i18next";
 import { usePathname } from "next/navigation";
 import { type ComponentType, type SVGProps, useEffect, useRef, useState } from "react";
@@ -106,6 +108,11 @@ function routeMatches(href: string, pathname: string) {
   return pathname === href;
 }
 
+function NavigationIcon({ icon: Icon }: { icon: NavIcon }) {
+  const { pending } = useLinkStatus();
+  return pending ? <><ActivityIndicator state="working" /><span className="sr-only">Loading destination</span></> : <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />;
+}
+
 function NavLink({
   href,
   label,
@@ -133,7 +140,7 @@ function NavLink({
       } ${compact ? "justify-center px-2" : ""}`}
       title={compact ? label : undefined}
     >
-      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+      <NavigationIcon icon={Icon} />
       <span className={compact ? "sr-only" : "truncate"}>{label}</span>
     </Link>
   );
@@ -256,10 +263,12 @@ export default function AppNav({ active }: { active: NavKey }) {
             </div>
           </div>
 
+          <WorkspaceWorkIndicator />
+
           <button
             type="button"
             onClick={() => window.location.reload()}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded border border-line text-muted transition-colors hover:border-line-strong hover:bg-panel-muted hover:text-foreground xl:hidden"
+            className="hidden h-9 w-9 shrink-0 items-center justify-center rounded border border-line text-muted transition-colors hover:border-line-strong hover:bg-panel-muted hover:text-foreground sm:inline-flex xl:hidden"
             aria-label="Refresh current view"
             title="Refresh"
           >
@@ -314,6 +323,7 @@ export default function AppNav({ active }: { active: NavKey }) {
               ))}
             </div>
             <div className="mt-3 border-t border-line pt-3">
+              <button type="button" onClick={() => window.location.reload()} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-muted hover:bg-panel-muted hover:text-foreground sm:hidden"><RefreshCw className="h-4 w-4" aria-hidden="true" />Refresh current view</button>
               <NavLink
                 href={settingsItem.href}
                 label={t(settingsItem.label)}

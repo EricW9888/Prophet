@@ -452,8 +452,28 @@ state or execute actions, a durable replay barrier disables automatic recovery.
 An interrupted turn beyond that boundary requires activity review and an
 explicit retry; the tracker does not claim exactly-once action execution.
 A completed response checkpoint can still be delivered without executing it
-again. The
-composer lets the user stop including prior files. Attachment turns never
+again.
+
+The workspace header shares a single activity read model across routes. Active
+chat jobs and automation dispatch membership describe current execution;
+`last_status` remains the previous outcome and never proves a job is running.
+Chat shows the current backend phase, elapsed time, a collapsible factual work
+log and a stop control. Paused provider work uses a waiting indicator rather
+than an animated working state. Stage announcements are emitted only when the
+checkpointed stage actually runs; reusing saved work does not announce it as
+new research. These summaries expose actions and evidence checks, not private
+model reasoning.
+
+Status polling does not overlap requests. The foreground chat owns its detail
+poll; the global completion watcher takes over when the user leaves chat. A
+temporary connection or proxy failure retains the saved question reference and
+shows unknown progress until reconnection. Only an explicit `job_not_found`
+response retires a missing job reference. Late snapshots and earlier completion
+notices cannot replace a newer local question. Navigation uses the framework's
+pending-link feedback and route loading boundary. Indeterminate work does not
+claim a completion percentage or estimate.
+
+The composer lets the user stop including prior files. Attachment turns never
 execute portfolio actions, create watches, or promote uploads into research
 evidence. Size, text and cell-processing limits are configurable and partial
 representations are visible. Binary uploads use multipart requests and the
