@@ -504,6 +504,7 @@ export type AutomationStatus = {
   jobs: Array<{
     name: string;
     enabled: boolean;
+    is_running?: boolean;
     interval_seconds?: number | null;
     last_run_at?: string | null;
     last_status: string;
@@ -2201,6 +2202,10 @@ export type VerificationResult = {
   verified_at: string;
 };
 
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number) { super(message); this.name = "ApiError"; }
+}
+
 export async function apiFetch<T>(
   path: string,
   init?: RequestInit,
@@ -2214,13 +2219,16 @@ export async function apiFetch<T>(
     () => controller.abort(new DOMException("Request timed out", "AbortError")),
     timeoutMs,
   );
+  let detachAbort: (() => void) | undefined;
   try {
     if (init?.signal) {
       const upstreamSignal = init.signal;
       if (init.signal.aborted) {
         controller.abort(upstreamSignal.reason);
       } else {
-        upstreamSignal.addEventListener("abort", () => controller.abort(upstreamSignal.reason), { once: true });
+        const propagateAbort = () => controller.abort(upstreamSignal.reason);
+        upstreamSignal.addEventListener("abort", propagateAbort, { once: true });
+        detachAbort = () => upstreamSignal.removeEventListener("abort", propagateAbort);
       }
     }
     const requestInit: RequestInit = {
@@ -2255,7 +2263,7 @@ export async function apiFetch<T>(
           errorDetail = response.statusText;
         }
       }
-      throw new Error(errorDetail || `Request failed with status ${response.status}`);
+      throw new ApiError(errorDetail || `Request failed with status ${response.status}`, response.status);
     }
 
     if (response.status === 204) {
@@ -2263,6 +2271,7 @@ export async function apiFetch<T>(
     }
     return response.json() as Promise<T>;
   } catch (err) {
+    if (err instanceof ApiError) throw err;
     if (err instanceof Error) {
       if (err.name === "AbortError") {
         throw new Error(`Request timeout: Prophet did not respond within ${Math.round(timeoutMs / 1000)}s for ${path}.`);
@@ -2276,6 +2285,7 @@ export async function apiFetch<T>(
     throw new Error("System transition error: An unexpected request failure occurred.");
   } finally {
     clearTimeout(timeout);
+    detachAbort?.();
   }
 }
 

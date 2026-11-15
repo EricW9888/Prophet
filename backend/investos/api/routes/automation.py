@@ -184,6 +184,7 @@ async def get_automation_status(request: Request):
                 last_status=item.last_status,
                 detail=item.detail,
                 last_trigger=item.last_trigger,
+                is_running=item.is_running,
             )
             for item in coordinator.status()
         ]
@@ -214,6 +215,7 @@ async def run_automation_job(job_name: str, request: Request):
             last_status=item.last_status,
             detail=item.detail,
             last_trigger=item.last_trigger,
+            is_running=item.is_running,
         )
         for item in coordinator.status()
     ]

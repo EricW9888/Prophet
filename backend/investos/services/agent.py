@@ -794,11 +794,12 @@ class AgentService:
             # Classifying its generated prompt can mistake it for a status query.
             turn_intent = {"route": "analyze"}
         else:
-            await self._emit_progress(
-                progress_callback,
-                "routing",
-                "Classifying the turn intent before attaching portfolio context.",
-            )
+            if not state.has_completed("intent"):
+                await self._emit_progress(
+                    progress_callback,
+                    "routing",
+                    "Classifying the turn intent before attaching portfolio context.",
+                )
             turn_intent = await state.run(
                 "intent", lambda: self._classify_turn_intent(payload.message)
             )
@@ -1197,11 +1198,13 @@ class AgentService:
                 responded_at=datetime.now(UTC),
             )
 
-        await self._emit_progress(
-            progress_callback,
-            "planning",
-            "Deriving the evidence requirements from the question before retrieval.",
-        )
+        research_plan_cached = state.has_completed("research_plan")
+        if not research_plan_cached:
+            await self._emit_progress(
+                progress_callback,
+                "planning",
+                "Deriving the evidence requirements from the question before retrieval.",
+            )
         question_research_plan = await state.run(
             "research_plan",
             lambda: self._plan_question_research(
@@ -1211,30 +1214,32 @@ class AgentService:
                 freshness_requirement=turn_intent,
             ),
         )
-        await self._emit_progress(
-            progress_callback,
-            "planning",
-            str(
-                question_research_plan.get("research_objective")
-                or "Research scope planned."
-            ),
-            {
-                "research_mode": question_research_plan.get("research_mode"),
-                "information_needs": question_research_plan.get("information_needs")
-                or [],
-                "external_research_required": bool(
-                    question_research_plan.get("external_research_required")
+        if not research_plan_cached:
+            await self._emit_progress(
+                progress_callback,
+                "planning",
+                str(
+                    question_research_plan.get("research_objective")
+                    or "Research scope planned."
                 ),
-            },
-        )
+                {
+                    "research_mode": question_research_plan.get("research_mode"),
+                    "information_needs": question_research_plan.get("information_needs")
+                    or [],
+                    "external_research_required": bool(
+                        question_research_plan.get("external_research_required")
+                    ),
+                },
+            )
 
         opportunity_context = None
         if question_research_plan.get("research_mode") == "opportunity_universe":
-            await self._emit_progress(
-                progress_callback,
-                "research",
-                "Checking Prophet's opportunity universe instead of treating the current portfolio as the search universe.",
-            )
+            if not state.has_completed("opportunities"):
+                await self._emit_progress(
+                    progress_callback,
+                    "research",
+                    "Checking Prophet's opportunity universe instead of treating the current portfolio as the search universe.",
+                )
             opportunity_context = await state.run(
                 "opportunities",
                 lambda: self._question_opportunity_context(
@@ -1248,15 +1253,17 @@ class AgentService:
             resolved.subject_type == "portfolio"
             and self._is_broad_portfolio_update(payload.message, question_research_plan)
         )
-        await self._emit_progress(
-            progress_callback,
-            "retrieval",
-            (
-                "Checking recent stored evidence across open holdings."
-                if broad_portfolio_update
-                else "Assembling direct, connected, historical, and contradiction evidence."
-            ),
-        )
+        evidence_cached = state.has_completed("evidence")
+        if not evidence_cached:
+            await self._emit_progress(
+                progress_callback,
+                "retrieval",
+                (
+                    "Checking recent stored evidence across open holdings."
+                    if broad_portfolio_update
+                    else "Assembling direct, connected, historical, and contradiction evidence."
+                ),
+            )
 
         async def prepare_evidence():
             packet = await retrieval.retrieve_evidence(
@@ -1301,6 +1308,13 @@ class AgentService:
             },
             decode=load_evidence,
         )
+        fresh_research_cached = state.has_completed("fresh_research")
+        if not fresh_research_cached:
+            await self._emit_progress(
+                progress_callback,
+                "research",
+                "Checking fresh-source requirements and available coverage.",
+            )
         fresh_research_context = await state.run(
             "fresh_research",
             lambda: self._maybe_fresh_research_context(
@@ -1316,52 +1330,57 @@ class AgentService:
         )
         if fresh_research_context:
             packet_context["fresh_research_context"] = fresh_research_context
+            if not fresh_research_cached:
+                await self._emit_progress(
+                    progress_callback,
+                    "research",
+                    (
+                        "The question required an external source check, which completed before reasoning."
+                        if fresh_research_context.get("status") == "ok"
+                        else "The question required an external source check, but no usable context was returned."
+                    ),
+                    {
+                        "required": bool(fresh_research_context.get("required")),
+                        "status": str(fresh_research_context.get("status") or ""),
+                        "query": str(fresh_research_context.get("query") or ""),
+                        "result_count": len(
+                            fresh_research_context.get("results") or []
+                        ),
+                        "checks": fresh_research_context.get("checks"),
+                    },
+                )
+        if not evidence_cached:
             await self._emit_progress(
                 progress_callback,
-                "research",
-                (
-                    "The question required an external source check, which completed before reasoning."
-                    if fresh_research_context.get("status") == "ok"
-                    else "The question required an external source check, but no usable context was returned."
-                ),
+                "retrieval",
+                "Evidence packet assembled.",
                 {
-                    "required": bool(fresh_research_context.get("required")),
-                    "status": str(fresh_research_context.get("status") or ""),
-                    "query": str(fresh_research_context.get("query") or ""),
-                    "result_count": len(fresh_research_context.get("results") or []),
-                    "checks": fresh_research_context.get("checks"),
+                    "direct_evidence_count": packet.direct_evidence_count,
+                    "connected_evidence_count": packet.connected_evidence_count,
+                    "historical_evidence_count": packet.historical_evidence_count,
+                    "contradiction_evidence_count": packet.contradiction_evidence_count,
+                    "holding_count": (
+                        (packet_context.get("portfolio_context") or {}).get(
+                            "holdings_count"
+                        )
+                        if resolved.subject_type == "portfolio"
+                        else None
+                    ),
+                    "holdings_with_evidence": [
+                        row["ticker"]
+                        for row in (packet_context.get("portfolio_context") or {}).get(
+                            "selected_holding_evidence", []
+                        )
+                        if row["linked_evidence_count"]
+                    ],
                 },
             )
-        await self._emit_progress(
-            progress_callback,
-            "retrieval",
-            "Evidence packet assembled.",
-            {
-                "direct_evidence_count": packet.direct_evidence_count,
-                "connected_evidence_count": packet.connected_evidence_count,
-                "historical_evidence_count": packet.historical_evidence_count,
-                "contradiction_evidence_count": packet.contradiction_evidence_count,
-                "holding_count": (
-                    (packet_context.get("portfolio_context") or {}).get(
-                        "holdings_count"
-                    )
-                    if resolved.subject_type == "portfolio"
-                    else None
-                ),
-                "holdings_with_evidence": [
-                    row["ticker"]
-                    for row in (packet_context.get("portfolio_context") or {}).get(
-                        "selected_holding_evidence", []
-                    )
-                    if row["linked_evidence_count"]
-                ],
-            },
-        )
-        await self._emit_progress(
-            progress_callback,
-            "reasoning",
-            "Running the evidence analyst pass.",
-        )
+        if not state.has_completed("analysis"):
+            await self._emit_progress(
+                progress_callback,
+                "reasoning",
+                "Running the evidence analyst pass.",
+            )
 
         supplemental_context: dict[str, Any] = {}
         supplemental_context["research_plan"] = question_research_plan
@@ -1417,6 +1436,12 @@ class AgentService:
         reasoning_result.pop("state_update_blocked_reason", None)
         subagent_insights: dict[str, str] = {}
         if not reasoning_result.get("is_fallback"):
+            if not state.has_completed("analysis_lenses"):
+                await self._emit_progress(
+                    progress_callback,
+                    "perspectives",
+                    "Comparing independent perspectives.",
+                )
             subagent_insights = await state.run(
                 "analysis_lenses",
                 lambda: self._dispatch_dynamic_subagents(
@@ -1425,11 +1450,12 @@ class AgentService:
             )
 
         # Strategic Deliberation & Refinement Phase
-        await self._emit_progress(
-            progress_callback,
-            "reasoning",
-            "Synthesizing the answer.",
-        )
+        if not state.has_completed("synthesis"):
+            await self._emit_progress(
+                progress_callback,
+                "synthesis",
+                "Synthesizing the answer.",
+            )
         reasoning_result = await state.run(
             "synthesis",
             lambda: self._synthesize_and_refine(
@@ -1445,6 +1471,13 @@ class AgentService:
             near_duplicate_max_distance=settings.CORROBORATION_NEAR_DUPLICATE_MAX_DISTANCE,
         )
         corroboration.assess_result(reasoning_result, packet_context)
+        review_cached = state.has_completed("independent_review")
+        if not review_cached:
+            await self._emit_progress(
+                progress_callback,
+                "review",
+                "Checking evidence support, quantities and answer coverage.",
+            )
         independent_review = await state.run(
             "independent_review",
             lambda: reasoning_service._create_critique(
@@ -1462,15 +1495,23 @@ class AgentService:
             question_research_plan=question_research_plan,
         )
 
-        await self._emit_progress(
-            progress_callback,
-            "reasoning",
-            "Deliberation complete.",
-            {
-                "stance": reasoning_result.get("stance"),
-                "confidence_band": reasoning_result.get("confidence_band"),
-            },
-        )
+        if not review_cached:
+            await self._emit_progress(
+                progress_callback,
+                "reasoning",
+                "Deliberation complete.",
+                {
+                    "stance": reasoning_result.get("stance"),
+                    "confidence_band": reasoning_result.get("confidence_band"),
+                },
+            )
+        followup_cached = state.has_completed("followup_research")
+        if not followup_cached:
+            await self._emit_progress(
+                progress_callback,
+                "research",
+                "Checking whether more source research is needed.",
+            )
         auto_research = await state.run(
             "followup_research",
             lambda: self._maybe_auto_research_after_gap(
@@ -1484,25 +1525,31 @@ class AgentService:
             session=self.session,
         )
         if auto_research is not None:
+            if not followup_cached:
+                await self._emit_progress(
+                    progress_callback,
+                    "research",
+                    (
+                        "The current packet is too thin for this question, so Prophet is broadening research automatically."
+                        if auto_research.get("started")
+                        else "Broader research was considered, but could not start cleanly."
+                    ),
+                    {
+                        "started": bool(auto_research.get("started")),
+                        "reason": str(auto_research.get("reason") or ""),
+                        "query": str(auto_research.get("query") or ""),
+                    },
+                )
+        if not state.has_completed("answer_plan"):
             await self._emit_progress(
                 progress_callback,
-                "research",
+                "answering",
                 (
-                    "The current packet is too thin for this question, so Prophet is broadening research automatically."
-                    if auto_research.get("started")
-                    else "Broader research was considered, but could not start cleanly."
+                    "Preparing your answer and reviewing enabled actions."
+                    if payload.auto_execute
+                    else "Preparing your answer."
                 ),
-                {
-                    "started": bool(auto_research.get("started")),
-                    "reason": str(auto_research.get("reason") or ""),
-                    "query": str(auto_research.get("query") or ""),
-                },
             )
-        await self._emit_progress(
-            progress_callback,
-            "planning",
-            "Translating the result into possible operating actions.",
-        )
         orchestration = await state.run(
             "answer_plan",
             lambda: self._plan_agent_actions(

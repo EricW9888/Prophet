@@ -82,7 +82,7 @@ export default function WorkspaceState({
       aria-busy={kind === "loading"}
     >
       <Icon
-        className={`mt-0.5 h-5 w-5 shrink-0 ${kind === "loading" ? "animate-spin" : ""}`}
+        className={`mt-0.5 h-5 w-5 shrink-0 ${kind === "loading" ? "motion-safe:animate-spin" : ""}`}
         aria-hidden="true"
       />
       <div className="min-w-0 flex-1">
