@@ -1,0 +1,26 @@
+[
+  {
+    "id": "supplier_dependency",
+    "subject": "Equipment manufacturing",
+    "question": "Why can a supplier's component withdrawal matter to equipment makers that did not issue the withdrawal themselves?",
+    "statement": "An equipment maker uses a supplier's connectors. The supplier withdrew a defective batch, and the equipment maker paused shipments while awaiting replacements.",
+    "required": ["Explain the component dependency and downstream shipment interruption", "Qualify unknown financial magnitude"],
+    "must_not_establish": ["A quantified revenue or earnings loss", "That every equipment maker is exposed"]
+  },
+  {
+    "id": "existing_licenses",
+    "subject": "Application licensing",
+    "question": "Does this announcement mean all installed applications stop working? Explain the distinction.",
+    "statement": "The software vendor stopped issuing new license activations. Its notice says existing licensed installations remain authorized and operational.",
+    "required": ["Distinguish new activations from existing installations", "State that the notice does not establish a shutdown of installed applications"],
+    "must_not_establish": ["All installed applications stop working", "A confirmed future support deadline"]
+  },
+  {
+    "id": "causal_control",
+    "subject": "Issuer results and price reaction",
+    "question": "Did the reported revenue growth cause the share-price decline?",
+    "statement": "The issuer reported revenue growth. Its share price declined on the same day. The packet contains no prior expectations, event ordering within the day, investor-flow evidence, or causal attribution.",
+    "required": ["Distinguish observed co-occurrence from an established cause", "Keep possible explanations contingent"],
+    "must_not_establish": ["Revenue growth caused the decline", "A confirmed earnings miss", "Confirmed investor positioning"]
+  }
+]

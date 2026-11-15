@@ -59,7 +59,9 @@ def quota_error(status=429):
     )
 
 
-@pytest.mark.parametrize("failure_stage", ["scope", "analysis", "independent_review"])
+@pytest.mark.parametrize(
+    "failure_stage", ["scope", "analysis", "independent_review", "answer_coverage"]
+)
 async def test_text_analysis_resumes_frozen_stages_after_restart_without_repeating_research(
     workflow_session,
     monkeypatch,
@@ -84,6 +86,7 @@ async def test_text_analysis_resumes_frozen_stages_after_restart_without_repeati
             "external_research_required": True,
             "retrieval_query": "Synthetic issuer demand",
             "coverage_scope": "question_specific",
+            "information_needs": ["Current issuer demand"],
         }
     )
     fresh = AsyncMock(
@@ -155,7 +158,27 @@ async def test_text_analysis_resumes_frozen_stages_after_restart_without_repeati
         attempts += 1
         if failure_stage == "independent_review" and attempts == 1:
             raise quota_error()
+        if failure_stage == "answer_coverage":
+            return {
+                "question_answerability": "inadequate",
+                "answerability_reason": "A direct explanation is still needed.",
+                "missing_information": [],
+            }
         return None
+
+    answer_attempts = 0
+
+    async def answer_coverage(*args, **kwargs):
+        nonlocal answer_attempts
+        answer_attempts += 1
+        if answer_attempts == 1:
+            raise quota_error()
+        return None
+
+    if failure_stage == "answer_coverage":
+        monkeypatch.setattr(
+            AgentService, "_answer_from_review", guarded_provider_call(answer_coverage)
+        )
 
     monkeypatch.setattr(
         ReasoningService, "_create_critique", guarded_provider_call(critique)
@@ -194,8 +217,11 @@ async def test_text_analysis_resumes_frozen_stages_after_restart_without_repeati
             "hydrate_packet",
             AsyncMock(side_effect=AssertionError("Saved evidence was rehydrated")),
         )
-    assert ("analysis" in stages) == (failure_stage == "independent_review")
-    assert "independent_review" not in stages
+    assert ("analysis" in stages) == (
+        failure_stage in {"independent_review", "answer_coverage"}
+    )
+    assert ("independent_review" in stages) == (failure_stage == "answer_coverage")
+    assert "answer_coverage" not in stages
     # Unattended work shares this outage; it must not spend another request or
     # count a successful health probe as completed research.
     background_model = AsyncMock(return_value={"completed": True})
@@ -217,6 +243,7 @@ async def test_text_analysis_resumes_frozen_stages_after_restart_without_repeati
     assert analysis.await_count == (2 if failure_stage == "analysis" else 1)
     assert scope_calls == (2 if failure_stage == "scope" else 1)
     assert attempts == (2 if failure_stage == "independent_review" else 1)
+    assert answer_attempts == (2 if failure_stage == "answer_coverage" else 0)
     progress = [event.message for event in recovered.events]
     assert (
         progress.count(

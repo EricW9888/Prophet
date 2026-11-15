@@ -695,6 +695,7 @@ class ReasoningService:
             ),
             "answerability_reason": critique.get("answerability_reason", ""),
             "missing_information": critique.get("missing_information", []),
+            "information_need_reviews": critique.get("information_need_reviews"),
             "material_assertions": critique.get("material_assertions", []),
             "assumptions": critique.get("assumptions", []),
             "alternative_hypotheses": critique.get("alternative_hypotheses", []),

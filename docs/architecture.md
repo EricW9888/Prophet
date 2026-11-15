@@ -348,6 +348,27 @@ fallback renderer. The delivered response retains the completed summary,
 explanation, evidence checks and assessed coverage gaps. Delivery quantity
 validation and promotion/action limits still apply to that text.
 
+Answer construction is separate from accepting an investment conclusion. The
+turn interpreter can bind requested parts to literal spans of the user's
+question; otherwise the full question remains the answer contract. The research
+planner's expanded acquisition needs and optional enrichment cannot replace
+that contract. Original questions and requested parts survive prompt compaction.
+When a plan explicitly excludes owner-account context, outbound model prompts
+retain relevant issuer research but omit account details; deterministic checks
+still use the complete captured packet.
+
+After independent review, a concise response pass answers the requested parts
+using the review's assessed assertions and explicitly contingent assumptions.
+Each part binds to the supplied assertions or to an assumption with a falsifier.
+Missing, duplicate, mixed-scope and unbound references cannot create an answered
+part. Measured replies also retain the typed quantity and delivery checks. A
+partial explanation can remain useful while promotion stays blocked; optional
+background does not erase it. Read-only covered questions reuse the no-action
+renderer rather than generating an operating plan. Enabled action planning
+cannot rewrite the assessed response or append unadmitted commitments. Actual
+research admission and extraction status are appended separately; queued source
+work does not establish a future chat-answer delivery.
+
 ## Accepted State and Graph
 
 `ConclusionState` is the current accepted view for a subject. Evidence packets,

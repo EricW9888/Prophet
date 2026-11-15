@@ -301,6 +301,26 @@ def compact_packet_context(
     source_feedback_context = compact_source_feedback(
         portfolio_context.get("source_feedback")
     )
+    account_context_needed = (packet_context.get("research_plan") or {}).get(
+        "portfolio_context_role"
+    ) != "not_needed"
+    if account_context_needed:
+        prompt_portfolio = {
+            key: value
+            for key, value in portfolio_context.items()
+            if key != "quantity_measurements"
+        }
+    else:
+        # The full captured packet remains the deterministic validation source.
+        # Company research is not owner-account context, even though legacy
+        # packets keep both in this container. An unmatched portfolio anchor
+        # must not mislabel the book's metrics as the requested subject's.
+        prompt_portfolio = {
+            key: portfolio_context[key]
+            for key in ("subject_fundamental_metrics", "subject_market_setup_signals")
+            if key in portfolio_context
+            and packet_context.get("subject_type") in {"entity", "theme"}
+        }
     fresh_research = packet_context.get("fresh_research_context")
     compact_fresh_research: dict[str, Any] = {}
     if isinstance(fresh_research, dict) and fresh_research:
@@ -317,13 +337,15 @@ def compact_packet_context(
         "packet_assembled_at": packet_context.get("packet_assembled_at"),
         "coverage": packet_context.get("coverage") or {},
         "gap_flags": (packet_context.get("gap_flags") or [])[:6],
-        "portfolio_context": {
-            key: value
-            for key, value in portfolio_context.items()
-            if key != "quantity_measurements"
-        },
-        "quantity_measurements": packet_context.get("quantity_measurements")
-        or portfolio_context.get("quantity_measurements", []),
+        "portfolio_context": prompt_portfolio,
+        "quantity_measurements": (
+            (
+                packet_context.get("quantity_measurements")
+                or portfolio_context.get("quantity_measurements", [])
+            )
+            if account_context_needed
+            else []
+        ),
         "source_feedback_context": source_feedback_context,
         "fresh_research_context": compact_fresh_research,
         "research_plan": (
@@ -334,11 +356,8 @@ def compact_packet_context(
                 "coverage_scope": (packet_context.get("research_plan") or {}).get(
                     "coverage_scope"
                 ),
-                "original_question": compact_context_text(
-                    (packet_context.get("research_plan") or {}).get(
-                        "original_question"
-                    ),
-                    max_chars=260,
+                "original_question": (packet_context.get("research_plan") or {}).get(
+                    "original_question"
                 ),
                 "research_objective": compact_context_text(
                     (packet_context.get("research_plan") or {}).get(
@@ -350,15 +369,18 @@ def compact_packet_context(
                     (packet_context.get("research_plan") or {}).get("retrieval_query"),
                     max_chars=260,
                 ),
-                "information_needs": [
-                    compact_context_text(item, max_chars=180)
-                    for item in (
-                        (packet_context.get("research_plan") or {}).get(
-                            "information_needs"
-                        )
-                        or []
-                    )[:6]
-                ],
+                "information_needs": (packet_context.get("research_plan") or {}).get(
+                    "information_needs"
+                )
+                or [],
+                "answer_information_needs": (
+                    packet_context.get("research_plan") or {}
+                ).get("answer_information_needs")
+                or [],
+                "optional_information_needs": (
+                    packet_context.get("research_plan") or {}
+                ).get("optional_information_needs")
+                or [],
                 "external_research_required": (
                     packet_context.get("research_plan") or {}
                 ).get("external_research_required"),

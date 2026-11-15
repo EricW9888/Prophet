@@ -101,6 +101,12 @@ Work indicators report backend state and stage summaries, not proof that useful
 research was produced. They are polled snapshots rather than a token stream or
 completion-time prediction. Waiting work may remain paused indefinitely during
 a provider outage; connection loss makes its current progress unknown.
+Question-part and assertion bindings check identity and admitted evidence, not
+universal semantic entailment or exhaustive understanding of the request.
+Reported evidence and conditional explanations remain distinct from verified
+investment conclusions. A research plan can misinterpret context, and a model
+can attach the wrong meaning to a real source. These require held-out outcome
+evaluation; a structurally valid answer is not automatically correct.
 This does not imply support for arbitrary binary formats, executable files,
 encrypted documents or all embedded Office objects. Visual reading requires a
 supported, configured hosted image-reader model and shares provider availability
