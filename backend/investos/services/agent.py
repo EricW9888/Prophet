@@ -5637,7 +5637,7 @@ class AgentService:
         objective = str(
             question_research_plan.get("research_objective") or "the user's question"
         ).strip()
-        reasoning_result["superseded_candidate"] = original
+        reasoning_result.setdefault("superseded_candidate", original)
         reasoning_result["stance"] = "no_view"
         reasoning_result["confidence_band"] = "very_low"
         reasoning_result["thesis_summary"] = (

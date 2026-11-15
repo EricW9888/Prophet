@@ -151,6 +151,10 @@ async def test_unbound_or_ambiguous_coverage_cannot_turn_into_an_answer(
     )
     assert candidate["stance"] == "no_view"
     assert not candidate["corroboration"]["can_promote"]
+    AgentService._apply_independent_answerability_gate(
+        candidate, review, question_research_plan=plan, packet_context=packet
+    )
+    assert candidate["superseded_candidate"]["thesis_summary"] == "Unsupported result"
 
 
 async def test_conditional_explanation_keeps_its_limit_and_falsifier(monkeypatch):
