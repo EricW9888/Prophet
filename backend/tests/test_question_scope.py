@@ -19,6 +19,127 @@ from investos.services.runtime_settings import RuntimeSettings, RuntimeSettingsS
 from tests.test_investor_workflows import source_records, workflow_session
 
 
+@pytest.mark.parametrize("auto_execute", [False, True])
+async def test_reviewed_core_answer_survives_planning_and_persists_without_future_promises(
+    workflow_session, monkeypatch, auto_execute
+):
+    from copy import deepcopy
+
+    from investos.services.agent import QUESTION_RESEARCH_PLAN_SCHEMA
+    from investos.services.answer_coverage import ANSWER_COVERAGE_SCHEMA
+    from tests.test_answer_coverage import fixture
+
+    session = workflow_session
+    raw, item = await source_records(session)
+    topic = f"Zythera{uuid4().hex[:8]} dispatch service"
+    fact = Fact(
+        source_item_id=item.id,
+        statement=f"{topic}: the operator paused dispatch and connected depots could not dispatch deliveries.",
+        fact_type="service_disruption",
+        confidence=0.8,
+        tier="hard_fact",
+        importance="high",
+        directness="primary",
+        novelty="confirming",
+        contradiction_role="neutral",
+    )
+    session.add(fact)
+    await session.flush()
+    plan, _, critique = fixture()
+    plan.update(
+        retrieval_query=topic,
+        research_mode="stored_context",
+        external_research_required=False,
+        portfolio_context_role="not_needed",
+        coverage_scope="question_specific",
+        use_historical_analogies=False,
+        reason="Synthetic explanatory question",
+    )
+    hint = {"subject_kind": "theme", "search_text": topic, "reason": "Question scope"}
+    monkeypatch.setattr(
+        AgentService,
+        "_classify_turn_intent",
+        AsyncMock(
+            return_value={
+                "route": "analyze",
+                "requires_fresh_research": False,
+                "subject_hint": hint,
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        AgentService, "_maybe_conversational_handoff", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        AgentService, "_dispatch_dynamic_subagents", AsyncMock(return_value={})
+    )
+    monkeypatch.setattr(
+        AgentService, "_maybe_auto_research_after_gap", AsyncMock(return_value=None)
+    )
+
+    async def planner(**kwargs):
+        if kwargs["schema"] == ANSWER_COVERAGE_SCHEMA:
+            return {
+                "information_need_reviews": deepcopy(
+                    critique["information_need_reviews"]
+                )
+            }
+        assert kwargs["schema"] == QUESTION_RESEARCH_PLAN_SCHEMA
+        return deepcopy(plan)
+
+    monkeypatch.setattr("investos.services.agent.call_llm_json", planner)
+
+    async def analyze(self, context, **kwargs):
+        assert str(fact.id) in [str(row["id"]) for row in context["direct_evidence"]]
+        return {
+            "stance": "neutral",
+            "confidence_band": "low",
+            "thesis_summary": "A service pause is reported.",
+            "reasoning": "Reported operational consequences.",
+            "material_assertions": [],
+            "assumptions": [],
+            "supporting_evidence_ids": [str(fact.id)],
+        }
+
+    async def unchanged(self, payload, resolved, context, result, lenses):
+        return result
+
+    async def critique_model(**kwargs):
+        value = deepcopy(critique)
+        value["material_assertions"][0].update(
+            statement=fact.statement, supporting_evidence_ids=[str(fact.id)]
+        )
+        return value
+
+    async def proposed_plan(self, **kwargs):
+        result = self._fast_path_orchestration(
+            kwargs["payload"], kwargs["reasoning_result"]
+        )
+        result["assistant_message"] = (
+            "Once research completes, I will provide a later answer."
+        )
+        return result
+
+    monkeypatch.setattr(ReasoningService, "_reason_with_llm", analyze)
+    monkeypatch.setattr(AgentService, "_synthesize_and_refine", unchanged)
+    monkeypatch.setattr("investos.services.reasoning.call_llm_json", critique_model)
+    monkeypatch.setattr(AgentService, "_plan_agent_actions", proposed_plan)
+    service = AgentService(session)
+    response = await service.handle_turn(
+        AgentTurnRequest(message=f"Why does {topic} matter?", auto_execute=auto_execute)
+    )
+    assert "could not dispatch deliveries" in response.assistant_message
+    assert "later answer" not in response.assistant_message
+    assert "I do not have a defensible answer" not in response.assistant_message
+    history = await service.conversation_history(
+        subject_id=response.subject_id,
+        subject_type=response.subject_type,
+        session_id=response.session_id,
+    )
+    delivered = [entry for entry in history.entries if entry.role == "assistant"]
+    assert delivered[-1].content == response.assistant_message
+
+
 @pytest.fixture(autouse=True)
 def isolated_scope_runtime(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "STORAGE_DIR", str(tmp_path))

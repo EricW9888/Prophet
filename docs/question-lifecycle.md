@@ -46,3 +46,26 @@ without evidence older than 30 days become unprioritized history. The migration
 does not guess semantic identities or change old resolution/evidence links.
 Downgrading requires restoring a pre-upgrade backup because discarding lifecycle
 history is not supported.
+
+## Chat answer evaluation
+
+Chat answers distinguish the user's requested parts from optional research
+enrichment. A supported explanation can be delivered with its sources and
+limits while the investment conclusion remains unaccepted. A queued source
+extraction is not a promise that another chat answer will arrive later.
+
+`scripts/evaluate_answer_coverage.py` replays the synthetic cases in
+`backend/tests/fixtures/answer_coverage_holdouts.json` through the real planner,
+independent review, answer bindings and delivery renderer. It reuses the
+structured-generation benchmark's isolated provider-health snapshot and never
+changes saved provider settings or writes conversations. Run it with explicit
+`--provider`, `--model` and a new `--output` path. Local execution additionally
+requires `--allow-local`. Provider requests consume the selected provider's
+normal capacity.
+
+The report retains each delivered answer and its human rubric; the rubric is
+not supplied to the model. Review relevance, source faithfulness, causal and
+quantity limits, useful uncertainty, and elapsed time separately. Completion
+and model coverage labels are not correctness scores. These are small,
+reusable regression cases, not permanently unseen holdouts, discovery tests,
+whole-chat latency measurements or evidence of investment effectiveness.

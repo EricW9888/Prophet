@@ -27,6 +27,7 @@ from investos.core.llm import (
 from investos.core.presentation_language import presentation_instruction
 from investos.core.prompting import (
     compact_context_text,
+    compact_evidence_nodes,
     compact_packet_context,
     compact_reasoning_result,
     estimate_tokens_from_payload,
@@ -64,6 +65,13 @@ from investos.schemas.evidence import RawEvidenceCreate
 from investos.schemas.shadow import ShadowExperimentCreate
 from investos.schemas.verification import VerificationRequest
 from investos.services.agent_action_log import AgentActionLogService
+from investos.services.answer_coverage import (
+    ANSWER_COVERAGE_SCHEMA,
+    INFORMATION_NEED_REVIEW_RULES,
+    assess_answer_coverage,
+    render_answer_coverage,
+    requested_answer_needs,
+)
 from investos.services.artifact_hygiene import is_internal_artifact_text
 from investos.services.chat_attachments import ChatAttachmentService
 from investos.services.chat_turn_state import ChatTurnState
@@ -431,6 +439,11 @@ QUESTION_RESEARCH_PLAN_SCHEMA = {
             "items": {"type": "string"},
             "maxItems": 8,
         },
+        "optional_information_needs": {
+            "type": "array",
+            "items": {"type": "string"},
+            "maxItems": 8,
+        },
         "external_research_required": {"type": "boolean"},
         "research_mode": {
             "type": "string",
@@ -451,6 +464,7 @@ QUESTION_RESEARCH_PLAN_SCHEMA = {
         "research_objective",
         "retrieval_query",
         "information_needs",
+        "optional_information_needs",
         "external_research_required",
         "research_mode",
         "portfolio_context_role",
@@ -483,6 +497,7 @@ TURN_INTENT_SCHEMA = {
         "requires_fresh_research": {"type": "boolean"},
         "freshness_reason": {"type": "string"},
         "subject_hint": SUBJECT_HINT_SCHEMA,
+        "requested_information": {"type": "array", "items": {"type": "string"}},
         "reason": {"type": "string"},
     },
     "required": [
@@ -491,6 +506,7 @@ TURN_INTENT_SCHEMA = {
         "requires_fresh_research",
         "freshness_reason",
         "subject_hint",
+        "requested_information",
         "reason",
     ],
 }
@@ -655,12 +671,17 @@ class AgentService:
 
     @staticmethod
     def _audit_delivered_quantities(orchestration: dict, result: dict) -> None:
+        coverage = (result.get("answerability") or {}).get("information_need_coverage")
         check = audit_numeric_narrative(
             [
                 str(orchestration.get(key) or "")
                 for key in ("assistant_message", "rationale_summary")
             ],
-            (result.get("corroboration") or {}).get("assertions", []),
+            (
+                coverage["delivery_assertions"]
+                if render_answer_coverage(coverage)
+                else (result.get("corroboration") or {}).get("assertions", [])
+            ),
         )
         if check["verified"]:
             return
@@ -1493,7 +1514,31 @@ class AgentService:
             reasoning_result,
             independent_review,
             question_research_plan=question_research_plan,
+            packet_context=packet_context,
         )
+        if independent_review and question_research_plan.get("information_needs"):
+            if not state.has_completed("answer_coverage"):
+                await self._emit_progress(
+                    progress_callback,
+                    "answering",
+                    "Answering the requested parts from reviewed evidence.",
+                )
+            need_answers = await state.run(
+                "answer_coverage",
+                lambda: self._answer_from_review(
+                    payload, question_research_plan, packet_context, independent_review
+                ),
+            )
+            if need_answers is not None:
+                independent_review["information_need_reviews"] = need_answers.get(
+                    "information_need_reviews", []
+                )
+                self._apply_independent_answerability_gate(
+                    reasoning_result,
+                    independent_review,
+                    question_research_plan=question_research_plan,
+                    packet_context=packet_context,
+                )
 
         if not review_cached:
             await self._emit_progress(
@@ -1552,15 +1597,36 @@ class AgentService:
             )
         orchestration = await state.run(
             "answer_plan",
-            lambda: self._plan_agent_actions(
-                payload=payload,
-                subject_id=resolved.subject_id,
-                subject_type=resolved.subject_type,
-                packet_context=packet_context,
-                reasoning_result=reasoning_result,
-                subagent_insights=subagent_insights,
+            lambda: (
+                self._plan_agent_actions(
+                    payload=payload,
+                    subject_id=resolved.subject_id,
+                    subject_type=resolved.subject_type,
+                    packet_context=packet_context,
+                    reasoning_result=reasoning_result,
+                    subagent_insights=subagent_insights,
+                )
+                if payload.auto_execute
+                or not render_answer_coverage(
+                    (reasoning_result.get("answerability") or {}).get(
+                        "information_need_coverage"
+                    )
+                )
+                else self._read_only_answer_plan(payload, reasoning_result)
             ),
         )
+        covered_answer = render_answer_coverage(
+            (reasoning_result.get("answerability") or {}).get(
+                "information_need_coverage"
+            )
+        )
+        if covered_answer:
+            # The action planner may propose operations, not rewrite assessed
+            # answers or add unadmitted promises of future work.
+            orchestration["assistant_message"] = covered_answer
+            orchestration["rationale_summary"] = (
+                "The explanation includes its evidence limits."
+            )
         self._audit_delivered_quantities(orchestration, reasoning_result)
         subject_resolved = not (
             resolved.subject_type == "portfolio"
@@ -2218,6 +2284,7 @@ class AgentService:
                         "Resolve subject_hint in the same pass: identify the primary requested scope, not every named example. "
                         "Use portfolio for a whole-book request even when it names individual holdings as examples; entity for a focused issuer, theme for a cross-company topic, and none when unresolved. "
                         "A mention of portfolio impact alone does not make a focused issuer question portfolio-wide. Use an exact ticker when known; do not invent one. "
+                        "For analysis, copy the requested parts into requested_information as verbatim spans of the user's message. Keep a short single question whole. Do not add research requirements or omit difficult requested parts. For other routes return an empty list. "
                         "If route is conversation or clarify, include a concise assistant_message; otherwise assistant_message should be null. "
                         "Output JSON only."
                     ),
@@ -3002,6 +3069,61 @@ class AgentService:
                 return conversation
         raise ValueError("conversation_not_found")
 
+    async def _answer_from_review(self, payload, plan, packet_context, review):
+        assertions = review.get("material_assertions") or []
+        assumptions = review.get("assumptions") or []
+        if not assertions and not assumptions:
+            return None
+        ids = {
+            str(value)
+            for assertion in assertions
+            for value in assertion.get("supporting_evidence_ids") or []
+        }
+        indexed = CorroborationService._node_index(packet_context)
+        nodes = [node for key, node in indexed.items() if key in ids]
+        try:
+            return await call_llm_json(
+                system_prompt=INFORMATION_NEED_REVIEW_RULES
+                + presentation_instruction("answer", "limitation"),
+                user_prompt=json.dumps(
+                    {
+                        "question": payload.message,
+                        "answer_needs": plan.get("answer_information_needs")
+                        or plan.get("information_needs")
+                        or [payload.message],
+                        "material_assertions": assertions,
+                        "assessed_assertions": (review.get("corroboration") or {}).get(
+                            "assertions"
+                        )
+                        or [],
+                        "assumptions": assumptions,
+                        "evidence": compact_evidence_nodes(
+                            nodes, max_items=len(nodes), max_chars=1200
+                        ),
+                    },
+                    ensure_ascii=True,
+                    default=str,
+                ),
+                schema=ANSWER_COVERAGE_SCHEMA,
+            )
+        except Exception as exc:
+            if (
+                self._turn_state.enabled
+                and review.get("question_answerability") == "inadequate"
+                and provider_failure_cause(exc) is not None
+            ):
+                raise
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Question-focused response unavailable; retaining reviewed findings: %s",
+                self._compact_exception(exc),
+            )
+            return None
+
+    async def _read_only_answer_plan(self, payload, reasoning_result):
+        return self._fast_path_orchestration(payload, reasoning_result)
+
     async def _plan_agent_actions(
         self,
         *,
@@ -3103,7 +3225,14 @@ class AgentService:
             if str(item).strip()
         ]
         sections: list[str] = []
-        if thesis and reasoning and thesis != reasoning:
+        covered_answer = render_answer_coverage(
+            (reasoning_result.get("answerability") or {}).get(
+                "information_need_coverage"
+            )
+        )
+        if covered_answer:
+            sections.append(covered_answer)
+        elif thesis and reasoning and thesis != reasoning:
             sections.extend([thesis, reasoning])
         elif thesis:
             sections.append(thesis)
@@ -3115,7 +3244,7 @@ class AgentService:
                 f"Current read: I do not have enough source-backed context to form a high-conviction view on '{query}'."
             )
         coverage = reasoning_result.get("answerability") or {}
-        if coverage.get("status") in {"partial", "inadequate"}:
+        if not covered_answer and coverage.get("status") in {"partial", "inadequate"}:
             limits = []
             coverage_reason = str(coverage.get("reason") or "").strip()
             if coverage_reason and coverage_reason not in {thesis, reasoning}:
@@ -3129,12 +3258,12 @@ class AgentService:
                 limits.append("\n".join(f"- {item}" for item in missing))
             if limits:
                 sections.append("Coverage limits:\n" + "\n\n".join(limits))
-        if strengthen:
+        if strengthen and not covered_answer:
             sections.append(
                 "What would strengthen this:\n"
                 + "\n".join(f"- {item}" for item in strengthen)
             )
-        if falsify:
+        if falsify and not covered_answer:
             sections.append(
                 "What would change or break this read:\n"
                 + "\n".join(f"- {item}" for item in falsify)
@@ -5122,6 +5251,11 @@ class AgentService:
             "Plan the evidence acquisition for one investment-research question before retrieval. "
             "Start from what the question requires, not from whatever Prophet may already know. "
             "State one research objective, a retrieval query, and the concrete information needs that would make the answer defensible. "
+            "Put only the core requested information in information_needs. Put helpful enrichment in optional_information_needs; it must not become a prerequisite for answering. "
+            "A short explanation or relevance question does not require a complete historical study, legal treatise or quantified investment thesis unless the user asks for those. "
+            "Keep explicitly requested comparisons and evidence checks core; do not demote difficult parts merely to make the answer look complete. "
+            "For an open-ended explanation, a core need should describe the explanation the user asked for, not every fact a comprehensive study might collect. "
+            "Do not make causes, magnitude, historical frequency, legal process, valuation and every stakeholder's outcome separate core prerequisites unless the question actually asks for them. "
             "Set external_research_required when answering requires a current fact, a comparison dataset, a universe scan, or evidence unlikely to be established by stored context alone. "
             "Use opportunity_universe only when the user is asking Prophet to canvass for new investable opportunities; this mode is a capability route, not a conclusion that an opportunity exists. "
             "Use focused_external for a bounded company, industry, macro, event, or historical question that needs outside evidence. "
@@ -5166,6 +5300,13 @@ class AgentService:
             for item in (result.get("information_needs") or [])
             if str(item).strip()
         ][:8]
+        optional = list(
+            dict.fromkeys(
+                " ".join(str(item).split())
+                for item in result.get("optional_information_needs") or []
+                if str(item).strip() and " ".join(str(item).split()) not in needs
+            )
+        )[:8]
         mode = str(result.get("research_mode") or "stored_context")
         if mode not in {"stored_context", "focused_external", "opportunity_universe"}:
             mode = (
@@ -5205,6 +5346,10 @@ class AgentService:
             "research_objective": objective or fallback["research_objective"],
             "retrieval_query": query or fallback["retrieval_query"],
             "information_needs": needs or fallback["information_needs"],
+            "answer_information_needs": requested_answer_needs(
+                message, freshness_requirement
+            ),
+            "optional_information_needs": optional,
             "external_research_required": external_required,
             "research_mode": mode,
             "portfolio_context_role": portfolio_role,
@@ -5274,6 +5419,10 @@ class AgentService:
                 else [
                     "evidence that directly addresses the question rather than adjacent stored context"
                 ]
+            ),
+            "optional_information_needs": [],
+            "answer_information_needs": requested_answer_needs(
+                message, freshness_requirement
             ),
             "external_research_required": external_required,
             "research_mode": research_mode,
@@ -5404,6 +5553,7 @@ class AgentService:
         independent_review: dict[str, Any] | None,
         *,
         question_research_plan: dict[str, Any],
+        packet_context: dict[str, Any] | None = None,
     ) -> None:
         """Let a blind scope review narrow an answer the packet cannot support."""
         if not independent_review:
@@ -5422,6 +5572,59 @@ class AgentService:
             "reason": reason,
             "missing_information": missing,
         }
+        coverage = assess_answer_coverage(
+            question_research_plan, independent_review, packet_context
+        )
+        if coverage is not None:
+            # A useful explanation is not permission to promote a conclusion.
+            # Keep the stricter independent-review boundary when they disagree.
+            answerability = coverage["status"]
+            if (
+                independent_review.get("question_answerability") == "inadequate"
+                and answerability == "adequate"
+            ):
+                answerability = "partial"
+            reasoning_result["answerability"].update(
+                status=answerability,
+                information_need_coverage=coverage,
+                missing_information=[
+                    row["need"]
+                    for row in coverage["needs"]
+                    if row["status"] != "answered"
+                ],
+            )
+            if independent_review.get(
+                "question_answerability"
+            ) == "inadequate" and render_answer_coverage(coverage):
+                reasoning_result.setdefault(
+                    "superseded_candidate",
+                    {
+                        key: reasoning_result.get(key)
+                        for key in (
+                            "stance",
+                            "confidence_band",
+                            "thesis_summary",
+                            "reasoning",
+                        )
+                    },
+                )
+                reasoning_result["stance"] = "no_view"
+                reasoning_result["thesis_summary"] = (
+                    "A qualified explanation is available; an investment conclusion remains unestablished."
+                )
+                reasoning_result["reasoning"] = render_answer_coverage(coverage)
+            if answerability != "adequate":
+                assessment = reasoning_result.setdefault("corroboration", {})
+                assessment["can_promote"] = False
+                reasoning_result["state_update_blocked_reason"] = (
+                    f"question_scope_{answerability}"
+                )
+                cap = "very_low" if answerability == "inadequate" else "low"
+                reasoning_result["confidence_band"] = (
+                    CorroborationService._cap_confidence(
+                        reasoning_result.get("confidence_band"), cap
+                    )
+                )
         if answerability != "inadequate":
             return
 

@@ -236,7 +236,7 @@ async def run(args):
     print(json.dumps({key: value for key, value in report.items() if key != "results"}))
 
 
-async def isolated_run(args):
+async def isolated_run(args, runner=run):
     # Snapshot existing backoff without overwriting the running host's health.
     snapshot = ProviderHealthStore._read()
     with tempfile.TemporaryDirectory(prefix="prophet-model-screen-") as directory:
@@ -245,18 +245,18 @@ async def isolated_run(args):
             ProviderHealthStore, "_path", staticmethod(lambda: health_path)
         ):
             ProviderHealthStore._write(snapshot)
-            await run(args)
+            await runner(args)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
+def argument_parser(case_names, *, description=__doc__):
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "--provider", choices=["nvidia_nim", "ollama", "codex_cli"], required=True
     )
     parser.add_argument(
         "--case",
         action="append",
-        choices=[case[0] for case in CASES],
+        choices=case_names,
         help="Run a selected frozen case; repeat to select more",
     )
     parser.add_argument("--model", required=True)
@@ -264,4 +264,9 @@ if __name__ == "__main__":
     parser.add_argument("--allow-local", action="store_true")
     parser.add_argument("--max-output-tokens", type=int, default=2048)
     parser.add_argument("--timeout", type=int, default=45)
+    return parser
+
+
+if __name__ == "__main__":
+    parser = argument_parser([case[0] for case in CASES])
     asyncio.run(isolated_run(parser.parse_args()))
