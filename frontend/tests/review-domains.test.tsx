@@ -76,6 +76,26 @@ test("a portfolio data backlog stays visible with a direct counted review path",
   assert.equal(container.textContent, "");
 });
 
+test("ordinary review opens investment concerns and requires an explicit challenge subject", async () => {
+  await render("");
+  assert.ok(requests.some(url => url.endsWith("/review/queue/page?domain=investment")));
+  assert.equal((container.querySelector("#challenge-subject") as HTMLSelectElement).value, "");
+  const run = [...container.querySelectorAll("button")].find(button => button.textContent === "Run verification")!;
+  assert.ok(run.disabled);
+  const all = [...container.querySelectorAll("nav[aria-label='Review purpose'] a")].find(link => link.textContent?.startsWith("All"))!;
+  assert.equal(all.getAttribute("href"), "/verification?domain=all");
+  const jump = [...container.querySelectorAll("a")].find(link => link.textContent === "Challenge a view")!;
+  assert.equal(jump.getAttribute("href"), "#manual-challenge");
+  assert.ok(container.querySelector("#manual-challenge"));
+});
+
+test("explicit all-reviews navigation keeps portfolio data reachable", async () => {
+  await render("domain=all");
+  assert.ok(requests.some(url => url.endsWith("/review/queue/page")));
+  assert.match(container.textContent!, /Portfolio data · 105/);
+  assert.equal(container.querySelector("nav[aria-label='Review purpose'] a[aria-current='page']")?.textContent, "All · 206");
+});
+
 test("changing review purpose keeps the exact concern and unsent challenge draft", async () => {
   const params = `domain=investment&item_id=${A}`;
   await render(params);

@@ -8,6 +8,7 @@ import { isRecordId } from "@/lib/workflows";
 import { patternInvestigationHref, record, text } from "@/lib/pattern-reviews";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
 import RecordFields from "./RecordFields";
+import DeferredDisclosure from "./DeferredDisclosure";
 
 const date = (value: unknown) => text(value) && !Number.isNaN(new Date(text(value)).getTime()) ? new Date(text(value)).toLocaleString() : "Unknown";
 const button = "border border-line px-3 py-2 text-sm hover:bg-panel-muted disabled:opacity-50";
@@ -19,7 +20,6 @@ const subscribeHash = (listener: () => void) => {
 const selectedHash = () => isRecordId(window.location.hash.slice(1)) ? window.location.hash.slice(1) : null;
 
 export function PatternReviewDetail({ trace }: { trace: ReasoningTrace }) {
-  const [captureOpen, setCaptureOpen] = useState(false);
   const receipt = trace.structured_output_json;
   const snapshot = record(receipt.snapshot);
   const proposal = record(receipt.proposal);
@@ -31,6 +31,8 @@ export function PatternReviewDetail({ trace }: { trace: ReasoningTrace }) {
   const refs = Array.isArray(hypothesis.evidence_refs) ? hypothesis.evidence_refs : [];
   sources.sort((left, right) => Number(refs.includes(right.ref)) - Number(refs.includes(left.ref)));
   const missing = refs.filter(ref => !sources.some(source => source.ref === ref));
+  const cited = sources.filter(source => refs.includes(source.ref));
+  const other = sources.filter(source => !refs.includes(source.ref));
   return <article className="min-w-0 space-y-5 border border-line bg-panel p-4 sm:p-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0"><p className="text-sm text-muted">{statusLabel(text(review.status))} · {date(trace.created_at)}</p><h2 className="mt-2 break-words text-xl font-semibold">{text(hypothesis.label) || "No hypothesis returned"}</h2></div>
@@ -47,22 +49,27 @@ export function PatternReviewDetail({ trace }: { trace: ReasoningTrace }) {
       <h3 className="font-semibold">Captured evidence · {sources.length} signals</h3>
       <p className="text-sm text-muted">Captured {date(snapshot.captured_at)}. Observed in Prophet then; historical availability is not established. Unknown publication times remain unknown. Highlighted citations were selected by the model.</p>
       {missing.length ? <p className="break-words text-sm text-amber-500">Unmatched model references: {missing.map(String).join(", ")}</p> : null}
-      <ul className="grid min-w-0 gap-3 lg:grid-cols-2">{sources.map((source, index) => {
-        const url = text(source.evidence_url || source.source_url);
-        return <li key={`${text(source.ref)}:${index}`} className={`min-w-0 border p-3 text-sm ${refs.includes(source.ref) ? "border-sky-600" : "border-line"}`}>
-          <p className="break-words font-medium">{text(source.signal_name) || text(source.ref)}{refs.includes(source.ref) ? " · Cited" : ""}</p>
-          <p className="mt-1 break-words text-muted">{text(source.source_name)} · {text(source.lineage_key)}</p>
-          <p className="mt-1 text-muted">Published {date(source.public_time)} · Signal recorded {date(source.signal_created_at)}</p>
-          {text(source.setup_context) ? <p className="mt-2 whitespace-pre-wrap break-words leading-6">{text(source.setup_context)}</p> : null}
-          <div className="mt-2 flex flex-wrap gap-4 text-sky-500">
-            {/^https?:\/\//i.test(url) ? <a href={url} target="_blank" rel="noreferrer" className="underline">Original source</a> : null}
-            {isRecordId(text(source.raw_evidence_id)) ? <Link href={`/sources/evidence/${source.raw_evidence_id}`} className="underline">Evidence receipt</Link> : null}
-          </div>
-        </li>;
-      })}</ul>
+      {cited.length ? <PatternSources sources={cited} cited /> : null}
+      {other.length ? <DeferredDisclosure title={`Other captured signals · ${other.length}`} className="border border-line p-3"><PatternSources sources={other} /></DeferredDisclosure> : null}
     </section>
-    <details className="min-w-0 border-t border-line pt-3" onToggle={event => setCaptureOpen(event.currentTarget.open)}><summary className="cursor-pointer text-sm">Exact capture and configuration</summary>{captureOpen ? <><p className="my-3 break-words text-sm text-muted">{trace.model_used} · Requested model: {trace.model_version || "Provider default; exact model not recorded"} · {trace.duration_ms == null ? "No duration recorded" : `${(trace.duration_ms / 1000).toFixed(1)} seconds`} · Receipt {trace.id}</p><RecordFields value={receipt} raw /></> : null}</details>
+    <DeferredDisclosure title="Exact capture and configuration" className="border-t border-line pt-3"><p className="my-3 break-words text-sm text-muted">{trace.model_used} · Requested model: {trace.model_version || "Provider default; exact model not recorded"} · {trace.duration_ms == null ? "No duration recorded" : `${(trace.duration_ms / 1000).toFixed(1)} seconds`} · Receipt {trace.id}</p><RecordFields value={receipt} raw /></DeferredDisclosure>
   </article>;
+}
+
+function PatternSources({ sources, cited = false }: {sources: Record<string, unknown>[]; cited?: boolean}) {
+  return <ul className="grid min-w-0 gap-3 lg:grid-cols-2">{sources.map((source, index) => {
+    const url = text(source.evidence_url || source.source_url);
+    return <li key={`${text(source.ref)}:${index}`} className={`min-w-0 border p-3 text-sm ${cited ? "border-action" : "border-line"}`}>
+      <p className="break-words font-medium">{text(source.signal_name) || text(source.ref)}{cited ? " · Cited" : ""}</p>
+      <p className="mt-1 break-words text-muted">{text(source.source_name)} · {text(source.lineage_key)}</p>
+      <p className="mt-1 text-muted">Published {date(source.public_time)} · Signal recorded {date(source.signal_created_at)}</p>
+      {text(source.setup_context) ? <p className="mt-2 whitespace-pre-wrap break-words leading-6">{text(source.setup_context)}</p> : null}
+      <div className="mt-2 flex flex-wrap gap-4 text-action-strong">
+        {/^https?:\/\//i.test(url) ? <a href={url} target="_blank" rel="noreferrer" className="underline">Original source</a> : null}
+        {isRecordId(text(source.raw_evidence_id)) ? <Link href={`/sources/evidence/${source.raw_evidence_id}`} className="underline">Evidence receipt</Link> : null}
+      </div>
+    </li>;
+  })}</ul>;
 }
 
 export default function PatternReviews() {

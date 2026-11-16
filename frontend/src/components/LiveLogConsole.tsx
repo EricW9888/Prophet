@@ -118,9 +118,9 @@ export default function LiveLogConsole({ onClose }: LiveLogConsoleProps) {
           <div className={`h-2 w-2 rounded-full ${
             connectionState === "live" ? "animate-pulse bg-emerald-500" : "bg-amber-500"
           }`} />
-          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{statusLabel}</span>
+          <span className="text-xs font-bold uppercase tracking-widest text-slate-500">{statusLabel}</span>
         </div>
-        <span className="text-[10px] font-mono text-slate-600">Gmail backfill</span>
+        <span className="text-xs font-mono text-slate-600">Gmail backfill</span>
       </div>
     </div>
   );

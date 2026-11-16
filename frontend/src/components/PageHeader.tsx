@@ -19,7 +19,7 @@ export default function PageHeader({
     >
       <div className="min-w-0">
         {eyebrow ? (
-          <p className="text-[11px] font-semibold uppercase text-muted">{eyebrow}</p>
+          <p className="text-xs font-semibold uppercase text-muted">{eyebrow}</p>
         ) : null}
         <h1 className={`${eyebrow ? "mt-1.5" : ""} text-2xl font-semibold text-foreground sm:text-3xl`}>
           {title}

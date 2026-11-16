@@ -45,7 +45,7 @@ function VerificationWorkspace() {
   const loadWorkspace = useCallback(async () => {
     const request = ++workspaceRequestRef.current;
     const params = new URLSearchParams(targetKey);
-    const domain = reviewDomain(params.get("domain"));
+    const domain = reviewDomain(params.get("domain") ?? "investment");
     const selectionKey = reviewSelectionKey(targetKey);
     setLoading(true);
     setLoadingMore(false);
@@ -196,13 +196,15 @@ function VerificationWorkspace() {
   return (
     <div className="min-h-screen bg-background text-foreground font-sans">
       <AppNav active="review" />
-      <main className="workspace-frame grid grid-cols-1 gap-8 py-8 xl:grid-cols-[0.95fr_1.05fr]">
-        <section className="space-y-6">
+      <main className="workspace-frame space-y-6 py-8">
           <PageHeader
             eyebrow="Decision quality"
             title="Review queue"
             description="Review investment uncertainty and portfolio data integrity. Receipt and reconciliation holds remain separate from research priorities."
+            actions={loaded ? <a href="#manual-challenge" className="workspace-control">Challenge a view</a> : undefined}
           />
+        <div className="grid min-w-0 grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,400px)]">
+        <section className="min-w-0 space-y-6">
           {contextNotice && <WorkspaceState kind="degraded" compact title="Review context changed" description={contextNotice} />}
           {!loaded && loading ? (
             <WorkspaceState
@@ -265,13 +267,13 @@ function VerificationWorkspace() {
                       </span>
                     </div>
                     <div className="mt-2 rounded-lg border border-sky-100 bg-sky-50/60 px-3 py-2 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-200">
-                      Next best move: {item.next_action}
+                      Next step: {item.next_action}
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {item.signal_tags.map((tag) => (
                         <span
                           key={tag}
-                          className="rounded-none border border-slate-200 px-2.5 py-1 text-[11px] uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:text-slate-400"
+                          className="rounded-none border border-slate-200 px-2.5 py-1 text-xs uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:text-slate-400"
                         >
                           {tag}
                         </span>
@@ -313,7 +315,14 @@ function VerificationWorkspace() {
             </div>}
           </section>
 
-          {profiles.length === 0 && !selectedSubjectId ? (
+            </>
+          ) : null}
+          {error ? (
+            <WorkspaceState kind="error" compact title="The requested review action failed" description={error} />
+          ) : null}
+        </section>
+        <aside className="min-w-0 space-y-5" aria-label="Challenge a view">
+          {loaded ? profiles.length === 0 && !selectedSubjectId ? (
             <WorkspaceState
               kind="empty"
               title="No subjects are ready for verification"
@@ -339,26 +348,11 @@ function VerificationWorkspace() {
                 {running ? "Verifying..." : "Run verification"}
               </button>
             </form>
-          )}
-            </>
           ) : null}
-          {error ? (
-            <WorkspaceState
-              kind="error"
-              compact
-              title="The requested review action failed"
-              description={error}
-            />
-          ) : null}
-        </section>
 
         <section>
           {!result ? (
-            <WorkspaceState
-              kind="empty"
-              title="No verification result yet"
-              description="Choose a subject and run a manual challenge. The result will show whether the accepted stance held, narrowed, or changed."
-            />
+            <p role={running ? "status" : undefined} className="text-sm leading-relaxed text-muted">{running ? "Checking the selected view against its evidence. The result will appear here." : "Verification results appear here after you run a challenge: whether the accepted view held, narrowed, or changed."}</p>
           ) : (
             <article className="rounded-lg border border-line bg-panel p-6  space-y-5">
               <div className="flex items-center justify-between gap-4">
@@ -404,6 +398,8 @@ function VerificationWorkspace() {
             </article>
           )}
         </section>
+        </aside>
+        </div>
       </main>
     </div>
   );

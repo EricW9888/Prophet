@@ -85,7 +85,7 @@ function NodeRelevancePanel({ node }: { node: GraphNodeDetail }) {
         <div className="h-2 w-2 rounded-full bg-teal-500 dark:bg-teal-400" />
         <h4 className="text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300">Why this matters</h4>
         {significance ? (
-          <span className="rounded-none border border-teal-300 bg-white/70 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-teal-700 dark:border-teal-700 dark:bg-teal-900/50 dark:text-teal-200">
+          <span className="rounded-none border border-teal-300 bg-white/70 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-teal-700 dark:border-teal-700 dark:bg-teal-900/50 dark:text-teal-200">
             {significance}
           </span>
         ) : null}
@@ -97,7 +97,7 @@ function NodeRelevancePanel({ node }: { node: GraphNodeDetail }) {
 
       {mechanism ? (
         <div className="rounded-lg border border-teal-200 bg-white/70 px-3 py-2 dark:border-teal-800/70 dark:bg-teal-950/30">
-          <div className="mb-1 text-[11px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
+          <div className="mb-1 text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
             Portfolio mechanism
           </div>
           <p className="text-sm leading-relaxed text-teal-950 dark:text-teal-100">{mechanism}</p>
@@ -106,7 +106,7 @@ function NodeRelevancePanel({ node }: { node: GraphNodeDetail }) {
 
       {nextTest ? (
         <div className="rounded-lg border border-teal-200 bg-white/70 px-3 py-2 dark:border-teal-800/70 dark:bg-teal-950/30">
-          <div className="mb-1 text-[11px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
+          <div className="mb-1 text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
             Next useful test
           </div>
           <p className="text-sm leading-relaxed text-teal-950 dark:text-teal-100">{nextTest}</p>
@@ -148,12 +148,12 @@ function NodePillGroup({
 
   return (
     <div>
-      <div className="mb-1 text-[11px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
+      <div className="mb-1 text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
         {label}
       </div>
       <div className="flex flex-wrap gap-2">
         {values.map((value) => (
-          <span key={`${label}:${value}`} className={`rounded-none border px-2 py-1 text-[11px] font-semibold tracking-wide ${toneClass}`}>
+          <span key={`${label}:${value}`} className={`rounded-none border px-2 py-1 text-xs font-semibold tracking-wide ${toneClass}`}>
             {value}
           </span>
         ))}
@@ -173,9 +173,9 @@ function KnowledgeCount({
 }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/50">
-      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</div>
+      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">{label}</div>
       <div className="mt-1 text-lg font-bold tabular-nums text-slate-900 dark:text-slate-100">{active.toLocaleString()}</div>
-      <div className="text-[10px] text-slate-400">{deprecated.toLocaleString()} archived</div>
+      <div className="text-xs text-slate-400">{deprecated.toLocaleString()} archived</div>
     </div>
   );
 }
@@ -232,7 +232,7 @@ function VisibleNodeProperties({ node }: { node: GraphNodeDetail }) {
       <div className="grid grid-cols-1 gap-2">
         {node.relevance != null ? (
           <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 dark:border-sky-800/60 dark:bg-sky-950/20">
-            <div className="text-[11px] uppercase tracking-wider text-sky-500">Match relevance</div>
+            <div className="text-xs uppercase tracking-wider text-sky-500">Match relevance</div>
             <div className="mt-2 flex items-center gap-2">
               <div className="h-2 flex-1 overflow-hidden rounded-none bg-slate-200 dark:bg-slate-800">
                 <div className="h-full bg-sky-500" style={{ width: `${Math.round((node.relevance || 0) * 100)}%` }} />
@@ -245,7 +245,7 @@ function VisibleNodeProperties({ node }: { node: GraphNodeDetail }) {
         ) : null}
         {visibleProperties.map(([key, value]) => (
           <div key={key} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-900">
-            <div className="text-[11px] uppercase tracking-wider text-slate-400">{key.replaceAll("_", " ")}</div>
+            <div className="text-xs uppercase tracking-wider text-slate-400">{key.replaceAll("_", " ")}</div>
             <div className="mt-1 text-sm text-slate-700 dark:text-slate-200">
               {formatPropertyValue(key, value)}
             </div>
@@ -526,7 +526,7 @@ export default function TimelinePage() {
                   <div className="absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full ring-4 ring-slate-50 dark:ring-[#0a0a0a] bg-sky-500 group-hover:bg-sky-400 transition-colors" />
                   <div className="flex flex-col gap-2">
                     <div className="flex flex-wrap items-center gap-3">
-                      <span className={`px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider rounded-md border ${getTypeColor(item.item_type)}`}>
+                      <span className={`px-2 py-0.5 text-xs font-semibold uppercase tracking-wider rounded-md border ${getTypeColor(item.item_type)}`}>
                         {item.item_type}
                       </span>
                       <time className="text-xs text-slate-400 font-medium font-mono">
@@ -540,7 +540,7 @@ export default function TimelinePage() {
                       {item.subject_name ? (
                         <span className="text-xs text-slate-400">about {item.subject_name}</span>
                       ) : null}
-                      <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${temporalTone(item.temporal_status)}`}>
+                      <span className={`rounded border px-2 py-0.5 text-xs font-semibold uppercase tracking-wider ${temporalTone(item.temporal_status)}`}>
                         {item.temporal_status === "outcome_due" && item.outcome_status !== "pending" ? "past target" : item.temporal_status.replaceAll("_", " ")}
                       </span>
                     </div>
@@ -551,7 +551,7 @@ export default function TimelinePage() {
                     >
                       <div className="p-5">
                         <div className="mb-3 flex flex-wrap items-center gap-2">
-                          <span className={`rounded-none border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider ${getSignalTone(item.signal_score)}`}>
+                          <span className={`rounded-none border px-2.5 py-1 text-xs font-semibold uppercase tracking-wider ${getSignalTone(item.signal_score)}`}>
                             {scoreLabel(item)} {item.signal_score.toFixed(2)}
                           </span>
                           <span className="text-xs text-slate-500 dark:text-slate-400">
@@ -597,7 +597,7 @@ export default function TimelinePage() {
                           {(item.sources ?? []).length > 0 ? (
                             (item.sources ?? []).slice(0, 3).map((source) => (
                               <div key={source.raw_evidence_id} className="min-w-0">
-                                <div className="mb-1 flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                                <div className="mb-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                                   <span className="truncate font-medium text-slate-700 dark:text-slate-200">{source.source_name}</span>
                                   <span className="rounded border border-slate-200 px-1.5 py-0.5 uppercase tracking-wider dark:border-slate-700">
                                     {source.origin_label ?? source.source_type.replaceAll("_", " ")}
@@ -644,7 +644,7 @@ export default function TimelinePage() {
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Audit events when available; older rows are marked as derived.</p>
               </div>
               {knowledgeChanges ? (
-                <span className="rounded-none border border-slate-200 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                <span className="rounded-none border border-slate-200 px-2.5 py-1 text-xs font-bold uppercase tracking-widest text-slate-500 dark:border-slate-800 dark:text-slate-400">
                   {knowledgeChanges.changes.length} latest
                 </span>
               ) : null}
@@ -674,24 +674,24 @@ export default function TimelinePage() {
                       }`}
                     >
                       <div className="mb-1 flex flex-wrap items-center gap-2">
-                        <span className={`rounded-none border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest ${getChangeTone(change.change_type)}`}>
+                        <span className={`rounded-none border px-2 py-0.5 text-xs font-bold uppercase tracking-widest ${getChangeTone(change.change_type)}`}>
                           {change.change_type}
                         </span>
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{change.node_type}</span>
-                        <span className="rounded-none border border-slate-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:border-slate-700">
+                        <span className="text-xs font-bold uppercase tracking-widest text-slate-400">{change.node_type}</span>
+                        <span className="rounded-none border border-slate-200 px-2 py-0.5 text-xs font-bold uppercase tracking-widest text-slate-400 dark:border-slate-700">
                           {change.change_source === "audit_event" ? "audit" : "derived"}
                         </span>
-                        <span className="ml-auto text-[10px] text-slate-400">{formatDateTime(change.changed_at)}</span>
+                        <span className="ml-auto text-xs text-slate-400">{formatDateTime(change.changed_at)}</span>
                       </div>
                       <p className="line-clamp-2 text-xs leading-relaxed text-slate-700 dark:text-slate-200">{change.text}</p>
                       {change.reason ? (
-                        <p className="mt-1 line-clamp-1 text-[11px] text-slate-500 dark:text-slate-400">{change.reason}</p>
+                        <p className="mt-1 line-clamp-1 text-xs text-slate-500 dark:text-slate-400">{change.reason}</p>
                       ) : null}
                       {change.deprecated_reason ? (
-                        <p className="mt-1 line-clamp-1 text-[11px] text-amber-700 dark:text-amber-300">{change.deprecated_reason}</p>
+                        <p className="mt-1 line-clamp-1 text-xs text-amber-700 dark:text-amber-300">{change.deprecated_reason}</p>
                       ) : null}
                       {change.actor ? (
-                        <p className="mt-1 text-[10px] uppercase tracking-wider text-slate-400">{change.actor.replaceAll("_", " ")}</p>
+                        <p className="mt-1 text-xs uppercase tracking-wider text-slate-400">{change.actor.replaceAll("_", " ")}</p>
                       ) : null}
                     </button>
                   );
@@ -741,7 +741,7 @@ export default function TimelinePage() {
               <div className="mt-5 space-y-5">
                 <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-4 dark:border-sky-900 dark:bg-sky-950/30">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="rounded-md border border-sky-300 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-sky-700 dark:border-sky-700 dark:text-sky-300">
+                    <span className="rounded-md border border-sky-300 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-sky-700 dark:border-sky-700 dark:text-sky-300">
                       {selectedNode.node_type}
                     </span>
                     {selectedNode.tier ? (
@@ -805,7 +805,7 @@ export default function TimelinePage() {
                                   <button
                                     type="button"
                                     onClick={() => void openNode(node.nodeType, node.nodeId)}
-                                    className="w-full rounded-lg bg-white/90 px-2 py-1 text-center text-[11px] text-slate-700 hover:text-sky-700 dark:bg-slate-950/90 dark:text-slate-200 dark:hover:text-sky-300"
+                                    className="w-full rounded-lg bg-white/90 px-2 py-1 text-center text-xs text-slate-700 hover:text-sky-700 dark:bg-slate-950/90 dark:text-slate-200 dark:hover:text-sky-300"
                                   >
                                     <div className="truncate font-semibold">{node.label}</div>
                                     <div className="truncate text-slate-400">{node.subtitle}</div>
@@ -818,7 +818,7 @@ export default function TimelinePage() {
                         {(["incoming", "outgoing"] as const).map((direction) =>
                           groupedConnections[direction]?.length ? (
                             <div key={direction}>
-                              <div className="mb-2 text-[11px] uppercase tracking-wider text-slate-400">{direction}</div>
+                              <div className="mb-2 text-xs uppercase tracking-wider text-slate-400">{direction}</div>
                               <div className="flex flex-wrap gap-2">
                                 {groupedConnections[direction].map((connection) => (
                                   <button

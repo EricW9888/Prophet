@@ -254,7 +254,7 @@ function ProcessingStage({ label, status }: { label: string; status: string }) {
 function ReceiptMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
-      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</div>
+      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">{label}</div>
       <div className="mt-1 truncate text-sm font-bold text-slate-900 dark:text-slate-100">{value}</div>
     </div>
   );
@@ -264,7 +264,7 @@ function MetadataRow({ label, value }: { label: string; value?: string | null })
   if (!value) return null;
   return (
     <div className="rounded-lg border border-slate-100 px-3 py-2 text-sm dark:border-slate-800">
-      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</div>
+      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">{label}</div>
       <div className="mt-1 break-words text-slate-700 dark:text-slate-300">{value}</div>
     </div>
   );
@@ -280,7 +280,7 @@ function StatusPill({ children, tone = "neutral" }: { children: string; tone?: "
       ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
       : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300";
   return (
-    <span className={`rounded-none border px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${className}`}>
+    <span className={`rounded-none border px-2.5 py-1 text-xs font-bold uppercase tracking-widest ${className}`}>
       {children}
     </span>
   );
@@ -304,7 +304,7 @@ function OriginPill({ children, kind }: { children: string; kind?: string | null
       ? "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/30 dark:text-orange-300"
       : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300";
   return (
-    <span className={`rounded-none border px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${className}`}>
+    <span className={`rounded-none border px-2.5 py-1 text-xs font-bold uppercase tracking-widest ${className}`}>
       {children}
     </span>
   );

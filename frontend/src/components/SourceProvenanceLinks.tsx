@@ -33,7 +33,7 @@ export default function SourceProvenanceLinks({
   const externalUrl = safeExternalUrl(url);
   const sourceLabel = sourceName || sourceType?.replaceAll("_", " ") || "source";
   const externalLabel = urlKind === "source_home" ? "Source site" : "Original source";
-  const textSize = compact ? "text-[11px]" : "text-xs";
+  const textSize = compact ? "text-xs" : "text-xs";
 
   if (!externalUrl && !evidenceId) {
     return showUnavailable ? (

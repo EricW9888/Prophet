@@ -85,7 +85,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
           <div className="space-y-2">
             <div className="flex items-center gap-3">
-              <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest text-sky-600 bg-sky-50 border border-sky-200 rounded dark:bg-sky-950/40 dark:text-sky-400 dark:border-sky-800/50">
+              <span className="px-2.5 py-0.5 text-xs font-bold uppercase tracking-widest text-sky-600 bg-sky-50 border border-sky-200 rounded dark:bg-sky-950/40 dark:text-sky-400 dark:border-sky-800/50">
                 {profile.subject_type} PROFILE
               </span>
             </div>
@@ -98,12 +98,12 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
           </div>
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
             <div className={`flex flex-col p-3 rounded-lg border ${getStanceColor(profile.current_stance)} min-w-[140px]`}>
-              <span className="text-[10px] uppercase font-bold tracking-wider opacity-70 mb-1">System Stance</span>
+              <span className="text-xs uppercase font-bold tracking-wider opacity-70 mb-1">System Stance</span>
               <span className="text-xl font-bold uppercase tracking-tight leading-none">{profile.current_stance ?? "no_view"}</span>
               <span className="text-xs font-medium mt-2 opacity-80">Confidence: {profile.confidence_band ?? "unknown"}</span>
             </div>
             <div className="flex flex-col p-3 bg-white dark:bg-[#111] border border-slate-200 dark:border-slate-800 rounded-lg min-w-[140px]">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 mb-1">Coverage Score</span>
+              <span className="text-xs uppercase font-bold tracking-wider text-slate-500 mb-1">Coverage Score</span>
               <div className="flex items-baseline gap-1">
                 <span className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white leading-none">{profile.coverage_score == null ? "Not assessed" : profile.coverage_score.toFixed(1)}</span>
                 {profile.coverage_score != null && <span className="text-sm text-slate-400">/ 100</span>}
@@ -141,7 +141,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
                             <h3 className="font-semibold text-slate-950 dark:text-white">{metric.metric_name}</h3>
-                            <span className="rounded bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
+                            <span className="rounded bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
                               {metric.metric_family.replaceAll("_", " ")}
                             </span>
                           </div>
@@ -191,7 +191,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                               {[signal.ticker, signal.signal_family.replaceAll("_", " "), compactDate(signal.as_of ?? signal.public_time)].filter(Boolean).join(" · ")}
                             </p>
                           </div>
-                          <span className="rounded bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                          <span className="rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
                             {(signal.outcome_status ?? "unscored").replaceAll("_", " ")}
                           </span>
                         </div>
@@ -261,7 +261,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-base font-bold text-slate-900 dark:text-white">{lens.name}</h3>
                       {lens.period ? (
-                        <span className="rounded-none bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                        <span className="rounded-none bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500 dark:bg-slate-900 dark:text-slate-400">
                           {lens.period}
                         </span>
                       ) : null}
@@ -272,25 +272,25 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                       {lens.dominant_channel_test ? (
                         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Channel To Test</p>
+                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Channel To Test</p>
                           <p className="mt-1 text-sm text-slate-800 dark:text-slate-200">{lens.dominant_channel_test}</p>
                         </div>
                       ) : null}
                       {lens.where_analogy_breaks ? (
                         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Break Condition</p>
+                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Break Condition</p>
                           <p className="mt-1 text-sm text-slate-800 dark:text-slate-200">{lens.where_analogy_breaks}</p>
                         </div>
                       ) : null}
                       {lens.portfolio_transmission ? (
                         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Portfolio Route</p>
+                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Portfolio Route</p>
                           <p className="mt-1 text-sm text-slate-800 dark:text-slate-200">{lens.portfolio_transmission}</p>
                         </div>
                       ) : null}
                       {lens.best_next_check ? (
                         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Best Next Check</p>
+                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Best Next Check</p>
                           <p className="mt-1 text-sm text-slate-800 dark:text-slate-200">{lens.best_next_check}</p>
                         </div>
                       ) : null}
@@ -362,7 +362,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                   {profile.unresolved_questions.map((item) => (
                     <div key={item.id}>
                       <p className="text-sm text-slate-800 dark:text-slate-300">{item.question_text}</p>
-                      <div className="mt-1 text-[10px] text-sky-600 dark:text-sky-400 font-mono">
+                      <div className="mt-1 text-xs text-sky-600 dark:text-sky-400 font-mono">
                         Status: {item.status.replaceAll("_", " ")} · Urgency: {item.urgency}
                       </div>
                       <div className="mt-1 text-xs text-slate-500">

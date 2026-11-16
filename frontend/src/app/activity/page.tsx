@@ -266,7 +266,7 @@ export default function ActivityPage() {
         <div className="mt-8 space-y-8">
           {groups.map(([day, dayItems]) => (
             <section key={day}>
-              <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">
+              <div className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">
                 {day}
               </div>
               <div className="space-y-3">
@@ -278,13 +278,13 @@ export default function ActivityPage() {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
+                          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
                             {item.displaySource}
                           </span>
                           <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                             {item.displayTitle}
                           </span>
-                          <span className={`rounded-none border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${actionAccent(item.status)}`}>
+                          <span className={`rounded-none border px-2.5 py-1 text-xs font-semibold uppercase tracking-wider ${actionAccent(item.status)}`}>
                             {item.displayStatus}
                           </span>
                         </div>
@@ -297,7 +297,7 @@ export default function ActivityPage() {
                             <summary className="cursor-pointer text-xs font-medium text-slate-500 dark:text-slate-400">
                               View metadata
                             </summary>
-                            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+                            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs leading-relaxed text-slate-600 dark:text-slate-300">
                               {JSON.stringify(item.metadata, null, 2)}
                             </pre>
                           </details>

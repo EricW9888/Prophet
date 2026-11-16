@@ -9,10 +9,10 @@
   --foreground: #0f172a;
   --panel: #ffffff;
   --panel-muted: #f1f5f9;
-  --muted: #64748b;
+  --muted: #475569;
   --line: #e2e8f0;
   --line-strong: #cbd5e1;
-  --action: #0284c7;
+  --action: #0369a1;
   --action-strong: #0369a1;
   --focus: #38bdf8;
   --positive: #047857;
@@ -35,6 +35,10 @@
   --color-negative: var(--negative);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.5;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.6;
   --radius-*: initial;
   --radius-xs: 0px;
   --radius-sm: 0px;

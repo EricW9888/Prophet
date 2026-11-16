@@ -681,7 +681,7 @@ function WorkspaceTabButton({
       {count !== null ? (
         <span
           className={[
-            "rounded-none px-2 py-0.5 text-[11px]",
+            "rounded-none px-2 py-0.5 text-xs",
             active
               ? "bg-white/15 text-white dark:bg-slate-950/10 dark:text-slate-950"
               : "bg-slate-100 text-slate-500 dark:bg-slate-900 dark:text-slate-400",
@@ -771,7 +771,7 @@ function AddDisclosurePanel({
 function SummaryCard({ label, value }: { label: string; value: number | null }) {
   return (
     <div className="rounded-lg border border-line bg-panel px-4 py-3">
-      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</div>
+      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">{label}</div>
       <div className="mt-1 text-2xl font-bold tracking-tight">{value ?? "—"}</div>
     </div>
   );
@@ -862,7 +862,7 @@ function SourceSection({
 
               <SourceScoreSummary source={source} />
               <details className="mt-3 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                <summary className="cursor-pointer select-none text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                <summary className="cursor-pointer select-none text-xs font-bold uppercase tracking-widest text-slate-400">
                   Score details
                 </summary>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -879,7 +879,7 @@ function SourceSection({
                 </div>
                 {source.performance_history.length > 0 ? (
                   <div className="mt-3 rounded-lg border border-slate-100 bg-white/70 px-3 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-300">
-                    <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Outcome history</div>
+                    <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Outcome history</div>
                     {source.performance_history.slice(0, 1).map((history) => (
                       <div key={history.id} className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
                         <span>{history.total_claims} assessed claims</span>
@@ -891,7 +891,7 @@ function SourceSection({
                 ) : null}
                 {source.claim_queue.total > 0 ? (
                   <div className="mt-3 border-t border-slate-200 pt-3 text-sm text-slate-600 dark:border-slate-800 dark:text-slate-300">
-                    <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Claim calibration queue</div>
+                    <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Claim calibration queue</div>
                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
                       <span>{source.claim_queue.total} tracked</span>
                       <span>{source.claim_queue.assessed} assessed</span>
@@ -1020,7 +1020,7 @@ function SourceScoreSummary({ source }: { source: SourceRecord }) {
 function SourceMetric({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-slate-100 bg-white/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/60">
-      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{title}</div>
+      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">{title}</div>
       <div className="mt-2 space-y-1 text-sm text-slate-600 dark:text-slate-300">{children}</div>
     </div>
   );
@@ -1650,7 +1650,7 @@ function StatusPill({
       ? "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300"
       : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300";
   return (
-    <span title={title} className={`rounded-none border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${className}`}>
+    <span title={title} className={`rounded-none border px-2.5 py-1 text-xs font-semibold uppercase tracking-wider ${className}`}>
       {children}
     </span>
   );
@@ -1674,7 +1674,7 @@ function OriginPill({ children, kind }: { children: React.ReactNode; kind?: stri
       ? "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/30 dark:text-orange-300"
       : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300";
   return (
-    <span className={`rounded-none border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${className}`}>
+    <span className={`rounded-none border px-2.5 py-1 text-xs font-semibold uppercase tracking-wider ${className}`}>
       {children}
     </span>
   );

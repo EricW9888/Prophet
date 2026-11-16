@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import Link from "next/link";
+import RecordFields from "./RecordFields";
 
 type Question = {
   id: string; question_text: string; status: string; owner: string;
@@ -92,7 +93,7 @@ export default function QuestionBacklog() {
               <p className="mt-1 break-words text-slate-500">{[item.detail.question_text, item.detail.assessment_summary, item.detail.remaining_uncertainty, item.detail.reason, item.detail.evidence_title].filter(value => typeof value === "string" && value).join(" · ") || label(String(item.detail.outcome ?? item.detail.action ?? "Recorded lifecycle event"))}</p>
               {typeof item.detail.evidence_id === "string" && <Link href={`/sources/evidence/${item.detail.evidence_id}`} className="mt-1 inline-block text-sky-600">Inspect supporting source</Link>}
               <details className="mt-1 text-slate-500"><summary className="cursor-pointer">Provenance details</summary>
-                <pre className="mt-1 whitespace-pre-wrap break-words font-sans">{JSON.stringify(item.detail, null, 2)}</pre>
+                <RecordFields value={item.detail} raw />
               </details>
             </li>)}</ol>{history.items.length < history.total && <button disabled={busy} onClick={() => void show(question.id, true)} className="text-xs text-sky-600">Load older history</button>}</>}
             <label className="block text-xs">Reason for changing this question

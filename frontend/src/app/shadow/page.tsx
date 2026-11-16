@@ -8,6 +8,8 @@ import PageHeader from "@/components/PageHeader";
 import ShadowLifecycleSummary from "@/components/ShadowLifecycleSummary";
 import ShadowEquityTimeline from "@/components/ShadowEquityTimeline";
 import ShadowRunHistory from "@/components/ShadowRunHistory";
+import RecordFields from "@/components/RecordFields";
+import DeferredDisclosure from "@/components/DeferredDisclosure";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
 import WorkspaceState from "@/components/WorkspaceState";
 import { API_BASE, apiFetch, AutomationStatus, ShadowExperiment, ShadowFamily, ShadowLifecycleCounts } from "@/lib/api";
@@ -1378,9 +1380,9 @@ function OpportunitySummary({
                 <p className="font-medium text-slate-700 dark:text-slate-200">
                   {[item.ticker, item.kind?.replaceAll("_", " "), item.source].filter(Boolean).join(" · ") || item.ref}
                 </p>
-                <p className="mt-1 max-w-[76ch] leading-relaxed [overflow-wrap:anywhere]">
-                  {typeof item.summary === "string" ? item.summary : item.summary ? JSON.stringify(item.summary) : item.ref}
-                </p>
+                <div className="mt-1 leading-relaxed [overflow-wrap:anywhere]">
+                  <RecordFields value={item.summary ?? item.ref} />
+                </div>
                 <p className="mt-1">
                   {item.as_of ? formatDate(item.as_of) : "Date not supplied"} · {item.ref}
                   {item.url ? (
@@ -1406,27 +1408,20 @@ function ShadowLabProcess() {
     ["5", "Compare", "Measure against the live book and retain the lesson."],
   ];
   return (
-    <section className="border-y border-slate-200 py-5 dark:border-slate-800 xl:col-span-2">
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
-            Experiment journey
-          </p>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            Every run preserves its starting point, simulated decisions, comparison, and learning trail.
-          </p>
-        </div>
-        <p className="text-xs text-slate-500 dark:text-slate-400">No real orders or money movement</p>
-      </div>
-      <ol className="mt-5 grid grid-cols-5 gap-1 sm:gap-4">
+    <section className="border-y border-line py-3 xl:col-span-2">
+      <p className="mb-2 text-xs text-muted">Paper accounts only · No real orders or money movement</p>
+      <DeferredDisclosure title="How shadow experiments work">
+      <p className="text-sm text-muted">Every run preserves its starting point, simulated decisions, comparison, and learning trail.</p>
+      <ol className="mt-4 grid gap-4 sm:grid-cols-5">
         {steps.map(([number, label, detail]) => (
           <li key={label} className="min-w-0 border-l-2 border-slate-300 pl-2 sm:pl-3 dark:border-slate-700">
-            <p className="text-[11px] font-semibold text-slate-400">{number}</p>
-            <p className="mt-1 break-words text-[10px] font-semibold leading-4 text-slate-800 sm:text-sm dark:text-slate-100">{label}</p>
-            <p className="mt-1 hidden text-xs leading-5 text-slate-500 lg:block dark:text-slate-400">{detail}</p>
+            <p className="text-xs font-semibold text-slate-400">{number}</p>
+            <p className="mt-1 break-words text-xs font-semibold leading-4 text-slate-800 sm:text-sm dark:text-slate-100">{label}</p>
+            <p className="mt-1 text-xs leading-5 text-muted">{detail}</p>
           </li>
         ))}
       </ol>
+      </DeferredDisclosure>
     </section>
   );
 }
@@ -1467,7 +1462,7 @@ function ExperimentJourney({ experiment }: { experiment: ShadowExperiment }) {
             <li key={label} className="min-w-0">
               <div className={`h-1.5 w-full ${reached ? "bg-sky-500" : "bg-slate-200 dark:bg-slate-800"}`} />
               <p
-                className={`mt-2 text-[10px] leading-4 sm:text-xs ${
+                className={`mt-2 text-xs leading-4 sm:text-xs ${
                   current
                     ? "font-semibold text-sky-700 dark:text-sky-300"
                     : reached
