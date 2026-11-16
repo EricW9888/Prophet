@@ -15,7 +15,7 @@ from investos.models.entity import Entity, Security
 from investos.models.evidence import RawEvidence, SourceItem
 from investos.models.fundamental import FundamentalMetric
 from investos.models.graph import Edge, GraphNodeLayout
-from investos.models.knowledge import Fact
+from investos.models.knowledge import Event, Fact
 from investos.models.portfolio import Position
 from investos.models.profile import Profile
 from investos.models.reasoning import ReasoningRun
@@ -27,6 +27,84 @@ from investos.services.graph import (
     _NeighborhoodReads,
 )
 from tests.test_investor_workflows import workflow_session
+
+
+@pytest.mark.parametrize("destination", ["portfolio", "position"])
+async def test_context_route_to_portfolio_root_does_not_imply_holding_exposure(
+    workflow_session, destination
+):
+    session = workflow_session
+    subject = Entity(name=f"Synthetic research subject {uuid4()}", entity_type="person")
+    issuer = Entity(name=f"Synthetic issuer {uuid4()}", entity_type="company")
+    context = Event(
+        title="Source context",
+        description="Reported context to investigate",
+        event_type="market_context",
+    )
+    session.add_all([subject, issuer, context])
+    await session.flush()
+    security = Security(
+        entity_id=issuer.id,
+        ticker=f"C{uuid4().hex[:8]}",
+        asset_class="equity",
+        instrument_type="common_stock",
+    )
+    session.add(security)
+    await session.flush()
+    position = Position(
+        security_id=security.id, direction="long", list_type="holding", quantity=1
+    )
+    session.add(position)
+    await session.flush()
+    session.add_all(
+        [
+            Edge(
+                source_type="event",
+                source_id=context.id,
+                target_type="entity",
+                target_id=subject.id,
+                relationship_type="context_for",
+            ),
+            Edge(
+                source_type="event",
+                source_id=context.id,
+                target_type=destination,
+                target_id=(
+                    SYNTHETIC_PORTFOLIO_ID
+                    if destination == "portfolio"
+                    else position.id
+                ),
+                relationship_type="context_for",
+            ),
+        ]
+    )
+    await session.flush()
+
+    async def use_test_session():
+        yield session
+
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_session] = use_test_session
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(f"/graph/nodes/entity/{subject.id}")
+        response.raise_for_status()
+    detail = response.json()
+    properties = detail["properties"]
+    if destination == "portfolio":
+        assert properties["portfolio_significance"] == "portfolio-level context"
+        assert properties["portfolio_linkage_status"] == "unresolved"
+        assert "does not establish" in properties["why_in_graph"]
+        assert not properties.get("linked_holdings")
+        assert not properties.get("linked_companies")
+        assert "affected_holdings" not in properties
+    else:
+        assert properties["portfolio_significance"] == "connected portfolio context"
+        assert properties["linked_holdings"] == [security.ticker]
+    assert await session.get(Entity, subject.id) is subject
+    await session.rollback()
 
 
 @pytest.mark.parametrize("target_type", ["portfolio", "position"])

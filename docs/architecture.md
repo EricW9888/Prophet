@@ -87,6 +87,15 @@ funds, margin and unmatched quantities must not be patched with a balancing entr
 
 ### Research and market evidence
 
+Structured extraction retains all generated events, facts, claims, supported
+subjects, metrics and setup signals through the existing relevance and
+source-grounding boundaries. Historical investment-object reindexing retains
+the complete returned metric/signal lists as well. This does not establish
+exhaustive source coverage: these paths currently analyze a head/tail document
+excerpt, and model output may omit supported information. Original source bytes
+remain available for further inspection. Previously discarded output requires
+explicit re-extraction; this change does not replay completed backfill jobs.
+
 `api/routes/ingestion.py` accepts notes, files, and URLs. Research discovery and
 extraction run through `services/research.py`, `workers/research.py`, and
 `workers/extraction.py`. The Sources routes and services manage provenance,
@@ -417,6 +426,10 @@ evidence, claims, themes, positions, and explicit relationships. Graph registry,
 edge-state, alias, integrity, pruning, and mutation-audit services keep graph
 changes inspectable. The graph does not grant truth status to a connected node;
 state promotion still passes through evidence policy.
+An inspector route that reaches only the synthetic portfolio root remains
+portfolio-level context with unresolved holding linkage. A context attachment
+does not establish exposure or economic transmission; routes to actual tracked
+holdings retain their identities and the indirect-relationship qualification.
 
 Source-attributed relationships are cited `Claim` assertions with two role
 edges (`relationship_subject` and `relationship_object`) and an open predicate
