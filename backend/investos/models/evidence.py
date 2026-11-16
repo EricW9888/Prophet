@@ -95,6 +95,9 @@ class EvidenceProcessingState(Base):
     persisted_object_count: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     history_json: Mapped[list] = mapped_column(JSONB, default=list)
+    source_text_state_json: Mapped[dict] = mapped_column(
+        JSONB, default=dict, server_default="{}"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )

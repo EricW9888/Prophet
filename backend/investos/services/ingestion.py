@@ -169,7 +169,7 @@ class IngestionService:
                         "document_metadata" if document.public_time else None
                     ),
                 },
-                content=document.content[:20000],
+                content=document.content,
             ),
             process_now=process_now,
         )

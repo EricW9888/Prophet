@@ -147,6 +147,7 @@ class ResearchDiscoveryObservationResponse(BaseModel):
 
 
 class EvidenceProcessingStateResponse(BaseModel):
+    source_text_coverage: dict = Field(default_factory=dict)
     overall_status: str
     content_status: str
     transcript_status: str

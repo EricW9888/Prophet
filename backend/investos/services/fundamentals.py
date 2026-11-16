@@ -108,6 +108,7 @@ class FundamentalMetricService:
         source_kind: str | None = None,
         freshness_status: str | None = None,
         metadata: dict[str, Any] | None = None,
+        commit_transaction: bool = True,
     ) -> FundamentalMetric:
         clean_name = self._required_text(metric_name, field="metric_name")
         family = self._text(metric_family) or self._family_from_metric(clean_name)
@@ -159,8 +160,9 @@ class FundamentalMetricService:
         self.session.add(metric)
         await self.session.flush()
         await self._attach_graph_edges(metric)
-        await self.session.commit()
-        await self.session.refresh(metric)
+        if commit_transaction:
+            await self.session.commit()
+            await self.session.refresh(metric)
         return metric
 
     async def relevant_metrics(
@@ -330,6 +332,12 @@ class FundamentalMetricService:
                     FundamentalMetric.metric_name == metric.metric_name,
                     FundamentalMetric.metric_family == metric.metric_family,
                     FundamentalMetric.period_label == metric.period_label,
+                    FundamentalMetric.value_text == metric.value_text,
+                    FundamentalMetric.numeric_value == metric.numeric_value,
+                    FundamentalMetric.unit == metric.unit,
+                    FundamentalMetric.currency == metric.currency,
+                    FundamentalMetric.as_of == metric.as_of,
+                    FundamentalMetric.direction == metric.direction,
                     subject_clause,
                     or_(*source_clauses),
                 )

@@ -1003,6 +1003,8 @@ class RetrievalService:
             "name": source.name,
             "type": source.source_type,
             "acquisition_kind": evidence.source_item_type,
+            "source_text_coverage": metadata.get("source_text_coverage")
+            or {"status": "unknown"},
             "is_trusted": bool(source.is_trusted),
             "evidence_title": evidence.title,
             "url": evidence.url,

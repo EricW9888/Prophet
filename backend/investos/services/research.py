@@ -1445,7 +1445,7 @@ class ResearchService:
                             url=source_url,
                             public_time=document_public_time,
                             metadata_json=evidence_metadata,
-                            content=content[:20000],
+                            content=content,
                         ),
                         process_now=False,
                     )

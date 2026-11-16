@@ -29,6 +29,27 @@ function translation(id: string, lang: string, text: string | null) {
   return { evidence_id: id, target_language: lang, source_hash: `hash-${id}`, status: text ? "cached" : "untranslated", translated_text: text, original_url: `/sources/evidence/${id}#original-source-text` };
 }
 
+for (const status of ["unknown", "partial", "all_text_submitted"] as const) {
+  test(`source coverage distinguishes ${status} from understood or reconciled`, async () => {
+    language = "en";
+    handleRequest = url => {
+      if (url.includes("/translation")) return translation(A, "en", null);
+      return { ...receipt(A, "Synthetic coverage receipt"), processing: {
+        overall_status: status === "partial" ? "pending" : "complete", extraction_status: status === "partial" ? "pending" : "completed",
+        content_status: "completed", transcript_status: "not_applicable", investment_object_status: "completed", cleanup_status: "not_applicable", extraction_attempt_count: 0, persisted_object_count: 2,
+        source_text_coverage: status === "unknown" ? { status } : { status, document_chars: 20000, submitted_chars: status === "partial" ? 12000 : 20000, remaining_chars: status === "partial" ? 8000 : 0, windows: [{start: 0, input_start: 0, end: 12000}] },
+      }};
+    };
+    await render(<EvidenceReceipt evidenceId={A} />);
+    const coverage = container.querySelector('[aria-label="Source text coverage"]');
+    assert.ok(coverage);
+    assert.match(coverage.textContent!, new RegExp(status === "partial" ? "partly inspected" : status === "unknown" ? "coverage unknown" : "All stored text submitted"));
+    if (status === "partial") assert.match(coverage.textContent!, /8,000 characters remain/);
+    assert.match(coverage.textContent!, /does not prove complete fact recall/);
+    assert.ok(coverage.querySelector('[aria-label="What source text coverage means"]'));
+  });
+}
+
 async function render(child: React.ReactNode) {
   await act(async () => { root.render(<PresentationLanguageProvider>{child}</PresentationLanguageProvider>); });
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.config import settings
 from investos.models.evidence import EvidenceProcessingState, RawEvidence, SourceItem
+from investos.services.source_text import source_text_coverage
 
 MEDIA_EVIDENCE_TYPES = {
     "manual_transcript",
@@ -212,6 +214,7 @@ class EvidenceProcessingService:
                             else_=0,
                         ),
                         EvidenceProcessingState.next_extraction_attempt_at.asc().nullsfirst(),
+                        EvidenceProcessingState.last_extraction_attempt_at.asc().nullsfirst(),
                         RawEvidence.created_at.asc(),
                     )
                     .limit(1)
@@ -300,6 +303,40 @@ class EvidenceProcessingService:
             status=investment_object_status,
             detail={"persisted_object_count": state.persisted_object_count},
         )
+
+    def record_source_progress(
+        self,
+        state: EvidenceProcessingState,
+        evidence: RawEvidence,
+        progress: dict,
+        *,
+        persisted_object_count: int,
+    ) -> bool:
+        state.source_text_state_json = deepcopy(progress)
+        coverage = source_text_coverage(progress)
+        evidence.metadata_json = {
+            **(evidence.metadata_json or {}),
+            "source_text_coverage": coverage,
+        }
+        state.persisted_object_count = persisted_object_count
+        if coverage["status"] == "all_text_submitted":
+            return True
+        state.extraction_status = "pending"
+        state.investment_object_status = "partial"
+        state.extraction_attempt_count = 0
+        state.last_error = None
+        state.next_extraction_attempt_at = None
+        state.updated_at = datetime.now(UTC)
+        self._append_history(
+            state,
+            stage="source_text",
+            status="partial",
+            detail={
+                "submitted_chars": coverage["submitted_chars"],
+                "document_chars": coverage["document_chars"],
+            },
+        )
+        return False
 
     def record_not_applicable(
         self,
@@ -413,8 +450,17 @@ class EvidenceProcessingService:
             "pending": "Structured extraction is waiting to run.",
             "blocked_missing_content": "Restore the stored source content before retrying.",
         }.get(status)
+        if (
+            status == "pending"
+            and source_text_coverage(state.source_text_state_json)["status"]
+            == "partial"
+        ):
+            next_action = "Unseen source text is queued for the next extraction window."
         return {
             "overall_status": overall,
+            "source_text_coverage": source_text_coverage(
+                getattr(state, "source_text_state_json", None)
+            ),
             "content_status": state.content_status,
             "transcript_status": state.transcript_status,
             "extraction_status": state.extraction_status,

@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import delete, desc, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from investos.config import settings
 from investos.core.llm import compact_exception_message
 from investos.models.evidence import RawEvidence, SourceItem
 from investos.models.fundamental import FundamentalMetric
@@ -15,6 +16,14 @@ from investos.models.market_setup import MarketSetupSignal
 from investos.models.source import Source
 from investos.services.fundamentals import FundamentalMetricService
 from investos.services.market_setup import MarketSetupSignalService
+from investos.services.source_text import (
+    SourceTextChanged,
+    complete_source_window,
+    next_source_window,
+    prepare_source_text,
+    retain_new_outputs,
+    source_text_coverage,
+)
 from investos.workers.extraction import ExtractionWorker
 
 BACKFILL_EXTRACTOR_VERSION = 2
@@ -81,6 +90,7 @@ class InvestmentObjectBackfillService:
             "skipped_quality_gate": 0,
             "skipped_existing": 0,
             "errors": 0,
+            "source_text_coverage": [],
             "examples": [],
         }
 
@@ -107,13 +117,51 @@ class InvestmentObjectBackfillService:
             ):
                 result["skipped_completed"] += 1
                 continue
-            if await self._has_modern_structured_objects(evidence.id, source_item.id):
+            continuing = checkpoint.get("status") == "source_text_partial" and bool(
+                checkpoint.get("source_text_state")
+            )
+            if not continuing and await self._has_modern_structured_objects(
+                evidence.id, source_item.id
+            ):
                 result["skipped_already_structured"] += 1
                 if apply:
                     self._mark_checkpoint(evidence, status="already_structured")
                 continue
 
-            text = self.market_setup._compose_evidence_text(evidence, source_item)
+            try:
+                text, representation = await self.extraction.retained_source_text(
+                    evidence, source_item
+                )
+                progress = prepare_source_text(
+                    text,
+                    checkpoint.get("source_text_state"),
+                    intent={
+                        "title": evidence.title,
+                        "extractor": "investment_objects",
+                        "version": BACKFILL_EXTRACTOR_VERSION,
+                    },
+                    representation=representation,
+                )
+                if not source_text_coverage(progress)["remaining_chars"]:
+                    result["skipped_completed"] += 1
+                    continue
+                window = next_source_window(
+                    text,
+                    progress,
+                    size=settings.EVIDENCE_EXTRACTION_WINDOW_CHARS,
+                    overlap=settings.EVIDENCE_EXTRACTION_OVERLAP_CHARS,
+                )
+            except (FileNotFoundError, UnicodeDecodeError, SourceTextChanged) as exc:
+                result["errors"] += 1
+                if len(result["examples"]) < 10:
+                    result["examples"].append(
+                        {
+                            "evidence_id": str(evidence.id),
+                            "status": "source_unavailable_or_changed",
+                            "error": compact_exception_message(exc),
+                        }
+                    )
+                continue
             if len(text) < 80 or source_item.processing_status not in {
                 "processed",
                 "processed_with_fallback",
@@ -142,7 +190,7 @@ class InvestmentObjectBackfillService:
             try:
                 extracted = await self.extraction.extract_investment_objects(
                     evidence.title or "Untitled evidence",
-                    text,
+                    text[window["input_start"] : window["end"]],
                 )
             except Exception as exc:
                 result["errors"] += 1
@@ -153,6 +201,12 @@ class InvestmentObjectBackfillService:
                     )
                 continue
 
+            complete_source_window(progress, window, extracted)
+            retain_new_outputs(extracted, progress)
+            coverage = source_text_coverage(progress)
+            result["source_text_coverage"].append(
+                {"evidence_id": str(evidence.id), "committed": apply, **coverage}
+            )
             metrics = []
             signals = []
             for payload in extracted.get("fundamental_metrics", []):
@@ -218,18 +272,39 @@ class InvestmentObjectBackfillService:
             result["exact_duplicates_removed"] += duplicates_removed
             self._mark_checkpoint(
                 evidence,
-                status="completed" if metrics or signals else "no_qualified_objects",
+                status=(
+                    "source_text_partial"
+                    if coverage["remaining_chars"]
+                    else (
+                        "completed"
+                        if metrics
+                        or signals
+                        or checkpoint.get("metrics_created")
+                        or checkpoint.get("setup_created")
+                        else "no_qualified_objects"
+                    )
+                ),
                 details={
+                    "source_text_state": progress,
+                    "source_text_coverage": coverage,
                     "subject_type": "entity",
                     "subject_id": str(subject["entity_id"]),
                     "security_id": str(subject["security_id"]),
                     "ticker": subject.get("ticker"),
                     "min_confidence": clean_confidence,
-                    "metrics_created": created_metrics,
-                    "setup_created": created_signals,
+                    "metrics_created": int(checkpoint.get("metrics_created") or 0)
+                    + created_metrics,
+                    "setup_created": int(checkpoint.get("setup_created") or 0)
+                    + created_signals,
                 },
             )
             await self.session.commit()
+
+            if (
+                coverage["remaining_chars"]
+                and result["model_calls"] < clean_model_limit
+            ):
+                rows.append((evidence, source_item, source))
 
         if apply:
             await self.session.commit()
@@ -264,6 +339,7 @@ class InvestmentObjectBackfillService:
         checkpoint = RawEvidence.metadata_json["investment_object_backfill"]
         statement = statement.where(
             or_(
+                checkpoint["status"].as_string() == "source_text_partial",
                 RawEvidence.metadata_json.is_(None),
                 checkpoint["extractor_version"].as_integer().is_(None),
                 checkpoint["extractor_version"].as_integer()
@@ -288,7 +364,12 @@ class InvestmentObjectBackfillService:
                 ),
             )
         )
-        return statement.where(~metric_exists, ~signal_exists)
+        return statement.where(
+            or_(
+                checkpoint["status"].as_string() == "source_text_partial",
+                ~metric_exists & ~signal_exists,
+            )
+        )
 
     async def _has_modern_structured_objects(self, evidence_id, source_item_id) -> bool:
         metric = (
@@ -337,6 +418,23 @@ class InvestmentObjectBackfillService:
                         FundamentalMetric.metric_name == payload["metric_name"],
                         FundamentalMetric.period_label == payload.get("period_label"),
                         FundamentalMetric.ticker == object_subject["ticker"],
+                        FundamentalMetric.subject_type
+                        == object_subject["subject_type"],
+                        FundamentalMetric.subject_id == object_subject["subject_id"],
+                        FundamentalMetric.value_text
+                        == self.fundamentals._text(payload.get("value_text")),
+                        FundamentalMetric.numeric_value
+                        == self.fundamentals._finite(payload.get("numeric_value")),
+                        FundamentalMetric.unit
+                        == self.fundamentals._text(payload.get("unit")),
+                        FundamentalMetric.currency
+                        == self.fundamentals._text(payload.get("currency")),
+                        FundamentalMetric.as_of
+                        == self.extraction.dated_value(
+                            payload.get("as_of_raw"), evidence
+                        ),
+                        FundamentalMetric.direction
+                        == self.fundamentals._text(payload.get("direction")),
                         or_(
                             FundamentalMetric.raw_evidence_id == evidence.id,
                             FundamentalMetric.source_item_id == source_item.id,
@@ -349,6 +447,7 @@ class InvestmentObjectBackfillService:
                 result["skipped_existing"] += 1
                 continue
             metric = await self.fundamentals.create_metric(
+                commit_transaction=False,
                 metric_name=payload["metric_name"],
                 metric_family=family,
                 subject_type=object_subject["subject_type"],
@@ -405,6 +504,29 @@ class InvestmentObjectBackfillService:
                     select(MarketSetupSignal.id)
                     .where(
                         MarketSetupSignal.ticker == object_subject["ticker"],
+                        MarketSetupSignal.subject_type
+                        == object_subject["subject_type"],
+                        MarketSetupSignal.subject_id == object_subject["subject_id"],
+                        MarketSetupSignal.actual_context
+                        == self.market_setup._text(payload.get("actual_context")),
+                        MarketSetupSignal.price_reaction
+                        == self.market_setup._text(payload.get("price_reaction")),
+                        MarketSetupSignal.value_text
+                        == self.market_setup._text(payload.get("value_text")),
+                        MarketSetupSignal.numeric_value
+                        == self.market_setup._finite(payload.get("numeric_value")),
+                        MarketSetupSignal.unit
+                        == self.market_setup._text(payload.get("unit")),
+                        MarketSetupSignal.currency
+                        == self.market_setup._upper(payload.get("currency")),
+                        MarketSetupSignal.period_label
+                        == self.market_setup._text(payload.get("period_label")),
+                        MarketSetupSignal.as_of
+                        == self.extraction.dated_value(
+                            payload.get("as_of_raw"), evidence
+                        ),
+                        MarketSetupSignal.direction
+                        == self.market_setup._text(payload.get("direction")),
                         or_(
                             MarketSetupSignal.signal_name == payload["signal_name"],
                             MarketSetupSignal.setup_context
@@ -422,6 +544,7 @@ class InvestmentObjectBackfillService:
                 result["skipped_existing"] += 1
                 continue
             signal = await self.market_setup.create_signal(
+                commit_transaction=False,
                 signal_name=payload["signal_name"],
                 signal_family=family,
                 subject_type=object_subject["subject_type"],
@@ -485,7 +608,7 @@ class InvestmentObjectBackfillService:
             .scalars()
             .all()
         )
-        seen: set[tuple[str, str]] = set()
+        seen: set[tuple] = set()
         duplicates: list[MarketSetupSignal] = []
         for signal in rows:
             key = self._exact_signal_key(signal)
@@ -504,15 +627,26 @@ class InvestmentObjectBackfillService:
         )
         for signal in duplicates:
             await self.session.delete(signal)
-        await self.session.commit()
+        await self.session.flush()
         return len(duplicates)
 
     @staticmethod
-    def _exact_signal_key(signal: MarketSetupSignal) -> tuple[str, str]:
+    def _exact_signal_key(signal: MarketSetupSignal) -> tuple:
         normalize = lambda value: " ".join(str(value or "").casefold().split())
         return (
             normalize(signal.ticker),
             normalize(signal.setup_context),
+            signal.subject_type,
+            signal.subject_id,
+            signal.actual_context,
+            signal.price_reaction,
+            signal.value_text,
+            signal.numeric_value,
+            signal.unit,
+            signal.currency,
+            signal.period_label,
+            signal.as_of,
+            signal.direction,
         )
 
     async def _resolve_payload_subject(

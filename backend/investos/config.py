@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from investos.core.providers import LLM_PROVIDER_CAPABILITIES
@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     INGESTION_MAX_UPLOAD_MB: int = 25
     INGESTION_MAX_NOTE_CHARS: int = 2_000_000
     EVIDENCE_EXTRACTION_MAX_ATTEMPTS: int = 5
+    EVIDENCE_EXTRACTION_WINDOW_CHARS: int = Field(default=12000, ge=512)
+    EVIDENCE_EXTRACTION_OVERLAP_CHARS: int = Field(default=600, ge=0)
     EVIDENCE_EXTRACTION_RETRY_BASE_SECONDS: int = 300
     EVIDENCE_EXTRACTION_RETRY_MAX_SECONDS: int = 21600
     PORTFOLIO_IMPORT_MAX_MB: int = 5
@@ -208,6 +210,15 @@ class Settings(BaseSettings):
         if not path.is_absolute():
             path = PROJECT_ROOT / path
         return str(path.resolve())
+
+    @field_validator("EVIDENCE_EXTRACTION_OVERLAP_CHARS")
+    @classmethod
+    def validate_extraction_overlap(cls, value: int, info: ValidationInfo) -> int:
+        if value >= info.data.get("EVIDENCE_EXTRACTION_WINDOW_CHARS", 12000):
+            raise ValueError(
+                "Extraction overlap must be smaller than the source window."
+            )
+        return value
 
     @property
     def DEVELOPMENT_RESET_AVAILABLE(self) -> bool:

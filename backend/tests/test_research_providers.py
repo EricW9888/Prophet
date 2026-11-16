@@ -151,12 +151,16 @@ async def test_known_first_candidate_does_not_hide_unseen_source(
         )
     )
     service._update_discovery_outcome = AsyncMock()
+    full_source = (
+        "Attributable administrative disclosure.\n" * 1200
+        + "Correction: operating approval is still pending."
+    )
     service.ingestion.fetch_url_document = AsyncMock(
         return_value=FetchedUrlDocument(
             url="https://example.test/new",
             canonical_url="https://example.test/new",
             title="New",
-            content="New attributable source text.",
+            content=full_source,
         )
     )
     service.source_learning.get_or_create_source_for_url = AsyncMock(
@@ -184,6 +188,7 @@ async def test_known_first_candidate_does_not_hide_unseen_source(
         service.ingestion.fetch_url_document.assert_awaited_once_with(
             "https://example.test/new"
         )
+        assert service.ingestion.ingest_text.await_args.args[0].content == full_source
     else:
         assert result.reason == "duplicate_recent_research"
         assert result.evidence_id == duplicate.id

@@ -1531,6 +1531,15 @@ export type GraphSearchResult = {
 };
 
 export type EvidenceProcessingState = {
+  source_text_coverage?: {
+    status: "unknown" | "partial" | "all_text_submitted";
+    document_chars?: number;
+    submitted_chars?: number;
+    remaining_chars?: number;
+    document_hash?: string;
+    windows?: { start: number; input_start: number; end: number; submitted_at: string }[];
+    meaning?: string;
+  };
   overall_status: string;
   content_status: string;
   transcript_status: string;

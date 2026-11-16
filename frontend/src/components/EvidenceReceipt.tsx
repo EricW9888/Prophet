@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, ExternalLink, RotateCcw } from "lucide-react";
 
 import WorkspaceState from "@/components/WorkspaceState";
+import HintMarker from "@/components/HintMarker";
 import { evidenceProcessingTone as processingTone } from "@/lib/evidence-state";
 import EvidenceTranslationPanel from "@/components/EvidenceTranslationPanel";
 import { apiFetch, EvidenceProcessingState, SourceEvidenceDetail } from "@/lib/api";
@@ -174,7 +175,8 @@ function ProcessingLifecycle({
     { label: "Investment objects", status: processing.investment_object_status },
     { label: "Temporary media cleanup", status: processing.cleanup_status },
   ];
-  const canRetry = ["retry_scheduled", "retry_exhausted"].includes(processing.extraction_status);
+  const canRetry = ["retry_scheduled", "retry_exhausted", "blocked_missing_content"].includes(processing.extraction_status);
+  const textCoverage = processing.source_text_coverage;
 
   return (
     <section className="rounded-lg border border-line bg-panel p-6">
@@ -204,6 +206,23 @@ function ProcessingLifecycle({
         {stages.map((stage) => (
           <ProcessingStage key={stage.label} label={stage.label} status={stage.status} />
         ))}
+      </div>
+
+      <div className="mt-4 border border-line p-3 text-sm" aria-label="Source text coverage">
+        <div className="flex items-center gap-2">
+          <p className="font-semibold">
+            {textCoverage?.status === "all_text_submitted" ? "All stored text submitted for extraction" : textCoverage?.status === "partial" ? "Source text partly inspected" : "Source text coverage unknown"}
+          </p>
+          <HintMarker label="What source text coverage means">
+            This records which stored text was sent to the model. It does not prove complete fact recall, whole-document reconciliation, or coverage of unavailable images and source material. Historical records without a receipt remain unknown.
+          </HintMarker>
+        </div>
+        {textCoverage?.document_chars != null && (
+          <p className="mt-1 text-muted">
+            {textCoverage.submitted_chars?.toLocaleString() ?? 0} of {textCoverage.document_chars.toLocaleString()} characters · {textCoverage.windows?.length ?? 0} completed windows
+            {textCoverage.remaining_chars ? ` · ${textCoverage.remaining_chars.toLocaleString()} characters remain` : ""}.
+          </p>
+        )}
       </div>
 
       <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
