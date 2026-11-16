@@ -182,6 +182,10 @@ verification, semantic entailment or an exhaustive coverage claim. See
 [PostgreSQL text-search ranking](https://www.postgresql.org/docs/16/textsearch-controls.html#TEXTSEARCH-RANKING).
 Draft typing does not call the model. Submitted questions classify intent,
 freshness and primary scope in one call with the configured model timeout.
+Evidence-acquisition planning uses the same configured model deadline through
+the shared call boundary. Durable read-only turns defer on provider timeouts
+and resume planning; they do not save a literal-query fallback as a completed
+semantic plan. Non-durable callers retain the explicit scoped fallback.
 If interpretation is unavailable, ordinary investment analysis stops visibly
 instead of silently guessing a narrower subject or using stale evidence.
 Deterministic conversational and explicit operating fallbacks remain available.
