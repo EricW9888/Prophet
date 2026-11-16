@@ -5214,23 +5214,16 @@ class AgentService:
             },
         }
         try:
-            result = await asyncio.wait_for(
-                call_llm_json(
-                    system_prompt=self._question_research_planner_system_prompt(),
-                    user_prompt=json.dumps(payload, ensure_ascii=True),
-                    schema=QUESTION_RESEARCH_PLAN_SCHEMA,
-                    timeout_seconds=6,
-                ),
-                timeout=6,
+            result = await call_llm_json(
+                system_prompt=self._question_research_planner_system_prompt(),
+                user_prompt=json.dumps(payload, ensure_ascii=True),
+                schema=QUESTION_RESEARCH_PLAN_SCHEMA,
+                timeout_seconds=settings.LLM_TIMEOUT_SECONDS,
             )
         except Exception as exc:
             import logging
 
-            if (
-                self._turn_state.enabled
-                and provider_failure_cause(exc) is not None
-                and not isinstance(exc, (TimeoutError, httpx.TimeoutException))
-            ):
+            if self._turn_state.enabled and provider_failure_cause(exc) is not None:
                 raise
             logging.getLogger(__name__).warning(
                 "Question research planner fell back after LLM failure: %s",
