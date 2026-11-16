@@ -37,6 +37,7 @@ import {
 import { formatModelUsedLabel, formatUserLabel } from "@/lib/formatting";
 import { readResearchEntry, researchTurnContext, type ResearchSubject } from "@/lib/workflows";
 import { ACTIVE_JOB_STORAGE_KEY, COMPLETED_JOB_NOTICE_KEY, clearActiveJobReference, clearCompletedJobNotice } from "@/lib/job-notifications";
+import { useWorkspaceReads } from "@/lib/workspace-reads";
 
 const ALLOW_ACTIONS_STORAGE_KEY = "prophet:allow-agent-actions";
 const RESEARCH_SIDEBAR_WIDTH = 320;
@@ -550,6 +551,7 @@ function ChatWorkspace() {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [conversations, setConversations] = useState<AgentConversationSummary[]>([]);
+  const { read: readConversations, status: conversationReads } = useWorkspaceReads<"list">();
   const [autonomousReviews, setAutonomousReviews] = useState<AgentConversationSummary[]>([]);
   const [researchView, setResearchView] = useState<(typeof RESEARCH_VIEWS)[number]>("Chats");
   const [openReport, setOpenReport] = useState<AgentConversationSummary | null>(null);
@@ -613,16 +615,16 @@ function ChatWorkspace() {
   }
 
   const loadConversations = useCallback(async () => {
-    const result = await apiFetch<AgentConversationList>("/agent/conversations");
-    setConversations(result.conversations);
-    setAutonomousReviews(result.autonomous_reviews ?? []);
-    setActiveSessionId((current) => {
-      if (!conversationChosenRef.current && !current && result.conversations.length > 0) {
-        return result.conversations[0].session_id;
-      }
-      return current;
+    await readConversations<AgentConversationList>("list", "/agent/conversations", (result) => {
+      setConversations(result.conversations);
+      setAutonomousReviews(result.autonomous_reviews ?? []);
     });
-  }, []);
+  }, [readConversations]);
+
+  function editDraft(value: string) {
+    conversationChosenRef.current = true;
+    setInput(value);
+  }
 
   function persistActiveJob(job: AgentTurnJob | null) {
     if (typeof window === "undefined") return;
@@ -1075,6 +1077,7 @@ function ChatWorkspace() {
     e.preventDefault();
     if (!input.trim() || fileInputs.blocked || isTyping || Boolean(activeJob && isActiveTurnJob(activeJob))) return;
 
+    conversationChosenRef.current = true;
     const userMessage = input.trim();
     setJobConnectionError(null);
     setFailedJob(null);
@@ -1308,9 +1311,13 @@ function ChatWorkspace() {
             onCancel={(jobId) => void cancelJob(jobId)}
           />
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            {conversationReads.list?.error ? <div role="alert" className="border border-line p-3 text-sm text-muted">
+              <p>{conversationReads.list.ready ? "Saved chats could not be refreshed. The last loaded list remains available." : "Saved chats could not be loaded. You can keep writing in this chat."}</p>
+              <button type="button" className="workspace-control mt-2" onClick={() => void loadConversations()}>Retry saved chats</button>
+            </div> : null}
             {conversations.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                No saved chats yet.
+              conversationReads.list?.error ? null : <p role={conversationReads.list?.ready ? undefined : "status"} className="border border-dashed border-line p-4 text-sm text-muted">
+                {conversationReads.list?.ready ? "No saved chats yet." : "Loading saved chats…"}
               </p>
             ) : (
               conversations.map((conversation) => {
@@ -1579,8 +1586,7 @@ function ChatWorkspace() {
                   Ask a question, attach evidence, or open a saved conversation. You can investigate a development, test a thesis, or review what changed.
                 </p>
                 <div className="mt-8 flex flex-wrap justify-center gap-3">
-                  <button onClick={() => setInput("What are the core vulnerabilities in our largest tech holding?")} className="rounded-none border border-line bg-panel px-4 py-2 text-sm text-slate-600 hover:border-slate-300  dark:text-slate-300 dark:hover:border-slate-700">What are the core vulnerabilities in our largest tech holding?</button>
-                  <button onClick={() => setInput("Summarize recent developments for Apple.")} className="rounded-none border border-line bg-panel px-4 py-2 text-sm text-slate-600 hover:border-slate-300  dark:text-slate-300 dark:hover:border-slate-700">Summarize recent developments for Apple.</button>
+                  {(pinnedSubject ? ["What evidence would strengthen or weaken this view?", "What changed recently for this subject, and why does it matter?"] : ["What needs my attention in this portfolio?", "Which investment assumptions need checking?"]).map(question => <button key={question} type="button" onClick={() => editDraft(question)} className="border border-line bg-panel px-4 py-2 text-sm text-muted hover:border-line-strong hover:text-foreground">{question}</button>)}
                 </div>
               </div>
             ) : (
@@ -1751,7 +1757,7 @@ function ChatWorkspace() {
                   ref={composerRef}
                   value={input}
                   onChange={(e) => {
-                    setInput(e.target.value);
+                    editDraft(e.target.value);
                     resizeComposer(e.target.value);
                   }}
                   onKeyDown={handleComposerKeyDown}
@@ -1759,9 +1765,10 @@ function ChatWorkspace() {
                     const pastedFiles = transferredFiles(event.clipboardData);
                     if (!pastedFiles.length) return;
                     event.preventDefault();
+                    conversationChosenRef.current = true;
                     fileInputs.addFiles(pastedFiles);
                     const pasted = event.clipboardData.getData("text/plain");
-                    if (pasted) {const field = event.currentTarget; const position = field.selectionStart; const next = input.slice(0, position) + pasted + input.slice(field.selectionEnd); setInput(next); resizeComposer(next); window.requestAnimationFrame(() => field.setSelectionRange(position + pasted.length, position + pasted.length));}
+                    if (pasted) {const field = event.currentTarget; const position = field.selectionStart; const next = input.slice(0, position) + pasted + input.slice(field.selectionEnd); editDraft(next); resizeComposer(next); window.requestAnimationFrame(() => field.setSelectionRange(position + pasted.length, position + pasted.length));}
                   }}
                   placeholder="Tell Prophet what you think, what changed, or what to analyze next..."
                   rows={1}
