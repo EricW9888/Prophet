@@ -282,7 +282,15 @@ def render_answer_coverage(coverage: dict | None) -> str | None:
                 links.append(f"[{title}]({url})")
             section += "\n\nSources: " + ", ".join(links)
         sections.append(section)
-    missing = [row["need"] for row in rows if row["status"] != "answered"]
+    missing = [
+        (
+            f"{row['need']}: {row['limitation']}"
+            if not row["answer"] and row.get("limitation")
+            else row["need"]
+        )
+        for row in rows
+        if row["status"] != "answered"
+    ]
     if missing:
         sections.append(
             "Still unresolved:\n" + "\n".join(f"- {need}" for need in missing)

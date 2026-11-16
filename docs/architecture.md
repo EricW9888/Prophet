@@ -339,6 +339,12 @@ The ledger, stored portfolio-risk capture and cached performance-attribution
 receipt supply immutable measurement references with value, unit, basis,
 subject, snapshot and dates. Models select these references; they cannot create
 measurements. Existing context paths remain inspectable but do not verify math.
+Generation supplies a reference, display quote and occurrence; the verifier
+resolves the immutable measurement itself. Decimal round-half-up at the quoted
+precision permits readable currency, percentages and scaled displays without
+a loose numerical tolerance. Verification retains both the canonical value and
+the display value. Legacy supplied dimensions must still match; stale or partial
+measurements and changed signs, scales or units remain unverified.
 Risk replay checks current holdings identity, currency, quote freshness and price
 coverage without fetching new prices. Complete valuation is distinct from having
 enough observations for a stress estimate. Holdings marks exclude cash; ledger

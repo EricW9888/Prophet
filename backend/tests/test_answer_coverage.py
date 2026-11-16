@@ -308,3 +308,75 @@ async def test_measured_answer_uses_the_admitted_quantity_through_delivery(
         assert "Measured" in rendered["assistant_message"]
         assert "$10,000" in rendered["assistant_message"]
         assert candidate.get("quantity_grounding", {}).get("verified") is not False
+
+
+@pytest.mark.parametrize("quote,admitted", [("-12.35%", True), ("-12.34%", False)])
+async def test_rounded_measurement_can_answer_part_without_inventing_a_cause(
+    monkeypatch, quote, admitted
+):
+    plan, packet, payload = fixture()
+    measured = sample("-12.3456", "percent")
+    packet["quantity_measurements"] = [measured]
+    plan.update(
+        original_question="What should I review now, and what caused the change?",
+        information_needs=["What should I review now?", "What caused the change?"],
+    )
+    statement = f"The recorded return is {quote}."
+    payload["independent_summary"] = statement
+    payload["material_assertions"][0].update(
+        statement=statement,
+        evidence_basis="market_data_calculation",
+        supporting_evidence_ids=[],
+        quantity_bindings=[
+            {
+                "measurement_ref": measured["measurement_ref"],
+                "quote": quote,
+                "occurrence": 0,
+            }
+        ],
+    )
+    payload["information_need_reviews"] = [
+        {
+            "need_index": 0,
+            "status": "partial",
+            "basis": "measurement",
+            "answer": f"Review the recorded decline of {quote}; this measurement does not establish its cause.",
+            "assertion_indices": [0],
+            "assumption_index": None,
+            "limitation": "Current catalyst research was unavailable.",
+        },
+        {
+            "need_index": 1,
+            "status": "unanswered",
+            "basis": "unavailable",
+            "answer": "",
+            "assertion_indices": [],
+            "assumption_index": None,
+            "limitation": "No dated evidence establishes a cause.",
+        },
+    ]
+    review = await reviewed(monkeypatch, packet, payload)
+    candidate = {
+        "stance": "uncertain",
+        "confidence_band": "low",
+        "material_assertions": payload["material_assertions"],
+        "reasoning": statement,
+        "thesis_summary": statement,
+    }
+    CorroborationService().assess_result(candidate, packet)
+    CorroborationService().apply_independent_review(candidate, review)
+    AgentService._apply_independent_answerability_gate(
+        candidate, review, question_research_plan=plan, packet_context=packet
+    )
+    coverage = candidate["answerability"]["information_need_coverage"]
+    answer = render_answer_coverage(coverage)
+    assert bool(answer) is admitted
+    assert not candidate["corroboration"]["can_promote"]
+    if admitted:
+        assert quote in answer and "does not establish its cause" in answer
+        assert "No dated evidence establishes a cause" in answer
+        delivered = AgentService(None)._fast_path_orchestration(
+            AgentTurnRequest(message=plan["original_question"]), candidate
+        )
+        AgentService._audit_delivered_quantities(delivered, candidate)
+        assert candidate["quantity_grounding"]["verified"]

@@ -10,7 +10,7 @@ import hashlib
 import json
 import re
 from datetime import UTC, datetime
-from decimal import Decimal, DecimalException, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, DecimalException, InvalidOperation
 
 QUANTITY_RE = re.compile(
     r"(?<![\w.])(?P<prefix_sign>[+-])?(?P<currency>USD\s*|EUR\s*|GBP\s*|KRW\s*|[$€£])?"
@@ -44,36 +44,24 @@ QUANTITY_BINDING_SCHEMA = {
             "minimum": 0,
             "description": "Zero-based occurrence of this complete quantity phrase in the statement.",
         },
-        "value": {"type": "number"},
-        "unit": {"type": "string"},
-        "basis": {"type": "string"},
-        "subject_ref": {"type": "string"},
-        "snapshot_ref": {"type": "string"},
-        "as_of": {"type": ["string", "null"]},
-        "period_start": {"type": ["string", "null"]},
-        "period_end": {"type": ["string", "null"]},
     },
     "required": [
         "quote",
         "measurement_ref",
         "occurrence",
-        "value",
-        "unit",
-        "basis",
-        "subject_ref",
-        "snapshot_ref",
-        "as_of",
-        "period_start",
-        "period_end",
     ],
 }
 
 QUANTITY_RULES = (
     " Account and calculated quantities require quantity_bindings to the supplied "
-    "quantity_measurements. Copy the measurement's reference, unit, basis, subject, "
-    "snapshot, as_of and period exactly, and quote each complete quantity phrase "
-    "in the assertion. The numeric value must equal both that phrase (including "
-    "magnitude) and the supplied measurement. A context path is not verified math. "
+    "quantity_measurements. Select only the exact measurement_ref, the complete "
+    "quantity quote in the assertion, and its zero-based occurrence. Prophet resolves "
+    "the canonical value, unit, basis, subject, snapshot and times from that reference; "
+    "do not invent references or use context paths as measurement references. "
+    "Readable rounding is allowed at the quote's stated decimal precision using "
+    "round-half-up, but never change magnitude, sign or unit. Keep each assertion "
+    "independently checkable; do not combine bound measurements with unbound counts "
+    "or dates. Put time scope in its metadata. A context path is not verified math. "
     "Do not substitute holdings value for total equity, cash for broker buying power, "
     "or a return from another period or denominator. Missing, partial or stale "
     "measurements are uncertainty, not zero. For retrieved issuer figures use "
@@ -201,21 +189,21 @@ def validate_quantities(assertion: dict, packet_context: dict) -> dict:
             errors.append("quote_not_a_complete_quantity_in_statement")
             continue
         number, explicit_unit = parse_quantity(quote)
-        claimed = finite_decimal(binding.get("value"))
         expected = finite_decimal(source.get("value"))
         problems = []
         if (
             number is None
-            or claimed is None
             or expected is None
-            or not number == claimed == expected
+            or not _matches_measurement_display(quote, source)
+            or ("value" in binding and finite_decimal(binding["value"]) != expected)
         ):
             problems.append("value_mismatch")
         if explicit_unit and explicit_unit != source.get("unit"):
             problems.append("quoted_unit_mismatch")
-        for key in dimensions:
-            if key not in binding or binding[key] != source.get(key):
-                problems.append(f"{key}_mismatch")
+        if any(key in binding for key in (*dimensions, "value")):
+            for key in dimensions:
+                if key not in binding or binding[key] != source.get(key):
+                    problems.append(f"{key}_mismatch")
         if source.get("status") != "complete":
             problems.append(f"measurement_{source.get('status', 'unverified')}")
         if problems:
@@ -230,7 +218,14 @@ def validate_quantities(assertion: dict, packet_context: dict) -> dict:
             errors.append("invalid_quantity_occurrence")
             continue
         covered.add(matches[occurrence])
-        verified.append({"quote": quote, **source})
+        verified.append(
+            {
+                **source,
+                "quote": quote,
+                "display_value": str(number),
+                "display_rounding": "half_up" if number != expected else "exact",
+            }
+        )
     if tokens and len(covered) != len(tokens):
         errors.append("unbound_quantity")
     if not bindings:
@@ -241,6 +236,25 @@ def validate_quantities(assertion: dict, packet_context: dict) -> dict:
         "issues": sorted(set(errors)),
         "measurements": verified,
     }
+
+
+def _matches_measurement_display(quote: str, source: dict) -> bool:
+    number, unit = parse_quantity(quote)
+    expected = finite_decimal(source.get("value"))
+    if number is None or expected is None or (unit and unit != source.get("unit")):
+        return False
+    if number == expected:
+        return True
+    match = QUANTITY_RE.fullmatch(quote.strip())
+    try:
+        mantissa = Decimal(match["number"].replace(",", ""))
+        exponent = mantissa.as_tuple().exponent + SCALES.get(
+            (match["scale"] or "").lower(), 0
+        )
+        quantum = Decimal(1).scaleb(exponent)
+        return number == expected.quantize(quantum, rounding=ROUND_HALF_UP)
+    except (DecimalException, ValueError, OverflowError):
+        return False
 
 
 async def portfolio_measurements(
@@ -434,6 +448,7 @@ def financial_quotes(text: str) -> set[str]:
 def audit_numeric_narrative(texts: list[str], assertions: list[dict]) -> dict:
     """A correct assertion list must not launder a different amount in the answer."""
     supported = set()
+    measurements = []
     for assertion in assertions:
         if (
             assertion.get("status") == "corroborated"
@@ -445,14 +460,12 @@ def audit_numeric_narrative(texts: list[str], assertions: list[dict]) -> dict:
             )
         check = assertion.get("quantity_verification") or {}
         if check.get("verified"):
-            supported.update(
-                (finite_decimal(item.get("value")), item.get("unit"))
-                for item in check.get("measurements", [])
-            )
+            measurements.extend(check.get("measurements", []))
     unbound = sorted(
         quote
         for quote in set().union(*(financial_quotes(text) for text in texts))
         if parse_quantity(quote) not in supported
+        and not any(_matches_measurement_display(quote, item) for item in measurements)
     )
     return {
         "status": "verified" if not unbound else "unverified",
