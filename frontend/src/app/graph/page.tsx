@@ -877,7 +877,7 @@ export default function GraphPage() {
       <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900 dark:bg-amber-950/25">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <div className="text-[11px] uppercase tracking-wider text-amber-500 dark:text-amber-300">
+            <div className="text-xs uppercase tracking-wider text-amber-500 dark:text-amber-300">
               Analysis
             </div>
             {graphAskTargetLabel ? (
@@ -887,7 +887,7 @@ export default function GraphPage() {
             ) : null}
           </div>
           {graphAskJob ? (
-            <span className="rounded-none border border-amber-300 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-800 dark:text-amber-300">
+            <span className="rounded-none border border-amber-300 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-800 dark:text-amber-300">
               {graphAskJob.status}
             </span>
           ) : null}
@@ -1101,7 +1101,7 @@ export default function GraphPage() {
                   type="button"
                   onClick={() => setActiveNodeTypes([])}
                   className={[
-                    "rounded-none border px-3 py-1 text-[11px] font-semibold transition-colors",
+                    "rounded-none border px-3 py-1 text-xs font-semibold transition-colors",
                     activeNodeTypes.length === 0
                       ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-300"
                       : "border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:text-slate-300",
@@ -1117,7 +1117,7 @@ export default function GraphPage() {
                       type="button"
                       onClick={() => toggleNodeTypeFilter(type)}
                       className={[
-                        "inline-flex items-center gap-1.5 rounded-none border px-3 py-1 text-[11px] font-semibold transition-colors",
+                        "inline-flex items-center gap-1.5 rounded-none border px-3 py-1 text-xs font-semibold transition-colors",
                         active
                           ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-300"
                           : "border-slate-200 text-slate-500 hover:border-slate-300 dark:border-slate-800 dark:text-slate-400",
@@ -1240,14 +1240,14 @@ export default function GraphPage() {
                         transform: "translate(-50%, calc(-100% - 14px))",
                       }}
                     >
-                      <div className="text-[10px] font-semibold uppercase tracking-wider text-sky-200">
+                      <div className="text-xs font-semibold uppercase tracking-wider text-sky-200">
                         {hoverPreview.eyebrow}
                       </div>
                       <div className="mt-1 break-words text-xs font-semibold leading-snug [overflow-wrap:anywhere]">
                         {hoverPreview.title}
                       </div>
                       {hoverPreview.detail ? (
-                        <div className="mt-1 break-words text-[11px] leading-snug text-slate-300 [overflow-wrap:anywhere]">
+                        <div className="mt-1 break-words text-xs leading-snug text-slate-300 [overflow-wrap:anywhere]">
                           {hoverPreview.detail}
                         </div>
                       ) : null}
@@ -1256,7 +1256,7 @@ export default function GraphPage() {
                   {activeEdge ? (
                     <div className="absolute inset-x-3 bottom-3 z-30 flex min-w-0 items-start justify-between gap-3 rounded-lg border border-white/15 bg-slate-950/92 px-3 py-3 text-white shadow-xl backdrop-blur-md sm:inset-x-auto sm:left-4 sm:max-w-[520px]">
                       <div className="min-w-0">
-                        <p className="text-[10px] font-semibold uppercase text-amber-200">
+                        <p className="text-xs font-semibold uppercase text-amber-200">
                           Connection · {Math.round(activeEdge.confidence * 100)}% confidence
                         </p>
                         <p className="mt-1 break-words text-sm font-semibold leading-5 [overflow-wrap:anywhere]">
@@ -1273,7 +1273,7 @@ export default function GraphPage() {
                             block: "start",
                           }));
                         }}
-                        className="shrink-0 rounded border border-amber-300/50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-100 hover:border-amber-200 hover:text-white"
+                        className="shrink-0 rounded border border-amber-300/50 px-2.5 py-1.5 text-xs font-semibold text-amber-100 hover:border-amber-200 hover:text-white"
                       >
                         Details
                       </button>
@@ -1281,7 +1281,7 @@ export default function GraphPage() {
                   ) : selectedNode && selectedKey !== activeRootKey ? (
                     <div className="absolute inset-x-3 bottom-3 z-30 flex min-w-0 items-start justify-between gap-3 rounded-lg border border-white/15 bg-slate-950/92 px-3 py-3 text-white shadow-xl backdrop-blur-md sm:inset-x-auto sm:left-4 sm:max-w-[420px]">
                       <div className="min-w-0">
-                        <p className="text-[10px] font-semibold uppercase text-sky-200">
+                        <p className="text-xs font-semibold uppercase text-sky-200">
                           {nodeTypeLabel(selectedNode.node_type)} · {layerLabel(selectedNode.layer)}
                         </p>
                         <p className="mt-1 break-words text-sm font-semibold leading-5 [overflow-wrap:anywhere]">
@@ -1303,7 +1303,7 @@ export default function GraphPage() {
                             block: "start",
                           }));
                         }}
-                        className="shrink-0 rounded border border-sky-300/50 px-2.5 py-1.5 text-[11px] font-semibold text-sky-100 hover:border-sky-200 hover:text-white"
+                        className="shrink-0 rounded border border-sky-300/50 px-2.5 py-1.5 text-xs font-semibold text-sky-100 hover:border-sky-200 hover:text-white"
                       >
                         Details
                       </button>
@@ -1340,7 +1340,7 @@ export default function GraphPage() {
               <div className="mt-5 space-y-3">
                 <GraphConnectionSelect edges={displayedEdges} selected={activeEdge} nodes={nodeByKey} edgeKey={graphEdgeIdentity} onSelect={selectGraphEdge} />
                 <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900 dark:bg-amber-950/20">
-                  <div className="text-[11px] uppercase tracking-wider text-amber-500 dark:text-amber-300">
+                  <div className="text-xs uppercase tracking-wider text-amber-500 dark:text-amber-300">
                     {activeEdge.relationship_type.replaceAll("_", " ")}
                   </div>
                   <div className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -1352,13 +1352,13 @@ export default function GraphPage() {
                 </div>
                 <div className="grid grid-cols-1 gap-2">
                   <div className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
-                    <div className="text-[10px] uppercase tracking-wider text-slate-400">Source node</div>
+                    <div className="text-xs uppercase tracking-wider text-slate-400">Source node</div>
                     <div className="mt-0.5 text-xs text-slate-800 dark:text-slate-200">
                       {nodeByKey[activeEdge.source_key]?.label ?? activeEdge.source_key}
                     </div>
                   </div>
                   <div className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
-                    <div className="text-[10px] uppercase tracking-wider text-slate-400">Target node</div>
+                    <div className="text-xs uppercase tracking-wider text-slate-400">Target node</div>
                     <div className="mt-0.5 text-xs text-slate-800 dark:text-slate-200">
                       {nodeByKey[activeEdge.target_key]?.label ?? activeEdge.target_key}
                     </div>
@@ -1406,22 +1406,22 @@ export default function GraphPage() {
               <div className="mt-5 space-y-5">
                 <div className="min-w-0 rounded-lg border border-sky-200 bg-sky-50/70 p-4 dark:border-sky-900 dark:bg-sky-950/30">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-md border border-sky-300 bg-white/60 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-sky-700 dark:border-sky-700 dark:bg-sky-900/50 dark:text-sky-300">
+                    <span className="rounded-md border border-sky-300 bg-white/60 px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-sky-700 dark:border-sky-700 dark:bg-sky-900/50 dark:text-sky-300">
                       {nodeTypeLabel(selectedDetail.node_type)}
                     </span>
                     {selectedDetail.tier ? (
-                      <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-400">
+                      <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-400">
                         {selectedDetail.tier.replaceAll("_", " ")}
                       </span>
                     ) : null}
-                    <span className="rounded-md border border-slate-300 bg-white/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
+                    <span className="rounded-md border border-slate-300 bg-white/40 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
                       {layerLabel(selectedDetail.layer)}
                     </span>
                   </div>
                   <h3 className="mt-3 text-base font-semibold text-slate-900 dark:text-slate-100">{selectedDetail.label}</h3>
                   {selectedDetail.node_type === "fundamental_metric" ? <GraphMetricSummary properties={selectedDetail.properties} /> : selectedDetail.body && selectedDetail.body.trim() !== selectedDetail.label.trim() ? (
                     <div className="mt-3 bg-white px-4 py-3 dark:bg-[#1e1e1e] border-l-4 border-sky-500 rounded-r-lg">
-                      <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-sky-500/80 dark:text-sky-400/80">Evidence summary</div>
+                      <div className="mb-2 text-xs font-bold uppercase tracking-widest text-sky-500/80 dark:text-sky-400/80">Evidence summary</div>
                       <div className="prose prose-xs dark:prose-invert max-w-none prose-sky leading-relaxed break-words">
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm]}
@@ -1444,7 +1444,7 @@ export default function GraphPage() {
                   ) : null}
                   {selectedDetail.properties?.horizon_reasoning ? (
                     <div className="mt-3 bg-amber-50/50 px-4 py-3 dark:bg-amber-950/10 border-l-4 border-amber-400 rounded-r-lg">
-                      <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-amber-600/80 dark:text-amber-400/80">Horizon Awareness</div>
+                      <div className="mb-1 text-xs font-bold uppercase tracking-widest text-amber-600/80 dark:text-amber-400/80">Horizon Awareness</div>
                       <div className="text-xs italic leading-relaxed text-slate-700 dark:text-slate-300">
                         {String(selectedDetail.properties.horizon_reasoning)}
                       </div>
@@ -1455,10 +1455,10 @@ export default function GraphPage() {
                 <details className="border-y border-line py-3">
                   <summary className="cursor-pointer text-sm font-medium">Ask about this record</summary>
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     Guide this analysis
                   </label>
-                  <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                     Write the exact question you want answered about this node.
                   </p>
                   <textarea
@@ -1497,11 +1497,11 @@ export default function GraphPage() {
 	                  <div className="mb-6 mx-4 rounded-lg border border-teal-200 bg-teal-50 p-4 dark:border-teal-900/60 dark:bg-teal-950/25">
 	                    <div className="flex flex-wrap items-center gap-2 mb-2">
                       <div className="h-2 w-2 rounded-full bg-teal-500 dark:bg-teal-400" />
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300">
+                      <span className="text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300">
                         Why This Is In Your Graph
                       </span>
                       {selectedDetail.properties?.portfolio_significance ? (
-                        <span className="rounded-none border border-teal-300 bg-teal-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-teal-700 dark:border-teal-700 dark:bg-teal-900/50 dark:text-teal-200">
+                        <span className="rounded-none border border-teal-300 bg-teal-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-teal-700 dark:border-teal-700 dark:bg-teal-900/50 dark:text-teal-200">
                           {String(selectedDetail.properties.portfolio_significance)}
                         </span>
                       ) : null}
@@ -1511,7 +1511,7 @@ export default function GraphPage() {
 	                    </p>
 	                    {propertyText(selectedDetail.properties?.portfolio_mechanism) && !selectedDetail.relevance_reasoning?.includes(propertyText(selectedDetail.properties?.portfolio_mechanism)!) ? (
 	                      <div className="mt-4 rounded-lg border border-teal-200 bg-white/65 px-3 py-2 dark:border-teal-800/70 dark:bg-teal-950/30">
-	                        <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
+	                        <div className="mb-1 text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
 	                          Portfolio Mechanism
 	                        </div>
 	                        <p className="text-xs leading-relaxed text-teal-950 dark:text-teal-100">
@@ -1521,14 +1521,14 @@ export default function GraphPage() {
 	                    ) : null}
 	                    {propertyList(selectedDetail.properties?.affected_holdings).length > 0 ? (
 	                      <div className="mt-3">
-	                        <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
+	                        <div className="mb-1 text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
 	                          Affected Holdings
 	                        </div>
 	                        <div className="flex flex-wrap gap-2">
 	                          {propertyList(selectedDetail.properties?.affected_holdings).map((holding) => (
 	                            <span
 	                              key={`affected-${holding}`}
-	                              className="rounded-none border border-teal-300 bg-white/70 px-2 py-1 text-[10px] font-semibold tracking-wide text-teal-700 dark:border-teal-400/30 dark:bg-teal-500/10 dark:text-teal-100"
+	                              className="rounded-none border border-teal-300 bg-white/70 px-2 py-1 text-xs font-semibold tracking-wide text-teal-700 dark:border-teal-400/30 dark:bg-teal-500/10 dark:text-teal-100"
 	                            >
 	                              {holding}
 	                            </span>
@@ -1538,7 +1538,7 @@ export default function GraphPage() {
 	                    ) : null}
 	                    {propertyText(selectedDetail.properties?.next_test) && !selectedDetail.relevance_reasoning?.includes(propertyText(selectedDetail.properties?.next_test)!) ? (
 	                      <div className="mt-3 rounded-lg border border-teal-200 bg-white/65 px-3 py-2 dark:border-teal-800/70 dark:bg-teal-950/30">
-	                        <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
+	                        <div className="mb-1 text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
 	                          Next Useful Test
 	                        </div>
 	                        <p className="text-xs leading-relaxed text-teal-950 dark:text-teal-100">
@@ -1549,14 +1549,14 @@ export default function GraphPage() {
 	                    {Array.isArray(selectedDetail.properties?.linked_holdings) &&
 	                    selectedDetail.properties.linked_holdings.length > 0 ? (
 	                      <div className="mt-3">
-                        <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
+                        <div className="mb-1 text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
                           Linked Holdings
                         </div>
                         <div className="flex flex-wrap gap-2">
                           {selectedDetail.properties.linked_holdings.map((holding) => (
                             <span
                               key={`holding-${String(holding)}`}
-                              className="rounded-none border border-sky-300 bg-sky-100 px-2 py-1 text-[10px] font-semibold tracking-wide text-sky-700 dark:border-sky-400/30 dark:bg-sky-500/10 dark:text-sky-200"
+                              className="rounded-none border border-sky-300 bg-sky-100 px-2 py-1 text-xs font-semibold tracking-wide text-sky-700 dark:border-sky-400/30 dark:bg-sky-500/10 dark:text-sky-200"
                             >
                               {String(holding)}
                             </span>
@@ -1566,14 +1566,14 @@ export default function GraphPage() {
                     ) : null}
                     {propertyList(selectedDetail.properties?.linked_companies).filter(company => !propertyList(selectedDetail.properties?.affected_holdings).includes(company) && !propertyList(selectedDetail.properties?.linked_holdings).includes(company)).length > 0 ? (
                       <div className="mt-3">
-                        <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
+                        <div className="mb-1 text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
                           Linked Companies
                         </div>
                         <div className="flex flex-wrap gap-2">
                           {propertyList(selectedDetail.properties.linked_companies).filter(company => !propertyList(selectedDetail.properties?.affected_holdings).includes(company) && !propertyList(selectedDetail.properties?.linked_holdings).includes(company)).map((company) => (
                             <span
                               key={`company-${String(company)}`}
-                              className="rounded-none border border-emerald-300 bg-emerald-100 px-2 py-1 text-[10px] font-semibold tracking-wide text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-200"
+                              className="rounded-none border border-emerald-300 bg-emerald-100 px-2 py-1 text-xs font-semibold tracking-wide text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-200"
                             >
                               {String(company)}
                             </span>
@@ -1590,7 +1590,7 @@ export default function GraphPage() {
                     <div className="mt-2 grid grid-cols-1 gap-1.5">
                       {selectedDetail.relevance !== undefined && (
                         <div className="min-w-0 rounded-lg border border-sky-200 bg-sky-50/30 px-2 py-1.5 dark:border-sky-800/60 dark:bg-sky-950/20">
-                          <div className="text-[10px] text-sky-500 font-bold uppercase tracking-tighter">Match Relevance</div>
+                          <div className="text-xs text-sky-500 font-bold uppercase tracking-tighter">Match Relevance</div>
                           <div className="mt-0.5 flex items-center gap-2">
                             <div className="h-1.5 flex-1 bg-slate-200 dark:bg-slate-800 rounded-none overflow-hidden">
                               <div
@@ -1608,7 +1608,7 @@ export default function GraphPage() {
 	                        .filter(([key]) => !HIDDEN_DETAIL_PROPERTY_KEYS.has(key))
 	                        .map(([key, value]) => (
                         <div key={key} className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 dark:border-slate-800 dark:bg-slate-900">
-                          <div className="text-[10px] text-slate-500">{formatUserLabel(key)}</div>
+                          <div className="text-xs text-slate-500">{formatUserLabel(key)}</div>
                           <div className="mt-0.5"><RecordFields value={value} /></div>
                         </div>
                       ))}
@@ -1618,8 +1618,8 @@ export default function GraphPage() {
 
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
-                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Citations</h4>
-                    <span className="text-[10px] text-slate-400">{visibleCitations.length}{systemCitations.length > 0 ? ` + ${systemCitations.length} internal` : ""}</span>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Citations</h4>
+                    <span className="text-xs text-slate-400">{visibleCitations.length}{systemCitations.length > 0 ? ` + ${systemCitations.length} internal` : ""}</span>
                   </div>
                   {visibleCitations.length === 0 ? (
                     <div className="rounded-lg border border-slate-200 p-3 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
@@ -1632,25 +1632,25 @@ export default function GraphPage() {
                       <div key={citation.raw_evidence_id} className="min-w-0 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                         <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">{citation.source_name}</div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
-                          <span className="rounded-none border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                          <span className="rounded-none border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                             {citation.source_type.replaceAll("_", " ")}
                           </span>
                           {citation.source_item_type ? (
-                            <span className="rounded-none border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                            <span className="rounded-none border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                               {citation.source_item_type.replaceAll("_", " ")}
                             </span>
                           ) : null}
-                          <span className={`rounded-none border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${citationOriginClasses(citation.origin_kind)}`}>
+                          <span className={`rounded-none border px-2 py-0.5 text-xs font-semibold uppercase tracking-wider ${citationOriginClasses(citation.origin_kind)}`}>
                             {citation.origin_label ?? "Source catalog"}
                           </span>
                         </div>
                         {citation.title ? <div className="mt-2 break-words text-xs text-slate-700 dark:text-slate-200">{citation.title}</div> : null}
                         {citation.origin_detail ? (
-                          <div className="mt-2 line-clamp-2 text-[10px] text-slate-500 dark:text-slate-400">
+                          <div className="mt-2 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
                             Origin: {citation.origin_detail}
                           </div>
                         ) : null}
-                        <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-slate-500 dark:text-slate-400">
+                        <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">
                           {citation.author ? <span>Author: {citation.author}</span> : null}
                           <SourceProvenanceLinks
                             evidenceId={citation.raw_evidence_id}
@@ -1669,10 +1669,10 @@ export default function GraphPage() {
                     <div className="rounded-lg border border-dashed border-amber-200 p-3 dark:border-amber-900">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <div className="text-[10px] font-bold uppercase tracking-wider text-amber-500 dark:text-amber-300">
+                          <div className="text-xs font-bold uppercase tracking-wider text-amber-500 dark:text-amber-300">
                             Internal provenance
                           </div>
-                          <div className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                          <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                             These citations come from Prophet operating memory.
                           </div>
                         </div>
@@ -1690,10 +1690,10 @@ export default function GraphPage() {
                             <div key={citation.raw_evidence_id} className="min-w-0 rounded-lg border border-amber-100 bg-amber-50/60 p-4 dark:border-amber-950 dark:bg-amber-950/10">
                               <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{citation.source_name}</div>
                               <div className="mt-2 flex flex-wrap gap-1.5">
-                                <span className="rounded-none border border-amber-200 bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+                                <span className="rounded-none border border-amber-200 bg-white/70 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
                                   {citation.system_reason?.replaceAll("_", " ") ?? "system memory"}
                                 </span>
-                                <span className={`rounded-none border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${citationOriginClasses(citation.origin_kind)}`}>
+                                <span className={`rounded-none border px-2 py-0.5 text-xs font-semibold uppercase tracking-wider ${citationOriginClasses(citation.origin_kind)}`}>
                                   {citation.origin_label ?? "Source catalog"}
                                 </span>
                               </div>
@@ -1759,11 +1759,11 @@ export default function GraphPage() {
                     className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs text-slate-700 hover:border-sky-400 hover:bg-white dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-sky-600 dark:hover:bg-slate-950"
                   >
                     <span className="flex min-w-0 items-start justify-between gap-2">
-                      <span className="shrink-0 text-[9px] font-semibold uppercase text-slate-400">
+                      <span className="shrink-0 text-xs font-semibold uppercase text-slate-400">
                         {item.caption}
                       </span>
                       {item.subtitle ? (
-                        <span className="min-w-0 break-words text-right text-[10px] text-slate-400 [overflow-wrap:anywhere]">
+                        <span className="min-w-0 break-words text-right text-xs text-slate-400 [overflow-wrap:anywhere]">
                           {item.subtitle}
                         </span>
                       ) : null}
@@ -1793,7 +1793,7 @@ export default function GraphPage() {
 function InventoryMetric({ label, value }: { label: string; value: number }) {
   return (
     <div className="min-w-0 border-l-2 border-slate-200 pl-3 dark:border-slate-700">
-      <dt className="text-[11px] text-slate-500 dark:text-slate-400">{label}</dt>
+      <dt className="text-xs text-slate-500 dark:text-slate-400">{label}</dt>
       <dd className="mt-1 text-sm font-semibold text-slate-800 dark:text-slate-100">
         {formatCount(value)}
       </dd>

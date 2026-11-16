@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { apiFetch, ShadowExperiment } from "@/lib/api";
+import DeferredDisclosure from "./DeferredDisclosure";
+import RecordFields from "./RecordFields";
 
 export default function ShadowRunHistory({ experiment, experiments, loadDetails, refresh }: {
   experiment: ShadowExperiment; experiments: ShadowExperiment[];
@@ -40,7 +42,7 @@ export default function ShadowRunHistory({ experiment, experiments, loadDetails,
         <div key={event.id} className="mt-3 border-t border-slate-100 pt-2 dark:border-slate-800">
           <p>{event.event_type.replaceAll("_", " ")} · {new Date(event.created_at).toLocaleString()}</p>
           {typeof event.detail.reason === "string" ? <p className="mt-1 text-slate-500">{event.detail.reason}</p> : null}
-          <details className="mt-1 text-slate-500"><summary className="cursor-pointer">Provenance details</summary><pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all">{JSON.stringify(event.detail, null, 2)}</pre></details>
+          <DeferredDisclosure title="Provenance details" className="mt-1 text-muted"><RecordFields value={event.detail} raw /></DeferredDisclosure>
         </div>
       ))}
       {!experiment.superseded_by_id && experiment.family_id ? (

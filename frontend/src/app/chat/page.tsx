@@ -15,6 +15,8 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import AppNav from "@/components/AppNav";
+import DeferredDisclosure from "@/components/DeferredDisclosure";
+import RecordFields from "@/components/RecordFields";
 import SourceProvenanceLinks from "@/components/SourceProvenanceLinks";
 import ResearchReceipt from "@/components/ResearchReceipt";
 import { AttachmentButton, AttachmentDrafts, AttachmentReceipts, transferredFiles, useChatAttachments } from "@/components/ChatAttachments";
@@ -307,7 +309,7 @@ function CorroborationPanel({ summary }: { summary: StructuredReasoningSummary }
     <div className={`rounded-lg border p-3 ${tone}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-medium uppercase tracking-wider">Evidence confidence</p>
-        <span className="rounded-none border border-current/25 px-2 py-1 text-[10px] font-medium uppercase">
+        <span className="rounded-none border border-current/25 px-2 py-1 text-xs font-medium uppercase">
           {formatUserLabel(assessment.status)}
         </span>
       </div>
@@ -428,7 +430,7 @@ function LiveWatchers() {
             <div className="flex items-center justify-between">
               <span className="font-bold text-sky-600 dark:text-sky-400">{w.ticker}</span>
               <div className="flex items-center gap-1.5">
-                <span className="text-[10px] uppercase text-slate-400 font-bold">
+                <span className="text-xs uppercase text-slate-400 font-bold">
                   {w.condition_type.replaceAll("_", " ")}
                 </span>
                 <button
@@ -444,27 +446,27 @@ function LiveWatchers() {
             </div>
             <p className="mt-1 font-medium">{w.objective}</p>
             {w.adjustment_plan ? (
-              <p className="mt-1 line-clamp-2 text-[11px] text-slate-500 dark:text-slate-400">
+              <p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
                 If it fires: {w.adjustment_plan}
               </p>
             ) : null}
             {!w.evaluation_status && !["price_above", "price_below", "deadline", "reminder"].includes(w.condition_type) ? (
-              <p className="mt-1 text-[10px] text-slate-400">
+              <p className="mt-1 text-xs text-slate-400">
                 Monitoring new source-backed evidence
               </p>
             ) : null}
             {w.evaluation_status === "no_match" && w.last_checked_at ? (
-              <p className="mt-1 text-[10px] text-slate-400" title={w.evaluation_detail ?? undefined}>
+              <p className="mt-1 text-xs text-slate-400" title={w.evaluation_detail ?? undefined}>
                 Last evidence check {formatTimestamp(w.last_checked_at)} · condition not met
               </p>
             ) : null}
             {w.evaluation_status === "deferred" ? (
-              <p className="mt-1 text-[10px] text-amber-600 dark:text-amber-400" title={w.evaluation_error ?? undefined}>
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400" title={w.evaluation_error ?? undefined}>
                 Evidence check deferred · retry scheduled
               </p>
             ) : null}
             {w.deadline && (
-              <p className={`mt-1 text-[10px] font-semibold uppercase tracking-wide ${w.is_overdue ? "text-rose-500" : "text-slate-400"}`}>
+              <p className={`mt-1 text-xs font-semibold uppercase tracking-wide ${w.is_overdue ? "text-rose-500" : "text-slate-400"}`}>
                 {w.is_overdue ? "Overdue" : formatCountdown(w.countdown_seconds)}
                 {" · "}
                 {formatTimestamp(w.deadline)}
@@ -476,7 +478,7 @@ function LiveWatchers() {
           <button
             type="button"
             onClick={() => setShowAll((current) => !current)}
-            className="w-full py-1 text-left text-[11px] font-semibold text-sky-600 hover:text-sky-500 dark:text-sky-400"
+            className="w-full py-1 text-left text-xs font-semibold text-sky-600 hover:text-sky-500 dark:text-sky-400"
           >
             {showAll ? "Show fewer" : `Show ${watchers.length - 12} more`}
           </button>
@@ -512,7 +514,7 @@ function RunningChats({
                 <span className="flex items-center gap-2 font-medium text-foreground">
                   <ActivityIndicator state={chatActivity(job).state} />{chatActivity(job).label}
                 </span>
-                <span className="text-[10px] text-slate-400">{formatTimestamp(job.updated_at)}</span>
+                <span className="text-xs text-slate-400">{formatTimestamp(job.updated_at)}</span>
               </div>
               <p className="mt-1 line-clamp-2 font-medium text-slate-700 dark:text-slate-200">{job.request_message}</p>
             </button>
@@ -1388,7 +1390,7 @@ function ChatWorkspace() {
                         >
                           <div className="flex items-start justify-between gap-2">
                             <p className="truncate text-sm font-medium">{conversation.title}</p>
-                            <span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-400">
+                            <span className="shrink-0 text-xs uppercase tracking-wide text-slate-400">
                               {formatTimestamp(conversation.updated_at)}
                             </span>
                           </div>
@@ -1401,7 +1403,7 @@ function ChatWorkspace() {
                             </p>
                           ) : null}
                           {conversation.artifact_count ? (
-                            <p className="mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                            <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
                               {conversation.artifact_count} system {conversation.artifact_count === 1 ? "note" : "notes"} hidden
                             </p>
                           ) : null}
@@ -1572,9 +1574,9 @@ function ChatWorkspace() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
                 </div>
-                <h2 className="mt-6 text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">Good morning. Focus on what matters.</h2>
+                <h2 className="mt-6 text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">What would you like to investigate?</h2>
                 <p className="mt-4 text-base text-slate-500 dark:text-slate-400">
-                  Prophet intelligently groups your queries to the right context. Probe a specific thesis, ask for research updates, or challenge an assumption.
+                  Ask a question, attach evidence, or open a saved conversation. You can investigate a development, test a thesis, or review what changed.
                 </p>
                 <div className="mt-8 flex flex-wrap justify-center gap-3">
                   <button onClick={() => setInput("What are the core vulnerabilities in our largest tech holding?")} className="rounded-none border border-line bg-panel px-4 py-2 text-sm text-slate-600 hover:border-slate-300  dark:text-slate-300 dark:hover:border-slate-700">What are the core vulnerabilities in our largest tech holding?</button>
@@ -1598,14 +1600,14 @@ function ChatWorkspace() {
                       >
                         {formatTimestamp(m.createdAt) || m.role === "assistant" ? (
                           <div className={`mb-2 flex flex-wrap items-center gap-2 ${m.role === "user" ? "justify-end" : "justify-between"}`}>
-                            <p className="text-[11px] uppercase tracking-wide text-muted">{formatTimestamp(m.createdAt)}</p>
+                            <p className="text-xs uppercase tracking-wide text-muted">{formatTimestamp(m.createdAt)}</p>
                             {m.role === "assistant" ? (
                               <button type="button" className="workspace-control" onClick={() => setFocusedAnswer(m)}><Maximize2 size={14} aria-hidden="true" /> Full screen</button>
                             ) : null}
                           </div>
                         ) : null}
                         {m.isArtifact ? (
-                          <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
                             {formatUserLabel(m.messageKind ?? "system_artifact")}
                           </p>
                         ) : null}
@@ -2128,17 +2130,12 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
             </div>
           ) : null}
         </div>
-        <details className="mt-3 rounded-lg border border-dashed border-slate-200 px-3 py-2 dark:border-slate-800">
-          <summary className="cursor-pointer text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            View structured analysis record
-          </summary>
+        <DeferredDisclosure title="Structured analysis record" className="mt-3 border border-dashed border-line px-3 py-2">
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             Auditable evidence, assumptions, alternatives, scope checks, and actions. This is not a private token-by-token thought stream.
           </p>
-          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-slate-500 dark:text-slate-400">
-            {JSON.stringify(trace.structured_output_json, null, 2)}
-          </pre>
-        </details>
+          <RecordFields value={trace.structured_output_json} raw />
+        </DeferredDisclosure>
       </div>
       {trace.critique ? (
         <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
@@ -2182,11 +2179,11 @@ function EvidenceSourceList({
           <div key={source.raw_evidence_id} className="py-3 first:pt-0 last:pb-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold text-slate-800 dark:text-slate-100">{source.source_name}</span>
-              <span className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-slate-500 dark:border-slate-700 dark:text-slate-400">
+              <span className="rounded border border-slate-200 px-1.5 py-0.5 text-xs uppercase tracking-wider text-slate-500 dark:border-slate-700 dark:text-slate-400">
                 {source.origin_label ?? source.source_type.replaceAll("_", " ")}
               </span>
               {source.evidence_roles.map((role) => (
-                <span key={role} className="text-[10px] font-medium uppercase tracking-wider text-sky-600 dark:text-sky-400">
+                <span key={role} className="text-xs font-medium uppercase tracking-wider text-sky-600 dark:text-sky-400">
                   {role}
                 </span>
               ))}
@@ -2237,7 +2234,7 @@ function ActualProcessSummary({
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
         <span>{fileAnswer ? "File evidence" : "Answer audit"}</span>
         {displayedConfidence ? (
-          <span className="rounded-none border border-slate-200 px-2 py-1 text-[10px] dark:border-slate-700">
+          <span className="rounded-none border border-slate-200 px-2 py-1 text-xs dark:border-slate-700">
             {formatUserLabel(displayedConfidence)}
           </span>
         ) : null}

@@ -34,6 +34,11 @@ test("pattern review separates rejection, source attribution and uncalibrated co
     assert.match(container.textContent!, /Synthetic supply report · Cited/);
     assert.equal(container.querySelector('a[href="javascript:alert(1)"]'), null);
     assert.equal(container.querySelectorAll('a[href^="/sources/evidence/"]').length, 1);
+    assert.doesNotMatch(container.textContent!, /Unsafe source URL/);
+    const otherSignals = [...container.querySelectorAll("details")].find(item => item.querySelector("summary")?.textContent === "Other captured signals · 1")!;
+    await act(async () => { otherSignals.open = true; otherSignals.dispatchEvent(new Event("toggle")); });
+    assert.match(container.textContent!, /Unsafe source URL/);
+    assert.equal(container.querySelector('a[href="javascript:alert(1)"]'), null);
     // Expensive exact packet rendering is deferred until requested.
     assert.equal(container.querySelector("pre"), null);
     const draft = container.querySelector('a[href^="/chat?"]')!;

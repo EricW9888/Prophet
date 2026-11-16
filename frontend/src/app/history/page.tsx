@@ -156,12 +156,12 @@ export default function HistoryPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <a
                   href="#statement-reconcile"
-                  className="inline-flex items-center gap-1.5 rounded-none border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-sky-700 hover:border-sky-300 hover:bg-sky-100 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300 dark:hover:bg-sky-950/50"
+                  className="inline-flex items-center gap-1.5 rounded-none border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-bold uppercase tracking-widest text-sky-700 hover:border-sky-300 hover:bg-sky-100 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300 dark:hover:bg-sky-950/50"
                 >
                   <ClipboardCheck className="h-3 w-3" />
                   Reconcile
                 </a>
-                <span className={`rounded-none border px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${
+                <span className={`rounded-none border px-2.5 py-1 text-xs font-bold uppercase tracking-widest ${
                   gmailHealth.tone === "ok"
                     ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
                     : gmailHealth.tone === "warn"
@@ -179,11 +179,11 @@ export default function HistoryPage() {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-black uppercase">{txn.ticker || "CASH"}</span>
-                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-slate-500 dark:bg-slate-900 dark:text-slate-300">
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-bold uppercase tracking-widest text-slate-500 dark:bg-slate-900 dark:text-slate-300">
                           {txn.action}
                         </span>
                       </div>
-                      <div className="mt-1 truncate text-[11px] text-slate-500 dark:text-slate-400">
+                      <div className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">
                         {txn.entity_name || "Portfolio transaction"}
                       </div>
                     </div>
@@ -193,11 +193,11 @@ export default function HistoryPage() {
                   </div>
                   <div className="mt-3 flex items-end justify-between gap-3">
                     <div className="text-sm text-slate-600 dark:text-slate-300">
-                      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Fill</div>
+                      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Fill</div>
                       {formatQuantity(txn.quantity)} @ {formatPrice(txn.price)}
                     </div>
                     <div className="min-w-0 text-right">
-                      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Source</div>
+                      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Source</div>
                       <div className="truncate text-xs font-bold text-slate-700 dark:text-slate-300">
                         {txn.source_label || "Manual/API"}
                         {txn.source_confidence != null ? ` · ${Math.round(txn.source_confidence * 100)}%` : ""}
@@ -207,12 +207,12 @@ export default function HistoryPage() {
                   {txn.source_evidence_id ? (
                     <Link
                       href={`/sources/evidence/${txn.source_evidence_id}`}
-                      className="mt-3 block rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-2 text-[10px] font-semibold text-slate-500 hover:border-sky-200 hover:text-sky-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 dark:hover:border-sky-900 dark:hover:text-sky-300"
+                      className="mt-3 block rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-2 text-xs font-semibold text-slate-500 hover:border-sky-200 hover:text-sky-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 dark:hover:border-sky-900 dark:hover:text-sky-300"
                     >
                       Evidence receipt {txn.source_evidence_id.slice(0, 8)}
                     </Link>
                   ) : txn.source_label === "Broker email" ? (
-                    <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-2 text-[10px] text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+                    <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-2 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
                       Legacy broker-confirmation note
                     </div>
                   ) : null}
@@ -220,13 +220,13 @@ export default function HistoryPage() {
                     <button
                       type="button"
                       onClick={() => openCorrection(txn)}
-                      className="inline-flex items-center gap-1.5 rounded-none border border-slate-200 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:border-sky-200 hover:text-sky-600 dark:border-slate-800 dark:text-slate-400 dark:hover:border-sky-900 dark:hover:text-sky-300"
+                      className="inline-flex items-center gap-1.5 rounded-none border border-slate-200 px-2.5 py-1 text-xs font-bold uppercase tracking-widest text-slate-500 hover:border-sky-200 hover:text-sky-600 dark:border-slate-800 dark:text-slate-400 dark:hover:border-sky-900 dark:hover:text-sky-300"
                     >
                       <PencilLine className="h-3 w-3" />
                       Correct fill
                     </button>
                     {txn.superseded_by_id ? (
-                      <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-300">
+                      <span className="text-xs font-semibold text-amber-600 dark:text-amber-300">
                         Superseded
                       </span>
                     ) : null}
@@ -234,7 +234,7 @@ export default function HistoryPage() {
                   {correctingTxnId === txn.id && correctionForm ? (
                     <div className="mt-3 rounded-lg border border-sky-100 bg-sky-50/40 p-3 dark:border-sky-950 dark:bg-sky-950/20">
                       <div className="mb-2 flex items-center justify-between gap-2">
-                        <div className="text-[10px] font-bold uppercase tracking-widest text-sky-700 dark:text-sky-300">
+                        <div className="text-xs font-bold uppercase tracking-widest text-sky-700 dark:text-sky-300">
                           Save corrected transaction
                         </div>
                         <button
@@ -251,7 +251,7 @@ export default function HistoryPage() {
                         </button>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
-                        <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                        <label className="text-xs font-bold uppercase tracking-widest text-slate-400">
                           Quantity
                           <input
                             value={correctionForm.quantity}
@@ -261,7 +261,7 @@ export default function HistoryPage() {
                             className="mt-1 w-full rounded-lg border border-line bg-panel px-2 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-sky-400  dark:text-slate-100"
                           />
                         </label>
-                        <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                        <label className="text-xs font-bold uppercase tracking-widest text-slate-400">
                           Price
                           <input
                             value={correctionForm.price}
@@ -271,7 +271,7 @@ export default function HistoryPage() {
                             className="mt-1 w-full rounded-lg border border-line bg-panel px-2 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-sky-400  dark:text-slate-100"
                           />
                         </label>
-                        <label className="col-span-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                        <label className="col-span-2 text-xs font-bold uppercase tracking-widest text-slate-400">
                           Executed
                           <input
                             value={correctionForm.executed_at}
@@ -280,7 +280,7 @@ export default function HistoryPage() {
                             className="mt-1 w-full rounded-lg border border-line bg-panel px-2 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-sky-400  dark:text-slate-100"
                           />
                         </label>
-                        <label className="col-span-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                        <label className="col-span-2 text-xs font-bold uppercase tracking-widest text-slate-400">
                           Reason
                           <input
                             value={correctionForm.reason}
@@ -294,7 +294,7 @@ export default function HistoryPage() {
                         type="button"
                         onClick={() => submitCorrection(txn)}
                         disabled={correctionBusy}
-                        className="mt-3 inline-flex items-center gap-1.5 rounded-none bg-sky-600 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-white hover:bg-sky-700 disabled:opacity-50"
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-none bg-sky-600 px-3 py-1.5 text-xs font-bold uppercase tracking-widest text-white hover:bg-sky-700 disabled:opacity-50"
                       >
                         <PencilLine className="h-3 w-3" />
                         {correctionBusy ? "Saving" : "Save correction"}
@@ -329,7 +329,7 @@ export default function HistoryPage() {
                 Superseded fills stay visible here with their replacement row and reason.
               </p>
             </div>
-            <span className="rounded-none border border-slate-200 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:border-slate-800 dark:text-slate-400">
+            <span className="rounded-none border border-slate-200 px-2.5 py-1 text-xs font-bold uppercase tracking-widest text-slate-500 dark:border-slate-800 dark:text-slate-400">
               {correctionHistory.length} corrections
             </span>
           </div>
@@ -341,11 +341,11 @@ export default function HistoryPage() {
                     <div className="text-sm font-black uppercase text-slate-900 dark:text-slate-100">
                       {item.original.ticker || item.replacement?.ticker || "CASH"}
                     </div>
-                    <div className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">
+                    <div className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">
                       {(item.original.entity_name || item.replacement?.entity_name || "Portfolio transaction")} · {formatLedgerDate(item.corrected_at || item.replacement?.executed_at || item.original.executed_at)}
                     </div>
                   </div>
-                  <span className="rounded-none border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                  <span className="rounded-none border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-bold uppercase tracking-widest text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
                     superseded
                   </span>
                 </div>
@@ -384,7 +384,7 @@ export default function HistoryPage() {
               <div className={`text-3xl font-bold tracking-tighter ${totalRealizedPnl >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
                 {totalRealizedPnl >= 0 ? "+" : ""}${totalRealizedPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
-              <p className="text-[10px] text-slate-500 mt-1 uppercase font-bold tracking-widest">Net outcome across {closedPositions.length} trades</p>
+              <p className="text-xs text-slate-500 mt-1 uppercase font-bold tracking-widest">Net outcome across {closedPositions.length} trades</p>
             </div>
           </div>
 
@@ -412,7 +412,7 @@ export default function HistoryPage() {
               <div className="text-3xl font-bold tracking-tighter">
                 {activeDaysTracked}
               </div>
-              <p className="text-[10px] text-slate-500 mt-1 uppercase font-bold tracking-widest">Total operational span</p>
+              <p className="text-xs text-slate-500 mt-1 uppercase font-bold tracking-widest">Total operational span</p>
             </div>
           </div>
         </div>
@@ -450,7 +450,7 @@ export default function HistoryPage() {
                     key={filter.key}
                     type="button"
                     onClick={() => setLedgerFilter(filter.key as "all" | "active" | "archived")}
-                    className={`rounded-none border px-3 py-1 text-[11px] font-semibold transition-colors ${
+                    className={`rounded-none border px-3 py-1 text-xs font-semibold transition-colors ${
                       ledgerFilter === filter.key
                         ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-300"
                         : "border-slate-300 text-slate-600 hover:border-slate-400 dark:border-slate-700 dark:text-slate-300"
@@ -464,12 +464,12 @@ export default function HistoryPage() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-100 dark:border-slate-800/50">
-                  <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Asset</th>
-                  <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Book state</th>
-                  <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Quantity</th>
-                  <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Avg Cost</th>
-                  <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Value / Outcome</th>
-                  <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Last Activity</th>
+                  <th className="px-5 py-3 text-xs font-bold text-slate-400 uppercase tracking-widest">Asset</th>
+                  <th className="px-5 py-3 text-xs font-bold text-slate-400 uppercase tracking-widest">Book state</th>
+                  <th className="px-5 py-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">Quantity</th>
+                  <th className="px-5 py-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">Avg Cost</th>
+                  <th className="px-5 py-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">Value / Outcome</th>
+                  <th className="px-5 py-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">Last Activity</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-900/50">
@@ -484,11 +484,11 @@ export default function HistoryPage() {
                       <td className="px-5 py-3">
                         <div className="flex flex-col">
                           <span className="text-sm font-bold tracking-tight text-slate-900 dark:text-slate-100">{pos.ticker || "UNKNOWN"}</span>
-                          <span className="text-[10px] text-slate-500 uppercase tracking-tighter mt-0.5">{pos.entity_name}</span>
+                          <span className="text-xs text-slate-500 uppercase tracking-tighter mt-0.5">{pos.entity_name}</span>
                         </div>
                       </td>
                       <td className="px-5 py-3">
-                        <span className={`inline-flex items-center rounded-none px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest ${kind === "live" ? "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300" : "bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>
+                        <span className={`inline-flex items-center rounded-none px-2 py-0.5 text-xs font-bold uppercase tracking-widest ${kind === "live" ? "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300" : "bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>
                           {statusLabel}
                         </span>
                       </td>
@@ -503,7 +503,7 @@ export default function HistoryPage() {
                           <div className="text-sm font-bold font-mono text-slate-900 dark:text-slate-100">
                             {valueLabel == null ? "Unavailable" : `$${valueLabel.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                           </div>
-                          <div className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-none text-[11px] font-bold font-mono transition-transform group-hover:scale-105 ${
+                          <div className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-none text-xs font-bold font-mono transition-transform group-hover:scale-105 ${
                           pnl == null ? "text-muted" : isPositive
                             ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400"
                             : "bg-rose-50 text-rose-600 dark:bg-rose-950/20 dark:text-rose-400"
@@ -514,7 +514,7 @@ export default function HistoryPage() {
                         </div>
                       </td>
                       <td className="px-5 py-3 text-right">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
                           {new Date((pos.updated_at || pos.added_at) as string).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                         </span>
                       </td>
@@ -533,11 +533,11 @@ export default function HistoryPage() {
 function CorrectionTxnMini({ label, txn }: { label: string; txn: Transaction }) {
   return (
     <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950">
-      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</div>
+      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">{label}</div>
       <div className="mt-1 truncate text-xs font-bold text-slate-800 dark:text-slate-200">
         {txn.action.toUpperCase()} {formatQuantity(txn.quantity)}
       </div>
-      <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+      <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
         {formatPrice(txn.price)} · {formatLedgerDate(txn.executed_at)}
       </div>
     </div>

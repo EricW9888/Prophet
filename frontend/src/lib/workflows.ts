@@ -70,8 +70,7 @@ export function selectReviewContext(profiles: ProfileListItem[], queue: ReviewQu
   const entry = readResearchEntry(params);
   const initialSubject = item ? reviewSubject(item) : entry.subject;
   let subject = initialSubject;
-  const profile = initialSubject ? profiles.find(candidate => candidate.subject_id === initialSubject.subject_id && candidate.subject_type === initialSubject.subject_type) ?? null
-    : !itemId && !entry.hasEntry ? profiles[0] ?? null : null;
+  const profile = initialSubject ? profiles.find(candidate => candidate.subject_id === initialSubject.subject_id && candidate.subject_type === initialSubject.subject_type) ?? null : null;
   let notice: string | null = null;
   if ((!item && entry.invalid) || (itemId && !isRecordId(itemId))) {
     return { subject: null, profile: null, question: null, notice: "This review link is invalid. Choose a subject explicitly." };

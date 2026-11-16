@@ -5,6 +5,7 @@ import PortfolioHistoryPanel from "@/components/PortfolioHistoryPanel";
 import DashboardOverview from "@/components/DashboardOverview";
 import PageHeader from "@/components/PageHeader";
 import PositionsTable from "@/components/PositionsTable";
+import DeferredDisclosure from "@/components/DeferredDisclosure";
 
 export default function Home() {
   return (
@@ -13,13 +14,13 @@ export default function Home() {
 
       <main className="workspace-frame space-y-6 py-6">
         <PageHeader title="Portfolio" description="Review what needs attention, then inspect your holdings and tracked positions." />
-        <PortfolioHistoryPanel />
-        <details className="border border-line bg-panel p-4">
-          <summary className="cursor-pointer text-sm font-medium">Recorded valuation history</summary>
-          <div className="mt-3"><CapturedHoldingsPanel /></div>
-        </details>
-        <BrokerEquityPanel />
-        <DashboardOverview>
+        <DashboardOverview history={<>
+          <BrokerEquityPanel />
+          <PortfolioHistoryPanel />
+          <DeferredDisclosure title="Recorded valuation history" className="border border-line bg-panel p-4">
+            <CapturedHoldingsPanel />
+          </DeferredDisclosure>
+        </>}>
           <PositionsTable />
         </DashboardOverview>
       </main>

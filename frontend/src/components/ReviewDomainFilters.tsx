@@ -27,7 +27,7 @@ export default function ReviewDomainFilters({ domain, counts, targetKey }: { dom
   return <nav aria-label="Review purpose" className="mt-4 flex flex-wrap gap-2">
     {([null, "investment", "portfolio_data"] as const).map(value => {
       const params = new URLSearchParams(targetKey);
-      if (value) params.set("domain", value); else params.delete("domain");
+      params.set("domain", value ?? "all");
       const count = value ? counts[value] : counts.investment + counts.portfolio_data;
       return <Link key={value ?? "all"} href={`/verification${params.size ? `?${params}` : ""}`} aria-current={domain === value ? "page" : undefined} className={`rounded border px-3 py-2 text-sm ${domain === value ? "border-action bg-action/10 text-action" : "border-line text-muted"}`}>
         {reviewDomainLabel(value)} · {count}

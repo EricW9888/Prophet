@@ -231,7 +231,7 @@ export default function AppNav({ active }: { active: NavKey }) {
                       key={t(group.label)}
                       className={index === 0 ? "" : "mt-2 border-t border-line pt-2"}
                     >
-                      <p className="px-3 pb-1 pt-1 text-[11px] font-semibold uppercase text-muted">
+                      <p className="px-3 pb-1 pt-1 text-xs font-semibold uppercase text-muted">
                         {t(group.label)}
                       </p>
                       <div className="grid grid-cols-2 gap-1">
@@ -304,7 +304,7 @@ export default function AppNav({ active }: { active: NavKey }) {
             <div className="mt-3 grid gap-3 border-t border-line pt-3 sm:grid-cols-3">
               {secondaryGroups.map((group) => (
                 <div key={t(group.label)}>
-                  <p className="px-3 pb-1 text-[11px] font-semibold uppercase text-muted">
+                  <p className="px-3 pb-1 text-xs font-semibold uppercase text-muted">
                     {t(group.label)}
                   </p>
                   <div className="space-y-1">

@@ -498,7 +498,7 @@ export default function OpportunitiesPage() {
                         <span className="shrink-0 text-sm font-semibold tabular-nums">{Math.round(candidate.priority_score * 100)}</span>
                       </div>
                       <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <span className={`rounded border px-2 py-0.5 text-[11px] font-medium ${statusTone(candidate.status)}`}>
+                        <span className={`rounded border px-2 py-0.5 text-xs font-medium ${statusTone(candidate.status)}`}>
                           {displayValue(candidate.status)}
                         </span>
                         {candidate.signal_stage ? <span className="text-xs text-slate-400">{displayValue(candidate.signal_stage)}</span> : null}
@@ -870,7 +870,7 @@ function OutcomeSection({
       ) : null}
       {observations.length > 1 ? (
         <div className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
-          <p className="text-[10px] font-semibold uppercase text-slate-400">Prior frozen observations</p>
+          <p className="text-xs font-semibold uppercase text-slate-400">Prior frozen observations</p>
           <div className="mt-2 divide-y divide-slate-200 dark:divide-slate-800">
             {observations.slice(1).map((item) => (
               <div key={item.id} className="grid gap-1 py-2 text-xs sm:grid-cols-[1fr_auto_auto] sm:items-center sm:gap-4">
@@ -889,7 +889,7 @@ function OutcomeSection({
 function OutcomeMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-panel-muted px-3 py-3">
-      <p className="text-[10px] font-semibold uppercase text-slate-400">{label}</p>
+      <p className="text-xs font-semibold uppercase text-slate-400">{label}</p>
       <p className="mt-1 text-sm font-semibold tabular-nums">{value}</p>
     </div>
   );

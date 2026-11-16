@@ -14,6 +14,7 @@ import QuestionBacklog from "@/components/QuestionBacklog";
 import ReviewItemActions from "@/components/ReviewItemActions";
 import PortfolioDataReviewNotice from "@/components/PortfolioDataReviewNotice";
 import ValuationCoverage from "@/components/ValuationCoverage";
+import DeferredDisclosure from "@/components/DeferredDisclosure";
 import {
   safeFormatCurrency,
   safeFormatSignedCurrency,
@@ -77,7 +78,7 @@ function SectionTitle({
   );
 }
 
-export default function DashboardOverview({ children }: { children?: ReactNode }) {
+export default function DashboardOverview({ children, history }: { children?: ReactNode; history?: ReactNode }) {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -118,6 +119,7 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
         className="min-h-72"
       />
       <div key="dashboard-body" className="space-y-6">
+        {history ? <div key="portfolio-history" className="space-y-4">{history}</div> : null}
         <div key="portfolio-ledger">{children}</div>
       </div>
       </div>
@@ -136,6 +138,7 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
         className="min-h-72"
       />
       <div key="dashboard-body" className="space-y-6">
+        {history ? <div key="portfolio-history" className="space-y-4">{history}</div> : null}
         <div key="portfolio-ledger">{children}</div>
       </div>
       </div>
@@ -270,10 +273,10 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
           </div>
         </Panel>
 
+        {history ? <div key="portfolio-history" className="space-y-4">{history}</div> : null}
         <div key="portfolio-ledger">{children}</div>
 
-        <details className="min-w-0 rounded-lg border border-line bg-panel p-4 md:p-5">
-          <summary className="cursor-pointer text-sm font-semibold">Research activity and system status · {automationLabel}</summary>
+        <DeferredDisclosure title={`Research activity and system status · ${automationLabel}`} className="border border-line bg-panel p-4 md:p-5">
           <div className="mt-4 space-y-4">
           <Panel className="xl:col-span-1">
           <SectionTitle
@@ -396,17 +399,16 @@ export default function DashboardOverview({ children }: { children?: ReactNode }
           </div>
           </Panel>
           </div>
-        </details>
+        </DeferredDisclosure>
       </div>
 
-      <details className="min-w-0 rounded-lg border border-line bg-panel p-4 md:p-5">
-        <summary className="cursor-pointer text-sm font-semibold">Portfolio receipts, research questions and paper experiments</summary>
+      <DeferredDisclosure title="Portfolio receipts, research questions and paper experiments" className="border border-line bg-panel p-4 md:p-5">
         <div className="mt-4 space-y-4">
           <TransactionCapturePanel transactions={summary.recent_transactions ?? []} jobs={summary.jobs} />
           <QuestionBacklog />
           <ShadowLifecycleSummary counts={summary?.shadow_lifecycle} />
         </div>
-      </details>
+      </DeferredDisclosure>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 md:gap-6 items-start">
         <DisclosurePanel

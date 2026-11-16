@@ -390,7 +390,7 @@ export default function SettingsPage() {
                         <div className="flex items-start justify-between gap-4">
                           <div className="min-w-0">
                             <span className="text-xs font-bold text-slate-900 dark:text-slate-100">{formatJobName(job.name)}</span>
-                            <p className="mt-1 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+                            <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
                               {automationJobDescription(job.name)} {statusView.meaning}
                             </p>
                           </div>
@@ -399,11 +399,11 @@ export default function SettingsPage() {
                           </span>
                         </div>
                         {job.detail ? (
-                          <p className="mt-2 border-l-2 border-slate-200 pl-2 text-[11px] text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                          <p className="mt-2 border-l-2 border-slate-200 pl-2 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
                             {humanizeJobDetail(job.detail)}
                           </p>
                         ) : null}
-                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
+                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
                           <span className="inline-flex items-center gap-1">
                             <Clock className="h-3 w-3" />
                             {formatInterval(job.interval_seconds)}
