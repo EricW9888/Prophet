@@ -100,7 +100,6 @@ EXTRACTION_SCHEMA = {
                 "supported_subjects": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "maxItems": 12,
                 },
             },
             "required": [
@@ -416,15 +415,6 @@ INVESTMENT_OBJECT_SCHEMA = {
     },
     "required": ["fundamental_metrics", "market_setup_signals"],
 }
-
-MAX_FUNDAMENTAL_METRICS = 12
-MAX_MARKET_SETUP_SIGNALS = 8
-EXTRACTION_SCHEMA["properties"]["fundamental_metrics"][
-    "maxItems"
-] = MAX_FUNDAMENTAL_METRICS
-EXTRACTION_SCHEMA["properties"]["market_setup_signals"][
-    "maxItems"
-] = MAX_MARKET_SETUP_SIGNALS
 
 
 class ExtractionWorker:
@@ -1726,16 +1716,15 @@ class ExtractionWorker:
                 supported_subjects=relevance.supported_subjects,
             )
         extracted["relevance_assessment"] = relevance.as_metadata()
-        extracted["relationships"] = extracted.get("relationships", [])
-        extracted["events"] = extracted.get("events", [])[:5]
-        extracted["facts"] = extracted.get("facts", [])[:8]
-        extracted["claims"] = extracted.get("claims", [])[:6]
-        extracted["fundamental_metrics"] = extracted.get("fundamental_metrics", [])[
-            :MAX_FUNDAMENTAL_METRICS
-        ]
-        extracted["market_setup_signals"] = extracted.get("market_setup_signals", [])[
-            :MAX_MARKET_SETUP_SIGNALS
-        ]
+        for field in (
+            "relationships",
+            "events",
+            "facts",
+            "claims",
+            "fundamental_metrics",
+            "market_setup_signals",
+        ):
+            extracted.setdefault(field, [])
         if not relevance.knowledge_eligible:
             extracted["relationships"] = []
             extracted["events"] = []
@@ -1775,19 +1764,13 @@ class ExtractionWorker:
                 + " For this historical reindexing pass, return only fundamental_metrics "
                 "and market_setup_signals supported directly by the supplied evidence. "
                 "Omit an object rather than filling a missing value from general knowledge. "
-                f"Return no more than {MAX_FUNDAMENTAL_METRICS} fundamental metrics and "
-                f"{MAX_MARKET_SETUP_SIGNALS} market-setup signals."
             ),
             user_prompt=f"Evidence title: {title}\n\nEvidence text:\n{truncated}",
             schema=INVESTMENT_OBJECT_SCHEMA,
         )
         return {
-            "fundamental_metrics": extracted.get("fundamental_metrics", [])[
-                :MAX_FUNDAMENTAL_METRICS
-            ],
-            "market_setup_signals": extracted.get("market_setup_signals", [])[
-                :MAX_MARKET_SETUP_SIGNALS
-            ],
+            "fundamental_metrics": extracted.get("fundamental_metrics", []),
+            "market_setup_signals": extracted.get("market_setup_signals", []),
         }
 
     @staticmethod

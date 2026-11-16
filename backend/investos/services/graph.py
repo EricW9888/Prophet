@@ -2141,6 +2141,7 @@ class GraphService:
         one_hop_holdings = one_hop["linked_holdings"]
         one_hop_companies = one_hop["linked_companies"]
         if one_hop_holdings or one_hop_companies or one_hop["reaches_portfolio"]:
+            context_only = not one_hop_holdings and not one_hop_companies
             connected = ", ".join((one_hop_holdings + one_hop_companies)[:4])
             intermediaries = ", ".join(one_hop["intermediary_labels"][:3])
             route_description = (
@@ -2184,10 +2185,20 @@ class GraphService:
                 ],
             )
             return {
-                "category": "connected portfolio context",
+                "category": (
+                    "portfolio-level context"
+                    if context_only
+                    else "connected portfolio context"
+                ),
                 "reason": (
-                    f"This node reaches {destination}{route_description}. "
-                    "The relationship is indirect, so the transmission path should be tested rather than assumed."
+                    f"Stored context attaches this node to the portfolio root{route_description}. "
+                    "That attachment does not establish exposure to a live holding or an economic transmission mechanism. "
+                    "Holding linkage remains unresolved by this bounded check."
+                    if context_only
+                    else (
+                        f"This node reaches {destination}{route_description}. "
+                        "The relationship is indirect, so the transmission path should be tested rather than assumed."
+                    )
                 ),
                 "linked_holdings": one_hop_holdings,
                 "linked_companies": one_hop_companies,
@@ -2197,6 +2208,7 @@ class GraphService:
                 + one_hop["traversed_connection_count"],
                 "nearest_connections": path_phrases[:8],
                 "portfolio_route_depth": 2,
+                **({"portfolio_linkage_status": "unresolved"} if context_only else {}),
                 **mechanism,
             }
         if direct_portfolio_link:

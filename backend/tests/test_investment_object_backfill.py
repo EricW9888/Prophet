@@ -11,12 +11,7 @@ from investos.services.investment_object_backfill import (
     BACKFILL_EXTRACTOR_VERSION,
     InvestmentObjectBackfillService,
 )
-from investos.workers.extraction import (
-    INVESTMENT_OBJECT_SCHEMA,
-    MAX_FUNDAMENTAL_METRICS,
-    MAX_MARKET_SETUP_SIGNALS,
-    ExtractionWorker,
-)
+from investos.workers.extraction import INVESTMENT_OBJECT_SCHEMA, ExtractionWorker
 
 
 def test_backfill_contract_is_narrow_and_versioned():
@@ -29,10 +24,6 @@ def test_backfill_contract_is_narrow_and_versioned():
         "fundamental_metrics",
         "market_setup_signals",
     }
-    assert (
-        INVESTMENT_OBJECT_SCHEMA["properties"]["fundamental_metrics"]["maxItems"]
-        == MAX_FUNDAMENTAL_METRICS
-    )
 
 
 def test_recurring_backfill_window_excludes_completed_and_structured_evidence():
@@ -74,10 +65,6 @@ def test_terminal_skip_checkpoint_is_versioned_and_auditable():
     assert checkpoint["extractor_version"] == BACKFILL_EXTRACTOR_VERSION
     assert checkpoint["status"] == "skipped_unresolved_subject"
     assert checkpoint["completed_at"]
-    assert (
-        INVESTMENT_OBJECT_SCHEMA["properties"]["market_setup_signals"]["maxItems"]
-        == MAX_MARKET_SETUP_SIGNALS
-    )
 
 
 def test_quality_gates_require_evidence_value_relevance_and_next_test():
@@ -144,7 +131,7 @@ async def test_reindex_extraction_reuses_structured_contract_without_other_objec
                     "investment_relevance": "Material to the investment case.",
                     "next_test": "Check the next filing.",
                 }
-                for index in range(MAX_FUNDAMENTAL_METRICS + 2)
+                for index in range(14)
             ],
             "market_setup_signals": [
                 {
@@ -167,7 +154,7 @@ async def test_reindex_extraction_reuses_structured_contract_without_other_objec
                     "investment_relevance": "Changes the hurdle.",
                     "next_test": "Check estimates.",
                 }
-                for index in range(MAX_MARKET_SETUP_SIGNALS + 2)
+                for index in range(10)
             ],
         }
 
@@ -180,8 +167,8 @@ async def test_reindex_extraction_reuses_structured_contract_without_other_objec
     assert captured["schema"] is INVESTMENT_OBJECT_SCHEMA
     assert "return only fundamental_metrics" in captured["system_prompt"]
     assert "Example earnings" in captured["user_prompt"]
-    assert len(result["fundamental_metrics"]) == MAX_FUNDAMENTAL_METRICS
-    assert len(result["market_setup_signals"]) == MAX_MARKET_SETUP_SIGNALS
+    assert len(result["fundamental_metrics"]) == 14
+    assert len(result["market_setup_signals"]) == 10
     assert set(result) == {"fundamental_metrics", "market_setup_signals"}
 
 
