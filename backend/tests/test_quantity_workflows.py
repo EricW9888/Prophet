@@ -236,6 +236,91 @@ async def test_strategist_does_not_seed_research_with_invalid_account_quantities
     assert research.await_count == (0 if bad else 1)
 
 
+async def test_late_unsupported_assertion_survives_generation_and_blocks_persisted_view(
+    question_session, monkeypatch
+):
+    import fastjsonschema
+
+    import investos.services.reasoning as module
+    from investos.core.provider_health import ProviderHealthStore
+
+    measured = sample()
+    subject = uuid4()
+    packet = EvidencePacket(
+        query_text="Review all material facts",
+        subject_type="portfolio",
+        subject_id=subject,
+        portfolio_context_json={"quantity_measurements": [measured]},
+        direct_evidence_ids=[],
+        connected_evidence_ids=[],
+        historical_evidence_ids=[],
+        contradiction_evidence_ids=[],
+        lesson_ids=[],
+    )
+    question_session.add(packet)
+    await question_session.flush()
+    result = _result([])
+    result.update(
+        reasoning="Recorded value is $10,000.",
+        thesis_summary="Recorded value is $10,000.",
+    )
+    valid = {
+        **result["material_assertions"][0],
+        "statement": "Recorded value is $10,000.",
+        "evidence_basis": "portfolio_ledger",
+        "quantity_bindings": [
+            {
+                "measurement_ref": measured["measurement_ref"],
+                "quote": "$10,000",
+                "occurrence": 0,
+            }
+        ],
+    }
+    result["material_assertions"] = [deepcopy(valid) for _ in range(5)] + [
+        {
+            **valid,
+            "statement": "An additional regulatory approval has occurred.",
+            "evidence_basis": "retrieved_source",
+            "quantity_bindings": [],
+        }
+    ]
+    fastjsonschema.compile(
+        module.REASONING_SCHEMA["properties"]["material_assertions"]
+    )(result["material_assertions"])
+    context = {
+        "quantity_measurements": [measured],
+        "portfolio_context": {},
+        "subject_type": "portfolio",
+        "direct_evidence": [],
+        "connected_evidence": [],
+    }
+    monkeypatch.setattr(
+        RetrievalService, "hydrate_packet", AsyncMock(return_value=context)
+    )
+    monkeypatch.setattr(
+        ReasoningService, "_active_provider_unconfigured_label", lambda self: None
+    )
+    monkeypatch.setattr(
+        ReasoningService, "_find_cached_run", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        ReasoningService, "_is_thin_packet", lambda self, context: False
+    )
+    monkeypatch.setattr(ProviderHealthStore, "require_available", lambda **kwargs: None)
+    monkeypatch.setattr(module, "call_llm_json", AsyncMock(return_value=result))
+    run, assessed = await ReasoningService(question_session).run_analysis(
+        packet.id, include_critique=False
+    )
+    await question_session.flush()
+    assert len(run.structured_output_json["material_assertions"]) == 6
+    assert assessed["corroboration"]["assertions"][-1]["status"] == "unsupported"
+    assert not assessed["corroboration"]["can_promote"]
+    state = await question_session.scalar(
+        select(ConclusionState).where(ConclusionState.subject_id == subject)
+    )
+    assert state.current_stance == "no_view" and not state.current_thesis_summary
+
+
 async def test_thin_and_recovery_prompts_retain_measurement_catalog(monkeypatch):
     import investos.services.reasoning as module
 

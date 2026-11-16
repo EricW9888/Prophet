@@ -648,7 +648,7 @@ class AgentService:
             return []
         if AgentService._has_invalid_account_quantities(reasoning_result):
             return []
-        return list(reasoning_result.get("active_watchers") or [])
+        return list(reasoning_result.get("active_watchers") or [])[:2]
 
     @staticmethod
     def _has_invalid_account_quantities(result: dict) -> bool:
@@ -2181,7 +2181,7 @@ class AgentService:
                 schema=REASONING_SCHEMA,
                 timeout_seconds=25,
             )
-            refined = ReasoningService(self.session)._bounded_reasoning_result(refined)
+            refined = ReasoningService(self.session)._prepare_reasoning_result(refined)
             if initial_result.get("source_feedback_influence"):
                 refined["source_feedback_influence"] = initial_result[
                     "source_feedback_influence"

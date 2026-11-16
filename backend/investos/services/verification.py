@@ -56,12 +56,10 @@ VERIFICATION_SCHEMA = {
         "material_assertions": {
             "type": "array",
             "items": MATERIAL_ASSERTION_SCHEMA,
-            "maxItems": 5,
         },
         "assumptions": {
             "type": "array",
             "items": ASSUMPTION_SCHEMA,
-            "maxItems": 5,
         },
     },
     "required": [
