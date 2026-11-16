@@ -29,6 +29,7 @@ from investos.services.operating_state import OperatingStateService
 from investos.services.portfolio_peers import PortfolioPeerContextService
 from investos.services.quantity_evidence import ledger_holdings, portfolio_measurements
 from investos.services.risk import RiskService
+from investos.services.source_passages import SourcePassageService
 
 
 class RetrievalService:
@@ -857,6 +858,7 @@ class RetrievalService:
                 event_source_item_ids.setdefault(event_id, []).append(source_item_id)
                 source_item_ids.add(source_item_id)
         source_contexts: dict[UUID, dict] = {}
+        source_items: dict[UUID, SourceItem] = {}
         if source_item_ids:
             source_rows = (
                 await self.session.execute(
@@ -866,6 +868,7 @@ class RetrievalService:
                     .where(SourceItem.id.in_(source_item_ids))
                 )
             ).all()
+            source_items = {item.id: item for item, _evidence, _source in source_rows}
             source_ids = {source.id for _source_item, _evidence, source in source_rows}
             quality_segments: dict[UUID, SourceQualitySegment] = {}
             trust_profiles: dict[UUID, SourceTrustProfile] = {}
@@ -977,6 +980,7 @@ class RetrievalService:
                         "sources": event_sources,
                     }
                 )
+        await SourcePassageService(self.session).attach(nodes, items=source_items)
         return nodes
 
     @staticmethod

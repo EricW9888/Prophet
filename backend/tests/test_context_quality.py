@@ -33,6 +33,9 @@ class _GraphDetailProbe(GraphService):
     def __init__(self):
         pass
 
+    async def _source_passage_for_node(self, *args):
+        return None
+
     async def _load_node(self, node_type, node_id):
         return SimpleNamespace(
             id=node_id,

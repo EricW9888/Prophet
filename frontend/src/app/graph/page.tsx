@@ -19,6 +19,7 @@ import AppNav from "@/components/AppNav";
 import WorkspaceDivider, { useWorkspacePane } from "@/components/WorkspaceDivider";
 import WorkspaceState from "@/components/WorkspaceState";
 import SourceProvenanceLinks from "@/components/SourceProvenanceLinks";
+import SourcePassage from "@/components/SourcePassage";
 import {
   apiFetch,
   AgentTurn,
@@ -1410,9 +1411,9 @@ export default function GraphPage() {
                     <span className="rounded-md border border-sky-300 bg-white/60 px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-sky-700 dark:border-sky-700 dark:bg-sky-900/50 dark:text-sky-300">
                       {nodeTypeLabel(selectedDetail.node_type)}
                     </span>
-                    {selectedDetail.tier ? (
+                    {selectedDetail.tier || ["fact", "claim"].includes(selectedDetail.node_type) ? (
                       <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-400">
-                        {selectedDetail.tier.replaceAll("_", " ")}
+                        {["fact", "claim"].includes(selectedDetail.node_type) && selectedDetail.properties.is_verified !== true ? "Unverified" : selectedDetail.tier?.replaceAll("_", " ")}
                       </span>
                     ) : null}
                     <span className="rounded-md border border-slate-300 bg-white/40 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
@@ -1602,6 +1603,7 @@ export default function GraphPage() {
                   </details>
                 ) : null}
 
+                <SourcePassage passage={selectedDetail.source_passage} />
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Citations</h4>

@@ -24,6 +24,7 @@ def extraction_payload(subject):
         "event_time_raw": None,
         "target_horizon": "strategic",
         "horizon_reasoning": "Source observation",
+        "supporting_quote": None,
     }
     observation = {
         **common,
