@@ -2177,6 +2177,44 @@ def test_graph_portfolio_mechanism_does_not_invent_debt_channel_from_keywords():
     assert "refinancing risk" not in mechanism
 
 
+def test_graph_keeps_proposed_economic_effect_explicitly_unverified():
+    result = GraphService._portfolio_channel_from_text(
+        "Synthetic policy actor",
+        ["EXMPL"],
+        context_texts=[
+            "Proposed mechanism: The proposed restriction could delay shipments. "
+            "Next test: Check enactment and the actual shipment data."
+        ],
+    )
+    assert result["mechanism_status"] == "unverified_hypothesis"
+    assert "unverified" in result["mechanism"].lower()
+    assert "could delay shipments" in result["mechanism"]
+    assert "Stored evidence links" not in result["mechanism"]
+    assert "enactment" in result["next_test"]
+
+
+def test_portfolio_root_association_does_not_invent_specific_affected_holdings():
+    result = GraphService(None)._infer_portfolio_mechanism(
+        node_label="Synthetic institution",
+        node_type="entity",
+        linked_holdings=[],
+        linked_companies=[],
+        direct_portfolio_link=True,
+        context_texts=["Investment relevance: A conditional policy scenario."],
+    )
+    assert not result.get("affected_holdings")
+    assert "Largest holding" not in str(result)
+    assert "EXMPL" not in str(result)
+
+
+def test_graph_association_is_not_labeled_as_established_impact():
+    result = GraphService._portfolio_channel_from_text(
+        "Synthetic institution", ["EXMPL"]
+    )
+    assert result["mechanism_status"] == "not_established"
+    assert "makes this node relevant" not in result["mechanism"]
+
+
 def test_retrieval_terms_handle_slashes_and_hyphens_without_regex_crash():
     terms = RetrievalService._meaningful_terms(
         "high bandwidth flash HBM3E/NAND cost-down"

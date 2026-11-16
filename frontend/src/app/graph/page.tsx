@@ -55,6 +55,7 @@ const HIDDEN_DETAIL_PROPERTY_KEYS = new Set([
   "linked_holdings",
   "linked_companies",
   "portfolio_mechanism",
+  "portfolio_mechanism_status",
   "affected_holdings",
   "next_test",
 ]);
@@ -1492,13 +1493,12 @@ export default function GraphPage() {
                 </details>
                 {graphAskContext === "node" ? graphAskPanel : null}
 
-	                {/* Portfolio Significance Section */}
 	                {selectedDetail.relevance_reasoning && (
 	                  <div className="mb-6 mx-4 rounded-lg border border-teal-200 bg-teal-50 p-4 dark:border-teal-900/60 dark:bg-teal-950/25">
 	                    <div className="flex flex-wrap items-center gap-2 mb-2">
                       <div className="h-2 w-2 rounded-full bg-teal-500 dark:bg-teal-400" />
                       <span className="text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300">
-                        Why This Is In Your Graph
+                        Portfolio context
                       </span>
                       {selectedDetail.properties?.portfolio_significance ? (
                         <span className="rounded-none border border-teal-300 bg-teal-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-teal-700 dark:border-teal-700 dark:bg-teal-900/50 dark:text-teal-200">
@@ -1506,34 +1506,20 @@ export default function GraphPage() {
                         </span>
                       ) : null}
                     </div>
+                      {selectedDetail.properties?.portfolio_mechanism_status ? <p className="mb-2 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                        {selectedDetail.properties.portfolio_mechanism_status === "unverified_hypothesis" ? "Economic hypothesis · unverified" : "Economic effect not established"}
+                      </p> : null}
 	                    <p className="text-sm leading-relaxed text-teal-950 dark:text-teal-100">
 	                      {selectedDetail.relevance_reasoning}
 	                    </p>
 	                    {propertyText(selectedDetail.properties?.portfolio_mechanism) && !selectedDetail.relevance_reasoning?.includes(propertyText(selectedDetail.properties?.portfolio_mechanism)!) ? (
 	                      <div className="mt-4 rounded-lg border border-teal-200 bg-white/65 px-3 py-2 dark:border-teal-800/70 dark:bg-teal-950/30">
 	                        <div className="mb-1 text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
-	                          Portfolio Mechanism
+	                          Stored hypothesis
 	                        </div>
 	                        <p className="text-xs leading-relaxed text-teal-950 dark:text-teal-100">
 	                          {propertyText(selectedDetail.properties?.portfolio_mechanism)}
 	                        </p>
-	                      </div>
-	                    ) : null}
-	                    {propertyList(selectedDetail.properties?.affected_holdings).length > 0 ? (
-	                      <div className="mt-3">
-	                        <div className="mb-1 text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
-	                          Affected Holdings
-	                        </div>
-	                        <div className="flex flex-wrap gap-2">
-	                          {propertyList(selectedDetail.properties?.affected_holdings).map((holding) => (
-	                            <span
-	                              key={`affected-${holding}`}
-	                              className="rounded-none border border-teal-300 bg-white/70 px-2 py-1 text-xs font-semibold tracking-wide text-teal-700 dark:border-teal-400/30 dark:bg-teal-500/10 dark:text-teal-100"
-	                            >
-	                              {holding}
-	                            </span>
-	                          ))}
-	                        </div>
 	                      </div>
 	                    ) : null}
 	                    {propertyText(selectedDetail.properties?.next_test) && !selectedDetail.relevance_reasoning?.includes(propertyText(selectedDetail.properties?.next_test)!) ? (
@@ -1564,13 +1550,13 @@ export default function GraphPage() {
                         </div>
                       </div>
                     ) : null}
-                    {propertyList(selectedDetail.properties?.linked_companies).filter(company => !propertyList(selectedDetail.properties?.affected_holdings).includes(company) && !propertyList(selectedDetail.properties?.linked_holdings).includes(company)).length > 0 ? (
+                    {propertyList(selectedDetail.properties?.linked_companies).filter(company => !propertyList(selectedDetail.properties?.linked_holdings).includes(company)).length > 0 ? (
                       <div className="mt-3">
                         <div className="mb-1 text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
                           Linked Companies
                         </div>
                         <div className="flex flex-wrap gap-2">
-                          {propertyList(selectedDetail.properties.linked_companies).filter(company => !propertyList(selectedDetail.properties?.affected_holdings).includes(company) && !propertyList(selectedDetail.properties?.linked_holdings).includes(company)).map((company) => (
+                          {propertyList(selectedDetail.properties.linked_companies).filter(company => !propertyList(selectedDetail.properties?.linked_holdings).includes(company)).map((company) => (
                             <span
                               key={`company-${String(company)}`}
                               className="rounded-none border border-emerald-300 bg-emerald-100 px-2 py-1 text-xs font-semibold tracking-wide text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-200"
