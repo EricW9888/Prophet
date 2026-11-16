@@ -1773,8 +1773,10 @@ class GraphService:
                 properties["linked_companies"] = linked_companies
             if attachment.get("portfolio_mechanism"):
                 properties["portfolio_mechanism"] = attachment["portfolio_mechanism"]
-            if attachment.get("affected_holdings"):
-                properties["affected_holdings"] = attachment["affected_holdings"]
+            if attachment.get("portfolio_mechanism_status"):
+                properties["portfolio_mechanism_status"] = attachment[
+                    "portfolio_mechanism_status"
+                ]
             if attachment.get("next_test"):
                 properties["next_test"] = attachment["next_test"]
             if attachment.get("direct_portfolio_link"):
@@ -1844,14 +1846,13 @@ class GraphService:
         connections: list[GraphConnectionResponse] | None = None,
         citations: list[GraphCitationResponse] | None = None,
     ) -> str | None:
-        """Explain why the node matters to the portfolio, not just that it exists."""
+        """Describe stored portfolio context without asserting an economic effect."""
         if node_type == "portfolio":
-            return "This is the live portfolio root. Everything else is judged by how it affects or informs this book."
+            return "This is the portfolio view of stored knowledge. Other subjects can be researched independently of this book."
 
         reason = str(attachment.get("reason") or "").strip()
         linked_holdings = attachment.get("linked_holdings") or []
         linked_companies = attachment.get("linked_companies") or []
-        affected_holdings = attachment.get("affected_holdings") or []
         mechanism = str(attachment.get("portfolio_mechanism") or "").strip()
         next_test = str(attachment.get("next_test") or "").strip()
         connection_phrases = self._connection_phrases(connections or [])
@@ -1864,11 +1865,9 @@ class GraphService:
         )
 
         if mechanism:
-            affected = ", ".join([str(item) for item in affected_holdings[:4]])
-            prefix = f"This matters through {affected}: " if affected else ""
             if next_test:
-                return f"{prefix}{mechanism} Next useful test: {next_test}"
-            return f"{prefix}{mechanism}"
+                return f"{mechanism} Next useful test: {next_test}"
+            return mechanism
         if reason:
             return reason
         if linked_holdings or linked_companies:
@@ -1921,9 +1920,7 @@ class GraphService:
         mechanism = str(attachment.get("portfolio_mechanism") or "").strip()
         next_test = str(attachment.get("next_test") or "").strip()
         if mechanism:
-            summary = (
-                f"{label} has thin stored coverage. Current impact route: {mechanism}"
-            )
+            summary = f"{label} has thin stored coverage. Stored context: {mechanism}"
             if next_test:
                 summary += f" Next research step: {next_test}"
             return summary
@@ -1986,12 +1983,11 @@ class GraphService:
                     Security.entity_id,
                     Security.ticker,
                     Entity.name,
-                    Position.market_value,
                 )
                 .join(Security, Security.id == Position.security_id)
                 .join(Entity, Entity.id == Security.entity_id)
                 .where(Position.list_type == "holding", Position.quantity > 0)
-                .order_by(desc(Position.market_value))
+                .order_by(Security.ticker, Position.id)
             )
         ).all()
         tracked_position_ids = {row[0] for row in tracked_rows}
@@ -2002,17 +1998,6 @@ class GraphService:
         tracked_entity_labels = {
             row[1]: (row[2] or row[3] or "Company") for row in tracked_rows
         }
-        all_holdings = [
-            {
-                "position_id": row[0],
-                "entity_id": row[1],
-                "ticker": row[2] or "",
-                "name": row[3] or "",
-                "label": row[2] or row[3] or "Holding",
-                "market_value": float(row[4] or 0.0),
-            }
-            for row in tracked_rows
-        ]
 
         if node_type == "portfolio":
             return {
@@ -2043,7 +2028,6 @@ class GraphService:
                     node_type=node_type,
                     linked_holdings=[label],
                     linked_companies=[],
-                    all_holdings=all_holdings,
                     direct_portfolio_link=True,
                     context_texts=context_texts,
                 )
@@ -2071,7 +2055,6 @@ class GraphService:
                 node_type=node_type,
                 linked_holdings=[],
                 linked_companies=[label],
-                all_holdings=all_holdings,
                 direct_portfolio_link=True,
                 context_texts=context_texts,
             )
@@ -2127,7 +2110,6 @@ class GraphService:
                 node_type=node_type,
                 linked_holdings=linked_holdings,
                 linked_companies=linked_companies,
-                all_holdings=all_holdings,
                 direct_portfolio_link=direct_portfolio_link,
                 context_texts=[
                     self._node_body(node_type, node) or "",
@@ -2136,7 +2118,7 @@ class GraphService:
             )
             return {
                 "category": "direct portfolio context",
-                "reason": f"This node matters because it connects directly to tracked portfolio names: {connected}.",
+                "reason": f"Stored connections to tracked portfolio names: {connected}.",
                 "linked_holdings": linked_holdings,
                 "linked_companies": linked_companies,
                 "direct_portfolio_link": direct_portfolio_link,
@@ -2194,7 +2176,6 @@ class GraphService:
                 node_type=node_type,
                 linked_holdings=one_hop_holdings,
                 linked_companies=one_hop_companies,
-                all_holdings=all_holdings,
                 direct_portfolio_link=False,
                 context_texts=[
                     *intermediary_contexts,
@@ -2224,7 +2205,6 @@ class GraphService:
                 node_type=node_type,
                 linked_holdings=[],
                 linked_companies=[],
-                all_holdings=all_holdings,
                 direct_portfolio_link=True,
                 context_texts=[
                     self._node_body(node_type, node) or "",
@@ -2456,14 +2436,9 @@ class GraphService:
         node_type: str,
         linked_holdings: list[str],
         linked_companies: list[str],
-        all_holdings: list[dict[str, object]],
         direct_portfolio_link: bool,
         context_texts: list[str] | None = None,
     ) -> dict[str, object]:
-        top_holdings = [
-            str(item.get("label") or item.get("ticker") or "")
-            for item in all_holdings[:4]
-        ]
         explicit_links = [
             str(item)
             for item in [*linked_holdings, *linked_companies]
@@ -2479,17 +2454,17 @@ class GraphService:
             )
             return {
                 "portfolio_mechanism": channel["mechanism"],
-                "affected_holdings": explicit_links,
+                "portfolio_mechanism_status": channel["mechanism_status"],
                 "next_test": channel["next_test"],
             }
 
         if direct_portfolio_link:
             channel = self._portfolio_channel_from_text(
-                node_label, top_holdings, context_texts=context_texts
+                node_label, [], context_texts=context_texts
             )
             return {
                 "portfolio_mechanism": channel["mechanism"],
-                "affected_holdings": top_holdings,
+                "portfolio_mechanism_status": channel["mechanism_status"],
                 "next_test": channel["next_test"],
             }
 
@@ -2547,24 +2522,26 @@ class GraphService:
         )
         if mechanism:
             mechanism_text = (
-                f"Stored evidence links this node to {target_text}: {mechanism}"
+                f"Unverified economic hypothesis for {target_text}: {mechanism}"
             )
             return {
+                "mechanism_status": "unverified_hypothesis",
                 "portfolio_mechanism": mechanism_text,
                 "mechanism": mechanism_text,
                 "next_test": next_test
-                or "Attach a source-backed falsifier and measurable outcome to this stored transmission route.",
+                or "Check the premise, timing, source support and counterevidence before treating this hypothesis as an investment effect.",
             }
 
         relationship_context = "; ".join(normalized_contexts[:3])
         if relationship_context:
             return {
+                "mechanism_status": "not_established",
                 "portfolio_mechanism": (
-                    f"Stored graph evidence links this node to {target_text} through: {relationship_context}. "
+                    f"Stored relationship context for {target_text}: {relationship_context}. "
                     "The precise economic channel is not explicit enough yet to treat as thesis evidence."
                 ),
                 "mechanism": (
-                    f"Stored graph evidence links this node to {target_text} through: {relationship_context}. "
+                    f"Stored relationship context for {target_text}: {relationship_context}. "
                     "The precise economic channel is not explicit enough yet to treat as thesis evidence."
                 ),
                 "next_test": (
@@ -2572,12 +2549,13 @@ class GraphService:
                 ),
             }
         return {
+            "mechanism_status": "not_established",
             "portfolio_mechanism": (
-                f"The stored relationship makes this node relevant to {target_text}, but the exact driver is not yet explicit. "
+                f"A stored connection to {target_text} is present, but the exact driver is not yet explicit. "
                 "Treat it as a prompt for channel discovery, not as thesis evidence."
             ),
             "mechanism": (
-                f"The stored relationship makes this node relevant to {target_text}, but the exact driver is not yet explicit. "
+                f"A stored connection to {target_text} is present, but the exact driver is not yet explicit. "
                 "Treat it as a prompt for channel discovery, not as thesis evidence."
             ),
             "next_test": (

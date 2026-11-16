@@ -26,6 +26,81 @@ from investos.services.graph import (
     GraphService,
     _NeighborhoodReads,
 )
+from tests.test_investor_workflows import workflow_session
+
+
+@pytest.mark.parametrize("target_type", ["portfolio", "position"])
+async def test_inspector_api_preserves_hypothesis_status_and_exact_links(
+    workflow_session, target_type
+):
+    session = workflow_session
+    proposal = (
+        "Proposed mechanism: A proposed restriction could delay shipments. "
+        "Next test: Check enactment and actual shipments."
+    )
+    actor = Entity(
+        name=f"Synthetic policy actor {uuid4()}",
+        entity_type="person",
+        description=proposal,
+    )
+    issuer = Entity(name=f"Synthetic issuer {uuid4()}", entity_type="company")
+    session.add_all([actor, issuer])
+    await session.flush()
+    ticker = f"B{uuid4().hex[:8]}"
+    security = Security(
+        entity_id=issuer.id,
+        ticker=ticker,
+        asset_class="equity",
+        instrument_type="common_stock",
+    )
+    session.add(security)
+    await session.flush()
+    position = Position(
+        security_id=security.id,
+        direction="long",
+        list_type="holding",
+        quantity=1,
+        market_value=1000000,
+    )
+    session.add(position)
+    await session.flush()
+    session.add(
+        Edge(
+            source_type="entity",
+            source_id=actor.id,
+            target_type=target_type,
+            target_id=(
+                position.id if target_type == "position" else SYNTHETIC_PORTFOLIO_ID
+            ),
+            relationship_type="contextualizes",
+        )
+    )
+    await session.flush()
+
+    async def use_test_session():
+        yield session
+
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_session] = use_test_session
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(f"/graph/nodes/entity/{actor.id}")
+        response.raise_for_status()
+    detail = response.json()
+    assert detail["properties"]["portfolio_mechanism_status"] == "unverified_hypothesis"
+    assert "unverified" in detail["relevance_reasoning"].lower()
+    assert "could delay shipments" in detail["relevance_reasoning"]
+    assert "This matters through" not in detail["relevance_reasoning"]
+    assert "affected_holdings" not in detail["properties"]
+    if target_type == "portfolio":
+        assert ticker not in detail["relevance_reasoning"]
+        assert not detail["properties"].get("linked_holdings")
+    else:
+        assert detail["properties"]["linked_holdings"] == [ticker]
+    await session.refresh(actor)
+    assert actor.description == proposal
 
 
 @pytest.mark.asyncio(loop_scope="session")
