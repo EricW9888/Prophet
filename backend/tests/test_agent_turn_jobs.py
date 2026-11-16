@@ -60,7 +60,8 @@ def quota_error(status=429):
 
 
 @pytest.mark.parametrize(
-    "failure_stage", ["scope", "analysis", "independent_review", "answer_coverage"]
+    "failure_stage",
+    ["scope", "research_planning", "analysis", "independent_review", "answer_coverage"],
 )
 async def test_text_analysis_resumes_frozen_stages_after_restart_without_repeating_research(
     workflow_session,
@@ -114,7 +115,13 @@ async def test_text_analysis_resumes_frozen_stages_after_restart_without_repeati
         return_value=analysis_result,
     )
     monkeypatch.setattr(AgentService, "_classify_turn_intent", intent)
-    monkeypatch.setattr(AgentService, "_plan_question_research", plan)
+    if failure_stage == "research_planning":
+        plan.side_effect = [quota_error(), plan.return_value]
+        monkeypatch.setattr(
+            "investos.services.agent.call_llm_json", guarded_provider_call(plan)
+        )
+    else:
+        monkeypatch.setattr(AgentService, "_plan_question_research", plan)
     monkeypatch.setattr(AgentService, "_maybe_fresh_research_context", fresh)
     monkeypatch.setattr(
         ReasoningService, "_reason_with_llm", guarded_provider_call(analysis)
@@ -208,7 +215,7 @@ async def test_text_analysis_resumes_frozen_stages_after_restart_without_repeati
     stages = record.request_context["turn_state"]["stages"]
     assert "intent" in stages
     snapshot = stages.get("evidence", {}).get("value")
-    if failure_stage != "scope":
+    if failure_stage not in {"scope", "research_planning"}:
         assert {"context", "evidence", "fresh_research"} <= stages.keys()
         # Evidence arriving while a request waits must not replace its captured
         # input. Recovery must not hydrate the live graph again.
@@ -239,7 +246,8 @@ async def test_text_analysis_resumes_frozen_stages_after_restart_without_repeati
     assert recovered.status == "completed", recovered.error
     assert await guarded_provider_call(background_model)() == {"completed": True}
     assert background_model.await_count == 1
-    assert intent.await_count == plan.await_count == fresh.await_count == 1
+    assert intent.await_count == fresh.await_count == 1
+    assert plan.await_count == (2 if failure_stage == "research_planning" else 1)
     assert analysis.await_count == (2 if failure_stage == "analysis" else 1)
     assert scope_calls == (2 if failure_stage == "scope" else 1)
     assert attempts == (2 if failure_stage == "independent_review" else 1)
@@ -251,12 +259,9 @@ async def test_text_analysis_resumes_frozen_stages_after_restart_without_repeati
         )
         == 1
     )
-    assert (
-        progress.count(
-            "Deriving the evidence requirements from the question before retrieval."
-        )
-        == 1
-    )
+    assert progress.count(
+        "Deriving the evidence requirements from the question before retrieval."
+    ) == (2 if failure_stage == "research_planning" else 1)
     assert progress.count("Evidence packet assembled.") == 1
     assert (
         progress.count("Checking fresh-source requirements and available coverage.")
