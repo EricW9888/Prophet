@@ -57,7 +57,17 @@ interpreted the predicate, negation, dates or entity identity. Model confidence
 is not verification, a relationship does not prove a market transmission
 mechanism, and assisted recovery is not autonomous detection before an event.
 A completed extraction pass is not a claim of exhaustive relationship coverage;
-source excerpts, generation budgets and model interpretation can still omit material connections.
+generation budgets and model interpretation can still omit material connections.
+New extraction records retain contiguous source-window coverage and resume unseen
+text, while legacy completed records can have unknown coverage. Submitting every
+stored text window does not establish exhaustive recall or reconciliation across
+distant sections, and does not cover material absent from the stored representation.
+Legacy URL/research records may contain only a previously stored prefix; reading
+that prefix completely does not recover missing page text. Acquiring a new source
+version is separate work, and completed legacy records are not silently replayed.
+Long sources require more model calls; this change does not establish a latency
+improvement. Explicit relationship/relevance repair advances one window per call
+and reports remaining coverage; it does not silently start an unlimited replay.
 
 ## Data and Connector Coverage
 

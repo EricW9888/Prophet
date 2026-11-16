@@ -1,11 +1,17 @@
 import asyncio
 import threading
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
 from investos.api.routes.ingestion import ingest_url
 from investos.schemas.evidence import UrlEvidenceCreate
-from investos.services.ingestion import IngestionService, _html_to_text
+from investos.services.ingestion import (
+    FetchedUrlDocument,
+    IngestionService,
+    _html_to_text,
+)
 from investos.services.source import SourceService
 
 
@@ -56,3 +62,28 @@ async def test_real_url_document_parsing_does_not_block_event_loop(monkeypatch):
         release.set()
     result = await task
     assert result.content == "Actual report"
+
+
+async def test_url_intake_retains_material_after_previous_character_cutoff():
+    service = IngestionService(None)
+    content = (
+        "Administrative disclosure.\n" * 1200
+        + "Correction: the operating license has not been granted."
+    )
+    published = datetime(2026, 11, 1, tzinfo=UTC)
+    service.fetch_url_document = AsyncMock(
+        return_value=FetchedUrlDocument(
+            url="https://example.test/report",
+            canonical_url="https://example.test/report",
+            title="Synthetic report",
+            content=content,
+            public_time=published,
+        )
+    )
+    service._get_or_create_source = AsyncMock(return_value=SimpleNamespace(id=uuid4()))
+    service.ingest_text = AsyncMock(return_value=object())
+    await service.ingest_url("https://example.test/report", process_now=False)
+    payload = service.ingest_text.await_args.args[0]
+    assert payload.content == content
+    assert payload.public_time == published
+    assert service.ingest_text.await_args.kwargs["process_now"] is False

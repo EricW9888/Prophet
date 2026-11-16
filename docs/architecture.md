@@ -89,12 +89,33 @@ funds, margin and unmatched quantities must not be patched with a balancing entr
 
 Structured extraction retains all generated events, facts, claims, supported
 subjects, metrics and setup signals through the existing relevance and
-source-grounding boundaries. Historical investment-object reindexing retains
-the complete returned metric/signal lists as well. This does not establish
-exhaustive source coverage: these paths currently analyze a head/tail document
-excerpt, and model output may omit supported information. Original source bytes
-remain available for further inspection. Previously discarded output requires
-explicit re-extraction; this change does not replay completed backfill jobs.
+source-grounding boundaries. URL intake and research intake retain the full
+fetched text within the existing fetch byte/time limits, without a separate
+20,000-character prefix cut. Historical investment-object reindexing retains
+the complete returned metric/signal lists as well. Live extraction reads the
+retained UTF-8 representation in contiguous windows, with preceding overlap.
+`EVIDENCE_EXTRACTION_WINDOW_CHARS` and `EVIDENCE_EXTRACTION_OVERLAP_CHARS`
+bound each call, not the total source length. The existing extraction queue
+resumes unseen text; successful windows do not consume the failure-retry budget.
+Objects and the completed-window checkpoint commit together. Source/intent
+hashes prevent continuation against changed text, and exact repeated generated
+objects are suppressed without merging conflicting statements.
+
+Historical investment-object and relationship reindexing use the same windows
+and retain their existing call budgets and write boundaries. A retained text
+fallback is identified separately from the original stored representation;
+model-written summaries are not substituted for source text. Relevance review
+also continues in windows and does not quarantine a source from a partial view.
+An explicit relevance or relationship repair call advances one window; its
+receipt reports remaining work. Live extraction postpones watcher evaluation
+and subject analysis until every stored text window has been submitted.
+
+Receipts and retrieval context distinguish unknown, partial and all-text-submitted
+coverage. Offsets count Unicode codepoints and identify the inspected source
+hash. This is input coverage, not proof of complete fact recall, semantic
+entailment, image coverage or reconciliation across distant sections. Original
+source bytes remain available for inspection. Legacy completed sources retain
+unknown coverage; this does not silently replay completed backfill jobs.
 
 `api/routes/ingestion.py` accepts notes, files, and URLs. Research discovery and
 extraction run through `services/research.py`, `workers/research.py`, and

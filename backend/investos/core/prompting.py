@@ -132,6 +132,22 @@ def compact_node_source(source: Any) -> dict[str, Any]:
             compacted[key] = source[key]
     if source.get("url"):
         compacted["url"] = source.get("url")
+    coverage = source.get("source_text_coverage")
+    if isinstance(coverage, dict):
+        compacted["source_text_coverage"] = {
+            key: coverage[key]
+            for key in (
+                "status",
+                "representation",
+                "coordinate_unit",
+                "document_hash",
+                "document_chars",
+                "submitted_chars",
+                "remaining_chars",
+                "meaning",
+            )
+            if key in coverage
+        }
     quality = source.get("quality") if isinstance(source.get("quality"), dict) else {}
     if quality:
         compacted["quality"] = {

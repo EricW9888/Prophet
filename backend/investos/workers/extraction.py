@@ -1,5 +1,6 @@
 import math
 import re
+from copy import deepcopy
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -7,9 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from investos.config import settings
 from investos.core.dates import parse_explicit_calendar_datetime
 from investos.core.llm import call_llm_json, compact_exception_message
-from investos.core.prompting import bounded_document_excerpt, compact_text
+from investos.core.prompting import compact_text
 from investos.core.storage import LocalStorage
 from investos.models.catalog import SourceClaimRecord
 from investos.models.entity import Entity, Security
@@ -42,6 +44,14 @@ from investos.services.market_setup import MarketSetupSignalService
 from investos.services.operating_loop import OperatingLoopService
 from investos.services.security_catalog import SecurityCatalogService
 from investos.services.source_learning import SourceLearningService
+from investos.services.source_text import (
+    SourceTextChanged,
+    complete_source_window,
+    next_source_window,
+    prepare_source_text,
+    retain_new_outputs,
+    source_text_coverage,
+)
 from investos.services.watcher import WatcherService
 from investos.workers.coverage import CoverageWorker
 
@@ -533,11 +543,50 @@ class ExtractionWorker:
 
         try:
             raw_bytes = await self.storage.get_object(evidence.raw_content_ref)
-            text_content = raw_bytes.decode("utf-8", errors="ignore")[:12000]
+            text_content = raw_bytes.decode("utf-8")
+            if not text_content.strip():
+                raise SourceTextChanged("The stored source has no readable text.")
+            target = evidence.metadata_json or {}
+            progress = prepare_source_text(
+                text_content,
+                processing_state.source_text_state_json,
+                intent={
+                    "title": evidence.title,
+                    **{
+                        key: target.get(key)
+                        for key in (
+                            "subject_name",
+                            "subject_type",
+                            "research_question",
+                            "question_text",
+                        )
+                    },
+                },
+            )
+            window = next_source_window(
+                text_content,
+                progress,
+                size=settings.EVIDENCE_EXTRACTION_WINDOW_CHARS,
+                overlap=settings.EVIDENCE_EXTRACTION_OVERLAP_CHARS,
+            )
+            processing_state.source_text_state_json = deepcopy(progress)
+            evidence.metadata_json = {
+                **(evidence.metadata_json or {}),
+                "source_text_coverage": source_text_coverage(progress),
+            }
             processing.record_content_available(processing_state)
             evidence_metadata = dict(evidence.metadata_json or {})
             evidence_metadata.pop("storage_missing", None)
             evidence.metadata_json = evidence_metadata
+            await self.session.commit()
+        except (SourceTextChanged, UnicodeDecodeError) as exc:
+            processing.record_missing_content(processing_state, error=str(exc))
+            await self.session.commit()
+            return {
+                "degraded": True,
+                "source_changed": True,
+                "processing": processing.summary(processing_state),
+            }
         except FileNotFoundError:
             fallback_summary = (
                 evidence.title
@@ -571,8 +620,14 @@ class ExtractionWorker:
         try:
             extracted = await self._extract_structured_data(
                 evidence.title or "Untitled evidence",
-                text_content,
-                target_context=evidence.metadata_json or {},
+                text_content[window["input_start"] : window["end"]],
+                target_context={
+                    **(evidence.metadata_json or {}),
+                    "source_text_window": {
+                        **window,
+                        "document_chars": len(text_content),
+                    },
+                },
             )
         except Exception as exc:
             import logging
@@ -589,7 +644,7 @@ class ExtractionWorker:
             source_item = await self._upsert_source_item(
                 raw_evidence_id=evidence.id,
                 source_id=evidence.source_id,
-                extracted_text=text_content[:4000],
+                extracted_text=text_content,
                 summary=fallback["summary"],
                 processing_status="extraction_retry_scheduled",
             )
@@ -625,8 +680,12 @@ class ExtractionWorker:
                 "processing": processing.summary(processing_state),
             }
 
-        relevance = EvidenceRelevanceAssessment.from_payload(
-            extracted.get("relevance_assessment")
+        complete_source_window(progress, window, extracted)
+        retain_new_outputs(extracted, progress)
+        relevance = self._combined_relevance(progress)
+        extracted.update(progress.get("primary_subject") or {})
+        extracted["summary"] = "\n\n".join(
+            value for value in progress["summaries"] if value
         )
         evidence_metadata = dict(evidence.metadata_json or {})
         evidence_metadata["relevance_assessment"] = relevance.as_metadata()
@@ -640,7 +699,7 @@ class ExtractionWorker:
         source_item = await self._upsert_source_item(
             raw_evidence_id=evidence.id,
             source_id=evidence.source_id,
-            extracted_text=text_content[:4000],
+            extracted_text=text_content,
             summary=extracted["summary"],
             processing_status=relevance.processing_status,
         )
@@ -653,6 +712,19 @@ class ExtractionWorker:
             relationship_type="processed_into",
         )
         if not relevance.knowledge_eligible:
+            all_submitted = processing.record_source_progress(
+                processing_state,
+                evidence,
+                progress,
+                persisted_object_count=processing_state.persisted_object_count,
+            )
+            if not all_submitted:
+                source_item.processing_status = "extraction_pending"
+                await self.session.commit()
+                return {
+                    "partial": True,
+                    "processing": processing.summary(processing_state),
+                }
             deprecated = await EvidenceRelevanceService(self.session).apply_quarantine(
                 evidence=evidence,
                 source_item=source_item,
@@ -688,6 +760,7 @@ class ExtractionWorker:
 
         audit = KnowledgeAuditService(self.session)
         audit_metadata = {
+            "source_text_window": window,
             "raw_evidence_id": str(evidence.id),
             "source_item_id": str(source_item.id),
             "extraction_degraded": False,
@@ -946,14 +1019,24 @@ class ExtractionWorker:
         relationship_result = await self.persist_source_relationships(
             evidence,
             source_item,
-            text_content,
+            text_content[window["input_start"] : window["end"]],
             extracted.get("relationships", []),
         )
         metadata = dict(evidence.metadata_json or {})
+        prior_relationships = metadata.get("relationship_extraction") or {}
+        relationship_counts = {
+            key: int(prior_relationships.get(key) or 0) + value
+            for key, value in relationship_result.items()
+        }
         metadata["relationship_extraction"] = {
             "version": SOURCE_RELATIONSHIP_EXTRACTOR_VERSION,
-            "status": "partial" if relationship_result["rejected"] else "completed",
-            **relationship_result,
+            "status": (
+                "source_text_partial"
+                if source_text_coverage(progress)["remaining_chars"]
+                else "partial" if relationship_counts["rejected"] else "completed"
+            ),
+            "source_text_coverage": source_text_coverage(progress),
+            **relationship_counts,
             "actor": "structured_relationship_extraction",
             "recorded_at": datetime.now(UTC).isoformat(),
         }
@@ -969,6 +1052,7 @@ class ExtractionWorker:
                 default_subject_id=subject_id,
             )
             metric = await FundamentalMetricService(self.session).create_metric(
+                commit_transaction=False,
                 metric_name=payload["metric_name"],
                 metric_family=payload.get("metric_family"),
                 subject_type=object_subject["subject_type"],
@@ -993,6 +1077,7 @@ class ExtractionWorker:
                 next_test=payload.get("next_test"),
                 source_kind="structured_extraction",
                 metadata={
+                    "source_text_window": window,
                     "extraction_worker": True,
                     "object_subject_name": object_subject["subject_name"],
                     "relationship_to_primary_subject": object_subject["relationship"],
@@ -1016,6 +1101,7 @@ class ExtractionWorker:
                 default_subject_id=subject_id,
             )
             signal = await MarketSetupSignalService(self.session).create_signal(
+                commit_transaction=False,
                 signal_name=payload["signal_name"],
                 signal_family=payload.get("signal_family"),
                 subject_type=object_subject["subject_type"],
@@ -1043,6 +1129,7 @@ class ExtractionWorker:
                 next_test=payload.get("next_test"),
                 source_kind="structured_extraction",
                 metadata={
+                    "source_text_window": window,
                     "extraction_worker": True,
                     "object_subject_name": object_subject["subject_name"],
                     "relationship_to_primary_subject": object_subject["relationship"],
@@ -1059,6 +1146,37 @@ class ExtractionWorker:
                 payload=payload,
             )
 
+        persisted_object_count = (
+            processing_state.persisted_object_count
+            + relationship_result["created"]
+            + sum(
+                len(extracted[key])
+                for key in (
+                    "events",
+                    "facts",
+                    "claims",
+                    "fundamental_metrics",
+                    "market_setup_signals",
+                )
+            )
+        )
+        all_submitted = processing.record_source_progress(
+            processing_state,
+            evidence,
+            progress,
+            persisted_object_count=persisted_object_count,
+        )
+        if not all_submitted:
+            source_item.processing_status = "extraction_pending"
+            await self.session.commit()
+            return {
+                "subject_id": str(subject_id),
+                "subject_type": subject_type,
+                "subject_name": subject_name,
+                "partial": True,
+                "processing": processing.summary(processing_state),
+            }
+
         watcher_trigger_count = await WatcherService(
             self.session
         ).evaluate_new_evidence(
@@ -1067,16 +1185,6 @@ class ExtractionWorker:
             raw_evidence_id=evidence.id,
         )
         evidence.is_processed = True
-        persisted_object_count = relationship_result["created"] + sum(
-            len(extracted[key])
-            for key in (
-                "events",
-                "facts",
-                "claims",
-                "fundamental_metrics",
-                "market_setup_signals",
-            )
-        )
         processing.record_extraction_completed(
             processing_state,
             investment_object_status="completed",
@@ -1370,12 +1478,9 @@ class ExtractionWorker:
         self, title: str, text_content: str
     ) -> list[dict]:
         """The same source-binding contract for a retained-source repair pass."""
-        excerpt = bounded_document_excerpt(
-            text_content, head_chars=5000, tail_chars=1800
-        )
         result = await call_llm_json(
             system_prompt=SOURCE_RELATIONSHIP_INSTRUCTIONS,
-            user_prompt=f"Evidence title: {title}\n\nEvidence text:\n{excerpt}",
+            user_prompt=f"Evidence title: {title}\n\nEvidence text:\n{text_content}",
             schema={
                 "type": "object",
                 "additionalProperties": False,
@@ -1384,6 +1489,19 @@ class ExtractionWorker:
             },
         )
         return result.get("relationships", [])
+
+    async def retained_source_text(
+        self, evidence: RawEvidence, item: SourceItem
+    ) -> tuple[str, str]:
+        if evidence.raw_content_ref:
+            try:
+                return (await self.storage.get_object(evidence.raw_content_ref)).decode(
+                    "utf-8"
+                ), "stored_utf8_text"
+            except FileNotFoundError:
+                pass
+        # A retained source excerpt is usable, but must not stand in for a full original.
+        return item.extracted_text or "", "retained_extracted_text"
 
     async def reindex_source_relationships(
         self,
@@ -1430,38 +1548,73 @@ class ExtractionWorker:
                 ),
             }
         try:
-            text_content = (
-                (await self.storage.get_object(evidence.raw_content_ref)).decode(
-                    "utf-8", errors="replace"
-                )
-                if evidence.raw_content_ref
-                else ""
+            text_content, representation = await self.retained_source_text(
+                evidence, item
             )
-        except FileNotFoundError:
-            text_content = ""
+        except UnicodeDecodeError:
+            return {**base, "status": "missing_source_text"}
         # Retained extracted_text is source text; a model-written summary is not.
-        text_content = text_content or item.extracted_text or ""
         if not text_content.strip():
             return {**base, "status": "missing_source_text"}
-        payloads = await self.extract_source_relationships(
-            evidence.title or "Untitled evidence", text_content
-        )
+        try:
+            progress = prepare_source_text(
+                text_content,
+                checkpoint.get("source_text_state"),
+                intent={
+                    "title": evidence.title,
+                    "extractor": "relationships",
+                    "version": SOURCE_RELATIONSHIP_EXTRACTOR_VERSION,
+                },
+                representation=representation,
+            )
+            if not source_text_coverage(progress)["remaining_chars"]:
+                return {
+                    **base,
+                    "status": "already_completed",
+                    "source_text_coverage": source_text_coverage(progress),
+                }
+            window = next_source_window(
+                text_content,
+                progress,
+                size=settings.EVIDENCE_EXTRACTION_WINDOW_CHARS,
+                overlap=settings.EVIDENCE_EXTRACTION_OVERLAP_CHARS,
+            )
+        except SourceTextChanged:
+            return {**base, "status": "source_changed"}
+        window_text = text_content[window["input_start"] : window["end"]]
+        extracted = {
+            "relationships": await self.extract_source_relationships(
+                evidence.title or "Untitled evidence", window_text
+            )
+        }
+        complete_source_window(progress, window, extracted)
+        retain_new_outputs(extracted, progress)
+        payloads = extracted["relationships"]
+        coverage = source_text_coverage(progress)
         savepoint = await self.session.begin_nested()
         try:
             counts = await self.persist_source_relationships(
                 evidence,
                 item,
-                text_content,
+                window_text,
                 payloads,
                 actor="source_relationship_backfill",
             )
-            status = "partial" if counts["rejected"] else "completed"
+            rejected = int(checkpoint.get("rejected") or 0) + counts["rejected"]
+            status = (
+                "source_text_partial"
+                if coverage["remaining_chars"]
+                else "partial" if rejected else "completed"
+            )
             if apply:
                 metadata = dict(evidence.metadata_json or {})
                 metadata["relationship_extraction"] = {
                     "version": SOURCE_RELATIONSHIP_EXTRACTOR_VERSION,
                     "status": status,
                     **counts,
+                    "rejected": rejected,
+                    "source_text_state": progress,
+                    "source_text_coverage": coverage,
                     "actor": "source_relationship_backfill",
                     "recorded_at": datetime.now(UTC).isoformat(),
                 }
@@ -1474,6 +1627,7 @@ class ExtractionWorker:
                 **base,
                 "model_calls": 1,
                 "status": status,
+                "source_text_coverage": coverage,
                 "assertion_groups": len(payloads),
                 "candidates": sum(
                     len(payload.get("targets") or []) for payload in payloads
@@ -1499,21 +1653,54 @@ class ExtractionWorker:
             return {"reviewed": False, "reason": "source_item_not_found"}
 
         try:
-            text_content = ""
-            if evidence.raw_content_ref:
-                try:
-                    raw_bytes = await self.storage.get_object(evidence.raw_content_ref)
-                    text_content = raw_bytes.decode("utf-8", errors="ignore")[:12000]
-                except FileNotFoundError:
-                    text_content = (source_item.extracted_text or "")[:12000]
-            else:
-                text_content = (source_item.extracted_text or "")[:12000]
+            text_content, representation = await self.retained_source_text(
+                evidence, source_item
+            )
             if not text_content.strip():
                 return {"reviewed": False, "reason": "source_text_unavailable"}
+            metadata = evidence.metadata_json or {}
+            progress = prepare_source_text(
+                text_content,
+                (metadata.get("relevance_text_review") or {}).get("source_text_state"),
+                intent={
+                    "title": evidence.title,
+                    **{
+                        key: metadata.get(key)
+                        for key in (
+                            "subject_name",
+                            "subject_type",
+                            "research_question",
+                            "question_text",
+                        )
+                    },
+                },
+                representation=representation,
+            )
+            if not source_text_coverage(progress)["remaining_chars"]:
+                return {
+                    "reviewed": True,
+                    "already_reviewed": True,
+                    "source_text_coverage": source_text_coverage(progress),
+                    "relevance_assessment": self._combined_relevance(
+                        progress
+                    ).as_metadata(),
+                }
+            window = next_source_window(
+                text_content,
+                progress,
+                size=settings.EVIDENCE_EXTRACTION_WINDOW_CHARS,
+                overlap=settings.EVIDENCE_EXTRACTION_OVERLAP_CHARS,
+            )
             extracted = await self._extract_structured_data(
                 evidence.title or "Untitled evidence",
-                text_content,
-                target_context=evidence.metadata_json or {},
+                text_content[window["input_start"] : window["end"]],
+                target_context={
+                    **metadata,
+                    "source_text_window": {
+                        **window,
+                        "document_chars": len(text_content),
+                    },
+                },
             )
         except Exception as exc:
             return {
@@ -1522,10 +1709,23 @@ class ExtractionWorker:
                 "detail": compact_exception_message(exc),
             }
 
-        assessment = EvidenceRelevanceAssessment.from_payload(
-            extracted.get("relevance_assessment")
-        )
+        complete_source_window(progress, window, extracted)
+        assessment = self._combined_relevance(progress)
         metadata = dict(evidence.metadata_json or {})
+        coverage = source_text_coverage(progress)
+        metadata["relevance_text_review"] = {
+            "source_text_state": progress,
+            "source_text_coverage": coverage,
+        }
+        evidence.metadata_json = metadata
+        if coverage["remaining_chars"]:
+            await self.session.commit()
+            return {
+                "reviewed": False,
+                "reason": "source_text_partial",
+                "source_text_coverage": coverage,
+                "next_action": "Continue relevance review to inspect the remaining stored text; source-wide relevance has not changed.",
+            }
         metadata["relevance_assessment"] = assessment.as_metadata()
         metadata["knowledge_promotion_status"] = (
             "eligible" if assessment.knowledge_eligible else "quarantined"
@@ -1571,6 +1771,7 @@ class ExtractionWorker:
         await self.session.commit()
         return {
             "reviewed": True,
+            "source_text_coverage": coverage,
             "evidence_id": str(evidence.id),
             "source_item_id": str(source_item.id),
             "relevance_assessment": assessment.as_metadata(),
@@ -1578,6 +1779,27 @@ class ExtractionWorker:
             "deprecated_knowledge_count": deprecated,
             "reextraction_required": reextraction_required,
         }
+
+    @staticmethod
+    def _combined_relevance(progress: dict) -> EvidenceRelevanceAssessment:
+        assessments = [
+            EvidenceRelevanceAssessment.from_payload(value)
+            for value in progress["assessments"]
+        ]
+        rank = {"irrelevant": 0, "uncertain": 1, "adjacent": 2, "relevant": 3}
+        assessment = max(assessments, key=lambda value: rank[value.status])
+        return EvidenceRelevanceAssessment(
+            assessment.status,
+            any(value.target_supported for value in assessments),
+            assessment.reason,
+            tuple(
+                dict.fromkeys(
+                    subject
+                    for value in assessments
+                    for subject in value.supported_subjects
+                )
+            ),
+        )
 
     async def _resolve_knowledge_object_subject(
         self,
@@ -1657,9 +1879,6 @@ class ExtractionWorker:
         *,
         target_context: dict | None = None,
     ) -> dict:
-        truncated = bounded_document_excerpt(
-            text_content, head_chars=2600, tail_chars=1000
-        )
         fallback_subject = self._detect_subject(title, text_content)
         fallback_type = self._subject_type(fallback_subject, title)
         system_prompt = self._structured_extraction_system_prompt()
@@ -1677,8 +1896,10 @@ class ExtractionWorker:
             f" ({target_type or 'not specified'})\n"
             f"- intended question: {target_question or title}\n"
             f"Fallback subject guess: {fallback_subject} ({fallback_type})\n"
+            f"Source window coordinates (Unicode codepoints; preceding overlap is context): {target_context.get('source_text_window') or 'not supplied'}\n"
+            "Extract only from the supplied window; unseen source text is not available.\n"
             f"Evidence title: {title}\n\n"
-            f"Evidence text:\n{truncated}"
+            f"Evidence text:\n{text_content}"
         )
         extracted = await call_llm_json(
             system_prompt=system_prompt,
@@ -1755,9 +1976,6 @@ class ExtractionWorker:
         profiles, or conclusions. It reuses the live extraction definitions while
         keeping the write boundary in the backfill service.
         """
-        truncated = bounded_document_excerpt(
-            text_content, head_chars=2600, tail_chars=1000
-        )
         extracted = await call_llm_json(
             system_prompt=(
                 self._structured_extraction_system_prompt()
@@ -1765,7 +1983,7 @@ class ExtractionWorker:
                 "and market_setup_signals supported directly by the supplied evidence. "
                 "Omit an object rather than filling a missing value from general knowledge. "
             ),
-            user_prompt=f"Evidence title: {title}\n\nEvidence text:\n{truncated}",
+            user_prompt=f"Evidence title: {title}\n\nEvidence text:\n{text_content}",
             schema=INVESTMENT_OBJECT_SCHEMA,
         )
         return {
