@@ -543,7 +543,11 @@ Health identities include model request options so an observed failure is not
 silently transferred to a different protocol configuration. Old records remain
 retained. Empty, truncated and schema-invalid responses cannot pass as success;
 diagnostics retain protocol counts and finish codes rather than generated text.
-An explicit read deadline shorter than the configured shared generation budget
+The shared model-call boundary applies the caller's timeout, or the configured
+default, to the complete asynchronous call. Admission waits, transport retries,
+streamed progress, and response repair share that deadline; nested adapters do
+not restart it. Cancellation closes transport contexts and releases admission.
+An explicit deadline shorter than the configured shared generation budget
 is a caller failure, not evidence that longer requests are unavailable. Its error
 still reaches the job and a configuration-scoped timeout counter is retained;
 it neither opens nor heals the shared circuit. Default-budget timeouts, connection
