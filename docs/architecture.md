@@ -351,6 +351,11 @@ enough observations for a stress estimate. Holdings marks exclude cash; ledger
 cash is not broker buying power; dated Modified Dietz returns retain their own
 period and denominator.
 
+Generated assertions, material assumptions, source references, contradictions,
+falsifiers and alternative explanations are retained in full before review and
+persistence. Normal, thin and recovery paths do not truncate these verification
+inputs to fit a preview. Operational watch-proposal admission remains separate.
+
 Analysis, independent review and strategic goals check structured quantity
 bindings. Final answer rewrites are checked before accepted-state updates. A
 failed numerical check retains the generated proposal and receipt, qualifies

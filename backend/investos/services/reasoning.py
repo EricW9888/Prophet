@@ -153,17 +153,14 @@ REASONING_SCHEMA = {
         "material_assertions": {
             "type": "array",
             "items": MATERIAL_ASSERTION_SCHEMA,
-            "maxItems": 5,
         },
         "assumptions": {
             "type": "array",
             "items": ASSUMPTION_SCHEMA,
-            "maxItems": 5,
         },
         "alternative_hypotheses": {
             "type": "array",
             "items": ALTERNATIVE_HYPOTHESIS_SCHEMA,
-            "maxItems": 4,
         },
         "active_watchers": {
             "type": "array",
@@ -242,17 +239,14 @@ CRITIQUE_SCHEMA = {
         "material_assertions": {
             "type": "array",
             "items": MATERIAL_ASSERTION_SCHEMA,
-            "maxItems": 5,
         },
         "assumptions": {
             "type": "array",
             "items": ASSUMPTION_SCHEMA,
-            "maxItems": 5,
         },
         "alternative_hypotheses": {
             "type": "array",
             "items": ALTERNATIVE_HYPOTHESIS_SCHEMA,
-            "maxItems": 4,
         },
         "issues_found": {"type": "array", "items": {"type": "string"}},
         "severity": {"type": "string", "enum": ["none", "minor", "major", "critical"]},
@@ -748,7 +742,7 @@ class ReasoningService:
                 timeout_seconds=self._interactive_timeout_seconds(),
                 on_chunk=on_chunk,
             )
-            result = self._bounded_reasoning_result(result)
+            result = self._prepare_reasoning_result(result)
             return self._attach_source_feedback_influence(result, packet_context)
         except Exception as exc:
             if defer_on_provider_failure and provider_failure_cause(exc) is not None:
@@ -941,7 +935,7 @@ class ReasoningService:
                 timeout_seconds=self._interactive_timeout_seconds(thin_packet=True),
                 on_chunk=on_chunk,
             )
-            result = self._bounded_reasoning_result(result, max_evidence_ids=3)
+            result = self._prepare_reasoning_result(result)
             if result.get("confidence_band") not in {"very_low", "low", "medium"}:
                 result["confidence_band"] = "low"
             return self._attach_source_feedback_influence(result, thin_payload)
@@ -951,7 +945,6 @@ class ReasoningService:
             alternate_result = await self._alternate_provider_recovery(
                 thin_payload,
                 system_prompt=self._thin_packet_system_prompt() + QUANTITY_RULES,
-                max_evidence_ids=3,
             )
             if alternate_result is not None:
                 if alternate_result.get("confidence_band") not in {
@@ -986,28 +979,26 @@ class ReasoningService:
                 timeout_seconds=max(20, min(self._interactive_timeout_seconds(), 45)),
                 on_chunk=on_chunk,
             )
-            result = self._bounded_reasoning_result(result)
+            result = self._prepare_reasoning_result(result)
             result["recovery_mode"] = "reduced_context"
             return self._attach_source_feedback_influence(result, recovery_context)
         except Exception:
             return None
 
-    def _bounded_reasoning_result(
-        self, result: dict, *, max_evidence_ids: int = 5
-    ) -> dict:
-        result["supporting_evidence_ids"] = result.get("supporting_evidence_ids", [])[
-            :max_evidence_ids
-        ]
-        result["contradicting_evidence_ids"] = result.get(
-            "contradicting_evidence_ids", []
-        )[:max_evidence_ids]
-        result["what_would_falsify"] = result.get("what_would_falsify", [])[:3]
-        result["what_would_strengthen"] = result.get("what_would_strengthen", [])[:3]
-        result["active_contradictions"] = result.get("active_contradictions", [])[:3]
-        result["active_watchers"] = result.get("active_watchers", [])[:2]
-        result["material_assertions"] = result.get("material_assertions", [])[:5]
-        result["assumptions"] = result.get("assumptions", [])[:5]
-        result["alternative_hypotheses"] = result.get("alternative_hypotheses", [])[:4]
+    def _prepare_reasoning_result(self, result: dict) -> dict:
+        """Initialize optional lists without deleting generated verification inputs."""
+        for field in (
+            "supporting_evidence_ids",
+            "contradicting_evidence_ids",
+            "what_would_falsify",
+            "what_would_strengthen",
+            "active_contradictions",
+            "material_assertions",
+            "assumptions",
+            "alternative_hypotheses",
+            "active_watchers",
+        ):
+            result.setdefault(field, [])
         return result
 
     async def _alternate_provider_recovery(
@@ -1015,7 +1006,6 @@ class ReasoningService:
         recovery_context: dict,
         *,
         system_prompt: str,
-        max_evidence_ids: int = 5,
     ) -> dict | None:
         for provider in await available_llm_json_recovery_providers(
             self._provider_label()
@@ -1030,9 +1020,7 @@ class ReasoningService:
                     ),
                     provider_override=provider,
                 )
-                result = self._bounded_reasoning_result(
-                    result, max_evidence_ids=max_evidence_ids
-                )
+                result = self._prepare_reasoning_result(result)
                 result["recovery_mode"] = f"alternate_provider:{provider}"
                 return self._attach_source_feedback_influence(result, recovery_context)
             except Exception:

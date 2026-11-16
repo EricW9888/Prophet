@@ -1880,7 +1880,7 @@ async def test_reasoning_retries_with_reduced_context_before_fallback(monkeypatc
     assert len(prompts[1]["direct_evidence"]) == 3
     assert prompts[1]["counts"]["direct_evidence"] == 10
     assert result["recovery_mode"] == "reduced_context"
-    assert result["supporting_evidence_ids"] == ["1", "2", "3", "4", "5"]
+    assert result["supporting_evidence_ids"] == ["1", "2", "3", "4", "5", "6"]
     assert result["source_feedback_influence"]["counts"]["not_useful"] == 1
     assert "Generic Market Blog" in result["source_feedback_influence"]["summary"]
     assert not result.get("is_fallback")
@@ -1955,7 +1955,7 @@ async def test_reasoning_tries_ready_alternate_provider_before_local_fallback(
     assert [provider for provider, _ in calls] == ["primary", "primary", "ollama"]
     assert calls[-1][1]["analysis_mode"] == "reduced_context_recovery"
     assert result["recovery_mode"] == "alternate_provider:ollama"
-    assert result["supporting_evidence_ids"] == ["1", "2", "3", "4", "5"]
+    assert result["supporting_evidence_ids"] == ["1", "2", "3", "4", "5", "6"]
     assert not result.get("is_fallback")
 
 

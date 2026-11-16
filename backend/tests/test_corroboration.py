@@ -1,5 +1,7 @@
 from uuid import uuid4
 
+import pytest
+
 from investos.services.corroboration import (
     CorroborationService,
     near_duplicate_distance,
@@ -72,6 +74,161 @@ def test_independent_publishers_corroborate_a_material_assertion():
     assert assessment["status"] == "corroborated"
     assert assessment["can_promote"] is True
     assert result["confidence_band"] == "very_high"
+
+
+@pytest.mark.parametrize("late_defect", ["assertion", "assumption"])
+def test_reasoning_preparation_cannot_discard_a_late_promotion_blocker(late_defect):
+    from copy import deepcopy
+
+    from investos.services.reasoning import ReasoningService
+
+    first = _node(publisher="issuer.example", content_hash="a", authority="primary")
+    second = _node(publisher="wire.example", content_hash="b")
+    result = _result([first["id"], second["id"]])
+    supported = result["material_assertions"][0]
+    result["material_assertions"] = [deepcopy(supported) for _ in range(6)]
+    if late_defect == "assertion":
+        result["material_assertions"][-1].update(
+            statement="An additional regulatory approval has occurred.",
+            supporting_evidence_ids=[],
+        )
+    else:
+        result["assumptions"] = [
+            {
+                "statement": "Background context",
+                "is_material": False,
+                "evidence_ids": [],
+                "falsifier": "Context changes",
+            }
+            for _ in range(5)
+        ] + [
+            {
+                "statement": "A necessary permit will be granted",
+                "is_material": True,
+                "evidence_ids": [],
+                "falsifier": "Permit is denied",
+            }
+        ]
+    prepared = ReasoningService(None)._prepare_reasoning_result(result)
+    assessment = CorroborationService().assess_result(prepared, _packet(first, second))
+    assert not assessment["can_promote"]
+    assert len(prepared["material_assertions"]) == 6
+    if late_defect == "assumption":
+        assert len(prepared["assumptions"]) == 6
+
+
+@pytest.mark.parametrize("path", ["normal", "thin", "reduced", "alternate"])
+async def test_model_paths_retain_every_generated_verification_input(monkeypatch, path):
+    from copy import deepcopy
+    from unittest.mock import AsyncMock
+
+    import fastjsonschema
+
+    import investos.services.reasoning as module
+    from investos.services.verification import VERIFICATION_SCHEMA
+
+    result = _result([])
+    arrays = (
+        "supporting_evidence_ids",
+        "contradicting_evidence_ids",
+        "what_would_falsify",
+        "what_would_strengthen",
+        "active_contradictions",
+        "material_assertions",
+        "assumptions",
+        "alternative_hypotheses",
+        "active_watchers",
+    )
+    for field in arrays:
+        result[field] = [f"{field}:{index}" for index in range(8)]
+    result["material_assertions"] = [
+        {
+            **_result([])["material_assertions"][0],
+            "statement": f"A source reports development {index}.",
+            "quantity_bindings": [],
+        }
+        for index in range(8)
+    ]
+    result["assumptions"] = [
+        {
+            "statement": f"Necessary condition {index}",
+            "is_material": True,
+            "evidence_ids": [],
+            "falsifier": "The condition is contradicted",
+        }
+        for index in range(8)
+    ]
+    result["alternative_hypotheses"] = [
+        {
+            "hypothesis": f"Competing explanation {index}",
+            "supporting_evidence_ids": [],
+            "disconfirming_evidence_ids": [],
+            "decisive_test": "Obtain discriminating evidence",
+        }
+        for index in range(8)
+    ]
+    result["active_watchers"] = [
+        {
+            "ticker": "EXMPL",
+            "condition_type": f"observable_{index}",
+            "threshold": None,
+            "objective": "Check a defined observable",
+            "adjustment_plan": "Review the resulting evidence",
+            "deadline_hours": 24,
+        }
+        for index in range(8)
+    ]
+    for schema in (
+        module.REASONING_SCHEMA,
+        module.CRITIQUE_SCHEMA,
+        VERIFICATION_SCHEMA,
+    ):
+        for field in ("material_assertions", "assumptions", "alternative_hypotheses"):
+            if field in schema["properties"]:
+                fastjsonschema.compile(schema["properties"][field])(result[field])
+    original = deepcopy(result)
+    monkeypatch.setattr(module, "call_llm_json", AsyncMock(return_value=result))
+    service = module.ReasoningService(None)
+    monkeypatch.setattr(service, "_is_thin_packet", lambda context: False)
+    monkeypatch.setattr(service, "_active_provider_unconfigured_label", lambda: None)
+    monkeypatch.setattr(
+        service, "_recovery_packet_context", lambda context: {"reduced": True}
+    )
+    packet = {"query_text": "Synthetic multi-part question"}
+    if path == "normal":
+        output = await service._reason_with_llm(packet, system_prompt="Synthetic")
+    elif path == "thin":
+        output = await service._thin_packet_reasoning(packet)
+    elif path == "reduced":
+        output = await service._reduced_context_recovery(
+            packet, system_prompt="Synthetic"
+        )
+    else:
+        monkeypatch.setattr(
+            module,
+            "available_llm_json_recovery_providers",
+            AsyncMock(return_value=["nvidia_nim"]),
+        )
+        output = await service._alternate_provider_recovery(
+            packet, system_prompt="Synthetic"
+        )
+    assert output is not None
+    for field in arrays:
+        assert output[field] == original[field], (path, field)
+
+
+def test_watch_proposals_are_retained_before_existing_action_admission():
+    from investos.services.agent import AgentService
+    from investos.services.reasoning import ReasoningService
+
+    proposals = [{"condition_type": f"observable_{index}"} for index in range(4)]
+    result = ReasoningService(None)._prepare_reasoning_result(
+        {"active_watchers": proposals}
+    )
+    assert result["active_watchers"] == proposals
+    assert AgentService._watchers_allowed(result, auto_execute=False) == []
+    assert AgentService._watchers_allowed(result, auto_execute=True) == proposals[:2]
+    assert result["active_watchers"] == proposals
 
 
 def test_same_publisher_does_not_become_two_sources():
