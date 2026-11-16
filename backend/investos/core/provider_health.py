@@ -395,20 +395,22 @@ def guarded_provider_call(function):
         revision = ProviderHealthStore.claim_work(key, provider, model)
         owner = _recovery_owner.set((key, revision))
         depth = _call_depth.set(1)
+        supplied = call_parameters.get("timeout_seconds")
         try:
-            result = await function(*args, **kwargs)
+            budget = float(supplied) if not isinstance(supplied, bool) else 0.0
+        except (TypeError, ValueError):
+            budget = 0.0
+        shared_budget = settings.LLM_TIMEOUT_SECONDS or settings.CODEX_TIMEOUT_SECONDS
+        deadline_budget = (
+            budget if math.isfinite(budget) and budget > 0 else shared_budget
+        )
+        try:
+            async with asyncio.timeout(deadline_budget):
+                result = await function(*args, **kwargs)
         except LLMProviderCooldownError:
             # Denied queue admission is deferral, not another observed failure.
             raise
         except Exception as exc:
-            supplied = call_parameters.get("timeout_seconds")
-            try:
-                budget = float(supplied) if not isinstance(supplied, bool) else 0.0
-            except (TypeError, ValueError):
-                budget = 0.0
-            shared_budget = (
-                settings.LLM_TIMEOUT_SECONDS or settings.CODEX_TIMEOUT_SECONDS
-            )
             if (
                 isinstance(exc, (httpx.ReadTimeout, TimeoutError))
                 and math.isfinite(budget)

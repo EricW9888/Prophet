@@ -714,6 +714,147 @@ async def test_disabled_coordinator_is_not_reported_as_enabled(monkeypatch):
         ).status_code == 503
 
 
+async def test_logical_deadline_includes_transport_retries(monkeypatch):
+    from investos.core.llm import retry_with_backoff
+
+    calls = 0
+    cancelled = asyncio.Event()
+
+    @retry_with_backoff(max_retries=3, base_delay=0, max_delay=0)
+    async def delayed_adapter(**kwargs):
+        nonlocal calls
+        calls += 1
+        try:
+            await asyncio.sleep(4)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+        raise httpx.ReadTimeout("synthetic per-attempt read deadline")
+
+    monkeypatch.setattr("investos.core.llm._call_nvidia_json", delayed_adapter)
+    with pytest.raises(TimeoutError):
+        await call_llm_json("system", "work", {"type": "object"}, timeout_seconds=6)
+    assert calls == 2 and cancelled.is_set()
+    health = ProviderHealthStore.read()
+    assert health.caller_timeout_count == 1 and health.state == "unobserved"
+
+
+async def test_logical_deadline_cancels_json_repair_and_releases_admission(monkeypatch):
+    from investos.core import llm
+
+    calls = 0
+    repair_cancelled = asyncio.Event()
+    client_type = httpx.AsyncClient
+    limiter = llm.AsyncRateLimiter(0, 1)
+
+    async def respond(request):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(
+                200, json={"choices": [{"message": {"content": "malformed JSON"}}]}
+            )
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            repair_cancelled.set()
+            raise
+
+    monkeypatch.setattr(llm, "_get_rate_limiter", lambda: limiter)
+    monkeypatch.setattr(
+        llm.httpx,
+        "AsyncClient",
+        lambda **kwargs: client_type(transport=httpx.MockTransport(respond), **kwargs),
+    )
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(
+            call_llm_json("system", "work", {"type": "object"}, timeout_seconds=0.5),
+            timeout=3,
+        )
+    assert calls == 2 and repair_cancelled.is_set()
+    assert ProviderHealthStore.read().caller_timeout_count == 1
+    await asyncio.wait_for(limiter.acquire(), timeout=1)
+    limiter.release()
+
+
+async def test_logical_deadline_bounds_an_active_stream_and_closes_it(monkeypatch):
+    import json
+
+    from investos.core import llm
+
+    closed = asyncio.Event()
+    client_type = httpx.AsyncClient
+    limiter = llm.AsyncRateLimiter(0, 1)
+    on_chunk = AsyncMock()
+
+    class ContinuousStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            prefix = {"choices": [{"delta": {"content": '{"reasoning":"'}}]}
+            yield f"data: {json.dumps(prefix)}\n\n".encode()
+            while True:
+                yield b'data: {"choices":[{"delta":{"content":"x"}}]}\n\n'
+                await asyncio.sleep(0.01)
+
+        async def aclose(self):
+            closed.set()
+
+    async def respond(request):
+        return httpx.Response(200, stream=ContinuousStream())
+
+    monkeypatch.setattr(llm, "_get_rate_limiter", lambda: limiter)
+    monkeypatch.setattr(
+        llm.httpx,
+        "AsyncClient",
+        lambda **kwargs: client_type(transport=httpx.MockTransport(respond), **kwargs),
+    )
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(
+            call_llm_json(
+                "system",
+                "work",
+                {"type": "object"},
+                timeout_seconds=0.5,
+                on_chunk=on_chunk,
+            ),
+            timeout=3,
+        )
+    assert on_chunk.await_count and closed.is_set()
+    assert ProviderHealthStore.read().caller_timeout_count == 1
+    await asyncio.wait_for(limiter.acquire(), timeout=1)
+    limiter.release()
+
+
+async def test_logical_deadline_includes_queued_admission(monkeypatch):
+    from investos.core import llm
+
+    limiter = llm.AsyncRateLimiter(0, 1)
+    await limiter.acquire()
+    client_type = httpx.AsyncClient
+    transport = AsyncMock()
+    monkeypatch.setattr(llm, "_get_rate_limiter", lambda: limiter)
+    monkeypatch.setattr(
+        llm.httpx,
+        "AsyncClient",
+        lambda **kwargs: client_type(
+            transport=httpx.MockTransport(transport), **kwargs
+        ),
+    )
+    try:
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(
+                call_llm_json(
+                    "system", "queued", {"type": "object"}, timeout_seconds=0.1
+                ),
+                timeout=1,
+            )
+        transport.assert_not_awaited()
+        assert ProviderHealthStore.read().caller_timeout_count == 1
+    finally:
+        limiter.release()
+    await asyncio.wait_for(limiter.acquire(), timeout=1)
+    limiter.release()
+
+
 @pytest.mark.parametrize("error", [httpx.ReadTimeout, TimeoutError])
 async def test_short_caller_timeout_preserves_capacity_for_longer_work_and_records_failure(
     monkeypatch, error
@@ -887,7 +1028,7 @@ async def test_mixed_foreground_and_unattended_work_survives_a_short_http_read_d
         # Observe delivery before testing a read deadline. A 10ms total HTTPX
         # timeout can instead fail during TCP setup on a loaded Windows runner.
         await asyncio.wait_for(short_received.wait(), timeout=10)
-        with pytest.raises(httpx.ReadTimeout):
+        with pytest.raises((httpx.ReadTimeout, TimeoutError)):
             await short
         release_short.set()
         kinds = [
