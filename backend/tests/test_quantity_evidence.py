@@ -60,6 +60,82 @@ def test_valid_dimensioned_quantity_and_negative_and_zero_values():
 
 
 @pytest.mark.parametrize(
+    "value,unit,quote",
+    [
+        ("12345.6789", "USD", "$12,345.68"),
+        ("-12.3456", "percent", "-12.35%"),
+        ("35.675", "percent", "35.68%"),
+        ("-35.675", "percent", "-35.68%"),
+        ("1234567.89", "USD", "$1.23 million"),
+    ],
+)
+def test_reference_selection_preserves_canonical_value_and_readable_rounding(
+    value, unit, quote
+):
+    item = sample(value, unit)
+    selection = {
+        "measurement_ref": item["measurement_ref"],
+        "quote": quote,
+        "occurrence": 0,
+    }
+    check = validate_quantities(
+        {"statement": f"Recorded value is {quote}.", "quantity_bindings": [selection]},
+        {"quantity_measurements": [item]},
+    )
+    assert check["verified"], check
+    assert check["measurements"][0]["value"] == item["value"]
+    assert check["measurements"][0]["snapshot_ref"] == item["snapshot_ref"]
+    assert check["measurements"][0]["quote"] == quote
+    assert check["measurements"][0]["display_value"] == str(parse_quantity(quote)[0])
+    assert audit_numeric_narrative(
+        [f"Recorded value is {quote}."], [{"quantity_verification": check}]
+    )["verified"]
+
+
+@pytest.mark.parametrize(
+    "quote", ["-12.34%", "12.35%", "-1235%", "$12.35", "-12.35 percentage points"]
+)
+def test_display_rounding_cannot_change_sign_scale_unit_or_round_incorrectly(quote):
+    item = sample("-12.3456", "percent")
+    check = validate_quantities(
+        {
+            "statement": f"Recorded value is {quote}.",
+            "quantity_bindings": [
+                {
+                    "measurement_ref": item["measurement_ref"],
+                    "quote": quote,
+                    "occurrence": 0,
+                }
+            ],
+        },
+        {"quantity_measurements": [item]},
+    )
+    assert not check["verified"]
+
+
+def test_narrative_rounding_is_checked_against_the_bound_canonical_measurement():
+    item = sample("12345.6789")
+    check = validate_quantities(
+        {
+            "statement": "Recorded value is $12,345.6789.",
+            "quantity_bindings": [binding(item, "$12,345.6789")],
+        },
+        {"quantity_measurements": [item]},
+    )
+    assert check["verified"]
+    supported = [{"quantity_verification": check}]
+    assert audit_numeric_narrative(["Recorded value is $12,345.68."], supported)[
+        "verified"
+    ]
+    assert not audit_numeric_narrative(["Recorded value is $12,345.67."], supported)[
+        "verified"
+    ]
+    assert not audit_numeric_narrative(["Recorded value is $12 million."], supported)[
+        "verified"
+    ]
+
+
+@pytest.mark.parametrize(
     "changes,issue",
     [
         ({"value": 10000000}, "value_mismatch"),

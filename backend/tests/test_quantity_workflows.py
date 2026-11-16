@@ -84,14 +84,15 @@ async def test_quantity_adapter_reuses_risk_eligibility_without_confusing_stress
 
 
 @pytest.mark.parametrize("bad", [True, False])
+@pytest.mark.parametrize("rounded", [False, True])
 async def test_reasoning_checks_quantities_before_persisting_accepted_state(
-    question_session, monkeypatch, bad
+    question_session, monkeypatch, bad, rounded
 ):
     from investos.core.provider_health import ProviderHealthStore
 
     session = question_session
     subject = uuid4()
-    measured = sample()
+    measured = sample("12345.6789" if rounded else "10000")
     packet = EvidencePacket(
         query_text="Review the recorded portfolio value",
         subject_type="portfolio",
@@ -105,11 +106,8 @@ async def test_reasoning_checks_quantities_before_persisting_accepted_state(
     )
     session.add(packet)
     await session.flush()
-    text = (
-        "The recorded holdings value is $10 million."
-        if bad
-        else "The recorded holdings value is $10,000."
-    )
+    quote = "$10 million" if bad else "$12,345.68" if rounded else "$10,000"
+    text = f"The recorded holdings value is {quote}."
     result = _result([])
     result.update(reasoning=text, thesis_summary=text)
     result["material_assertions"][0].update(
@@ -117,10 +115,18 @@ async def test_reasoning_checks_quantities_before_persisting_accepted_state(
         evidence_basis="portfolio_ledger",
         supporting_context_paths=["portfolio_context.total_market_value"],
         quantity_bindings=[
-            binding(
-                measured,
-                "$10 million" if bad else "$10,000",
-                value=10000000 if bad else 10000,
+            (
+                {
+                    "measurement_ref": measured["measurement_ref"],
+                    "quote": quote,
+                    "occurrence": 0,
+                }
+                if rounded
+                else binding(
+                    measured,
+                    "$10 million" if bad else "$10,000",
+                    value=10000000 if bad else 10000,
+                )
             )
         ],
     )
@@ -129,7 +135,7 @@ async def test_reasoning_checks_quantities_before_persisting_accepted_state(
         "subject_type": "portfolio",
         "subject_id": str(subject),
         "subject_name": "Synthetic portfolio",
-        "portfolio_context": {"total_market_value": 10000},
+        "portfolio_context": {"total_market_value": float(measured["value"])},
         "quantity_measurements": [measured],
         "direct_evidence": [],
         "connected_evidence": [],
