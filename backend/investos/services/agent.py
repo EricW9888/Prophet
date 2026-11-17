@@ -2633,6 +2633,22 @@ class AgentService:
             "recent_research_ids": [
                 item.get("id") for item in monitor.get("recent_research_items", [])
             ],
+            "recent_evidence_changes": [
+                {
+                    "evidence_id": item["evidence_id"],
+                    "processed_at": item["processed_at"],
+                    "assertion_versions": [
+                        self._strategic_planning_fingerprint(
+                            {
+                                key: node.get(key)
+                                for key in ("id", "type", "text", "source_passage")
+                            }
+                        )
+                        for node in item["assertions"]
+                    ],
+                }
+                for item in monitor.get("recent_evidence_changes", [])
+            ],
             "recent_lessons": [
                 {
                     "title": item.get("title"),
@@ -2675,6 +2691,8 @@ class AgentService:
             "\n- Use user lessons and current review pressure to choose what deserves attention next."
             "\n- Use peer_exposures as candidate relationship patterns between tracked names; investigate them when the mechanism and portfolio weight make the shared exposure actionable."
             "\n- Prefer leading, source-backed changes that could alter future fundamentals or expectations before lagging reported results make the change obvious."
+            "\n- recent_evidence_changes contains provisional extracted assertions across intake paths. Use original source passages and distinguish observation/processing times from publication or event time. A newly read historical document is not a new event. These bounded previews are not exhaustive and do not verify interpretation."
+            "\n- A newly noticed unheld dependency or opportunity may justify investigation when you can state a concrete portfolio, theme or macro transmission path and what remains to be verified. Do not require a ticker for a policy, technology or other non-company research question."
             "\n- Do not infer an opportunity from price movement alone; use an unexplained move as a research trigger."
             "\n- Keep the search open-ended. These rules are quality constraints, not a preset list of acceptable investment lenses."
             "\n- Distinguish between a direct holding problem, a tracked-name adjacency, a portfolio theme, and a broad macro issue."
@@ -2753,14 +2771,15 @@ class AgentService:
         ]:  # Keep execution conservative; planning can still surface more than one goal.
             ticker = goal.get("target_ticker")
             action = goal.get("action")
+            target = ticker or str(goal.get("goal_name") or "").strip()
 
-            if ticker and action in {"research", "prospect"}:
+            if target and action in {"research", "prospect"}:
                 # Seed the research
                 from investos.services.research import ResearchService
 
                 res = await ResearchService(self.session).run_ad_hoc_request(
-                    query=f"Analysis of {ticker} focusing on {goal['goal_name']}. Rationale: {goal['rationale']}",
-                    title=f"Autonomous Discovery: {ticker}",
+                    query=f"Analysis of {target} focusing on {goal['goal_name']}. Rationale: {goal['rationale']}",
+                    title=f"Autonomous Discovery: {target}",
                     metadata_json={
                         "is_autonomous": True,
                         "review_reason": goal["rationale"],
@@ -2792,7 +2811,7 @@ class AgentService:
                                 profile.source_rationale = goal["why_now"]
 
                     actions_taken.append(
-                        f"Started research on {ticker} "
+                        f"Started research on {target} "
                         f"({goal['portfolio_connection']}: {goal['why_now']})"
                     )
 
@@ -2835,6 +2854,7 @@ class AgentService:
                 "review_queue",
                 "priority_monitor",
                 "recent_research_ids",
+                "recent_evidence_changes",
                 "recent_lessons",
             )
         )

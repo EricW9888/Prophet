@@ -670,6 +670,16 @@ as manual and interval runs, and retain existing model work budgets. Startup
 and reconnect check durable queues after subscription. Interval checks remain
 for external polling, time-based eligibility, and recovery if a signal is missed.
 
+Completed extraction also wakes the existing portfolio planner. Its operating
+snapshot includes newly processed source changes across intake types, including
+unheld subjects, with distinct observation, publication and processing clocks.
+The latest five eligible sources carry up to three non-deprecated assertions
+each, using the ordinary retrieval provenance and original-passage projection.
+These are explicit, provisional previews; full source records remain available.
+Source/version/assertion identity participates in planner deduplication. Existing
+execution, provider and quantity guards still apply. A qualifying policy or theme
+research goal can execute using its question when no stock ticker applies.
+
 ## Frontend Surfaces
 
 Shadow risk-statistic conventions and availability boundaries are documented in

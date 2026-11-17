@@ -402,7 +402,7 @@ class NewsIntakeService:
                         source_item_type="news",
                         url=row.url,
                         public_time=result.public_time,
-                        content=result.content[:20000],
+                        content=result.content,
                         metadata_json={
                             "trigger": "publisher_feed_intake",
                             "discovery_observation_id": str(row.id),

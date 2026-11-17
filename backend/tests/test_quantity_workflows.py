@@ -171,8 +171,9 @@ async def test_reasoning_checks_quantities_before_persisting_accepted_state(
 
 
 @pytest.mark.parametrize("bad", [True, False])
+@pytest.mark.parametrize("ticker", ["EXMPL", None])
 async def test_strategist_does_not_seed_research_with_invalid_account_quantities(
-    question_session, monkeypatch, bad
+    question_session, monkeypatch, bad, ticker
 ):
     import investos.services.agent as module
     from investos.services.agent_action_log import AgentActionLogService
@@ -208,7 +209,7 @@ async def test_strategist_does_not_seed_research_with_invalid_account_quantities
     )
     goal = {
         "goal_name": "Review concentration",
-        "target_ticker": "EXMPL",
+        "target_ticker": ticker,
         "action": "research",
         "portfolio_connection": "direct_holding",
         "why_now": "A new filing needs review",
