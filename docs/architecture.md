@@ -416,6 +416,9 @@ unverified state for historical records without a numerical receipt.
 Independent-review callers pass the complete captured evidence packet to the
 review service. Only the outbound model payload is compacted; deterministic
 source-independence, duplicate and quantity checks use the complete snapshot.
+When combined analysis requests provider deferral, the optional independent
+review receives the same choice. A provider failure during review propagates
+before conclusion updates or the final analysis commit.
 Prompt compaction retains evidence IDs, publisher lineage, copy signatures,
 authority, acquisition kind and distinct publication/event/ingestion clocks.
 It preserves explicit false trust flags without inventing authority or dates.
