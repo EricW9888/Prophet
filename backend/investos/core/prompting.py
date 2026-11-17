@@ -93,6 +93,11 @@ def compact_evidence_nodes(
                 "text": compact_context_text(node.get("text"), max_chars=max_chars),
                 "created_at": node.get("created_at"),
                 **({"source": source} if source else {}),
+                **(
+                    {"source_passage": node["source_passage"]}
+                    if isinstance(node.get("source_passage"), dict)
+                    else {}
+                ),
             }
         )
     return compacted

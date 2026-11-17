@@ -50,6 +50,7 @@ from investos.services.evidence_provenance import build_evidence_source_referenc
 from investos.services.graph_registry import durable_graph_model_map
 from investos.services.shadow_metrics import result_metrics
 from investos.services.source import SourceService
+from investos.services.source_passages import SourcePassageService
 
 CONVERSATION_SOURCE_NAME = "Prophet Agent Conversation"
 SYNTHETIC_PORTFOLIO_ID = UUID("00000000-0000-0000-0000-000000000000")
@@ -238,12 +239,16 @@ class GraphService:
             connections=connections,
         )
         relevance = self._calculate_relevance(node_type, node, attachment)
+        passage = await self._source_passage_for_node(
+            node_type, node_id, node, citations
+        )
         return GraphNodeDetailResponse(
             id=node_id,
             node_type=node_type,
             label=self._node_label(node_type, node),
             layer=await self._node_layer(node_type, node),
             body=self._node_body(node_type, node),
+            source_passage=passage,
             tier=getattr(node, "tier", None),
             created_at=getattr(node, "created_at", None),
             is_autonomous=await self._node_is_autonomous(node_type, node),
@@ -262,6 +267,23 @@ class GraphService:
             citations=citations,
             connections=connections,
         )
+
+    async def _source_passage_for_node(
+        self, node_type, node_id, node, citations
+    ) -> dict | None:
+        if node_type not in {"fact", "claim", "event"}:
+            return None
+        descriptor = {
+            "id": node_id,
+            "type": node_type,
+            "text": getattr(node, "statement", None)
+            or getattr(node, "description", None)
+            or getattr(node, "title", None)
+            or "",
+            "sources": [citation.model_dump() for citation in citations],
+        }
+        await SourcePassageService(self.session).attach([descriptor])
+        return descriptor.get("source_passage")
 
     async def search_nodes(
         self,
@@ -1426,6 +1448,9 @@ class GraphService:
                 "confidence": float(getattr(node, "confidence", 0.0) or 0.0),
                 "contradiction_role": getattr(node, "contradiction_role", None),
                 "directness": getattr(node, "directness", None),
+                "is_verified": bool(node.is_verified),
+                "promotion_eligible": bool(node.promotion_eligible),
+                "source_tier": node.tier,
                 "novelty": getattr(node, "novelty", None),
                 "event_time": (
                     node.event_time.isoformat()

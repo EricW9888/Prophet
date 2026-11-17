@@ -261,6 +261,7 @@ export type GraphNodeDetail = {
   label: string;
   layer: string;
   body?: string | null;
+  source_passage?: SourcePassage | null;
   tier?: string | null;
   created_at?: string | null;
   relevance?: number | null;
@@ -268,6 +269,22 @@ export type GraphNodeDetail = {
   properties: Record<string, unknown>;
   citations: GraphCitation[];
   connections: GraphConnection[];
+};
+
+export type SourcePassage = {
+  status: "bound" | "unknown" | "unbound" | "source_changed" | "assertion_changed";
+  reason?: string;
+  raw_evidence_id?: string;
+  source_item_id?: string;
+  document_hash?: string;
+  assertion_hash?: string;
+  quote_selector?: { type: "TextQuoteSelector"; exact: string; prefix: string; suffix: string };
+  position_selector?: { type: "TextPositionSelector"; start: number; end: number };
+  context_is_excerpt?: boolean;
+  context_start?: number;
+  context_end?: number;
+  document_chars?: number;
+  semantic_verification?: boolean;
 };
 
 export type AgentActionLogItem = {

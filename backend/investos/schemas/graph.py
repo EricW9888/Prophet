@@ -32,6 +32,7 @@ class GraphNodeDetailResponse(BaseModel):
     label: str
     layer: str = "knowledge"
     body: Optional[str] = None
+    source_passage: dict | None = None
     tier: Optional[str] = None
     created_at: Optional[datetime] = None
     relevance: Optional[float] = None

@@ -44,6 +44,7 @@ from investos.services.market_setup import MarketSetupSignalService
 from investos.services.operating_loop import OperatingLoopService
 from investos.services.security_catalog import SecurityCatalogService
 from investos.services.source_learning import SourceLearningService
+from investos.services.source_passages import bind_source_passage
 from investos.services.source_text import (
     SourceTextChanged,
     complete_source_window,
@@ -414,6 +415,8 @@ for _object_kind in ("events", "facts", "claims"):
     _item_schema = EXTRACTION_SCHEMA["properties"][_object_kind]["items"]
     _item_schema["properties"]["entity_type"] = {"type": ["string", "null"]}
     _item_schema["required"].append("entity_type")
+    _item_schema["properties"]["supporting_quote"] = {"type": ["string", "null"]}
+    _item_schema["required"].append("supporting_quote")
 
 
 INVESTMENT_OBJECT_SCHEMA = {
@@ -802,7 +805,17 @@ class ExtractionWorker:
                 source_id=source_item.id,
                 subject_type=object_subject_type,
                 subject_id=object_subject_id,
-                metadata=audit_metadata,
+                metadata={
+                    **audit_metadata,
+                    "source_passage": bind_source_passage(
+                        payload,
+                        event.description or event.title,
+                        text_content,
+                        source_item=source_item,
+                        window=window,
+                        document_hash=progress["document_hash"],
+                    ),
+                },
             )
             await self.edge_state.ensure_edge(
                 source_type="event",
@@ -885,7 +898,17 @@ class ExtractionWorker:
                 source_id=source_item.id,
                 subject_type=object_subject_type,
                 subject_id=object_subject_id,
-                metadata=audit_metadata,
+                metadata={
+                    **audit_metadata,
+                    "source_passage": bind_source_passage(
+                        payload,
+                        fact.statement,
+                        text_content,
+                        source_item=source_item,
+                        window=window,
+                        document_hash=progress["document_hash"],
+                    ),
+                },
             )
             await self.edge_state.ensure_edge(
                 source_type="fact",
@@ -969,7 +992,17 @@ class ExtractionWorker:
                 source_id=source_item.id,
                 subject_type=object_subject_type,
                 subject_id=object_subject_id,
-                metadata=audit_metadata,
+                metadata={
+                    **audit_metadata,
+                    "source_passage": bind_source_passage(
+                        payload,
+                        claim.statement,
+                        text_content,
+                        source_item=source_item,
+                        window=window,
+                        document_hash=progress["document_hash"],
+                    ),
+                },
             )
             await self.edge_state.ensure_edge(
                 source_type="claim",
@@ -1021,6 +1054,8 @@ class ExtractionWorker:
             source_item,
             text_content[window["input_start"] : window["end"]],
             extracted.get("relationships", []),
+            source_window=window,
+            source_document=text_content,
         )
         metadata = dict(evidence.metadata_json or {})
         prior_relationships = metadata.get("relationship_extraction") or {}
@@ -1232,6 +1267,8 @@ class ExtractionWorker:
         payloads: list[dict],
         *,
         actor: str = "structured_relationship_extraction",
+        source_window: dict | None = None,
+        source_document: str | None = None,
     ) -> dict[str, int]:
         """Retain attributed assertions; lexical binding is not semantic verification.
 
@@ -1429,6 +1466,17 @@ class ExtractionWorker:
                 source_id=source_item.id,
                 metadata={
                     "raw_evidence_id": str(evidence.id),
+                    "source_passage": bind_source_passage(
+                        payload,
+                        claim.statement,
+                        (
+                            source_document
+                            if source_document is not None
+                            else text_content
+                        ),
+                        source_item=source_item,
+                        window=source_window,
+                    ),
                     "relationship_type": predicate,
                     "event_date_source_bound": date_bound,
                     "proposed_event_time_raw": payload.get("event_time_raw"),
@@ -1599,6 +1647,8 @@ class ExtractionWorker:
                 window_text,
                 payloads,
                 actor="source_relationship_backfill",
+                source_window=window,
+                source_document=text_content,
             )
             rejected = int(checkpoint.get("rejected") or 0) + counts["rejected"]
             status = (
@@ -2005,6 +2055,11 @@ class ExtractionWorker:
             "an extraction/relevance diagnostic, not a market fact or contradiction, and must not appear in facts or claims. For an "
             "irrelevant or uncertain document, return empty event, fact, claim, fundamental-metric, and market-setup arrays. "
             "Preserve the distinction between event, fact, and claim. "
+            "For each event, fact and claim, provide supporting_quote as the smallest complete verbatim passage that preserves "
+            "its attribution, negation, correction, conditions and time qualifiers. Never rewrite the quotation. "
+            "Include enough verbatim context to distinguish repeated wording within the supplied window; use null if unavailable. "
+            "These quotations establish source location, not semantic verification. A correction, denial, quoted report or former role "
+            "must not become an unqualified current fact. Keep corrections and the earlier assertion separately attributable. "
             "Facts should reflect stronger evidence than claims. "
             "When subject_type is entity, classify its entity_type with an accurate open-ended kind. "
             "Examples include company, person, organization, product, technology, index, commodity and currency. "

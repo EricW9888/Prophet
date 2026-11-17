@@ -117,6 +117,22 @@ entailment, image coverage or reconciliation across distant sections. Original
 source bytes remain available for inspection. Legacy completed sources retain
 unknown coverage; this does not silently replay completed backfill jobs.
 
+New extracted facts, claims and events carry a supporting quotation in their
+existing creation-audit record. A unique whitespace-tolerant text match binds
+the original spelling to Unicode codepoint offsets and a source hash; the
+assertion hash prevents an edited statement from inheriting an old anchor.
+Ambiguous, missing or stale matches remain explicit gaps. Graph details and
+retrieval use the same projection, including source context before and after
+the quote. Prompt compaction keeps the quotation intact. Context is an excerpt,
+not a whole-source coverage claim. The original-text reader can validate a
+historical anchor against retained bytes when SourceItem contains a legacy
+prefix. This reuses the [W3C quote/position selector pattern](https://www.w3.org/TR/annotation-model/#selectors),
+without treating a lexical match as semantic entailment or independent
+corroboration. Original and derived statements remain separately inspectable;
+this does not automatically rewrite accepted views or supersede earlier facts.
+The graph inspector labels unverified facts/claims explicitly; their stored
+tier classification and promotion eligibility remain available in record details.
+
 `api/routes/ingestion.py` accepts notes, files, and URLs. Research discovery and
 extraction run through `services/research.py`, `workers/research.py`, and
 `workers/extraction.py`. The Sources routes and services manage provenance,

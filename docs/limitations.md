@@ -68,6 +68,13 @@ version is separate work, and completed legacy records are not silently replayed
 Long sources require more model calls; this change does not establish a latency
 improvement. Explicit relationship/relevance repair advances one window per call
 and reports remaining coverage; it does not silently start an unlimited replay.
+Source quotations are locators, not truth or entailment checks. New audit
+anchors distinguish missing, ambiguous, changed-source and changed-assertion
+states; older records may have no anchor. Surrounding quotation context is
+bounded and can omit distant qualifications. Retaining a quotation does not
+guarantee that the model chose the right passage, interpreted it correctly or
+reconciled a correction with every earlier assertion. Existing source and
+promotion checks remain necessary.
 
 ## Data and Connector Coverage
 
