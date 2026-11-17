@@ -4,12 +4,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
+import httpx
 import pytest
 from sqlalchemy import select
 
 from investos.core.prompting import compact_packet_context
 from investos.models.knowledge import Fact
-from investos.models.reasoning import ReasoningRun
+from investos.models.reasoning import EvidencePacket, ReasoningRun
 from investos.models.source import Source
 from investos.schemas.agent import AgentTurnRequest
 from investos.services.agent import AgentService
@@ -252,3 +253,58 @@ def test_numeric_warning_only_describes_financial_quantities_in_the_delivered_an
         "**Numerical claims need verification."
     )
     assert state["quantity_grounding"]["verified"] is False
+
+
+@pytest.mark.parametrize("defer", [False, True])
+@pytest.mark.parametrize("status", [401, 429, None])
+async def test_combined_analysis_does_not_complete_after_deferred_review_failure(
+    workflow_session, monkeypatch, defer, status
+):
+    from investos.config import settings
+    from investos.core.provider_health import ProviderHealthStore
+
+    session = workflow_session
+    packet = EvidencePacket(subject_id=uuid4(), subject_type="entity")
+    session.add(packet)
+    await session.flush()
+    service = ReasoningService(session)
+    result = {**_result([]), "reasoning": "Synthetic analyst answer."}
+    analysis = AsyncMock(return_value=result)
+    update = AsyncMock(return_value=False)
+    commit = AsyncMock(wraps=session.commit)
+    failure = (
+        httpx.HTTPStatusError(
+            "Synthetic review interruption",
+            request=httpx.Request("POST", "https://llm.example.test/analysis"),
+            response=httpx.Response(status),
+        )
+        if status is not None
+        else TimeoutError("Synthetic review deadline")
+    )
+    review = AsyncMock(side_effect=failure)
+    monkeypatch.setattr(settings, "REASONING_INDEPENDENT_REVIEW_ENABLED", True)
+    monkeypatch.setattr(ProviderHealthStore, "require_available", lambda: None)
+    monkeypatch.setattr(service, "_active_provider_unconfigured_label", lambda: None)
+    monkeypatch.setattr(service, "_find_cached_run", AsyncMock(return_value=None))
+    monkeypatch.setattr(service, "_reason_with_llm", analysis)
+    monkeypatch.setattr(service, "_update_conclusion_state", update)
+    monkeypatch.setattr(session, "commit", commit)
+    monkeypatch.setattr("investos.services.reasoning.call_llm_json", review)
+
+    request = service.run_analysis(
+        packet.id, evidence_context=_packet(), defer_on_provider_failure=defer
+    )
+    if defer:
+        with pytest.raises(type(failure)) as raised:
+            await request
+        assert raised.value is failure
+        commit.assert_not_awaited()
+        update.assert_not_awaited()
+    else:
+        _, delivered = await request
+        assert delivered["thesis_summary"] == result["thesis_summary"]
+        assert "independent_review" not in delivered
+        commit.assert_awaited_once()
+        update.assert_awaited_once()
+    analysis.assert_awaited_once()
+    review.assert_awaited_once()

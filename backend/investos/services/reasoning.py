@@ -459,7 +459,14 @@ class ReasoningService:
         corroboration.assess_result(result, packet_context)
         if include_critique:
             independent_review = await self._create_critique(
-                run, packet_context, result
+                run,
+                packet_context,
+                result,
+                **(
+                    {"defer_on_provider_failure": True}
+                    if defer_on_provider_failure
+                    else {}
+                ),
             )
             corroboration.apply_independent_review(result, independent_review)
         if allow_state_update:
