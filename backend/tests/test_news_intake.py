@@ -83,6 +83,44 @@ def test_news_job_never_waits_for_the_model_circuit(monkeypatch):
     assert AutomationCoordinator()._provider_defers("news_intake") is False
 
 
+async def test_feed_intake_retains_qualifiers_beyond_the_old_prefix(
+    workflow_session, monkeypatch
+):
+    session = workflow_session
+    monkeypatch.setattr(settings, "NEWS_FEED_URLS", [])
+    subscription = await feed(session)
+    article = (
+        "Retained source context. " * 1200
+        + "Correction: approval has not been granted."
+    )
+    monkeypatch.setattr(
+        NewsIntakeService, "_read_feed", AsyncMock(return_value=[item()])
+    )
+    monkeypatch.setattr(
+        IngestionService,
+        "fetch_url_document",
+        AsyncMock(
+            return_value=FetchedUrlDocument(
+                url="https://example.test/new",
+                canonical_url="https://example.test/new",
+                title="Synthetic update",
+                content=article,
+            )
+        ),
+    )
+    await NewsIntakeService(session).run()
+    observation = await session.scalar(
+        select(ResearchDiscoveryObservation).where(
+            ResearchDiscoveryObservation.query == subscription.url
+        )
+    )
+    evidence = await session.get(RawEvidence, observation.evidence_id)
+    stored = await IngestionService(session).storage.get_object(
+        evidence.raw_content_ref
+    )
+    assert stored.decode() == article
+
+
 async def test_observation_versions_are_idempotent_and_never_backdated(
     workflow_session,
 ):

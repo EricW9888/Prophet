@@ -84,7 +84,11 @@ class AutomationCoordinator:
         "universe_directory_changed": ("opportunity_discovery",),
         "news_feed_changed": ("news_intake",),
         "evidence_arrived": ("evidence_processing",),
-        "evidence_ready": ("question_resolution", "agent_reflection"),
+        "evidence_ready": (
+            "question_resolution",
+            "agent_reflection",
+            "strategist_cycle",
+        ),
         "question_actionable": ("research_loop",),
         "shadow_evidence_queued": ("shadow_refresh",),
         "provider_recovered": (
@@ -96,6 +100,7 @@ class AutomationCoordinator:
             "question_resolution",
             "research_loop",
             "shadow_refresh",
+            "strategist_cycle",
         ),
     }
     LLM_DEPENDENT_JOBS = frozenset(

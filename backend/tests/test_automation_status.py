@@ -269,6 +269,23 @@ def test_strategist_planning_signal_is_not_triggered_by_inventory_alone():
     assert AgentService._strategic_planning_fingerprint(quiet_packet) == (
         AgentService._strategic_planning_fingerprint(dict(quiet_packet))
     )
+    changed_packet = {
+        **quiet_packet,
+        "recent_evidence_changes": [
+            {
+                "evidence_id": "new-source",
+                "processed_at": "2026-11-17T00:00:00Z",
+                "assertion_ids": ["new-assertion"],
+            }
+        ],
+    }
+    assert AgentService._has_strategic_planning_signal(changed_packet)
+    assert AgentService._strategic_planning_fingerprint(
+        changed_packet
+    ) != AgentService._strategic_planning_fingerprint(quiet_packet)
+    assert AgentService._strategic_planning_fingerprint(
+        changed_packet
+    ) == AgentService._strategic_planning_fingerprint(dict(changed_packet))
 
 
 @pytest.mark.asyncio

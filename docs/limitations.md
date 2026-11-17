@@ -157,6 +157,13 @@ independent corroboration, portfolio impact, or advance usefulness. Pending and
 failed leads remain visible; complete attention coverage and investment value
 still require end-to-end validation.
 
+An evidence-change wake-up and a populated planning preview do not establish
+that the planner recognized the most important development, investigated every
+implication, or delivered a timely alert. Preview limits and source/extraction
+failures remain coverage limits. Owner notifications currently follow durable
+watch/reminder state transitions; new-story materiality and unsolicited owner
+attention still require separate end-to-end qualification.
+
 Opportunity discovery currently inspects an operator-approved security universe
 in bounded batches. Its run history records inspected subjects, skips, failures,
 provider attempts, and estimated metered credits; it does not establish that the

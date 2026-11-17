@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from uuid import UUID
 
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,9 +17,10 @@ from investos.models.catalog import (
 from investos.models.conclusion import ConclusionState
 from investos.models.coverage import CoverageMap, UnresolvedQuestion
 from investos.models.entity import Entity, Security
-from investos.models.evidence import RawEvidence
+from investos.models.evidence import EvidenceProcessingState, RawEvidence, SourceItem
 from investos.models.graph import Edge
 from investos.models.knowledge import Claim, Event, Fact
+from investos.models.knowledge_mutation import KnowledgeMutation
 from investos.models.lesson import Lesson
 from investos.models.portfolio import CashLedgerEntry, Position
 from investos.models.profile import Profile
@@ -976,7 +978,102 @@ class OperatingStateService:
                 for item in relevant_queue
             ],
             "recent_research_items": recent_research,
+            "recent_evidence_changes": await self._recent_evidence_changes(),
         }
+
+    async def _recent_evidence_changes(self, limit: int = 5) -> list[dict]:
+        rows = (
+            await self.session.execute(
+                select(RawEvidence, SourceItem, EvidenceProcessingState)
+                .join(SourceItem, SourceItem.raw_evidence_id == RawEvidence.id)
+                .join(
+                    EvidenceProcessingState,
+                    EvidenceProcessingState.raw_evidence_id == RawEvidence.id,
+                )
+                .where(
+                    RawEvidence.is_processed.is_(True),
+                    RawEvidence.source_item_type != "conversation_turn",
+                    EvidenceProcessingState.extraction_status == "completed",
+                    EvidenceProcessingState.persisted_object_count > 0,
+                    SourceItem.processing_status.in_(
+                        ("processed", "processed_adjacent_context")
+                    ),
+                )
+                .order_by(
+                    EvidenceProcessingState.extraction_completed_at.desc().nullslast(),
+                    EvidenceProcessingState.updated_at.desc(),
+                    RawEvidence.id,
+                )
+                .limit(limit)
+            )
+        ).all()
+        if not rows:
+            return []
+        ranked = (
+            select(
+                KnowledgeMutation.node_id,
+                KnowledgeMutation.source_id,
+                func.row_number()
+                .over(
+                    partition_by=KnowledgeMutation.source_id,
+                    order_by=(
+                        KnowledgeMutation.created_at.desc(),
+                        KnowledgeMutation.id,
+                    ),
+                )
+                .label("ordinal"),
+            )
+            .where(
+                KnowledgeMutation.source_id.in_([item.id for _, item, _ in rows]),
+                KnowledgeMutation.change_type == "created",
+                KnowledgeMutation.node_type.in_(("fact", "claim", "event")),
+            )
+            .subquery()
+        )
+        references = (
+            await self.session.execute(
+                select(ranked.c.node_id, ranked.c.source_id)
+                .where(ranked.c.ordinal <= 3)
+                .order_by(ranked.c.source_id, ranked.c.ordinal)
+            )
+        ).all()
+        # Use the same provenance and stale-quotation checks as ordinary retrieval.
+        from investos.services.retrieval import RetrievalService
+
+        nodes = {
+            str(node["id"]): jsonable_encoder(node)
+            for node in await RetrievalService(self.session)._load_nodes(
+                [node_id for node_id, _ in references]
+            )
+        }
+        by_source = {}
+        for node_id, source_id in references:
+            if str(node_id) in nodes:
+                by_source.setdefault(source_id, []).append(nodes[str(node_id)])
+        return [
+            {
+                "evidence_id": str(evidence.id),
+                "source_item_type": evidence.source_item_type,
+                "title": evidence.title,
+                "url": evidence.url,
+                "observed_at": evidence.created_at.isoformat(),
+                "observation_basis": "receipt_created_at",
+                "discovered_at": (evidence.metadata_json or {}).get("discovered_at"),
+                "event_time": (
+                    evidence.event_time.isoformat() if evidence.event_time else None
+                ),
+                "public_time": (
+                    evidence.public_time.isoformat() if evidence.public_time else None
+                ),
+                "processed_at": (
+                    state.extraction_completed_at or state.updated_at
+                ).isoformat(),
+                "assertions": by_source.get(item.id, []),
+                "preview_is_exhaustive": False,
+                "interpretation_is_verified": False,
+            }
+            for evidence, item, state in rows
+        ]
 
     async def subject_name(self, subject_id: UUID, subject_type: str) -> str:
         if subject_type == "portfolio":

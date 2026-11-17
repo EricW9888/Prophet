@@ -4,14 +4,14 @@ from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from investos.config import settings
 from investos.core.provider_health import ProviderHealthStore
 from investos.core.work_signals import listen_for_work_signals
-from investos.models.evidence import RawEvidence
+from investos.models.evidence import EvidenceProcessingState, RawEvidence
 from investos.models.source import Source
 from investos.services.automation import AutomationCoordinator, JobTelemetry
 
@@ -133,3 +133,115 @@ async def test_work_signals_preserve_provider_recovery_and_paid_work_limits(
     modify.assert_called_once_with(
         "research_loop", next_run_time=recent + timedelta(minutes=5)
     )
+
+
+@pytest.mark.parametrize("object_count", [0, 1])
+async def test_committed_extraction_wakes_planner_only_when_it_retains_objects(
+    monkeypatch, object_count
+):
+    monkeypatch.setattr(settings, "AUTOMATION_ENABLED", True)
+    monkeypatch.setattr(
+        ProviderHealthStore, "public_status", lambda: {"state": "healthy"}
+    )
+    monkeypatch.setattr(ProviderHealthStore, "can_admit_work", lambda health: True)
+    coordinator = AutomationCoordinator()
+    called = asyncio.Event()
+
+    async def planner():
+        called.set()
+
+    coordinator._register_job("strategist_cycle", planner, 600, True)
+    coordinator.scheduler.start()
+    receipts = asyncio.Queue()
+
+    def received(signal):
+        receipts.put_nowait(signal)
+        if signal != "queue_catchup":
+            coordinator.signal_ready_work(signal)
+
+    coordinator._signal_listener = asyncio.create_task(
+        listen_for_work_signals(received)
+    )
+    engine = create_async_engine(settings.SQLALCHEMY_DATABASE_URI, poolclass=NullPool)
+    source_id, evidence_id, state_id = uuid4(), uuid4(), uuid4()
+    try:
+        assert await asyncio.wait_for(receipts.get(), timeout=5) == "queue_catchup"
+        async with AsyncSession(engine) as session:
+            session.add(
+                Source(id=source_id, name="Synthetic planner wake", source_type="news")
+            )
+            await session.flush()
+            session.add(
+                RawEvidence(
+                    id=evidence_id,
+                    source_id=source_id,
+                    source_item_type="news",
+                    is_processed=False,
+                )
+            )
+            await session.flush()
+            state = EvidenceProcessingState(
+                id=state_id,
+                raw_evidence_id=evidence_id,
+                extraction_status="pending",
+                persisted_object_count=0,
+            )
+            session.add(state)
+            await session.commit()
+            assert (
+                await asyncio.wait_for(receipts.get(), timeout=5) == "evidence_arrived"
+            )
+            state.extraction_status = "completed"
+            state.persisted_object_count = object_count
+            await session.flush()
+            assert not called.is_set()
+            await session.rollback()
+            state = await session.get(EvidenceProcessingState, state_id)
+            state.extraction_status = "completed"
+            state.persisted_object_count = object_count
+            await session.commit()
+            await session.execute(
+                select(func.pg_notify("prophet_work_ready", "test_barrier"))
+            )
+            await session.commit()
+            if object_count:
+                assert (
+                    await asyncio.wait_for(receipts.get(), timeout=5)
+                    == "evidence_ready"
+                )
+                await asyncio.wait_for(called.wait(), timeout=5)
+                assert (
+                    coordinator.telemetry["strategist_cycle"].last_trigger
+                    == "signal:evidence_ready"
+                )
+            assert await asyncio.wait_for(receipts.get(), timeout=5) == "test_barrier"
+            if not object_count:
+                assert not called.is_set()
+                assert "strategist_cycle" not in coordinator._pending_signals
+            else:
+                called.clear()
+                state.extraction_status = "completed"
+                await session.commit()
+                await session.execute(
+                    select(func.pg_notify("prophet_work_ready", "test_barrier"))
+                )
+                await session.commit()
+                assert (
+                    await asyncio.wait_for(receipts.get(), timeout=5) == "test_barrier"
+                )
+                assert not called.is_set()
+                assert "strategist_cycle" not in coordinator._pending_signals
+    finally:
+        await coordinator.shutdown()
+        async with AsyncSession(engine) as session:
+            await session.execute(
+                delete(EvidenceProcessingState).where(
+                    EvidenceProcessingState.id == state_id
+                )
+            )
+            await session.execute(
+                delete(RawEvidence).where(RawEvidence.id == evidence_id)
+            )
+            await session.execute(delete(Source).where(Source.id == source_id))
+            await session.commit()
+        await engine.dispose()
