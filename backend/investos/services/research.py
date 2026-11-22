@@ -9,7 +9,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
-from sqlalchemy import String, and_, cast, select, update
+from sqlalchemy import String, and_, cast, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.config import settings
@@ -56,7 +56,7 @@ from investos.services.question_lifecycle import (
 )
 from investos.services.runtime_settings import RuntimeSettingsStore
 from investos.services.source_learning import SourceLearningService
-from investos.services.source_passages import bind_source_passage
+from investos.services.source_passages import bind_source_passage, text_digest
 from investos.services.work_outcomes import (
     evidence_work_outcome,
     group_research_operations,
@@ -683,12 +683,26 @@ class ResearchService:
             .correlate(UnresolvedQuestion, RawEvidence)
             .exists()
         )
+        # Overlap informs ordering. Candidates with different phrasing stay eligible.
+        terms = cast(
+            func.plainto_tsquery("english", UnresolvedQuestion.question_text), String
+        )
+        query = func.to_tsquery(
+            "simple", func.nullif(func.replace(terms, " & ", " | "), "")
+        )
+        relevance = func.ts_rank(
+            func.to_tsvector(
+                "english", func.concat_ws(" ", RawEvidence.title, SourceItem.summary)
+            ),
+            query,
+        ).label("question_relevance")
         candidate = (
             await self.session.execute(
                 select(
                     UnresolvedQuestion.id,
                     RawEvidence.id,
                     UnresolvedQuestion.urgency,
+                    relevance,
                     RawEvidence.created_at,
                 )
                 .select_from(UnresolvedQuestion)
@@ -733,6 +747,7 @@ class ResearchService:
                 .distinct()
                 .order_by(
                     UnresolvedQuestion.urgency.desc(),
+                    relevance.desc().nullslast(),
                     RawEvidence.created_at.desc(),
                     UnresolvedQuestion.id,
                     RawEvidence.id,
@@ -879,6 +894,7 @@ class ResearchService:
                     "Keep the summary concise and state any material residual uncertainty. "
                     "Give the exact supporting quotation for an answer or a partial answer. "
                     "Distinguish what the source says happened from a plan, allegation or expectation. "
+                    "In particular, the date of a report or event may differ from the filing, publication, update, and observation dates. "
                     "Return outcome=answered only with answered=true; distinguish a supported partial answer, "
                     "irrelevant evidence, and insufficient evidence."
                 ),
@@ -890,6 +906,9 @@ class ResearchService:
                             {
                                 "source_published_at": raw.public_time,
                                 "source_observed_at": raw.created_at,
+                                "feed_updated_at": (raw.metadata_json or {}).get(
+                                    "feed_updated_date"
+                                ),
                             }
                             if raw is not None
                             else {}
@@ -939,10 +958,13 @@ class ResearchService:
         outcome = assessment.get("outcome") or (
             "answered" if assessment.get("answered") else "insufficient_evidence"
         )
+        assessment_summary = str(assessment.get("summary") or "").strip()
         if retained:
+            if outcome == "answered" and not assessment.get("answered"):
+                outcome = "insufficient_evidence"
             passage = bind_source_passage(
                 assessment,
-                str(assessment.get("summary") or ""),
+                assessment_summary,
                 original_text,
                 source_item=source_item,
                 window={"end": len(evidence_text)},
@@ -952,6 +974,9 @@ class ResearchService:
                 and passage["status"] != "bound"
             ):
                 outcome = "unbound_source_answer"
+            elif outcome in {"answered", "partial_answer"}:
+                assessment_summary = passage["exact"]
+                passage["assertion_hash"] = text_digest(assessment_summary)
             lifecycle.record(
                 question,
                 "retained_source_assessed",
@@ -960,7 +985,7 @@ class ResearchService:
                 source_passage=passage,
                 **(
                     {
-                        "assessment_summary": assessment.get("summary"),
+                        "assessment_summary": assessment_summary,
                         "remaining_uncertainty": assessment.get(
                             "remaining_uncertainty"
                         ),
@@ -1009,8 +1034,12 @@ class ResearchService:
         if existing is None or evidence_id not in (
             existing.resolving_evidence_ids or []
         ):
-            summary = str(assessment.get("summary") or "").strip()
-            uncertainty = str(assessment.get("remaining_uncertainty") or "").strip()
+            summary = assessment_summary
+            uncertainty = (
+                str(assessment.get("remaining_uncertainty") or "").strip()
+                if not retained
+                else ""
+            )
             if uncertainty:
                 summary = f"{summary} Remaining uncertainty: {uncertainty}".strip()
             self.session.add(
@@ -1026,7 +1055,7 @@ class ResearchService:
             status="answered",
             outcome="direct_answer",
             evidence_id=str(evidence_id),
-            assessment_summary=str(assessment.get("summary") or ""),
+            assessment_summary=assessment_summary,
         )
         await self.session.commit()
         self._log_research_action(

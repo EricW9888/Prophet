@@ -694,8 +694,9 @@ what earned investigation, and evidence obtained during research is recorded
 separately. Both routes use the existing research budgets.
 The assessment worker also checks newly retained, directly fetched source
 documents for open questions about their extracted subjects. This route can
-work during search-provider backoff. A direct answer includes a passage bound
-to the retained text. Each assessment records its source, and a source that
+work during search-provider backoff. Question relevance helps order candidate
+documents. An automatic direct resolution records the bound source passage as
+its answer. Each assessment records its source, and a source that
 leaves the question open preserves its existing search schedule and budget.
 
 ## Frontend Surfaces

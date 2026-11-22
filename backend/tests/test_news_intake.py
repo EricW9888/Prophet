@@ -246,7 +246,7 @@ async def test_retained_disclosure_reaches_question_while_search_is_limited(
             {
                 "answered": True,
                 "outcome": "answered",
-                "summary": "The suspension takes effect January 15.",
+                "summary": "The filing was submitted January 14 and the suspension takes effect January 15.",
                 "remaining_uncertainty": None,
                 "supporting_quote": (
                     quote if quote_matches else "The filing says February 12."
@@ -288,6 +288,8 @@ async def test_retained_disclosure_reaches_question_while_search_is_limited(
     if quote_matches:
         assert question.status == "answered"
         assert solution.resolving_evidence_ids == [fetched.id]
+        assert solution.summary == quote
+        assert audit.detail_json["assessment_summary"] == quote
         assert audit.detail_json["source_passage"]["exact"] == quote
     else:
         assert question.status == "awaiting_provider"
