@@ -111,7 +111,7 @@ export default function PositionsTable() {
                   {`${holdings.length} active holdings`}
                 </h2>
                 <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                  The book comes first. Track holdings here, then let research objects orbit around the real portfolio.
+                  Review your holdings and use them to see where new research changes your exposure.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
