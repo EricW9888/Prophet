@@ -14,6 +14,7 @@ from investos.core.provider_health import (
     LLMProviderCooldownError,
     ProviderHealthStore,
     probe_llm_provider,
+    retryable_provider_failure,
 )
 from investos.core.research_providers import configured_research_providers
 from investos.core.work_signals import listen_for_work_signals
@@ -870,21 +871,33 @@ class AutomationCoordinator:
         async with async_session_maker() as session:
             try:
                 outcomes = []
+                research = ResearchService(session)
                 for _ in range(3):
                     question = await self._select_resolution_question(session)
+                    retained = question is None
                     if question is None:
-                        break
-                    resolved = await ResearchService(session)._maybe_resolve_question(
-                        question, question.originating_evidence_id
+                        candidate = await research.next_retained_question_source()
+                        if candidate is None:
+                            break
+                        question, evidence_id = candidate
+                    else:
+                        evidence_id = question.originating_evidence_id
+                    resolved = await research._maybe_resolve_question(
+                        question, evidence_id, retained=retained
                     )
-                    outcomes.append(question.last_material_outcome)
+                    outcome = (
+                        "retained_source_assessed"
+                        if retained and not resolved
+                        else question.last_material_outcome
+                    )
+                    outcomes.append(outcome)
                     self._log_job_action(
                         job_name="question_resolution",
-                        status=question.last_material_outcome,
+                        status=outcome,
                         summary=f"Question assessment: {question.question_text}",
                         metadata={
                             "question_id": str(question.id),
-                            "evidence_id": str(question.originating_evidence_id),
+                            "evidence_id": str(evidence_id),
                             "resolved": resolved,
                             "next_action": question.next_action,
                         },
@@ -894,6 +907,12 @@ class AutomationCoordinator:
                     ", ".join(outcomes) if outcomes else "no_due_eligible_questions"
                 )
             except Exception as exc:
+                if retryable_provider_failure(exc) and not isinstance(
+                    exc, LLMProviderCooldownError
+                ):
+                    exc = LLMProviderCooldownError(
+                        f"Question assessment can be retried ({type(exc).__name__})."
+                    )
                 self._record_job_failure(
                     job_name="question_resolution",
                     error=exc,
@@ -2142,6 +2161,7 @@ class AutomationCoordinator:
             try:
                 result = await AgentService(session).run_strategic_planning_cycle()
                 telemetry.last_status = self._result_telemetry_status(result)
+                telemetry.provider_deferred = telemetry.last_status == "deferred"
                 telemetry.detail = str(result["detail"])
                 if result.get("detail") not in {
                     "no_material_planning_signal",

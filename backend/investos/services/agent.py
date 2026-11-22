@@ -35,6 +35,7 @@ from investos.core.prompting import (
 from investos.core.provider_health import (
     LLMProviderCooldownError,
     provider_failure_cause,
+    retryable_provider_failure,
 )
 from investos.core.storage import LocalStorage
 from investos.models.conclusion import ConclusionState
@@ -2689,13 +2690,14 @@ class AgentService:
             "Select the next most valuable autonomous research or prospecting move for Prophet from the supplied operating state."
             "\n\nCORE RULES:"
             "\n- Rank by the value of the investment decision the research could improve. Use the portfolio to identify existing exposure. Ownership is not required."
-            "\n- Use independent_opportunity when a concrete development could change an investment opportunity or risk outside the portfolio. State what could change, why it matters now, and what evidence could verify or overturn it. Set lead_evidence_id to the supporting record in recent_evidence_changes."
+            "\n- Use independent_opportunity when a concrete development could change an investment opportunity or risk outside the portfolio. State what actually changed, how it could affect a specific investable decision, and how long the opportunity to act might last. Identify evidence that could verify or overturn the premise. Set lead_evidence_id to the supporting record in recent_evidence_changes."
             "\n- Use broad_context with action='none' for ambient context without a consequential investment question."
             "\n- Prefer specific, high-leverage questions over generic curiosity."
             "\n- Use user lessons and current review pressure to choose what deserves attention next."
             "\n- Use peer_exposures as candidate relationship patterns between tracked names; investigate them when the mechanism and portfolio weight make the shared exposure actionable."
             "\n- Prefer leading, source-backed changes that could alter future fundamentals or expectations before lagging reported results make the change obvious."
             "\n- recent_evidence_changes contains provisional extracted assertions across intake paths. Use original source passages and distinguish observation/processing times from publication or event time. A newly read historical document is not a new event. These bounded previews are not exhaustive and do not verify interpretation."
+            "\n- Preserve the source's timeline. An excerpt missing information does not mean it has not been disclosed. Distinguish an announced plan from a completed event."
             "\n- Do not require a ticker for a policy, technology or other non-company research question."
             "\n- Do not infer an opportunity from price movement alone; use an unexplained move as a research trigger."
             "\n- Keep the search open-ended. These rules are quality constraints, not a preset list of acceptable investment lenses."
@@ -2732,11 +2734,13 @@ class AgentService:
                 ),
                 user_prompt=strategist_user_prompt,
                 schema=STRATEGIC_PLANNING_SCHEMA,
-                timeout_seconds=12,
             )
         except Exception as e:
-            message = str(e).strip() or repr(e)
-            return {"status": "error", "detail": f"LLM strategy failed: {message}"}
+            status = "deferred" if retryable_provider_failure(e) else "error"
+            return {
+                "status": status,
+                "detail": f"Planning {status}: {compact_exception_message(e)}",
+            }
 
         goals = result.get("strategic_goals", [])
         lead_ids = {item["evidence_id"] for item in evidence_changes if item.get("url")}
@@ -2764,6 +2768,7 @@ class AgentService:
                 else {"status": "not_applicable", "verified": True, "issues": []}
             )
         actions_taken = []
+        blocked_search = None
 
         # 3. Execute Top Goal
         executable_goals = [
@@ -2794,7 +2799,10 @@ class AgentService:
 
             if target and action in {"research", "prospect"}:
                 # Seed the research
-                from investos.services.research import ResearchService
+                from investos.services.research import (
+                    SEARCH_BLOCKED_REASONS,
+                    ResearchService,
+                )
 
                 res = await ResearchService(self.session).run_ad_hoc_request(
                     query=f"Analysis of {target} focusing on {goal['goal_name']}. Rationale: {goal['rationale']}",
@@ -2838,20 +2846,32 @@ class AgentService:
                         f"Started research on {target} "
                         f"({goal['portfolio_connection']}: {goal['why_now']})"
                     )
+                elif res.reason in SEARCH_BLOCKED_REASONS:
+                    blocked_search = res.reason
 
         await self.session.commit()
         return {
             "status": (
-                "partial"
-                if any(not goal["quantity_verification"]["verified"] for goal in goals)
-                else "ok"
+                "warning"
+                if blocked_search
+                else (
+                    "partial"
+                    if any(
+                        not goal["quantity_verification"]["verified"] for goal in goals
+                    )
+                    else "ok"
+                )
             ),
             "detail": (
                 f"Planned {len(goals)} goals. "
                 + (
                     "; ".join(actions_taken)
                     if actions_taken
-                    else "No qualifying autonomous research was started."
+                    else (
+                        f"Follow-up search unavailable ({blocked_search})."
+                        if blocked_search
+                        else "No qualifying autonomous research was started."
+                    )
                 )
             ),
             "goals": goals,

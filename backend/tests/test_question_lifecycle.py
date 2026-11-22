@@ -24,6 +24,7 @@ from investos.models.coverage import (
 )
 from investos.models.entity import Entity, Security
 from investos.models.evidence import EvidenceProcessingState, RawEvidence, SourceItem
+from investos.models.knowledge_mutation import KnowledgeMutation
 from investos.models.portfolio import Position
 from investos.models.source import Source
 from investos.services.automation import AutomationCoordinator
@@ -207,6 +208,48 @@ async def test_irrelevant_fetched_source_returns_to_due_research_without_resolut
     )
 
 
+async def test_retained_source_order_uses_question_relevance_without_excluding_candidates(
+    question_session,
+):
+    session = question_session
+    coverage, _ = await tracked_scope(session)
+    lifecycle = QuestionLifecycleService(session)
+    question = await lifecycle.ensure_question(
+        coverage,
+        prompt(question_text="When does the chip line suspension take effect?"),
+        [],
+    )
+    related, related_item = await evidence(session, state="completed")
+    related.title = "Effective date of suspension of the chip line"
+    less_related, other_item = await evidence(session, state="completed")
+    less_related.title = "Quarterly dividend declaration"
+    assert less_related.created_at >= related.created_at
+    for raw, item in ((related, related_item), (less_related, other_item)):
+        raw.metadata_json = {"content_origin": "direct_page"}
+        session.add(
+            KnowledgeMutation(
+                node_type="fact",
+                node_id=uuid4(),
+                change_type="created",
+                source_type="source_item",
+                source_id=item.id,
+                subject_type=coverage.subject_type,
+                subject_id=coverage.subject_id,
+            )
+        )
+    await session.flush()
+    service = ResearchService(session)
+    assert await service.next_retained_question_source() == (question, related.id)
+    lifecycle.record(
+        question,
+        "retained_source_assessed",
+        evidence_id=str(related.id),
+        outcome="partial_answer",
+    )
+    await session.flush()
+    assert await service.next_retained_question_source() == (question, less_related.id)
+
+
 async def test_partial_answer_and_provider_failure_have_durable_different_next_actions(
     question_session, monkeypatch
 ):
@@ -289,6 +332,13 @@ async def test_successful_direct_answer_has_resolution_and_immutable_history(
         coverage, prompt(), []
     )
     raw, _ = await evidence(session)
+    question.originating_evidence_id = raw.id
+    QuestionLifecycleService(session).transition(
+        question,
+        status="awaiting_resolution",
+        outcome="source_fetched",
+        next_action="assess_evidence",
+    )
     monkeypatch.setattr(
         "investos.services.research.call_llm_json",
         AsyncMock(

@@ -177,6 +177,12 @@ backoff, fenced leases and raw-receipt recovery preserve interrupted work.
 Failed or unverifiably dated items remain inspectable rather than becoming
 accepted claims. A changed live-page headline gets a new discovery timestamp;
 its original publisher date never implies earlier system availability.
+An Atom entry with an update time can qualify for a fetch even without a
+publication time. Its update and observation clocks remain distinct. EDGAR
+filing indexes identify the primary filing in their document table. The URL
+intake path fetches that document and retains both the index and document URLs.
+The primary filing uses the configured upload byte budget so large prospectuses
+can reach the ordinary text-ingestion and extraction workflow.
 Recently checked, dated publisher summaries also enter the normal broad
 portfolio question's fresh context. They remain clearly provisional, with
 source receipts and recorded coverage limits. Sources exposes feed controls,
@@ -686,6 +692,12 @@ horizon and decision relevance. Linked questions remain eligible outside the
 portfolio through research, assessment and owner renewal. The link identifies
 what earned investigation, and evidence obtained during research is recorded
 separately. Both routes use the existing research budgets.
+The assessment worker also checks newly retained, directly fetched source
+documents for open questions about their extracted subjects. This route can
+work during search-provider backoff. Question relevance helps order candidate
+documents. An automatic direct resolution records the bound source passage as
+its answer. Each assessment records its source, and a source that
+leaves the question open preserves its existing search schedule and budget.
 
 ## Frontend Surfaces
 

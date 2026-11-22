@@ -8,7 +8,7 @@ import { WorkspaceRead } from "@/components/WorkspaceState";
 import HintMarker from "@/components/HintMarker";
 
 type Feed = { id: string; name: string; url: string; enabled: boolean; status: string; error: string | null; last_checked_at: string | null; last_success_at: string | null; entry_count: number; new_count: number };
-type Arrival = { id: string; title: string; url: string; published_date: string | null; observed_at: string; outcome: string; error: string | null; evidence_id: string | null };
+type Arrival = { id: string; title: string; url: string; published_date: string | null; updated_date: string | null; observed_at: string; outcome: string; error: string | null; evidence_id: string | null };
 type Intake = { enabled: boolean; pending_count: number; oldest_pending_at: string | null; poll_seconds: number; fetch_batch_size: number; feeds: Feed[]; total: number; offset: number; items: Arrival[] };
 
 function displayTime(value: string | null, missing = "Not checked") {
@@ -21,6 +21,7 @@ const outcomes: Record<string, string> = {
   observed: "Awaiting source fetch", fetching: "Fetching source", ingested_evidence: "Source captured",
   fetch_failed: "Fetch retry pending", fetch_retry_exhausted: "Fetch needs review",
   publication_unverified: "Publication time unverified", publication_outside_window: "Outside intake window",
+  feed_update_outside_window: "Feed update outside intake window",
   superseded_by_feed_update: "Publisher updated this item",
 };
 
@@ -92,7 +93,7 @@ export default function NewsIntakePanel() {
             {item.evidence_id ? <Link className="text-sm text-action underline" href={`/sources/evidence/${item.evidence_id}`}>Evidence receipt</Link> : null}
             <Link className="text-sm text-action underline" href={`/chat?${new URLSearchParams({ q: `Investigate this provisional publisher report: ${JSON.stringify(item.title)}. Source: ${item.url}. Check the original report, contrary evidence, publication and discovery times, and any material direct or indirect portfolio implications. Separate reported claims from confirmed facts and hypotheses.` })}`}>Research draft</Link>
           </div>
-          <p className="mt-1 text-xs text-muted">{outcomes[item.outcome] || item.outcome.replaceAll("_", " ")} · Discovered {displayTime(item.observed_at)} · Publisher time {displayTime(item.published_date, "Unverified")}</p>
+          <p className="mt-1 text-xs text-muted">{outcomes[item.outcome] || item.outcome.replaceAll("_", " ")} · Discovered {displayTime(item.observed_at)} · Published {displayTime(item.published_date, "Unverified")}{item.updated_date && <> · Feed updated {displayTime(item.updated_date)}</>}</p>
           {item.error ? <p className="mt-1 break-words text-xs text-red-400">{item.error}</p> : null}
         </article>)}</div>
         {!data.items.length ? <p className="py-3 text-sm text-muted">No publisher observations retained yet. Feed status above shows whether intake has checked successfully.</p> : null}

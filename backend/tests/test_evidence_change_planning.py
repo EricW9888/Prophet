@@ -99,6 +99,7 @@ async def test_new_unheld_news_reaches_planner_with_original_qualification(
     captured = []
 
     async def planner(**kwargs):
+        assert "timeout_seconds" not in kwargs
         captured.append(json.loads(kwargs["user_prompt"]))
         return {
             "strategic_goals": [
@@ -142,6 +143,13 @@ async def test_new_unheld_news_reaches_planner_with_original_qualification(
     )
     fact.statement = quote
     await session.flush()
+
+    deferred_planner = AsyncMock(side_effect=TimeoutError("Model timed out"))
+    monkeypatch.setattr("investos.services.agent.call_llm_json", deferred_planner)
+    deferred = await AgentService(session).run_strategic_planning_cycle()
+    assert deferred["status"] == "deferred"
+    assert "decision_fingerprint" not in deferred
+    assert research.await_count == 1
 
     evidence.source_item_type = "conversation_turn"
     await session.flush()
