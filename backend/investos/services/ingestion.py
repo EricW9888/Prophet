@@ -318,17 +318,19 @@ def _edgar_primary_document_url(index_url: str, html: str) -> str:
         target = urlsplit(
             urljoin(index_url, parse_qs(target.query).get("doc", [""])[0])
         )
-    filing_directory = index.path.rsplit("/", 1)[0]
-    directory, _, filename = target.path.rpartition("/")
+    accession = index.path.split("/")[-2]
+    # Joint filings may list a different CIK and an SEC XSL rendering directory.
+    document = re.fullmatch(
+        rf"/Archives/edgar/data/\d+/{re.escape(accession)}/(?:xsl[\w.-]+/)?([\w.-]+\.(?:html?|txt|xml))",
+        target.path,
+        flags=re.IGNORECASE,
+    )
     if (
         not parser.primary_href
         or target.scheme != index.scheme
         or target.netloc != index.netloc
-        or directory != filing_directory
-        or target.path == index.path
-        or not re.fullmatch(
-            r"[\w.-]+\.(?:html?|txt|xml)", filename, flags=re.IGNORECASE
-        )
+        or document is None
+        or re.search(r"-index\.html?$", document[1], flags=re.IGNORECASE)
     ):
         raise ValueError(
             "The EDGAR index did not identify a supported primary filing document."
