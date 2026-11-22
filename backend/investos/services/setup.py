@@ -55,7 +55,7 @@ class SetupService:
             .join(CoverageMap)
             .where(
                 UnresolvedQuestion.status.in_(ACTIVE_QUESTION_STATUSES),
-                QuestionLifecycleService.portfolio_clause(),
+                QuestionLifecycleService.research_scope_clause(),
             )
         )
         steps: list[SetupStepResponse] = []

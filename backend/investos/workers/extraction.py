@@ -1230,6 +1230,13 @@ class ExtractionWorker:
             subject_id=subject_id,
             subject_type=subject_type,
             subject_name=subject_name,
+            lead_evidence_id=(
+                evidence.id
+                if persisted_object_count
+                and evidence.url
+                and evidence.source_item_type != "conversation_turn"
+                else None
+            ),
         )
         if evidence.source_item_type not in {"conversation_turn", "manual_note"}:
             await SourceLearningService(self.session).learn_from_source(

@@ -67,7 +67,7 @@ async def test_research_selection_skips_data_holds_and_scans_past_ineligible_inv
     monkeypatch.setattr(coordinator, "_question_for_review_item", qualify)
     monkeypatch.setattr(
         coordinator,
-        "_is_portfolio_relevant_question_subject",
+        "_is_question_in_research_scope",
         AsyncMock(return_value=True),
     )
     monkeypatch.setattr(

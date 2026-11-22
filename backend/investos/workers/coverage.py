@@ -13,6 +13,7 @@ from investos.models.coverage import (
     MissingEvidenceClass,
     UnresolvedQuestion,
 )
+from investos.models.evidence import RawEvidence, SourceItem
 from investos.models.graph import Edge
 from investos.models.knowledge import Claim, Fact
 from investos.services.artifact_hygiene import is_artifact_subject_name
@@ -51,6 +52,7 @@ COVERAGE_SCHEMA = {
                     "time_horizon": {"type": "string"},
                     "decision_relevance": {"type": "string"},
                     "existing_question_id": {"type": ["string", "null"]},
+                    "source_triggered": {"type": "boolean"},
                 },
                 "required": [
                     "question_text",
@@ -59,6 +61,7 @@ COVERAGE_SCHEMA = {
                     "time_horizon",
                     "decision_relevance",
                     "existing_question_id",
+                    "source_triggered",
                 ],
             },
         },
@@ -213,7 +216,12 @@ class CoverageWorker:
         return c_map
 
     async def audit_subject_coverage(
-        self, subject_id: UUID, subject_type: str, subject_name: str
+        self,
+        subject_id: UUID,
+        subject_type: str,
+        subject_name: str,
+        *,
+        lead_evidence_id: UUID | None = None,
     ) -> CoverageMap:
         c_map, facts, claims = await self._refresh_subject_counts(
             subject_id=subject_id,
@@ -276,14 +284,39 @@ class CoverageWorker:
                 "contradictions": c_map.contradiction_count,
             },
         }
+        if lead_evidence_id is not None:
+            lead = await self.session.get(RawEvidence, lead_evidence_id)
+            item = await self.session.scalar(
+                select(SourceItem).where(SourceItem.raw_evidence_id == lead_evidence_id)
+            )
+            if lead and item:
+                evidence_context["source_lead"] = {
+                    "title": lead.title,
+                    "url": lead.url,
+                    "published_at": (
+                        lead.public_time.isoformat() if lead.public_time else None
+                    ),
+                    "received_at": lead.created_at.isoformat(),
+                    "extracted_summary": compact_text(item.summary, max_chars=900),
+                }
+            else:
+                lead_evidence_id = None
         audit_completed = False
         try:
             audit = await call_llm_json(
                 system_prompt=(
-                    "Audit coverage for an Prophet profile. "
+                    "Audit coverage for a Prophet profile. "
                     "Identify what evidence classes are missing and what questions remain unresolved. "
                     "Do not assume completeness. Keep the list short and decision-relevant. "
                     "Describe each uncertainty by mechanism, time_horizon and decision_relevance. "
+                    "A change may warrant investigation because it alters a credible opportunity or risk, even outside tracked holdings. "
+                    "Check a claim against a primary source when the answer depends on a formal decision, disclosed terms or a milestone. "
+                    "Give first priority to verifying the triggering development and its effective date when either is uncertain. "
+                    "Investigate reported causes, motives or implications only where checking them could change a concrete investment decision. "
+                    "Phrase uncertain premises as questions and avoid assuming that an announced plan has occurred. "
+                    "Set source_triggered only when source_lead identifies a concrete development that makes this question worth investigating. "
+                    "An unrelated headline, a routine profile gap, or a fresh copy of an already known development is insufficient. "
+                    "The extracted summary is a lead to verify. Its receipt time is when Prophet got it. "
                     "For a paraphrase of an existing uncertainty, return its existing_question_id and reuse its exact dimensions. "
                     "Different mechanisms, horizons and decisions must remain distinct. Do not treat exhausted research as answered."
                 ),
@@ -314,7 +347,9 @@ class CoverageWorker:
         # counts and the coverage score.
         if audit_completed:
             await self._reconcile_missing_classes(c_map.id, missing_classes)
-            await self._reconcile_unresolved_questions(c_map.id, unresolved_questions)
+            await self._reconcile_unresolved_questions(
+                c_map.id, unresolved_questions, lead_evidence_id=lead_evidence_id
+            )
 
         await self.session.commit()
         return c_map
@@ -373,7 +408,11 @@ class CoverageWorker:
                 item.resolved_at = utcnow()
 
     async def _reconcile_unresolved_questions(
-        self, coverage_map_id: UUID, unresolved_questions: list[dict[str, object]]
+        self,
+        coverage_map_id: UUID,
+        unresolved_questions: list[dict[str, object]],
+        *,
+        lead_evidence_id: UUID | None = None,
     ) -> None:
         coverage = await self.session.get(CoverageMap, coverage_map_id)
         if coverage is None:
@@ -426,7 +465,16 @@ class CoverageWorker:
                 )
                 if match is not None:
                     payload = {**payload, "existing_question_id": str(match.id)}
-            question = await lifecycle.ensure_question(coverage, payload, existing)
+            question = await lifecycle.ensure_question(
+                coverage,
+                payload,
+                existing,
+                lead_evidence_id=(
+                    lead_evidence_id
+                    if payload.get("source_triggered") is True
+                    else None
+                ),
+            )
             if question is not None:
                 retained.add(question.id)
                 if question not in existing:
@@ -435,6 +483,7 @@ class CoverageWorker:
             if (
                 question.id not in retained
                 and question.status in ACTIVE_QUESTION_STATUSES
+                and question.lead_evidence_id is None
             ):
                 lifecycle.transition(
                     question,

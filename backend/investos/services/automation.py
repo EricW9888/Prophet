@@ -914,7 +914,7 @@ class AutomationCoordinator:
                     .join(CoverageMap)
                     .where(
                         UnresolvedQuestion.status.in_(states),
-                        lifecycle.portfolio_clause(),
+                        lifecycle.research_scope_clause(),
                         lifecycle.due_clause(),
                         UnresolvedQuestion.next_action
                         == ("assess_evidence" if resolution else "research"),
@@ -985,11 +985,8 @@ class AutomationCoordinator:
                 break
             for item in review_items:
                 question = await self._question_for_review_item(session, item)
-                if (
-                    question is not None
-                    and await self._is_portfolio_relevant_question_subject(
-                        session, question
-                    )
+                if question is not None and await self._is_question_in_research_scope(
+                    session, question
                 ):
                     await session.commit()
                     return (
@@ -1195,12 +1192,14 @@ class AutomationCoordinator:
         )
         return is_artifact_subject_name(name)
 
-    async def _is_portfolio_relevant_question_subject(self, session, question):
+    async def _is_question_in_research_scope(self, session, question):
         return bool(
             await session.scalar(
-                select(CoverageMap.id).where(
-                    CoverageMap.id == question.coverage_map_id,
-                    QuestionLifecycleService.portfolio_clause(),
+                select(UnresolvedQuestion.id)
+                .join(CoverageMap)
+                .where(
+                    UnresolvedQuestion.id == question.id,
+                    QuestionLifecycleService.research_scope_clause(),
                 )
             )
         )

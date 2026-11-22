@@ -451,6 +451,75 @@ async def test_eligible_due_selection_survives_large_unrelated_backlog(
     assert snapshot["historical"] == 76
 
 
+@pytest.mark.parametrize("subject_type", ["entity", "theme"])
+async def test_source_lead_keeps_unheld_investigation_eligible(
+    question_session, monkeypatch, subject_type
+):
+    session = question_session
+    subject_id = uuid4()
+    if subject_type == "entity":
+        session.add(
+            Entity(id=subject_id, name="Synthetic issuer", entity_type="company")
+        )
+    else:
+        from investos.models.theme import Theme
+
+        session.add(
+            Theme(id=subject_id, name="Synthetic issuance market", status="monitoring")
+        )
+    raw, item = await evidence(session, state="completed")
+    raw.url = "https://example.test/official-disclosure"
+    raw.public_time = datetime.now(UTC) - timedelta(hours=2)
+    item.summary = (
+        "A formal decision has been announced and its effective date needs checking."
+    )
+    await session.flush()
+    audit = AsyncMock(
+        return_value={
+            "overall_coverage_score": 35,
+            "missing_classes": [],
+            "unresolved_questions": [
+                prompt(
+                    source_triggered=True,
+                    urgency=3,
+                    question_text="When does the disclosed decision take effect?",
+                ),
+                prompt(source_triggered=False, urgency=5, mechanism="generic gap"),
+            ],
+        }
+    )
+    monkeypatch.setattr("investos.workers.coverage.call_llm_json", audit)
+    worker = CoverageWorker(session)
+    coverage = await worker.audit_subject_coverage(
+        subject_id, subject_type, "Synthetic subject", lead_evidence_id=raw.id
+    )
+    first = await AutomationCoordinator()._due_question(session)
+    assert first is not None
+    assert first.coverage_map_id == coverage.id
+    assert first.lead_evidence_id == raw.id
+    assert first.originating_evidence_id is None
+    pending = await question_backlog(session=session, view="active", offset=0)
+    assert [row["lead_evidence_id"] for row in pending["items"]] == [str(raw.id)]
+    followup = await ResearchService(session)._question_metadata(first)
+    assert followup["lead_evidence_id"] == str(raw.id)
+    await worker._reconcile_unresolved_questions(coverage.id, [])
+    assert (await AutomationCoordinator()._due_question(session)).id == first.id
+    await question_decision(
+        first.id, QuestionDecision(action="retire", reason="Reviewed"), session
+    )
+    await worker.audit_subject_coverage(
+        subject_id, subject_type, "Synthetic subject", lead_evidence_id=raw.id
+    )
+    assert first.last_material_outcome == "owner_retired"
+    assert await AutomationCoordinator()._due_question(session) is None
+    await question_decision(
+        first.id,
+        QuestionDecision(action="renew", reason="New decision expected"),
+        session,
+    )
+    assert (await AutomationCoordinator()._due_question(session)).id == first.id
+
+
 async def test_coverage_refresh_preserves_answers_and_archives_omitted_work(
     question_session,
 ):
@@ -526,7 +595,7 @@ async def test_legacy_fallback_gets_durable_state_and_closed_holding_is_retired(
     assert await AutomationCoordinator()._select_resolution_question(session) is None
     assert (
         question.status == "archived"
-        and question.last_material_outcome == "outside_active_portfolio"
+        and question.last_material_outcome == "outside_research_scope"
     )
 
 

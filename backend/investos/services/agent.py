@@ -600,10 +600,12 @@ STRATEGIC_PLANNING_SCHEMA = {
                             "tracked_name",
                             "portfolio_theme",
                             "macro_portfolio",
+                            "independent_opportunity",
                             "broad_context",
                         ],
                     },
                     "why_now": {"type": "string"},
+                    "lead_evidence_id": {"type": ["string", "null"]},
                     "rationale": {"type": "string"},
                     "quantity_bindings": {
                         "type": "array",
@@ -616,6 +618,7 @@ STRATEGIC_PLANNING_SCHEMA = {
                     "action",
                     "portfolio_connection",
                     "why_now",
+                    "lead_evidence_id",
                     "rationale",
                     "quantity_bindings",
                 ],
@@ -2627,6 +2630,7 @@ class AgentService:
             if item.get("ticker")
         ]
 
+        evidence_changes = monitor.get("recent_evidence_changes", [])
         decision_packet = {
             "review_queue": review_queue.get("top_items", []),
             "priority_monitor": monitor.get("priority_review_items", []),
@@ -2647,7 +2651,7 @@ class AgentService:
                         for node in item["assertions"]
                     ],
                 }
-                for item in monitor.get("recent_evidence_changes", [])
+                for item in evidence_changes
             ],
             "recent_lessons": [
                 {
@@ -2684,15 +2688,15 @@ class AgentService:
         strategist_system_prompt = (
             "Select the next most valuable autonomous research or prospecting move for Prophet from the supplied operating state."
             "\n\nCORE RULES:"
-            "\n- Stay portfolio-aware. Every goal must explain a concrete path back to the live book, tracked names, portfolio-level macro exposure, or an active research cluster."
-            "\n- Do not drift into broad context unless you can justify why it matters now."
-            "\n- If a topic is only ambient world knowledge with no clear portfolio consequence, mark it as broad_context and set action='none'."
+            "\n- Rank by the value of the investment decision the research could improve. Use the portfolio to identify existing exposure. Ownership is not required."
+            "\n- Use independent_opportunity when a concrete development could change an investment opportunity or risk outside the portfolio. State what could change, why it matters now, and what evidence could verify or overturn it. Set lead_evidence_id to the supporting record in recent_evidence_changes."
+            "\n- Use broad_context with action='none' for ambient context without a consequential investment question."
             "\n- Prefer specific, high-leverage questions over generic curiosity."
             "\n- Use user lessons and current review pressure to choose what deserves attention next."
             "\n- Use peer_exposures as candidate relationship patterns between tracked names; investigate them when the mechanism and portfolio weight make the shared exposure actionable."
             "\n- Prefer leading, source-backed changes that could alter future fundamentals or expectations before lagging reported results make the change obvious."
             "\n- recent_evidence_changes contains provisional extracted assertions across intake paths. Use original source passages and distinguish observation/processing times from publication or event time. A newly read historical document is not a new event. These bounded previews are not exhaustive and do not verify interpretation."
-            "\n- A newly noticed unheld dependency or opportunity may justify investigation when you can state a concrete portfolio, theme or macro transmission path and what remains to be verified. Do not require a ticker for a policy, technology or other non-company research question."
+            "\n- Do not require a ticker for a policy, technology or other non-company research question."
             "\n- Do not infer an opportunity from price movement alone; use an unexplained move as a research trigger."
             "\n- Keep the search open-ended. These rules are quality constraints, not a preset list of acceptable investment lenses."
             "\n- Distinguish between a direct holding problem, a tracked-name adjacency, a portfolio theme, and a broad macro issue."
@@ -2700,7 +2704,7 @@ class AgentService:
             "\n- Propose at most 2 strategic goals."
             "\n- Keep each field concise and practical."
             "\n- Each goal must include portfolio_connection and why_now."
-            "\n- Only set action to research/prospect if the connection is real and timely."
+            "\n- Only set action to research/prospect if the decision relevance is concrete and timely. Use a null lead_evidence_id when no particular recent source triggered the goal."
             "\n- If no strong goal exists, return one item with action='none'."
         )
         strategist_user_prompt = json.dumps(
@@ -2735,7 +2739,11 @@ class AgentService:
             return {"status": "error", "detail": f"LLM strategy failed: {message}"}
 
         goals = result.get("strategic_goals", [])
+        lead_ids = {item["evidence_id"] for item in evidence_changes if item.get("url")}
         for goal in goals:
+            lead_id = goal.get("lead_evidence_id")
+            if not isinstance(lead_id, str) or lead_id not in lead_ids:
+                goal["lead_evidence_id"] = None
             statement = ". ".join(
                 str(goal.get(key) or "")
                 for key in ("goal_name", "why_now", "rationale")
@@ -2763,8 +2771,19 @@ class AgentService:
             for goal in goals
             if goal.get("action") in {"research", "prospect"}
             and goal["quantity_verification"]["verified"]
-            and goal.get("portfolio_connection")
-            in {"direct_holding", "tracked_name", "portfolio_theme", "macro_portfolio"}
+            and (
+                goal.get("portfolio_connection")
+                in {
+                    "direct_holding",
+                    "tracked_name",
+                    "portfolio_theme",
+                    "macro_portfolio",
+                }
+                or (
+                    goal.get("portfolio_connection") == "independent_opportunity"
+                    and goal["lead_evidence_id"] is not None
+                )
+            )
         ]
         for goal in executable_goals[
             :1
@@ -2786,6 +2805,11 @@ class AgentService:
                         "goal_name": goal["goal_name"],
                         "portfolio_connection": goal["portfolio_connection"],
                         "why_now": goal["why_now"],
+                        **(
+                            {"lead_evidence_id": goal["lead_evidence_id"]}
+                            if goal.get("lead_evidence_id")
+                            else {}
+                        ),
                     },
                 )
                 if res.started:
@@ -2827,7 +2851,7 @@ class AgentService:
                 + (
                     "; ".join(actions_taken)
                     if actions_taken
-                    else "No sufficiently portfolio-linked autonomous action was started."
+                    else "No qualifying autonomous research was started."
                 )
             ),
             "goals": goals,
