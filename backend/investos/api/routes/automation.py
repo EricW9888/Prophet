@@ -44,7 +44,7 @@ async def question_backlog(
     if view == "active":
         query = query.join(CoverageMap).where(
             UnresolvedQuestion.status.in_(ACTIVE_QUESTION_STATUSES),
-            lifecycle.portfolio_clause(),
+            lifecycle.research_scope_clause(),
         )
         query = query.order_by(
             UnresolvedQuestion.next_review_at.asc().nullsfirst(),
@@ -140,13 +140,13 @@ async def question_decision(
         )
     lifecycle = QuestionLifecycleService(session)
     if payload.action == "renew" and not await session.scalar(
-        select(CoverageMap.id).where(
-            CoverageMap.id == question.coverage_map_id, lifecycle.portfolio_clause()
-        )
+        select(UnresolvedQuestion.id)
+        .join(CoverageMap)
+        .where(UnresolvedQuestion.id == question.id, lifecycle.research_scope_clause())
     ):
         raise HTTPException(
             409,
-            "Track this subject in the portfolio before renewing automated research",
+            "This question needs a retained source lead or a tracked subject before renewal",
         )
     lifecycle.record(
         question,

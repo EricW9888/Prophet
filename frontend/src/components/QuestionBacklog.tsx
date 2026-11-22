@@ -9,6 +9,7 @@ type Question = {
   id: string; question_text: string; status: string; owner: string;
   next_action: string | null; next_review_at: string | null;
   last_material_outcome: string; research_attempt_count: number;
+  lead_evidence_id?: string | null;
 };
 type Backlog = {
   historical: number; eligible_active: number; eligible_due: number;
@@ -61,7 +62,7 @@ export default function QuestionBacklog() {
   return <section className="min-w-0 rounded-lg border border-line bg-panel p-4 md:p-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><h2 className="text-sm font-semibold">Research work</h2>
-        <p className="mt-1 text-xs text-slate-500">Eligible portfolio questions and their next actions. Older prompts remain in history.</p></div>
+        <p className="mt-1 text-xs text-slate-500">Open investigations and their next actions. Older prompts remain in history.</p></div>
       <button onClick={() => void load()} className="text-xs text-sky-600">Refresh work</button>
     </div>
     {error && <p role="alert" className="mt-3 text-sm text-amber-600">{error}</p>}
@@ -85,6 +86,7 @@ export default function QuestionBacklog() {
           <p className="break-words text-sm">{question.question_text}</p>
           <p className="mt-1 text-xs text-slate-500">{label(question.status)} · {label(question.last_material_outcome)} · {question.research_attempt_count}/{data.max_research_attempts} research attempts</p>
           <p className="mt-1 text-xs text-slate-500">Owner: {label(question.owner)} · Next: {question.next_action ? label(question.next_action) : "No scheduled work"}{question.next_review_at ? ` · ${new Date(question.next_review_at).toLocaleString()}` : ""}</p>
+          {question.lead_evidence_id && <Link href={`/sources/evidence/${question.lead_evidence_id}`} className="mt-2 mr-4 inline-block text-xs text-sky-600">See what started this</Link>}
           <button disabled={busy} onClick={() => void show(question.id)} className="mt-2 text-xs text-sky-600 disabled:opacity-50">View history and manage</button>
           {selected === question.id && <div className="mt-3 space-y-3">
             {busy && !history && <p className="text-xs text-slate-500">Loading history…</p>}
@@ -103,7 +105,7 @@ export default function QuestionBacklog() {
               <button disabled={busy || !reason.trim()} onClick={() => void decide(question.id, "renew")} className="rounded border border-line px-3 py-2 disabled:opacity-50">Renew research budget</button>
               <button disabled={busy || !reason.trim()} onClick={() => void decide(question.id, "retire")} className="rounded border border-line px-3 py-2 disabled:opacity-50">Retire to history</button>
             </div>
-            <p className="text-xs text-slate-500">Renewal schedules another bounded search for a tracked subject. Retirement retains every prompt, evidence outcome and resolution.</p>
+            <p className="text-xs text-slate-500">Renewal schedules another research attempt. Retirement keeps the investigation in history.</p>
           </div>}
         </article>)}</div>
         <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">

@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
@@ -10,6 +11,7 @@ from investos.models.knowledge import Fact
 from investos.services.agent import AgentService
 from investos.services.agent_action_log import AgentActionLogService
 from investos.services.operating_state import OperatingStateService
+from investos.services.research import ResearchService
 from investos.workers.extraction import ExtractionWorker
 from tests.test_extraction_retention import extraction_payload
 from tests.test_investor_workflows import workflow_session
@@ -25,6 +27,7 @@ async def test_new_unheld_news_reaches_planner_with_original_qualification(
     text = f"Earlier report: approval granted. Correction: {quote}"
     evidence, item = await source_fixture(session, text)
     evidence.source_item_type = "news"
+    evidence.url = "https://example.test/license-correction"
     evidence.is_processed = False
     evidence.raw_content_ref = "synthetic/news.txt"
     evidence.public_time = datetime.now(UTC) - timedelta(days=3)
@@ -97,16 +100,39 @@ async def test_new_unheld_news_reaches_planner_with_original_qualification(
 
     async def planner(**kwargs):
         captured.append(json.loads(kwargs["user_prompt"]))
-        return {"strategic_goals": []}
+        return {
+            "strategic_goals": [
+                {
+                    "goal_name": "Does the licensing correction delay the market opening?",
+                    "target_ticker": None,
+                    "action": "research",
+                    "portfolio_connection": "independent_opportunity",
+                    "lead_evidence_id": (
+                        str(uuid4()) if len(captured) > 1 else str(evidence.id)
+                    ),
+                    "why_now": "A new correction changes the market entry premise.",
+                    "rationale": "Verify the status on the licensing authority's docket.",
+                    "quantity_bindings": [],
+                }
+            ]
+        }
 
     monkeypatch.setattr("investos.services.agent.call_llm_json", planner)
+    research = AsyncMock(return_value=SimpleNamespace(started=True, loop_detail=None))
+    monkeypatch.setattr(ResearchService, "run_ad_hoc_request", research)
     first = await AgentService(session).run_strategic_planning_cycle()
+    assert first["actions_taken"] == 1
+    assert research.await_args.kwargs["metadata_json"]["lead_evidence_id"] == str(
+        evidence.id
+    )
     assert captured[0]["portfolio_monitor"]["recent_evidence_changes"] == changes
     assert await OperatingStateService(session)._recent_evidence_changes() == changes
     fact = await session.get(Fact, UUID(assertion["id"]))
     fact.statement += " Derived assertion edited."
     await session.flush()
     changed = await AgentService(session).run_strategic_planning_cycle()
+    assert changed["actions_taken"] == 0
+    assert research.await_count == 1
     assert changed["decision_fingerprint"] != first["decision_fingerprint"]
     assert (
         captured[-1]["portfolio_monitor"]["recent_evidence_changes"][0]["assertions"][

@@ -94,6 +94,9 @@ class UnresolvedQuestion(Base):
     originating_evidence_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
+    lead_evidence_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("raw_evidence.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     status: Mapped[str] = mapped_column(
         String, default="needs_research"

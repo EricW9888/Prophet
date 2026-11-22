@@ -668,7 +668,7 @@ class OperatingStateService:
                     .join(CoverageMap)
                     .where(
                         UnresolvedQuestion.status.in_(ACTIVE_QUESTION_STATUSES),
-                        QuestionLifecycleService.portfolio_clause(),
+                        QuestionLifecycleService.research_scope_clause(),
                     )
                     .order_by(
                         UnresolvedQuestion.urgency.desc(),
@@ -686,7 +686,7 @@ class OperatingStateService:
                     select(func.count(UnresolvedQuestion.id))
                     .join(CoverageMap)
                     .where(
-                        QuestionLifecycleService.portfolio_clause(),
+                        QuestionLifecycleService.research_scope_clause(),
                         UnresolvedQuestion.status.in_(ACTIVE_QUESTION_STATUSES),
                     )
                 )

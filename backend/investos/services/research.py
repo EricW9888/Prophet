@@ -866,6 +866,8 @@ class ResearchService:
             "subject_type": coverage.subject_type,
             "subject_id": str(coverage.subject_id),
         }
+        if question.lead_evidence_id is not None:
+            metadata["lead_evidence_id"] = str(question.lead_evidence_id)
         subject_name = await self._subject_label(
             coverage.subject_type, coverage.subject_id
         )

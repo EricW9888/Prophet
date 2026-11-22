@@ -34,6 +34,7 @@ class UnresolvedQuestionResponse(BaseModel):
     owner: str = "research_automation"
     next_action: Optional[str] = None
     next_review_at: Optional[datetime] = None
+    lead_evidence_id: UUID | None = None
     last_material_outcome: str = "unassessed"
     uncertainty_json: dict = {}
     research_attempt_count: int = 0

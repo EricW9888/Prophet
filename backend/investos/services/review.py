@@ -206,7 +206,7 @@ class ReviewService:
                 .join(CoverageMap, UnresolvedQuestion.coverage_map_id == CoverageMap.id)
                 .where(
                     UnresolvedQuestion.status.in_(ACTIVE_QUESTION_STATUSES),
-                    QuestionLifecycleService.portfolio_clause(),
+                    QuestionLifecycleService.research_scope_clause(),
                 )
                 .order_by(
                     desc(UnresolvedQuestion.urgency),

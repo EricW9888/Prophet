@@ -679,6 +679,13 @@ These are explicit, provisional previews; full source records remain available.
 Source/version/assertion identity participates in planner deduplication. Existing
 execution, provider and quantity guards still apply. A qualifying policy or theme
 research goal can execute using its question when no stock ticker applies.
+The planner can start research on an independent investment opportunity when its
+goal identifies a retained source from the current preview. Coverage audits can
+also attach the triggering source to a concrete question with a mechanism, time
+horizon and decision relevance. Linked questions remain eligible outside the
+portfolio through research, assessment and owner renewal. The link identifies
+what earned investigation, and evidence obtained during research is recorded
+separately. Both routes use the existing research budgets.
 
 ## Frontend Surfaces
 

@@ -118,7 +118,9 @@ class QuestionLifecycleService:
                 subject_type, subject_id = "entity", security.entity_id
         return dict(subject_type=subject_type, subject_id=str(subject_id))
 
-    async def ensure_question(self, coverage, payload, candidates):
+    async def ensure_question(
+        self, coverage, payload, candidates, *, lead_evidence_id=None
+    ):
         text = " ".join(str(payload.get("question_text") or "").split())
         if not text:
             return None
@@ -132,6 +134,7 @@ class QuestionLifecycleService:
             identity[field]
             for field in ("mechanism", "time_horizon", "decision_relevance")
         )
+        lead_evidence_id = lead_evidence_id if complete else None
         key = (
             hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
             if complete
@@ -211,6 +214,11 @@ class QuestionLifecycleService:
                     )
                     existing = canonical
             existing.urgency = self.urgency(payload.get("urgency", existing.urgency))
+            if lead_evidence_id is not None and existing.lead_evidence_id is None:
+                existing.lead_evidence_id = lead_evidence_id
+                self.record(
+                    existing, "source_lead_linked", evidence_id=str(lead_evidence_id)
+                )
             self.record(
                 existing,
                 "prompt_reinforced",
@@ -218,7 +226,10 @@ class QuestionLifecycleService:
                 coverage_map_id=str(coverage.id),
                 uncertainty=identity,
             )
-            if existing.status in {"obsolete", "archived"}:
+            if (
+                existing.status in {"obsolete", "archived"}
+                and existing.last_material_outcome != "owner_retired"
+            ):
                 self.transition(
                     existing,
                     status="needs_research",
@@ -230,6 +241,7 @@ class QuestionLifecycleService:
             coverage_map_id=coverage.id,
             question_text=text,
             urgency=self.urgency(payload.get("urgency")),
+            lead_evidence_id=lead_evidence_id,
             semantic_key=key,
             uncertainty_json=(
                 identity
@@ -262,6 +274,7 @@ class QuestionLifecycleService:
             question_text=text,
             coverage_map_id=str(coverage.id),
             uncertainty=identity,
+            **({"evidence_id": str(lead_evidence_id)} if lead_evidence_id else {}),
         )
         return question
 
@@ -273,7 +286,7 @@ class QuestionLifecycleService:
         )
 
     @staticmethod
-    def portfolio_clause():
+    def research_scope_clause():
         tracked = or_(
             Position.list_type.in_(["watchlist", "considering"]),
             (Position.list_type == "holding") & (Position.quantity > 0),
@@ -304,6 +317,7 @@ class QuestionLifecycleService:
             .exists()
         )
         return or_(
+            UnresolvedQuestion.lead_evidence_id.is_not(None),
             CoverageMap.subject_type == "portfolio",
             (CoverageMap.subject_type == "entity") & entity_positions,
             (CoverageMap.subject_type == "security") & security_positions,
@@ -332,7 +346,7 @@ class QuestionLifecycleService:
             .join(CoverageMap)
             .where(
                 UnresolvedQuestion.status.in_(ACTIVE_QUESTION_STATUSES),
-                self.portfolio_clause(),
+                self.research_scope_clause(),
             )
         )
         completed = dict(
@@ -373,7 +387,7 @@ class QuestionLifecycleService:
                 .join(CoverageMap)
                 .where(
                     UnresolvedQuestion.status.in_(ACTIVE_QUESTION_STATUSES),
-                    ~self.portfolio_clause(),
+                    ~self.research_scope_clause(),
                 )
                 .order_by(UnresolvedQuestion.created_at)
                 .limit(limit)
@@ -381,6 +395,6 @@ class QuestionLifecycleService:
         ).all()
         for question in rows:
             self.transition(
-                question, status="archived", outcome="outside_active_portfolio"
+                question, status="archived", outcome="outside_research_scope"
             )
         return len(rows)
