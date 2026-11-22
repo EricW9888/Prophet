@@ -3,11 +3,11 @@ import hashlib
 import io
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
 from typing import Optional
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 from uuid import UUID
 
 from fastapi import UploadFile
@@ -176,6 +176,21 @@ class IngestionService:
 
     async def fetch_url_document(self, url: str) -> FetchedUrlDocument:
         html = await self._fetch_url_text(url)
+        target = urlsplit(url)
+        if target.hostname in {"sec.gov", "www.sec.gov"} and re.fullmatch(
+            r"/Archives/edgar/data/\d+/\d+/[\d-]+-index\.html?", target.path
+        ):
+            primary_url = await asyncio.to_thread(
+                _edgar_primary_document_url, url, html
+            )
+            document = await asyncio.to_thread(
+                self._parse_url_document,
+                primary_url,
+                await self._fetch_url_text(
+                    primary_url, max_megabytes=settings.INGESTION_MAX_UPLOAD_MB
+                ),
+            )
+            return replace(document, url=url, canonical_url=primary_url)
         return await asyncio.to_thread(self._parse_url_document, url, html)
 
     @staticmethod
@@ -191,12 +206,16 @@ class IngestionService:
             public_time=_extract_public_time(html),
         )
 
-    async def _fetch_url_text(self, url: str) -> str:
+    async def _fetch_url_text(
+        self, url: str, *, max_megabytes: int | None = None
+    ) -> str:
         return await fetch_public_text(
             url,
             timeout_seconds=settings.URL_FETCH_TIMEOUT_SECONDS,
             max_redirects=settings.URL_FETCH_MAX_REDIRECTS,
-            max_bytes=settings.URL_FETCH_MAX_RESPONSE_MB * 1024 * 1024,
+            max_bytes=(max_megabytes or settings.URL_FETCH_MAX_RESPONSE_MB)
+            * 1024
+            * 1024,
             allowed_ports=settings.URL_FETCH_ALLOWED_PORT_SET,
         )
 
@@ -250,6 +269,71 @@ PUBLICATION_META_KEYS = {
     "publishdate",
     "sailthru.date",
 }
+
+
+class _EdgarDocumentIndex(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.in_document_table = False
+        self.first_cell_open = False
+        self.sequence = ""
+        self.row_href = None
+        self.primary_href = None
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        if tag == "table":
+            self.in_document_table = (
+                attributes.get("summary") == "Document Format Files"
+            )
+        if not self.in_document_table or self.primary_href is not None:
+            return
+        if tag == "tr":
+            self.sequence = ""
+            self.row_href = None
+        elif tag == "td" and not self.sequence:
+            self.first_cell_open = True
+        elif tag == "a" and self.row_href is None:
+            self.row_href = attributes.get("href")
+
+    def handle_data(self, data):
+        if self.first_cell_open:
+            self.sequence += data
+
+    def handle_endtag(self, tag):
+        if tag == "td":
+            self.first_cell_open = False
+        elif tag == "tr" and self.in_document_table and self.sequence.strip() == "1":
+            self.primary_href = self.row_href
+        elif tag == "table":
+            self.in_document_table = False
+
+
+def _edgar_primary_document_url(index_url: str, html: str) -> str:
+    index = urlsplit(index_url)
+    parser = _EdgarDocumentIndex()
+    parser.feed(html)
+    target = urlsplit(urljoin(index_url, parser.primary_href or ""))
+    if target.path == "/ix" and target.netloc == index.netloc:
+        target = urlsplit(
+            urljoin(index_url, parse_qs(target.query).get("doc", [""])[0])
+        )
+    filing_directory = index.path.rsplit("/", 1)[0]
+    directory, _, filename = target.path.rpartition("/")
+    if (
+        not parser.primary_href
+        or target.scheme != index.scheme
+        or target.netloc != index.netloc
+        or directory != filing_directory
+        or target.path == index.path
+        or not re.fullmatch(
+            r"[\w.-]+\.(?:html?|txt|xml)", filename, flags=re.IGNORECASE
+        )
+    ):
+        raise ValueError(
+            "The EDGAR index did not identify a supported primary filing document."
+        )
+    return target._replace(query="", fragment="").geturl()
 
 
 class _CanonicalUrlParser(HTMLParser):

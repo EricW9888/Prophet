@@ -27,6 +27,9 @@ class _ResolutionSession:
     def add(self, value):
         self.added.append(value)
 
+    async def refresh(self, _question, *, with_for_update):
+        assert with_for_update
+
     async def commit(self):
         self.commits += 1
 
@@ -38,6 +41,8 @@ async def test_processed_source_can_close_research_question(monkeypatch):
         id=uuid4(),
         question_text="What is Memory Beta's HBM supply outlook?",
         status="investigating",
+        next_action="assess_evidence",
+        originating_evidence_id=evidence_id,
     )
     source_item = SimpleNamespace(
         summary="Memory Beta said HBM output is sold out through calendar 2027.",
@@ -85,6 +90,8 @@ async def test_related_source_returns_to_bounded_research(monkeypatch):
         id=uuid4(),
         question_text="What revenue is committed under the Anthropic agreement?",
         status="investigating",
+        next_action="assess_evidence",
+        originating_evidence_id=evidence_id,
     )
     source_item = SimpleNamespace(
         summary="Memory Beta and Anthropic announced a strategic agreement.",

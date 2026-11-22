@@ -1,5 +1,6 @@
 """Publisher discovery must work without inference and preserve availability."""
 
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -11,6 +12,8 @@ from sqlalchemy import func, select
 from investos.config import settings
 from investos.db import get_session
 from investos.main import app
+from investos.models.coverage import CoverageMap, QuestionHistory, Resolution
+from investos.models.entity import Entity
 from investos.models.evidence import (
     EvidenceProcessingState,
     RawEvidence,
@@ -19,11 +22,17 @@ from investos.models.evidence import (
 from investos.models.news import PublisherFeed
 from investos.schemas.evidence import RawEvidenceCreate
 from investos.services.agent import AgentService
-from investos.services.automation import AutomationCoordinator
+from investos.services.automation import AutomationCoordinator, JobTelemetry
 from investos.services.ingestion import FetchedUrlDocument, IngestionService
 from investos.services.news_intake import NewsIntakeService, parse_feed
-from investos.services.research import ResearchSearchResult, ResearchService
+from investos.services.question_lifecycle import QuestionLifecycleService
+from investos.services.research import (
+    ResearchRunResult,
+    ResearchSearchResult,
+    ResearchService,
+)
 from investos.workers.extraction import ExtractionWorker
+from tests.test_extraction_retention import extraction_payload
 from tests.test_investor_workflows import workflow_session
 
 
@@ -69,6 +78,11 @@ def test_feedparser_handles_rss_and_atom_without_network():
     assert rows[0]["feed_rank"] == 1
     atom = """<feed xmlns="http://www.w3.org/2005/Atom"><title>News</title><id>urn:news</id><updated>2026-11-11T20:00:00Z</updated><entry><id>urn:a</id><title>Supplier update</title><link href="https://example.test/a"/><published>2026-11-11T20:00:00Z</published><updated>2026-11-11T21:00:00Z</updated></entry></feed>"""
     assert parse_feed(atom)[0]["updated_date"] == "2026-11-11T21:00:00Z"
+    updated_only = parse_feed(
+        atom.replace("<published>2026-11-11T20:00:00Z</published>", "")
+    )[0]
+    assert updated_only["published_date"] is None
+    assert updated_only["updated_date"] == "2026-11-11T21:00:00Z"
     with pytest.raises(ValueError):
         parse_feed("<html><body>Access denied</body></html>")
 
@@ -121,6 +135,168 @@ async def test_feed_intake_retains_qualifiers_beyond_the_old_prefix(
     assert stored.decode() == article
 
 
+@pytest.mark.parametrize("quote_matches", [True, False])
+async def test_retained_disclosure_reaches_question_while_search_is_limited(
+    workflow_session, monkeypatch, quote_matches
+):
+    session = workflow_session
+    monkeypatch.setattr(settings, "NEWS_FEED_URLS", [])
+    subscription = await feed(session)
+    issuer = Entity(
+        name=f"Frostbeam Fabrication {uuid4().hex[:8]}", entity_type="company"
+    )
+    session.add(issuer)
+    await session.flush()
+    coverage = CoverageMap(
+        subject_type="entity", subject_id=issuer.id, evidence_class_coverage_json={}
+    )
+    session.add(coverage)
+    lead = await IngestionService(session).ingest_text(
+        RawEvidenceCreate(
+            title="Unverified plan to suspend a production line",
+            source_item_type="news",
+            url="https://example.test/earlier-report",
+            content="A media report describes a possible suspension. No effective date has been confirmed.",
+        ),
+        process_now=False,
+    )
+    question = await QuestionLifecycleService(session).ensure_question(
+        coverage,
+        {
+            "question_text": "When does the production line suspension take effect?",
+            "urgency": 5,
+            "mechanism": "production capacity",
+            "time_horizon": "next quarter",
+            "decision_relevance": "whether to revise supplier delivery expectations",
+        },
+        [],
+        lead_evidence_id=lead.id,
+    )
+    search = AsyncMock(
+        return_value=ResearchRunResult(False, "research_provider_limit_exceeded")
+    )
+    monkeypatch.setattr(ResearchService, "_search_and_ingest", search)
+    monkeypatch.setattr(
+        ResearchService, "_log_research_action", staticmethod(lambda **kwargs: None)
+    )
+    await ResearchService(session).run_targeted_question(question)
+    paid_search_retry = question.next_review_at
+    assert question.status == "awaiting_provider"
+    assert question.research_attempt_count == 0
+
+    article_url = "https://example.test/operating-update"
+    quote = f"{issuer.name} will suspend production on the eastern line effective January 15."
+    source_text = f"Issuer operating disclosure. {quote} The timing of the restart remains under review."
+    updated_at = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
+    atom = f"""<feed xmlns="http://www.w3.org/2005/Atom"><title>Issuer filings</title>
+      <id>urn:supplier-filings</id><updated>{updated_at}</updated><entry><id>urn:filing-1</id>
+      <title>Operating update</title><link href="{article_url}"/><updated>{updated_at}</updated>
+      </entry></feed>"""
+    monkeypatch.setattr(
+        "investos.services.news_intake.fetch_public_text", AsyncMock(return_value=atom)
+    )
+    monkeypatch.setattr(
+        IngestionService,
+        "fetch_url_document",
+        AsyncMock(
+            return_value=FetchedUrlDocument(
+                url=article_url,
+                canonical_url=article_url,
+                title="Operating update",
+                content=source_text,
+            )
+        ),
+    )
+    intake = await NewsIntakeService(session).run()
+    assert intake["new_observations"] == intake["articles_fetched"] == 1
+    observation = await session.scalar(
+        select(ResearchDiscoveryObservation).where(
+            ResearchDiscoveryObservation.query == subscription.url,
+        )
+    )
+    assert observation.metadata_json["published_date"] is None
+    assert observation.metadata_json["intake_time_basis"] == "publisher_feed_updated"
+    fetched = await session.get(RawEvidence, observation.evidence_id)
+    assert fetched.public_time is None
+
+    payload = extraction_payload(issuer.name)
+    payload["facts"] = [
+        {**payload["facts"][0], "statement": quote, "supporting_quote": quote}
+    ]
+    for kind in ("claims", "events", "fundamental_metrics", "market_setup_signals"):
+        payload[kind] = []
+    monkeypatch.setattr(
+        "investos.workers.extraction.call_llm_json", AsyncMock(return_value=payload)
+    )
+    for service in (
+        "CoverageWorker.audit_subject_coverage",
+        "SourceLearningService.learn_from_source",
+        "OperatingLoopService.refresh_subject",
+        "WatcherService.evaluate_new_evidence",
+    ):
+        monkeypatch.setattr(
+            f"investos.workers.extraction.{service}", AsyncMock(return_value={})
+        )
+    await ExtractionWorker(session).process_evidence(fetched.id)
+    assert fetched.is_processed
+
+    assessment = AsyncMock(
+        side_effect=[
+            TimeoutError("Inference is temporarily unavailable"),
+            {
+                "answered": True,
+                "outcome": "answered",
+                "summary": "The suspension takes effect January 15.",
+                "remaining_uncertainty": None,
+                "supporting_quote": (
+                    quote if quote_matches else "The filing says February 12."
+                ),
+            },
+        ]
+    )
+    monkeypatch.setattr("investos.services.research.call_llm_json", assessment)
+
+    @asynccontextmanager
+    async def same_session():
+        yield session
+
+    monkeypatch.setattr(
+        "investos.services.automation.async_session_maker", same_session
+    )
+    coordinator = AutomationCoordinator()
+    coordinator.telemetry["question_resolution"] = JobTelemetry(
+        "question_resolution", 3600
+    )
+    monkeypatch.setattr(coordinator, "_log_job_action", lambda **kwargs: None)
+    await coordinator._run_question_resolution()
+    assert coordinator.telemetry["question_resolution"].last_status == "deferred"
+    assert question.status == "awaiting_provider"
+    await coordinator._run_question_resolution()
+    await coordinator._run_question_resolution()
+    assert assessment.await_count == 2
+    search.assert_awaited_once()
+    audit = await session.scalar(
+        select(QuestionHistory).where(
+            QuestionHistory.question_id == question.id,
+            QuestionHistory.event_type == "retained_source_assessed",
+        )
+    )
+    assert audit.detail_json["evidence_id"] == str(fetched.id)
+    solution = await session.scalar(
+        select(Resolution).where(Resolution.unresolved_question_id == question.id)
+    )
+    if quote_matches:
+        assert question.status == "answered"
+        assert solution.resolving_evidence_ids == [fetched.id]
+        assert audit.detail_json["source_passage"]["exact"] == quote
+    else:
+        assert question.status == "awaiting_provider"
+        assert question.next_review_at == paid_search_retry
+        assert solution is None
+        assert audit.detail_json["outcome"] == "unbound_source_answer"
+    assert question.research_attempt_count == question.resolution_attempt_count == 0
+
+
 async def test_observation_versions_are_idempotent_and_never_backdated(
     workflow_session,
 ):
@@ -155,6 +331,40 @@ async def test_observation_versions_are_idempotent_and_never_backdated(
     assert rows[0].observed_at == stamp
     assert rows[1].observed_at == stamp + timedelta(minutes=2)
     assert rows[1].metadata_json["published_date"] == first["published_date"]
+
+
+async def test_feed_updates_recover_legacy_unqualified_observations(workflow_session):
+    session = workflow_session
+    subscription = await feed(session)
+    service = NewsIntakeService(session)
+    observed_at = datetime.now(UTC)
+    update_only = {
+        **item(),
+        "published_date": None,
+        "updated_date": (observed_at - timedelta(minutes=1)).isoformat(),
+    }
+    assert (
+        await service._record(subscription, [update_only], observed_at=observed_at) == 1
+    )
+    observation = await session.scalar(
+        select(ResearchDiscoveryObservation).where(
+            ResearchDiscoveryObservation.query == subscription.url,
+        )
+    )
+    observation.outcome = "publication_unverified"
+    observation.metadata_json = {**observation.metadata_json, "intake_time_basis": None}
+    await session.flush()
+    assert (
+        await service._record(
+            subscription, [update_only], observed_at=observed_at + timedelta(minutes=1)
+        )
+        == 0
+    )
+    await session.refresh(observation)
+    assert observation.outcome == "observed"
+    assert observation.observed_at == observed_at
+    assert observation.metadata_json["published_date"] is None
+    assert observation.metadata_json["intake_time_basis"] == "publisher_feed_updated"
 
 
 async def test_normal_intake_retains_then_fetches_unheld_headline_without_model_work(

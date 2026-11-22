@@ -313,6 +313,7 @@ class CoverageWorker:
                     "Check a claim against a primary source when the answer depends on a formal decision, disclosed terms or a milestone. "
                     "Give first priority to verifying the triggering development and its effective date when either is uncertain. "
                     "Investigate reported causes, motives or implications only where checking them could change a concrete investment decision. "
+                    "Rank urgency by the importance of that decision and when the information could still affect it. A recent mention is not itself a time-sensitive development. "
                     "Phrase uncertain premises as questions and avoid assuming that an announced plan has occurred. "
                     "Set source_triggered only when source_lead identifies a concrete development that makes this question worth investigating. "
                     "An unrelated headline, a routine profile gap, or a fresh copy of an already known development is insufficient. "

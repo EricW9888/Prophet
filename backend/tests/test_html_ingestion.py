@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
+import pytest
+
 from investos.api.routes.ingestion import ingest_url
 from investos.schemas.evidence import UrlEvidenceCreate
 from investos.services.ingestion import (
@@ -62,6 +64,40 @@ async def test_real_url_document_parsing_does_not_block_event_loop(monkeypatch):
         release.set()
     result = await task
     assert result.content == "Actual report"
+
+
+@pytest.mark.parametrize("same_filing", [True, False])
+async def test_edgar_index_fetches_sequence_one_from_the_same_filing(same_filing):
+    directory = "/Archives/edgar/data/123456/000012345626000001/"
+    index = f"https://www.sec.gov{directory}0000123456-26-000001-index.htm"
+    document = f"https://www.sec.gov{directory}operating-update.htm"
+    href = (
+        f"/ix?doc={directory}operating-update.htm"
+        if same_filing
+        else "/ix?doc=https://example.test/unrelated.htm"
+    )
+    html = f"""<table summary="Document Format Files">
+       <tr><th>Seq</th><th>Description</th><th>Document</th></tr>
+       <tr><td>1</td><td>Current report</td><td><a href="{href}">Main document</a></td></tr>
+       <tr><td>2</td><td>Exhibit</td><td><a href="exhibit.htm">Exhibit</a></td></tr>
+       </table>"""
+    service = IngestionService(None)
+    service._fetch_url_text = AsyncMock(
+        side_effect=[html, "<p>The commission declined the application.</p>"]
+    )
+    if not same_filing:
+        with pytest.raises(ValueError, match="supported primary filing"):
+            await service.fetch_url_document(index)
+        service._fetch_url_text.assert_awaited_once_with(index)
+        return
+    result = await service.fetch_url_document(index)
+    assert result.url == index
+    assert result.canonical_url == document
+    assert result.content == "The commission declined the application."
+    assert [call.args[0] for call in service._fetch_url_text.await_args_list] == [
+        index,
+        document,
+    ]
 
 
 async def test_url_intake_retains_material_after_previous_character_cutoff():

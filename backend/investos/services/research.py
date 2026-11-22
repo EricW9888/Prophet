@@ -9,7 +9,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
-from sqlalchemy import select, update
+from sqlalchemy import String, and_, cast, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.config import settings
@@ -22,7 +22,12 @@ from investos.core.research_providers import (
     search_research_provider,
 )
 from investos.core.url_security import UnsafeUrlError, UrlFetchNetworkError
-from investos.models.coverage import CoverageMap, Resolution, UnresolvedQuestion
+from investos.models.coverage import (
+    CoverageMap,
+    QuestionHistory,
+    Resolution,
+    UnresolvedQuestion,
+)
 from investos.models.entity import Entity, Security
 from investos.models.evidence import (
     EvidenceProcessingState,
@@ -30,6 +35,7 @@ from investos.models.evidence import (
     ResearchDiscoveryObservation,
     SourceItem,
 )
+from investos.models.knowledge_mutation import KnowledgeMutation
 from investos.models.portfolio import Position
 from investos.models.theme import Theme
 from investos.schemas.evidence import RawEvidenceCreate
@@ -44,11 +50,13 @@ from investos.services.ingestion import IngestionService
 from investos.services.question_lifecycle import (
     MAX_EXTRACTION_WAIT_DAYS,
     MAX_RESEARCH_ATTEMPTS,
+    RESEARCH_QUESTION_STATUSES,
     RETRY_HOURS,
     QuestionLifecycleService,
 )
 from investos.services.runtime_settings import RuntimeSettingsStore
 from investos.services.source_learning import SourceLearningService
+from investos.services.source_passages import bind_source_passage
 from investos.services.work_outcomes import (
     evidence_work_outcome,
     group_research_operations,
@@ -71,9 +79,30 @@ QUESTION_RESOLUTION_SCHEMA = {
         },
         "summary": {"type": "string"},
         "remaining_uncertainty": {"type": ["string", "null"]},
+        "supporting_quote": {"type": ["string", "null"]},
     },
-    "required": ["answered", "outcome", "summary", "remaining_uncertainty"],
+    "required": [
+        "answered",
+        "outcome",
+        "summary",
+        "remaining_uncertainty",
+        "supporting_quote",
+    ],
 }
+
+SEARCH_BLOCKED_REASONS = frozenset(
+    {
+        "research_provider_not_configured",
+        "research_provider_budget_exhausted",
+        "provider_error",
+        "research_failed",
+        "research_provider_limit_exceeded",
+        "rate_limited",
+        "auth_error",
+        "timeout",
+        "unavailable",
+    }
+)
 
 
 @dataclass
@@ -598,6 +627,11 @@ class ResearchService:
             },
             process_after_ingest=True,
         )
+        await self.session.refresh(question, with_for_update=True)
+        if question.next_action != "research":
+            # A source assessment or owner decision advanced the question during search.
+            await self.session.commit()
+            return result
         if result.evidence_id is not None:
             question.research_attempt_count = (
                 int(getattr(question, "research_attempt_count", 0) or 0) + 1
@@ -620,16 +654,7 @@ class ResearchService:
             )
             await self.session.commit()
         else:
-            if result.reason in {
-                "research_provider_not_configured",
-                "provider_error",
-                "research_failed",
-                "research_provider_limit_exceeded",
-                "rate_limited",
-                "auth_error",
-                "timeout",
-                "unavailable",
-            }:
+            if result.reason in SEARCH_BLOCKED_REASONS:
                 lifecycle.transition(
                     question,
                     status="awaiting_provider",
@@ -645,10 +670,87 @@ class ResearchService:
             await self.session.commit()
         return result
 
+    async def next_retained_question_source(
+        self,
+    ) -> tuple[UnresolvedQuestion, UUID] | None:
+        assessed = (
+            select(QuestionHistory.id)
+            .where(
+                QuestionHistory.question_id == UnresolvedQuestion.id,
+                QuestionHistory.detail_json["evidence_id"].astext
+                == cast(RawEvidence.id, String),
+            )
+            .correlate(UnresolvedQuestion, RawEvidence)
+            .exists()
+        )
+        candidate = (
+            await self.session.execute(
+                select(
+                    UnresolvedQuestion.id,
+                    RawEvidence.id,
+                    UnresolvedQuestion.urgency,
+                    RawEvidence.created_at,
+                )
+                .select_from(UnresolvedQuestion)
+                .join(CoverageMap)
+                .join(
+                    KnowledgeMutation,
+                    and_(
+                        KnowledgeMutation.subject_type == CoverageMap.subject_type,
+                        KnowledgeMutation.subject_id == CoverageMap.subject_id,
+                    ),
+                )
+                .join(SourceItem, SourceItem.id == KnowledgeMutation.source_id)
+                .join(RawEvidence, RawEvidence.id == SourceItem.raw_evidence_id)
+                .join(
+                    EvidenceProcessingState,
+                    EvidenceProcessingState.raw_evidence_id == RawEvidence.id,
+                )
+                .where(
+                    UnresolvedQuestion.status.in_(RESEARCH_QUESTION_STATUSES),
+                    UnresolvedQuestion.next_action == "research",
+                    QuestionLifecycleService.research_scope_clause(),
+                    KnowledgeMutation.source_type == "source_item",
+                    KnowledgeMutation.change_type == "created",
+                    KnowledgeMutation.node_type.in_(
+                        ("fact", "claim", "event", "fundamental_metric")
+                    ),
+                    RawEvidence.is_processed.is_(True),
+                    RawEvidence.created_at >= UnresolvedQuestion.created_at,
+                    RawEvidence.metadata_json["content_origin"].astext == "direct_page",
+                    RawEvidence.id.is_distinct_from(
+                        UnresolvedQuestion.lead_evidence_id
+                    ),
+                    RawEvidence.id.is_distinct_from(
+                        UnresolvedQuestion.originating_evidence_id
+                    ),
+                    SourceItem.processing_status.in_(
+                        ("processed", "processed_adjacent_context")
+                    ),
+                    EvidenceProcessingState.extraction_status == "completed",
+                    ~assessed,
+                )
+                .distinct()
+                .order_by(
+                    UnresolvedQuestion.urgency.desc(),
+                    RawEvidence.created_at.desc(),
+                    UnresolvedQuestion.id,
+                    RawEvidence.id,
+                )
+                .limit(1)
+            )
+        ).first()
+        if candidate is None:
+            return None
+        question = await self.session.get(UnresolvedQuestion, candidate[0])
+        return (question, candidate[1]) if question is not None else None
+
     async def _maybe_resolve_question(
         self,
         question: UnresolvedQuestion,
         evidence_id: UUID,
+        *,
+        retained: bool = False,
     ) -> bool:
         lifecycle = QuestionLifecycleService(self.session)
         source_item = (
@@ -659,6 +761,18 @@ class ResearchService:
         processing_status = str(
             getattr(source_item, "processing_status", "processed") or "pending"
         )
+        if retained and processing_status not in {
+            "processed",
+            "processed_adjacent_context",
+        }:
+            lifecycle.record(
+                question,
+                "retained_source_assessed",
+                evidence_id=str(evidence_id),
+                outcome="retained_source_unavailable",
+            )
+            await self.session.commit()
+            return False
         if processing_status in {"rejected_irrelevant", "irrelevant"}:
             lifecycle.retry_research(
                 question, "irrelevant_evidence", evidence_id=str(evidence_id)
@@ -724,12 +838,29 @@ class ResearchService:
             await self.session.commit()
             return False
 
-        evidence_text = "\n\n".join(
-            part.strip()
-            for part in (source_item.summary or "", source_item.extracted_text or "")
-            if part and part.strip()
+        original_text = source_item.extracted_text or ""
+        evidence_text = (
+            original_text
+            if retained
+            else "\n\n".join(
+                part.strip()
+                for part in (
+                    source_item.summary or "",
+                    source_item.extracted_text or "",
+                )
+                if part and part.strip()
+            )
         )[:12000]
         if len(evidence_text) < 80:
+            if retained:
+                lifecycle.record(
+                    question,
+                    "retained_source_assessed",
+                    evidence_id=str(evidence_id),
+                    outcome="insufficient_processed_evidence",
+                )
+                await self.session.commit()
+                return False
             lifecycle.retry_research(
                 question,
                 "insufficient_processed_evidence",
@@ -738,6 +869,7 @@ class ResearchService:
             await self.session.commit()
             return False
 
+        raw = await self.session.get(RawEvidence, evidence_id) if retained else None
         try:
             assessment = await call_llm_json(
                 system_prompt=(
@@ -745,6 +877,8 @@ class ResearchService:
                     "Related context, a plausible inference, or a lead for more research is not enough. Set answered=true "
                     "only when the source contains a concrete answer that can be summarized without adding unstated facts. "
                     "Keep the summary concise and state any material residual uncertainty. "
+                    "Give the exact supporting quotation for an answer or a partial answer. "
+                    "Distinguish what the source says happened from a plan, allegation or expectation. "
                     "Return outcome=answered only with answered=true; distinguish a supported partial answer, "
                     "irrelevant evidence, and insufficient evidence."
                 ),
@@ -752,13 +886,22 @@ class ResearchService:
                     {
                         "question": question.question_text,
                         "processed_source": evidence_text,
+                        **(
+                            {
+                                "source_published_at": raw.public_time,
+                                "source_observed_at": raw.created_at,
+                            }
+                            if raw is not None
+                            else {}
+                        ),
                     },
                     default=str,
                 ),
                 schema=QUESTION_RESOLUTION_SCHEMA,
-                timeout_seconds=30,
             )
         except Exception as exc:
+            if retained:
+                raise
             lifecycle.transition(
                 question,
                 status="awaiting_provider",
@@ -783,12 +926,52 @@ class ResearchService:
             )
             return False
 
-        question.resolution_attempt_count = (
-            int(getattr(question, "resolution_attempt_count", 0) or 0) + 1
-        )
+        await self.session.refresh(question, with_for_update=True)
+        if question.next_action != ("research" if retained else "assess_evidence") or (
+            not retained and question.originating_evidence_id != evidence_id
+        ):
+            await self.session.commit()
+            return False
+        if not retained:
+            question.resolution_attempt_count = (
+                int(getattr(question, "resolution_attempt_count", 0) or 0) + 1
+            )
         outcome = assessment.get("outcome") or (
             "answered" if assessment.get("answered") else "insufficient_evidence"
         )
+        if retained:
+            passage = bind_source_passage(
+                assessment,
+                str(assessment.get("summary") or ""),
+                original_text,
+                source_item=source_item,
+                window={"end": len(evidence_text)},
+            )
+            if (
+                outcome in {"answered", "partial_answer"}
+                and passage["status"] != "bound"
+            ):
+                outcome = "unbound_source_answer"
+            lifecycle.record(
+                question,
+                "retained_source_assessed",
+                evidence_id=str(evidence_id),
+                outcome=outcome,
+                source_passage=passage,
+                **(
+                    {
+                        "assessment_summary": assessment.get("summary"),
+                        "remaining_uncertainty": assessment.get(
+                            "remaining_uncertainty"
+                        ),
+                    }
+                    if outcome in {"answered", "partial_answer"}
+                    else {}
+                ),
+            )
+            if not assessment.get("answered") or outcome != "answered":
+                await self.session.commit()
+                return False
         if not assessment.get("answered") or outcome != "answered":
             lifecycle.retry_research(
                 question,

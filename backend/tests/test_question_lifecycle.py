@@ -289,6 +289,13 @@ async def test_successful_direct_answer_has_resolution_and_immutable_history(
         coverage, prompt(), []
     )
     raw, _ = await evidence(session)
+    question.originating_evidence_id = raw.id
+    QuestionLifecycleService(session).transition(
+        question,
+        status="awaiting_resolution",
+        outcome="source_fetched",
+        next_action="assess_evidence",
+    )
     monkeypatch.setattr(
         "investos.services.research.call_llm_json",
         AsyncMock(

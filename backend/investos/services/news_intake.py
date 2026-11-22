@@ -14,7 +14,7 @@ import feedparser
 from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy import text as sql_text
 from sqlalchemy import update
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.dialects.postgresql import JSONB, insert
 
 from investos.config import settings
 from investos.core.dates import parse_publication_datetime
@@ -46,7 +46,7 @@ def parse_feed(text: str) -> list[dict]:
                 "title": title,
                 "url": entry.get("link"),
                 "content": summary,
-                "published_date": entry.get("published"),
+                "published_date": dict.get(entry, "published"),
                 "updated_date": dict.get(entry, "updated"),
                 "feed_rank": rank,
             }
@@ -161,18 +161,22 @@ class NewsIntakeService:
     async def _record(self, feed, rows, *, observed_at=None):
         payloads = []
         now = observed_at or datetime.now(UTC)
+        earliest = now - timedelta(hours=settings.NEWS_INTAKE_LOOKBACK_HOURS)
         request_id = str(uuid4())
         for item in rows:
             published = parse_publication_datetime(item.get("published_date"))
+            updated = parse_publication_datetime(item.get("updated_date"))
+            fresh_publication = published is not None and earliest <= published <= now
+            fresh_update = updated is not None and earliest <= updated <= now
             outcome = "observed"
-            if published is None:
+            if published is None and updated is None:
                 outcome = "publication_unverified"
-            elif (
-                not now - timedelta(hours=settings.NEWS_INTAKE_LOOKBACK_HOURS)
-                <= published
-                <= now
-            ):
-                outcome = "publication_outside_window"
+            elif not (fresh_publication or fresh_update):
+                outcome = (
+                    "publication_outside_window"
+                    if published
+                    else "feed_update_outside_window"
+                )
             version = hashlib.sha256(
                 json.dumps(
                     {
@@ -211,13 +215,41 @@ class NewsIntakeService:
                         "content_hash": version,
                         "published_date": item.get("published_date"),
                         "updated_date": item.get("updated_date"),
-                        "publication_basis": "publisher_feed_metadata",
+                        "publication_basis": (
+                            "publisher_feed_metadata" if published else None
+                        ),
+                        "intake_time_basis": (
+                            "publisher_feed_updated"
+                            if fresh_update and not fresh_publication
+                            else None
+                        ),
                         "fetch_attempts": 0,
                     },
                 )
             )
         if not payloads:
             return 0
+        updated_candidates = [
+            row["id"]
+            for row in payloads
+            if row["metadata_json"]["intake_time_basis"] == "publisher_feed_updated"
+        ]
+        if updated_candidates:
+            await self.session.execute(
+                update(ResearchDiscoveryObservation)
+                .where(
+                    ResearchDiscoveryObservation.id.in_(updated_candidates),
+                    ResearchDiscoveryObservation.outcome.in_(
+                        ("publication_unverified", "publication_outside_window")
+                    ),
+                )
+                .values(
+                    outcome="observed",
+                    metadata_json=ResearchDiscoveryObservation.metadata_json.op("||")(
+                        cast({"intake_time_basis": "publisher_feed_updated"}, JSONB)
+                    ),
+                )
+            )
         created = (
             await self.session.execute(
                 insert(ResearchDiscoveryObservation)
@@ -465,6 +497,7 @@ class NewsIntakeService:
                             "superseded_by_feed_update",
                             "publication_unverified",
                             "publication_outside_window",
+                            "feed_update_outside_window",
                         ]
                     ),
                 )
@@ -582,6 +615,7 @@ class NewsIntakeService:
                     "title": r.result_title,
                     "url": r.url,
                     "published_date": (r.metadata_json or {}).get("published_date"),
+                    "updated_date": (r.metadata_json or {}).get("updated_date"),
                     "observed_at": r.observed_at,
                     "outcome": r.outcome,
                     "error": r.error,
