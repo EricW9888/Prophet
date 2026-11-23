@@ -74,8 +74,8 @@ function PlotInteraction({ observations, markers, selected, bottom, readout, obs
   </g>;
 }
 
-export default function CapturedValueChart({ label, points, events = noEvents, eventsLabel = "Actions and decisions", calendarDates = false }: {
-  label: string; points: ValuePoint[]; events?: ChartEvent[]; eventsLabel?: string; calendarDates?: boolean;
+export default function CapturedValueChart({ label, points, events = noEvents, eventsLabel = "Actions and decisions", calendarDates = false, collapseEvents = false }: {
+  label: string; points: ValuePoint[]; events?: ChartEvent[]; eventsLabel?: string; calendarDates?: boolean; collapseEvents?: boolean;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [readout, setReadout] = useState<HTMLDivElement | null>(null);
@@ -138,7 +138,7 @@ export default function CapturedValueChart({ label, points, events = noEvents, e
     {values.length > 0 ? <div className="min-w-0 border border-line bg-background px-2 pb-1 pt-3 focus-within:outline-2 focus-within:outline-action sm:px-3">
       <div ref={setReadout} className="mb-2 flex min-h-14 flex-wrap items-baseline gap-x-3 px-2" aria-hidden="true" />
       {timelineControl}
-      <div className="h-52 sm:h-64" aria-hidden="true">
+      <div className="workspace-chart-plot" aria-hidden="true">
         <ResponsiveContainer width="100%" height="100%" minWidth={0}>
           <LineChart data={marks} margin={{ top: 8, right: 22, bottom: 0, left: 0 }} accessibilityLayer={false}>
             <CartesianGrid vertical={false} stroke="var(--color-line)" />
@@ -167,7 +167,7 @@ export default function CapturedValueChart({ label, points, events = noEvents, e
         ? <Link href={selected.href} prefetch={false} className="text-action underline">{selected.receiptLabel}</Link>
         : <a href={selected.href} className="text-action underline">{selected.receiptLabel ?? "Open capture receipt"}</a>)}
     </div>}
-    {markers.length > 0 && <details open className="border-t border-line pt-2 text-sm">
+    {markers.length > 0 && <details open={!(collapseEvents && values.length > 0)} className="border-t border-line pt-2 text-sm">
       <summary className="cursor-pointer text-muted">{eventsLabel} ({visibleMarkers.length} of {markers.length})</summary>
       <ol className="mt-2 max-h-56 divide-y divide-line overflow-auto">
         {[...visibleMarkers].reverse().map((event) => <li key={event.id}>

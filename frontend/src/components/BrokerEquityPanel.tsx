@@ -4,6 +4,7 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { formatUserLabel, safeFormatCurrency, safeFormatSignedCurrency } from "@/lib/formatting";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
+import { WorkspaceRead, WorkspaceSkeleton } from "./WorkspaceState";
 import CapturedValueChart from "./CapturedValueChart";
 import HintMarker from "./HintMarker";
 
@@ -98,10 +99,7 @@ export default function BrokerEquityPanel() {
       <h2 className="font-semibold">Broker account equity</h2>
       <HintMarker label="About broker account equity">Statement equity includes cash. Each point checks your statement against the ledger at that time. Missing or mismatched records leave a gap.</HintMarker>
     </div>
-    {status.history?.error && <div className="flex items-center gap-2 text-sm text-muted" role="status">
-      {history ? "Showing the last loaded history. Refresh failed." : "Broker equity history could not be loaded."}
-      <button type="button" className="workspace-control" onClick={() => void load()}>Retry</button>
-    </div>}
+    <WorkspaceRead name="broker equity history" state={status.history} retry={() => void load()} placeholder={<WorkspaceSkeleton label="Loading broker equity history" layout="chart" />}>
     {history?.points.length ? <CapturedValueChart label="Broker equity" eventsLabel="Ledger events"
       points={history.points.map((point) => ({
         id: point.id, at: point.as_of, value: point.value === null ? null : Number(point.value),
@@ -114,8 +112,9 @@ export default function BrokerEquityPanel() {
         detail: event.cash === null ? undefined : `Cash impact ${safeFormatSignedCurrency(Number(event.cash))}`,
         href: `/history/receipt/${event.receipt_type}/${event.id}`, receiptLabel: "Open ledger receipt", appReceipt: true,
       }))} />
-      : !status.history?.error && <p className="text-sm text-muted">{history ? "Import a dated statement to start your account equity history." : "Loading statement history…"}</p>}
+      : <p className="text-sm text-muted">Import a dated statement to start your account equity history.</p>}
     {history?.older_events_omitted && <p className="text-xs text-muted">The timeline shows the latest 250 ledger events in the displayed range.</p>}
+    </WorkspaceRead>
     <details className="border-t border-line pt-3">
       <summary className="cursor-pointer text-sm font-semibold">Import broker statement</summary>
       <p className="mt-2 text-xs text-muted">Use a statement covering the full USD account represented by this ledger. Enter account equity, cash balance, and all holdings from the same point in time.</p>

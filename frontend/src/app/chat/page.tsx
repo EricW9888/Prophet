@@ -8,7 +8,7 @@ import Link from "next/link";
 import { ArrowUp, Check, Maximize2, PanelLeftOpen, Pencil, Square, X } from "lucide-react";
 import ChatTurnStatus from "@/components/ChatTurnStatus";
 import ActivityIndicator from "@/components/ActivityIndicator";
-import WorkspaceState from "@/components/WorkspaceState";
+import WorkspaceState, { WorkspaceRead, WorkspaceSkeleton } from "@/components/WorkspaceState";
 import { useChatWorkStatus } from "@/components/WorkStatusProvider";
 import { chatActivity, isActiveChatJob as isActiveTurnJob, isMissingChatJob, sameChatJob } from "@/lib/work-status";
 import ReactMarkdown, { type Components } from "react-markdown";
@@ -535,7 +535,7 @@ function RunningChats({
 }
 
 export default function ChatPage() {
-  return <Suspense fallback={<div className="workspace-frame py-6"><WorkspaceState kind="loading" title="Loading research workspace" description="Opening your chats and research context." /></div>}><ChatWorkspace /></Suspense>;
+  return <Suspense fallback={<><AppNav active="research" /><main className="workspace-frame py-6"><WorkspaceSkeleton label="Opening Research" rows={4} /></main></>}><ChatWorkspace /></Suspense>;
 }
 
 function ChatWorkspace() {
@@ -570,6 +570,8 @@ function ChatWorkspace() {
   const [openTraceRunId, setOpenTraceRunId] = useState<string | null>(null);
   const [traceCache, setTraceCache] = useState<Record<string, ReasoningTrace>>({});
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyAttempt, retryHistory] = useState(0);
   const [activeJob, setActiveJob] = useState<AgentTurnJob | null>(null);
   const [restoringJobId, setRestoringJobId] = useState<string | null>(null);
   const [jobConnectionError, setJobConnectionError] = useState<string | null>(null);
@@ -614,11 +616,11 @@ function ChatWorkspace() {
     composer.style.height = `${Math.max(nextHeight, 64)}px`;
   }
 
-  const loadConversations = useCallback(async () => {
+  const loadConversations = useCallback(async (replace = true) => {
     await readConversations<AgentConversationList>("list", "/agent/conversations", (result) => {
       setConversations(result.conversations);
       setAutonomousReviews(result.autonomous_reviews ?? []);
-    });
+    }, replace);
   }, [readConversations]);
 
   function editDraft(value: string) {
@@ -878,15 +880,16 @@ function ChatWorkspace() {
   }, [allowActions, allowActionsLoaded]);
 
   useEffect(() => {
-    let cancelled = false;
+    setHistoryError(null);
     if (!activeSessionId) {
       setLoadingHistory(false);
       return;
     }
+    const request = new AbortController();
     setLoadingHistory(true);
-    void apiFetch<AgentConversationHistory>(`/agent/history?session_id=${activeSessionId}`)
+    void apiFetch<AgentConversationHistory>(`/agent/history?session_id=${activeSessionId}`, { signal: request.signal })
       .then((history) => {
-        if (cancelled) return;
+        if (request.signal.aborted) return;
         const historyMessages: Message[] = history.entries.map((entry): Message => ({
           role: entry.is_artifact
             ? "system"
@@ -932,18 +935,18 @@ function ChatWorkspace() {
         );
       })
       .catch((err) => {
-        if (cancelled) return;
+        if (request.signal.aborted) return;
         const draftMessages = draftMessagesBySession[activeSessionId] ?? [];
         if (draftMessages.length > 0) {
           setMessages(draftMessages);
         } else {
           setMessages([]);
-          setError(err instanceof Error ? err.message : "Unable to load this conversation. Select another chat or retry.");
         }
+        setHistoryError(err instanceof Error ? err.message : "Unable to load this conversation.");
       })
-      .finally(() => { if (!cancelled) setLoadingHistory(false); });
-    return () => { cancelled = true; };
-  }, [activeSessionId, conversations, draftMessagesBySession]);
+      .finally(() => { if (!request.signal.aborted) setLoadingHistory(false); });
+    return () => request.abort();
+  }, [activeSessionId, conversations, draftMessagesBySession, historyAttempt]);
 
   useEffect(() => {
     const pendingRunIds = Array.from(
@@ -1279,12 +1282,16 @@ function ChatWorkspace() {
               <button key={view} type="button" aria-pressed={view === researchView} className={`min-w-0 border px-1 py-2 text-xs font-medium ${view === researchView ? "border-line-strong bg-background text-foreground" : "border-transparent text-muted hover:text-foreground"}`}
                 onClick={() => {
                   setResearchView(view);
-                  if (view === "Autonomous") void loadConversations().catch(() => setError("Autonomous reviews could not be refreshed."));
+                  if (view === "Autonomous") void loadConversations(false);
                 }}>{view}</button>
             ))}
           </div>
           {researchView === "Watches" ? <div className="min-h-0 flex-1 overflow-y-auto"><LiveWatchers /></div> : null}
-          {researchView === "Autonomous" ? <AutonomousReviewList reviews={autonomousReviews} onOpen={(report) => { setOpenReport(report); setMobileWorkspaceOpen(false); }} /> : null}
+          {researchView === "Autonomous" ? <div className="min-h-0 flex-1 overflow-y-auto">
+            <WorkspaceRead name="autonomous reviews" state={conversationReads.list} retry={() => void loadConversations()} placeholder={<div className="p-3"><WorkspaceSkeleton label="Loading autonomous reviews" /></div>}>
+              <AutonomousReviewList reviews={autonomousReviews} onOpen={(report) => { setOpenReport(report); setMobileWorkspaceOpen(false); }} />
+            </WorkspaceRead>
+          </div> : null}
           {researchView === "Chats" ? <>
           <div className="border-b border-slate-200 p-4 dark:border-slate-800">
             <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -1311,14 +1318,9 @@ function ChatWorkspace() {
             onCancel={(jobId) => void cancelJob(jobId)}
           />
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            {conversationReads.list?.error ? <div role="alert" className="border border-line p-3 text-sm text-muted">
-              <p>{conversationReads.list.ready ? "Saved chats could not be refreshed. The last loaded list remains available." : "Saved chats could not be loaded. You can keep writing in this chat."}</p>
-              <button type="button" className="workspace-control mt-2" onClick={() => void loadConversations()}>Retry saved chats</button>
-            </div> : null}
+            <WorkspaceRead name="saved chats" state={conversationReads.list} retry={() => void loadConversations()}>
             {conversations.length === 0 ? (
-              conversationReads.list?.error ? null : <p role={conversationReads.list?.ready ? undefined : "status"} className="border border-dashed border-line p-4 text-sm text-muted">
-                {conversationReads.list?.ready ? "No saved chats yet." : "Loading saved chats…"}
-              </p>
+              <p className="border border-dashed border-line p-4 text-sm text-muted">No saved chats yet.</p>
             ) : (
               conversations.map((conversation) => {
                 const isActive = activeSessionId === conversation.session_id;
@@ -1378,6 +1380,10 @@ function ChatWorkspace() {
                         <button
                           type="button"
                           onClick={() => {
+                            if (isActive) {
+                              setMobileWorkspaceOpen(false);
+                              return;
+                            }
                             selectionEpochRef.current += 1;
                             restorationRef.current = null;
                             setRestoringJobId(null);
@@ -1388,6 +1394,8 @@ function ChatWorkspace() {
                             setActiveJobRequestMessage(null);
                             setIsTyping(false);
                             setMessages([]);
+                            setLoadingHistory(true);
+                            setHistoryError(null);
                             setError(null);
                             setActiveSessionId(conversation.session_id);
                             if (entryKey) router.replace("/chat", { scroll: false });
@@ -1418,7 +1426,7 @@ function ChatWorkspace() {
                         <button
                           type="button"
                           onClick={() => startRename(conversation)}
-                          className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 opacity-100 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-900 dark:hover:text-slate-200 lg:opacity-0 lg:group-hover:opacity-100"
+                          className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 opacity-100 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-900 dark:hover:text-slate-200 lg:opacity-0 lg:focus-visible:opacity-100 lg:group-hover:opacity-100"
                           title="Rename chat"
                         >
                           <Pencil className="h-4 w-4" />
@@ -1430,6 +1438,7 @@ function ChatWorkspace() {
                 );
               })
             )}
+            </WorkspaceRead>
           </div>
           </> : null}
         </aside>
@@ -1568,13 +1577,15 @@ function ChatWorkspace() {
               }}>Restore question and files</button>
               {input.trim() || attachments.length ? <span className="text-xs text-muted">Send or clear your current draft first.</span> : null}
             </div> : null}
-            {loadingHistory ? (
+            {loadingHistory && messages.length > 0 ? (
               <p role="status" className="mt-2 flex items-center gap-2 text-xs text-muted"><ActivityIndicator state="working" />Loading saved conversation…</p>
             ) : null}
           </div>
 
           <div ref={messagesScrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-6 pt-6 sm:px-6">
-            {messages.length === 0 && !isTyping && !turnStopped ? (
+            {historyError && <WorkspaceState compact kind={messages.length > 0 ? "degraded" : "error"} title="Could not load saved conversation" description={historyError} actionLabel="Retry" onAction={() => retryHistory((value) => value + 1)} />}
+            {loadingHistory && messages.length === 0 && !isTyping ? <WorkspaceSkeleton label="Loading saved conversation" /> :
+            messages.length === 0 && !historyError && !isTyping && !turnStopped ? (
               <div className="mx-auto mt-16 max-w-2xl text-center">
                 <div className="inline-flex h-16 w-16 items-center justify-center rounded-lg bg-sky-100 dark:bg-sky-900/30">
                   <svg className="h-8 w-8 text-sky-600 dark:text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">

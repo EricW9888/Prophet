@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 import AddResearchObjectModal from "./AddResearchObjectModal";
@@ -8,45 +8,32 @@ import AddTransactionModal from "./AddTransactionModal";
 import PortfolioWatchlist from "./PortfolioWatchlist";
 import ValuationCoverage from "./ValuationCoverage";
 import HintMarker from "./HintMarker";
-import WorkspaceState from "./WorkspaceState";
-import { apiFetch, PortfolioBuildPoint, PortfolioOverview } from "@/lib/api";
+import WorkspaceState, { WorkspaceRead, WorkspaceSkeleton } from "./WorkspaceState";
+import type { PortfolioBuildPoint, PortfolioOverview } from "@/lib/api";
+import { useWorkspaceReads } from "@/lib/workspace-reads";
 import { safeFormatCurrency, safeFormatSignedCurrency, safeFormatQuantity, formatUserLabel } from "@/lib/formatting";
 import { researchHref } from "@/lib/workflows";
 
 export default function PositionsTable() {
   const [overview, setOverview] = useState<PortfolioOverview | null>(null);
-  const [loading, setLoading] = useState(true);
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [isResearchModalOpen, setIsResearchModalOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [showBuildHistory, setShowBuildHistory] = useState(false);
   const [showRecentChanges, setShowRecentChanges] = useState(false);
 
-  const loadVersion = useRef(0);
-  const loadOverview = useCallback(async (refresh = true) => {
-    const version = ++loadVersion.current;
-    try {
-      const data = await apiFetch<PortfolioOverview>(`/portfolio/overview?refresh=${refresh}`);
-      if (version !== loadVersion.current) return;
-      setOverview(data);
-      setError(null);
-    } catch (err) {
-      if (version === loadVersion.current) setError(err instanceof Error ? err.message : "Unable to load portfolio workspace.");
-    } finally {
-      if (version === loadVersion.current) setLoading(false);
-    }
-  }, []);
+  const { read, status } = useWorkspaceReads<"ledger">();
+  const loadOverview = useCallback((refresh = true, replace = true) =>
+    read<PortfolioOverview>("ledger", `/portfolio/overview?refresh=${refresh}`, setOverview, replace), [read]);
 
   useEffect(() => {
     let active = true;
     // Show retained holdings before waiting for the optional upstream quote refresh.
-    void loadOverview(false).then(() => { if (active) void loadOverview(); });
+    void loadOverview(false).then(() => { if (active) void loadOverview(true, false); });
     const interval = window.setInterval(() => {
-      if (!document.hidden) void loadOverview();
+      if (!document.hidden) void loadOverview(true, false);
     }, 20000);
     return () => {
       active = false;
-      loadVersion.current += 1;
       window.clearInterval(interval);
     };
   }, [loadOverview]);
@@ -59,31 +46,13 @@ export default function PositionsTable() {
   const watchlist = overview?.watchlist ?? [];
   const considering = overview?.considering ?? [];
 
-  if (loading && !overview) {
-    return (
-      <WorkspaceState
-        kind="loading"
-        title="Loading the portfolio ledger"
-        description="Prophet is reading current holdings, tracked names, and recent transactions."
-        className="min-h-64"
-      />
-    );
-  }
-
   if (!overview) {
-    return (
-      <WorkspaceState
-        kind="error"
-        title="Portfolio ledger unavailable"
-        description={error ?? "Prophet could not load the current portfolio ledger."}
-        actionLabel="Retry"
-        onAction={() => {
-          setLoading(true);
-          void loadOverview();
-        }}
-        className="min-h-64"
-      />
-    );
+    return <WorkspaceRead name="portfolio ledger" state={status.ledger} retry={() => void loadOverview(false)} placeholder={
+      <section className="border border-line bg-panel p-4 sm:p-6">
+        <h2 className="mb-4 text-2xl font-semibold tracking-tight">Live holdings</h2>
+        <WorkspaceSkeleton label="Loading holdings" rows={4} />
+      </section>
+    }>{null}</WorkspaceRead>;
   }
 
   return (
@@ -92,12 +61,13 @@ export default function PositionsTable() {
       <AddResearchObjectModal isOpen={isResearchModalOpen} onClose={() => setIsResearchModalOpen(false)} onSaved={handleResearchSaved} />
 
       <section className="space-y-6">
-        {error ? (
+        {status.ledger?.error ? (
           <WorkspaceState
             kind="degraded"
             title="Portfolio refresh is delayed"
-            description={`${error} The last successfully loaded ledger remains visible.`}
-            actionLabel="Retry refresh"
+            description={`${status.ledger.error} The last successfully loaded ledger remains visible.`}
+            actionLabel={status.ledger.pending ? "Retrying…" : "Retry refresh"}
+            actionDisabled={status.ledger.pending}
             onAction={() => void loadOverview()}
             compact
           />

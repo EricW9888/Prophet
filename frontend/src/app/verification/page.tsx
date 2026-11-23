@@ -5,14 +5,14 @@ import { useSearchParams } from "next/navigation";
 
 import AppNav from "@/components/AppNav";
 import PageHeader from "@/components/PageHeader";
-import WorkspaceState from "@/components/WorkspaceState";
+import WorkspaceState, { WorkspaceSkeleton } from "@/components/WorkspaceState";
 import ReviewItemActions from "@/components/ReviewItemActions";
 import ReviewDomainFilters, { reviewDomain, reviewDomainLabel, reviewPagePath, reviewSelectionKey } from "@/components/ReviewDomainFilters";
 import { isRecordId, reviewResearchQuestion, reviewSubject, selectReviewContext } from "@/lib/workflows";
 import { API_BASE, apiFetch, ProfileListItem, ReviewDomain, ReviewQueueCounts, ReviewQueueItem, ReviewQueuePage, VerificationResult } from "@/lib/api";
 
 export default function VerificationPage() {
-  return <Suspense fallback={<p className="p-6 text-muted">Loading review workspace…</p>}><VerificationWorkspace /></Suspense>;
+  return <Suspense fallback={<><AppNav active="review" /><main className="workspace-frame py-6"><WorkspaceSkeleton label="Loading review workspace" rows={4} /></main></>}><VerificationWorkspace /></Suspense>;
 }
 
 function VerificationWorkspace() {
@@ -207,11 +207,7 @@ function VerificationWorkspace() {
         <section className="min-w-0 space-y-6">
           {contextNotice && <WorkspaceState kind="degraded" compact title="Review context changed" description={contextNotice} />}
           {!loaded && loading ? (
-            <WorkspaceState
-              kind="loading"
-              title="Loading review workspace"
-              description="Retrieving review priorities and the subjects available for verification."
-            />
+            <WorkspaceSkeleton label="Loading review queue" rows={4} />
           ) : !loaded && loadError ? (
             <WorkspaceState
               kind="error"

@@ -5,7 +5,7 @@ import Link from "next/link";
 
 import AppNav from "@/components/AppNav";
 import PageHeader from "@/components/PageHeader";
-import WorkspaceState from "@/components/WorkspaceState";
+import WorkspaceState, { WorkspaceSkeleton } from "@/components/WorkspaceState";
 import { loadMonitorSnapshot } from "@/lib/monitor";
 import SourceProvenanceLinks from "@/components/SourceProvenanceLinks";
 import { apiFetch, TimelineItem, API_BASE, SourceRecord, GraphNodeDetail, GraphConnection, KnowledgeChangeSummary } from "@/lib/api";
@@ -509,7 +509,7 @@ export default function TimelinePage() {
           {feedError && feedLoaded ? <WorkspaceState kind="degraded" title="Some Monitor information is unavailable" description={`${feedError} The last successfully loaded feed remains visible below.`} actionLabel="Retry refresh" onAction={() => void loadTimeline()} compact /> : null}
           <section className="relative border-l border-slate-200 dark:border-slate-800 ml-3 md:ml-4 space-y-8 py-4">
             {loading ? (
-              <WorkspaceState kind="loading" title="Loading Monitor" description="Reading the latest stored evidence and knowledge changes." className="ml-6" />
+              <div className="ml-6"><WorkspaceSkeleton label="Loading Monitor" rows={4} /></div>
             ) : feedError && !feedLoaded ? (
               <WorkspaceState kind="error" title="Monitor is unavailable" description={feedError} actionLabel="Retry" onAction={() => void loadTimeline()} className="ml-6" />
             ) : visibleItems.length === 0 ? (

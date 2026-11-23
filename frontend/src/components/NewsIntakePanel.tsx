@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
-import { WorkspaceRead } from "@/components/WorkspaceState";
+import { WorkspaceRead, WorkspaceSkeleton } from "@/components/WorkspaceState";
 import HintMarker from "@/components/HintMarker";
 
 type Feed = { id: string; name: string; url: string; enabled: boolean; status: string; error: string | null; last_checked_at: string | null; last_success_at: string | null; entry_count: number; new_count: number };
@@ -37,14 +37,13 @@ export default function NewsIntakePanel() {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const { read, status } = useWorkspaceReads<"news">();
-  const load = useCallback(() => read<Intake>("news", `/news-intake?offset=${offset}&current_only=${!showAll}`, setData), [offset, read, showAll]);
-  const shownItems = data && data.current_only === !showAll
-    ? data.items.slice(0, showAll ? data.items.length : 5)
-    : null;
+  const load = useCallback((replace = true) => read<Intake>("news", `/news-intake?offset=${offset}&current_only=${!showAll}`, setData, replace), [offset, read, showAll]);
+  const shownItems = data?.items.slice(0, data.current_only ? 5 : data.items.length) ?? [];
+  const changingView = Boolean(status.news?.pending && data && (data.current_only === showAll || data.offset !== offset));
 
   useEffect(() => {
     void load();
-    const timer = window.setInterval(() => { if (!document.hidden) void load(); }, 60_000);
+    const timer = window.setInterval(() => { if (!document.hidden) void load(false); }, 60_000);
     return () => window.clearInterval(timer);
   }, [load]);
 
@@ -71,9 +70,9 @@ export default function NewsIntakePanel() {
       <div className="flex items-center gap-2"><h2 className="font-semibold">Current news intake</h2>
         <HintMarker label="About news intake">Publisher headlines are provisional leads. Captured means the source page was fetched, not that its claims or portfolio impact were verified. Publisher dates can describe a live page’s original publication; the discovery timestamp records when Prophet saw this version.</HintMarker>
       </div>
-      <button type="button" className="border border-line px-3 py-1 text-sm" onClick={() => void load()}>Refresh</button>
+      <button type="button" className="workspace-control" disabled={status.news?.pending} onClick={() => void load()}>{status.news?.pending && data ? "Refreshing…" : "Refresh"}</button>
     </div>
-    <WorkspaceRead name="news intake" state={status.news} retry={() => void load()}>
+    <WorkspaceRead name="news intake" state={status.news} retry={() => void load()} placeholder={<WorkspaceSkeleton label="Loading news intake" rows={5} />}>
       {data ? <>
         <p className="mb-3 text-sm text-muted">{data.enabled ? "Automatic intake on" : "Automatic intake off"} · {data.pending_count} in capture queue · {data.total} retained observations
           <HintMarker label="Intake coverage and backlog">The queue covers enabled feeds and discoveries from the past {data.lookback_hours} hours, including active fetches and retries. Paused feeds and older discoveries stay in history. Prophet checks feeds every {data.poll_seconds} seconds and tries up to {data.fetch_batch_size} queued source pages every {data.capture_seconds ?? data.poll_seconds} seconds. {data.oldest_pending_at ? `Oldest queued discovery ${displayTime(data.oldest_pending_at)}.` : "The capture queue is empty."} This feed set provides partial market coverage.</HintMarker>
@@ -94,7 +93,8 @@ export default function NewsIntakePanel() {
           </form>
         </details>
         {error ? <p role="alert" className="mb-3 text-sm text-red-400">{error}</p> : null}
-        <div className="divide-y divide-line">{shownItems?.map(item => <article key={item.id} className="py-3">
+        {changingView && <p role="status" className="text-sm text-muted">Loading the requested view. The previous results remain available.</p>}
+        <div className="divide-y divide-line">{shownItems.map(item => <article key={item.id} className="py-3">
           <div className="flex flex-wrap items-start justify-between gap-2"><a className="min-w-0 flex-1 break-words text-sm font-medium text-action underline" href={item.url} target="_blank" rel="noreferrer">{item.title}</a>
             {item.evidence_id ? <Link className="text-sm text-action underline" href={`/sources/evidence/${item.evidence_id}`}>Evidence receipt</Link> : null}
             <Link className="text-sm text-action underline" href={`/chat?${new URLSearchParams({ q: `Investigate this provisional publisher report: ${JSON.stringify(item.title)}. Source: ${item.url}. Check the original report, contrary evidence, publication and discovery times, and any material direct or indirect portfolio implications. Separate reported claims from confirmed facts and hypotheses.` })}`}>Research draft</Link>
@@ -102,12 +102,12 @@ export default function NewsIntakePanel() {
           <p className="mt-1 text-xs text-muted">{outcomes[item.outcome] || item.outcome.replaceAll("_", " ")} · Discovered {displayTime(item.observed_at)} · Published {displayTime(item.published_date, "Unverified")}{item.updated_date && <> · Feed updated {displayTime(item.updated_date)}</>}</p>
           {item.error ? <p className="mt-1 break-words text-xs text-red-400">{item.error}</p> : null}
         </article>)}</div>
-        {shownItems?.length === 0 ? <p className="py-3 text-sm text-muted">{showAll ? "No publisher observations retained yet." : "No current publisher leads. Check feed status or browse retained observations."}</p> : null}
-        {data.total > 0 ? <button type="button" className="mt-3 text-sm text-action underline" onClick={() => { setOffset(0); setShowAll(!showAll); }}>{showAll ? "Show current leads" : "Browse all retained observations"}</button> : null}
-        {showAll && !data.current_only && data.total > 20 ? <div className="mt-3 flex items-center gap-3 text-sm">
-          <button className="border border-line px-3 py-1 disabled:opacity-50" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 20))}>Previous</button>
+        {shownItems.length === 0 ? <p className="py-3 text-sm text-muted">{data.current_only ? "No current publisher leads. Check feed status or browse retained observations." : "No publisher observations retained yet."}</p> : null}
+        {data.total > 0 ? <button type="button" className="workspace-control mt-3" disabled={changingView} onClick={() => { setOffset(0); setShowAll(data.current_only); }}>{data.current_only ? "Browse all retained observations" : "Show current leads"}</button> : null}
+        {!data.current_only && data.total > 20 ? <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+          <button type="button" className="workspace-control" disabled={changingView || data.offset === 0} onClick={() => setOffset(Math.max(0, data.offset - 20))}>Previous</button>
           <span className="text-muted">{data.offset + 1}–{data.offset + data.items.length} of {data.total}</span>
-          <button className="border border-line px-3 py-1 disabled:opacity-50" disabled={offset + 20 >= data.total} onClick={() => setOffset(offset + 20)}>Next</button>
+          <button type="button" className="workspace-control" disabled={changingView || data.offset + 20 >= data.total} onClick={() => setOffset(data.offset + 20)}>Next</button>
         </div> : null}
       </> : null}
     </WorkspaceRead>

@@ -138,14 +138,14 @@ test("a pinned subject remains pinned while older conversations arrive", async (
 test("history failure and retry preserve the draft and do not masquerade as empty history", async () => {
   getConversations = () => new Response(JSON.stringify({detail: "Synthetic history failure"}), {status: 403});
   await render();
-  assert.match(container.textContent!, /Saved chats could not be loaded/);
+  assert.match(container.textContent!, /Could not load saved chats/);
   assert.doesNotMatch(container.textContent!, /No saved chats yet/);
   await input("Keep this unsent draft");
   getConversations = () => list;
   await click([...container.querySelectorAll("button")].find(button => button.textContent === "Retry saved chats")!);
   assert.equal(container.querySelector("main h1")!.textContent, "New chat");
   assert.equal(composer().value, "Keep this unsent draft");
-  assert.doesNotMatch(container.textContent!, /Saved chats could not be loaded/);
+  assert.doesNotMatch(container.textContent!, /Could not load saved chats/);
   assert.ok(!requests.some(url => url.includes("/agent/history?")));
 });
 

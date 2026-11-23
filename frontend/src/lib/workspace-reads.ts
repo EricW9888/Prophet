@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "./api";
 
-type ReadState = { ready: boolean; error?: string };
+export type WorkspaceReadState = { ready: boolean; pending?: boolean; error?: string };
 
 /** Independent reads keep their previous data and reject superseded responses. */
 export function useWorkspaceReads<Key extends string>() {
   const active = useRef(new Map<Key, AbortController>());
-  const [status, setStatus] = useState<Partial<Record<Key, ReadState>>>({});
+  const [status, setStatus] = useState<Partial<Record<Key, WorkspaceReadState>>>({});
 
   useEffect(() => {
     const requests = active.current;
@@ -23,12 +23,14 @@ export function useWorkspaceReads<Key extends string>() {
     active.current.get(key)?.abort();
     const request = new AbortController();
     active.current.set(key, request);
+    setStatus((current) => current[key]?.pending ? current : {
+      ...current, [key]: { ready: false, ...current[key], pending: true },
+    });
     try {
       const data = await apiFetch<T>(path, { signal: request.signal }, timeoutMs);
       if (request.signal.aborted) return;
       accept(data);
-      setStatus((current) => current[key]?.ready && !current[key]?.error
-        ? current : { ...current, [key]: { ready: true } });
+      setStatus((current) => ({ ...current, [key]: { ready: true } }));
     } catch (error) {
       if (request.signal.aborted) return;
       const message = error instanceof Error ? error.message : "Request failed.";

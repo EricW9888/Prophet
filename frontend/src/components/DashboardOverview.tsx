@@ -5,9 +5,10 @@ import dynamic from "next/dynamic";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 
 
-import { apiFetch, DashboardSummary } from "@/lib/api";
+import type { DashboardSummary } from "@/lib/api";
 import { automationJobHealth, automationOverallHealth, type AutomationHealth } from "@/lib/automation";
-import WorkspaceState from "@/components/WorkspaceState";
+import { useWorkspaceReads } from "@/lib/workspace-reads";
+import { WorkspaceRead, WorkspaceSkeleton } from "@/components/WorkspaceState";
 import ShadowLifecycleSummary from "@/components/ShadowLifecycleSummary";
 import ProviderWorkSummary from "@/components/ProviderWorkSummary";
 import QuestionBacklog from "@/components/QuestionBacklog";
@@ -26,12 +27,14 @@ const PortfolioBuildChart = dynamic(() => import("./PortfolioBuildChart"), {
   loading: () => <p className="py-4 text-sm text-muted" role="status">Loading capital history chart…</p>,
 });
 
-function HeroMetric({ label, value, detail, href }: { label: string; value: string; detail: string; href?: string }) {
+function HeroMetric({ label, value, detail, href }: { label: string; value?: string; detail?: string; href?: string }) {
   const content = (
     <div className="h-full min-w-0 cursor-default border-t-2 border-line bg-panel px-1 py-3 transition-colors hover:border-line-strong sm:py-4">
       <p className="text-xs font-medium text-muted ">{label}</p>
-      <p className="mt-1.5 break-words text-xl font-semibold text-foreground sm:text-2xl">{value}</p>
-      <p className="mt-1 break-words text-sm leading-4 text-muted sm:text-xs">{detail}</p>
+      {value === undefined ? <WorkspaceSkeleton rows={1} /> : <>
+        <p className="mt-1.5 break-words text-xl font-semibold text-foreground sm:text-2xl">{value}</p>
+        <p className="mt-1 break-words text-sm leading-4 text-muted sm:text-xs">{detail}</p>
+      </>}
     </div>
   );
 
@@ -80,8 +83,7 @@ function SectionTitle({
 
 export default function DashboardOverview({ children, history }: { children?: ReactNode; history?: ReactNode }) {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { read, status } = useWorkspaceReads<"summary">();
   const [showAllQueueItems, setShowAllQueueItems] = useState(false);
   const [expandedPanels, setExpandedPanels] = useState({
     performance: false,
@@ -89,118 +91,72 @@ export default function DashboardOverview({ children, history }: { children?: Re
     infrastructure: false,
   });
 
-  const loadSummary = useCallback(async () => {
-    try {
-      const data = await apiFetch<DashboardSummary>("/dashboard/summary");
-      setSummary(data);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load dashboard.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const loadSummary = useCallback(() => read<DashboardSummary>("summary", "/dashboard/summary", setSummary, false), [read]);
 
   useEffect(() => {
     void loadSummary();
     const interval = window.setInterval(() => {
-      void loadSummary();
+      if (!document.hidden) void loadSummary();
     }, 15000);
     return () => window.clearInterval(interval);
   }, [loadSummary]);
 
-  if (loading) {
-    return (
-      <div className="min-w-0 space-y-6">
-      <WorkspaceState
-        kind="loading"
-        title="Loading your portfolio workspace"
-        description="Prophet is reconciling the live book, research queue, and automation status."
-        className="min-h-72"
-      />
-      <div key="dashboard-body" className="space-y-6">
-        {history ? <div key="portfolio-history" className="space-y-4">{history}</div> : null}
-        <div key="portfolio-ledger">{children}</div>
-      </div>
-      </div>
-    );
-  }
-
-  if (!summary) {
-    return (
-      <div className="min-w-0 space-y-6">
-      <WorkspaceState
-        kind="error"
-        title="Portfolio workspace unavailable"
-        description={error ?? "Prophet could not load the dashboard summary."}
-        actionLabel="Retry"
-        onAction={() => void loadSummary()}
-        className="min-h-72"
-      />
-      <div key="dashboard-body" className="space-y-6">
-        {history ? <div key="portfolio-history" className="space-y-4">{history}</div> : null}
-        <div key="portfolio-ledger">{children}</div>
-      </div>
-      </div>
-    );
-  }
-
-  const automationLabel = automationOverallHealth(summary.automation_enabled, summary.jobs);
+  const automationLabel = summary ? automationOverallHealth(summary.automation_enabled, summary.jobs) : "Status unavailable";
   const automationHealthy = automationLabel === "Operational";
 
   const reviewItems = summary?.review_queue ?? [];
   const visibleReviewItems = showAllQueueItems ? reviewItems.slice(0, 8) : reviewItems.slice(0, 3);
   const latestResearchTitle =
-    cleanResearchTitle(summary.research_activity.latest_item_title) ||
-    cleanResearchTitle(summary.portfolio_monitor?.recent_research_items?.[0]?.title) ||
+    cleanResearchTitle(summary?.research_activity.latest_item_title) ||
+    cleanResearchTitle(summary?.portfolio_monitor?.recent_research_items?.[0]?.title) ||
     "No recent research headline yet";
-  const focusValue = summary.research_activity.latest_item_subject_name || topScannerLabel(summary) || "Portfolio";
+  const focusValue = summary?.research_activity.latest_item_subject_name || (summary && topScannerLabel(summary)) || "Portfolio";
   const focusDetail = latestResearchTitle;
   const scannerItems = reviewItems.slice(0, 5);
 
-  return (
-    <div className="min-w-0 space-y-6">
-      {error ? (
-        <WorkspaceState
-          kind="degraded"
-          title="Dashboard refresh is delayed"
-          description={`${error} The last successfully loaded portfolio state remains visible below.`}
-          actionLabel="Retry refresh"
-          onAction={() => void loadSummary()}
-          compact
-        />
-      ) : null}
-      {/* Hero Stats */}
-      <section className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-3 lg:grid-cols-4">
+  const metrics = (
+      <section aria-label="Portfolio summary" className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-3 lg:grid-cols-4">
           <HeroMetric
             label="Estimated account value"
-            value={safeFormatCurrency(summary?.total_value, 2)}
-            detail={`${safeFormatCurrency(summary.total_market_value, 2)} holdings + recorded cash`}
+            value={summary ? safeFormatCurrency(summary.total_value, 2) : undefined}
+            detail={summary ? `${safeFormatCurrency(summary.total_market_value, 2)} holdings + recorded cash` : undefined}
           />
           <HeroMetric
             label="Recorded cash"
-            value={safeFormatCurrency(summary?.buying_power, 2)}
+            value={summary ? safeFormatCurrency(summary.buying_power, 2) : undefined}
             detail="Reconstructed from recorded activity"
             href="/verification?domain=portfolio_data"
           />
           <HeroMetric
             label="Open questions"
-            value={`${summary?.open_questions_count ?? 0}`}
+            value={summary ? String(summary.open_questions_count ?? 0) : undefined}
             detail="Unresolved research questions"
           />
           <HeroMetric
             label="Investment attention"
-            value={`${summary?.review_queue_total ?? summary?.review_queue?.length ?? 0}`}
+            value={summary ? String(summary.review_queue_total ?? summary.review_queue?.length ?? 0) : undefined}
             detail={summary?.review_queue?.[0]?.item_label ?? "No investment reviews currently queued"}
             href="/verification?domain=investment"
           />
       </section>
+  );
 
-      <PortfolioDataReviewNotice count={summary.portfolio_data_review_total ?? 0} />
-      <ValuationCoverage coverage={summary.valuation_coverage} />
+  return (
+    <div className="min-w-0 space-y-6">
+      <WorkspaceRead name="portfolio summary" state={status.summary} retry={() => void loadSummary()} placeholder={<>
+        <p role="status" className="sr-only">Loading portfolio summary</p>
+        {metrics}
+      </>}>
+        {metrics}
+        {summary && <>
+          <PortfolioDataReviewNotice count={summary.portfolio_data_review_total ?? 0} />
+          <ValuationCoverage coverage={summary.valuation_coverage} />
+        </>}
+      </WorkspaceRead>
 
       <div key="dashboard-body" className="space-y-6">
-        <Panel className="xl:col-span-1">
+        <section id="investment-attention" tabIndex={-1} className="scroll-mt-20">
+        <Panel>
           <SectionTitle
             title="Investment attention"
             subtitle="Questions, evidence and accepted views"
@@ -215,7 +171,9 @@ export default function DashboardOverview({ children, history }: { children?: Re
           />
 
           <div className="space-y-3">
-            {reviewItems.length === 0 ? (
+            {!summary ? (
+              status.summary?.error ? <p className="text-sm text-muted">Investment attention is unavailable.</p> : <WorkspaceSkeleton />
+            ) : reviewItems.length === 0 ? (
               <div className="py-8 text-center text-sm italic text-muted ">
                 No investment reviews are currently queued. This does not establish complete coverage or an absence of risk. Monitor remains available for recent evidence.
               </div>
@@ -272,11 +230,12 @@ export default function DashboardOverview({ children, history }: { children?: Re
             ) : null}
           </div>
         </Panel>
+        </section>
 
-        {history ? <div key="portfolio-history" className="space-y-4">{history}</div> : null}
-        <div key="portfolio-ledger">{children}</div>
+        {history ? <div id="portfolio-history" tabIndex={-1} className="scroll-mt-20 space-y-4">{history}</div> : null}
+        {children ? <div id="portfolio-holdings" tabIndex={-1} className="scroll-mt-20">{children}</div> : null}
 
-        <DeferredDisclosure title={`Research activity and system status · ${automationLabel}`} className="border border-line bg-panel p-4 md:p-5">
+        {summary && <DeferredDisclosure title={`Research activity and system status · ${automationLabel}`} className="border border-line bg-panel p-4 md:p-5">
           <div className="mt-4 space-y-4">
           <Panel className="xl:col-span-1">
           <SectionTitle
@@ -286,9 +245,10 @@ export default function DashboardOverview({ children, history }: { children?: Re
               <button
                 type="button"
                 onClick={() => void loadSummary()}
-                className="rounded border border-line bg-panel-muted px-2 py-1 text-xs font-medium text-muted transition-colors hover:border-line hover:text-foreground "
+                disabled={status.summary?.pending}
+                className="workspace-control"
               >
-                Refresh desk
+                {status.summary?.pending ? "Refreshing…" : "Refresh desk"}
               </button>
             }
           />
@@ -399,9 +359,10 @@ export default function DashboardOverview({ children, history }: { children?: Re
           </div>
           </Panel>
           </div>
-        </DeferredDisclosure>
+        </DeferredDisclosure>}
       </div>
 
+      {summary && <>
       <DeferredDisclosure title="Portfolio receipts, research questions and paper experiments" className="border border-line bg-panel p-4 md:p-5">
         <div className="mt-4 space-y-4">
           <TransactionCapturePanel transactions={summary.recent_transactions ?? []} jobs={summary.jobs} />
@@ -545,6 +506,7 @@ export default function DashboardOverview({ children, history }: { children?: Re
           </div>
         </DisclosurePanel>
       </div>
+      </>}
     </div>
   );
 }
