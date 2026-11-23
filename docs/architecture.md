@@ -663,6 +663,10 @@ The shared model-call boundary applies the caller's timeout, or the configured
 default, to the complete asynchronous call. Admission waits, transport retries,
 streamed progress, and response repair share that deadline; nested adapters do
 not restart it. Cancellation closes transport contexts and releases admission.
+Deadlines reached while waiting for a local request slot have a separate
+counter. They preserve provider health and release an in-progress probe or
+recovery lease without adding backoff. Evidence extraction keeps its retry
+budget when local admission expires.
 An explicit deadline shorter than the configured shared generation budget
 is a caller failure, not evidence that longer requests are unavailable. Its error
 still reaches the job and a configuration-scoped timeout counter is retained;

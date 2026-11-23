@@ -17,6 +17,7 @@ from investos.config import settings
 from investos.core.llm import call_llm_json
 from investos.core.provider_health import (
     LLMProviderCooldownError,
+    LocalAdmissionTimeout,
     ProviderHealthStore,
     probe_llm_provider,
     retry_after_seconds,
@@ -632,10 +633,12 @@ async def test_usage_counters_reconcile_with_real_analysis_and_critique_records(
         await engine.dispose()
 
 
-@pytest.mark.parametrize("after_claim", [False, True])
+@pytest.mark.parametrize(
+    "failure", [None, LLMProviderCooldownError, LocalAdmissionTimeout]
+)
 async def test_provider_hold_preserves_extraction_budget_and_operational_receipts(
     monkeypatch,
-    after_claim,
+    failure,
 ):
     open_health()
     engine = create_async_engine(settings.SQLALCHEMY_DATABASE_URI, poolclass=NullPool)
@@ -670,9 +673,9 @@ async def test_provider_hold_preserves_extraction_budget_and_operational_receipt
                 await session.flush()
                 worker = ExtractionWorker(session)
                 network = AsyncMock(
-                    side_effect=LLMProviderCooldownError("Synthetic provider hold")
+                    side_effect=failure("Synthetic capacity limit") if failure else None
                 )
-                if after_claim:
+                if failure:
                     monkeypatch.setattr(
                         ProviderHealthStore, "require_available", lambda: None
                     )
@@ -702,7 +705,7 @@ async def test_provider_hold_preserves_extraction_budget_and_operational_receipt
                     evidence_work_outcome(skipped) == "skipped"
                     and operational.is_processed
                 )
-                assert network.await_count == int(after_claim)
+                assert network.await_count == int(failure is not None)
             await transaction.rollback()
     finally:
         await engine.dispose()
@@ -839,13 +842,21 @@ async def test_logical_deadline_bounds_an_active_stream_and_closes_it(monkeypatc
     limiter.release()
 
 
-async def test_logical_deadline_includes_queued_admission(monkeypatch):
+@pytest.mark.parametrize("requested_budget", [None, 0.05])
+async def test_queued_deadline_does_not_open_provider_health(
+    monkeypatch, requested_budget
+):
     from investos.core import llm
 
+    monkeypatch.setattr(settings, "LLM_TIMEOUT_SECONDS", 0.1)
     limiter = llm.AsyncRateLimiter(0, 1)
     await limiter.acquire()
     client_type = httpx.AsyncClient
-    transport = AsyncMock()
+    transport = AsyncMock(
+        return_value=httpx.Response(
+            200, json={"choices": [{"message": {"content": '{"ok":true}'}}]}
+        )
+    )
     monkeypatch.setattr(llm, "_get_rate_limiter", lambda: limiter)
     monkeypatch.setattr(
         llm.httpx,
@@ -855,19 +866,47 @@ async def test_logical_deadline_includes_queued_admission(monkeypatch):
         ),
     )
     try:
-        with pytest.raises(TimeoutError):
+        with pytest.raises(LocalAdmissionTimeout):
             await asyncio.wait_for(
                 call_llm_json(
-                    "system", "queued", {"type": "object"}, timeout_seconds=0.1
+                    "system",
+                    "queued",
+                    {"type": "object"},
+                    timeout_seconds=requested_budget,
                 ),
                 timeout=1,
             )
         transport.assert_not_awaited()
-        assert ProviderHealthStore.read().caller_timeout_count == 1
+        health = ProviderHealthStore.read()
+        assert health.state == "unobserved"
+        assert health.failure_count == health.caller_timeout_count == 0
+        assert health.admission_timeout_count == 1
+        assert health.last_admission_timeout_at is not None
     finally:
         limiter.release()
-    await asyncio.wait_for(limiter.acquire(), timeout=1)
-    limiter.release()
+    assert await call_llm_json("system", "next", {"type": "object"}) == {"ok": True}
+    assert ProviderHealthStore.read().state == "healthy"
+
+
+async def test_probe_waiting_for_local_capacity_does_not_increase_provider_backoff(
+    monkeypatch,
+):
+    from investos.core import llm
+
+    monkeypatch.setattr(settings, "LLM_TIMEOUT_SECONDS", 1)
+    open_health()
+    make_probe_due()
+    limiter = llm.AsyncRateLimiter(0, 1)
+    monkeypatch.setattr(llm, "_get_rate_limiter", lambda: limiter)
+    await limiter.acquire()
+    try:
+        probe = await probe_llm_provider()
+    finally:
+        limiter.release()
+    assert probe["state"] == "open" and probe["failure_count"] == 1
+    assert probe["admission_timeout_count"] == 1
+    assert probe["last_probe_success_at"] is None and probe["lease_until"] is None
+    assert ProviderHealthStore.read().next_probe_at <= datetime.now(UTC)
 
 
 @pytest.mark.parametrize("error", [httpx.ReadTimeout, TimeoutError])
