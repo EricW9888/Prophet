@@ -48,7 +48,7 @@ export function WorkspaceRead({
           kind={state.ready ? "degraded" : "error"}
           title={state.ready ? `Could not refresh ${name}` : `Could not load ${name}`}
           description={state.ready ? `${state.error} Showing the last loaded data.` : state.error}
-          actionLabel={pending ? "Retrying…" : "Retry"}
+          actionLabel={pending ? `Retrying ${name}…` : `Retry ${name}`}
           onAction={retry}
           actionDisabled={pending}
         />

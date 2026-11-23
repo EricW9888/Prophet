@@ -56,8 +56,8 @@ test("initial content, retained data, and retry remain distinct under overlappin
     assert.match(container.textContent ?? "", /Showing the last loaded data/);
     assert.equal(ledger?.textContent, "Previous ledger");
 
-    await click("Retry");
-    assert.equal(findButton("Retrying…").disabled, true);
+    await click("Retry ledger");
+    assert.equal(findButton("Retrying ledger…").disabled, true);
     await success(3, "Updated ledger");
     assert.equal(container.querySelector("[data-content]"), ledger);
     assert.equal(ledger?.textContent, "Updated ledger");
