@@ -21,27 +21,18 @@ from investos.schemas.portfolio_history import (
     PortfolioHistoryResponse,
 )
 from investos.services.broker_equity import BrokerEquityService, LedgerReplay
-from investos.services.market_data import MarketDataService
+from investos.services.market_data import (
+    YAHOO_CALENDARS,
+    MarketDataService,
+    reported_share_splits,
+    share_basis_reconciliation,
+)
 from investos.services.portfolio_risk import digest
 from investos.services.risk import RiskService
 from investos.services.runtime_settings import RuntimeSettingsStore
 
 EVENT_LIMIT = 250
-# Provider exchange codes are translated to the calendar library's exchange
-# names. Hours, holidays and early closes come from the calendar itself.
-YAHOO_CALENDARS = {
-    "NYQ": "XNYS",
-    "NMS": "XNAS",
-    "NGM": "XNAS",
-    "NCM": "XNAS",
-    "NAS": "XNAS",
-    "PCX": "ARCX",
-    "ASE": "XASE",
-    "BTS": "BATS",
-    "PNK": "OOTC",
-    "OQB": "OOTC",
-    "OQX": "OOTC",
-}
+HISTORY_RECEIPT_VERSION = 2
 
 
 class PortfolioHistoryService:
@@ -99,7 +90,7 @@ class PortfolioHistoryService:
                     AttributionResult.factor_contributions_json["kind"].astext
                     == "portfolio_history",
                     AttributionResult.factor_contributions_json["version"].as_integer()
-                    == 1,
+                    == HISTORY_RECEIPT_VERSION,
                     AttributionResult.factor_contributions_json[
                         "window_days"
                     ].as_integer()
@@ -251,7 +242,7 @@ class PortfolioHistoryService:
                 computed_at=response.computed_at,
                 factor_contributions_json={
                     "kind": "portfolio_history",
-                    "version": 1,
+                    "version": HISTORY_RECEIPT_VERSION,
                     "window_days": window_days,
                     "ledger_hash": ledger_hash,
                     "ledger": [
@@ -276,11 +267,16 @@ class PortfolioHistoryService:
     ):
         prices = defaultdict(dict)
         valuation_times = {}
+        missing_prices_before_split = defaultdict(set)
+        missing_shares_after_split = defaultdict(set)
+        reported_splits = {}
+        security_ids = {security.ticker: key for key, security in securities.items()}
         import exchange_calendars
 
         for ticker, snapshot in snapshots.items():
             if (
-                snapshot.get("reported_symbol") != ticker
+                ticker not in security_ids
+                or snapshot.get("reported_symbol") != ticker
                 or snapshot.get("currency") != "USD"
                 or snapshot.get("status") == "unavailable"
             ):
@@ -291,6 +287,15 @@ class PortfolioHistoryService:
             calendar = exchange_calendars.get_calendar(calendar_name)
             if str(calendar.tz) != snapshot.get("exchange_timezone"):
                 continue
+            provider_splits = reported_share_splits(snapshot)
+            reported_splits[ticker] = provider_splits
+            (
+                _,
+                missing_prices_before_split[ticker],
+                missing_shares_after_split[ticker],
+            ) = share_basis_reconciliation(
+                rows, security_ids[ticker], calendar, provider_splits
+            )
             for session_day in calendar.sessions_in_range(
                 start.date().isoformat(), now.date().isoformat()
             ):
@@ -298,7 +303,13 @@ class PortfolioHistoryService:
                 if start <= close <= now:
                     day = session_day.date()
                     valuation_times[day] = max(valuation_times.get(day, close), close)
-            for bar in snapshot.get("daily_observations", []):
+            bars = list(snapshot.get("daily_observations", []))
+            closing_quote = snapshot.get("latest_regular_close")
+            if closing_quote and not any(
+                bar["timestamp"] == closing_quote["timestamp"] for bar in bars
+            ):
+                bars.append(closing_quote)
+            for bar in bars:
                 day = datetime.fromisoformat(bar["timestamp"]).date()
                 if not calendar.is_session(day.isoformat()):
                     continue
@@ -323,11 +334,6 @@ class PortfolioHistoryService:
             )
         if not prices:
             reasons.append("Dated market prices are unavailable.")
-        latest_split = {
-            row.security_id: row.at
-            for row in rows
-            if row.action == "split" and row.security_id
-        }
         ticker_counts = defaultdict(int)
         for security in securities.values():
             ticker_counts[security.ticker] += 1
@@ -341,6 +347,7 @@ class PortfolioHistoryService:
             replay.advance(at)
             held = {key: value for key, value in replay.quantities.items() if value}
             missing = []
+            disputed = []
             value = Decimal(0)
             for key, quantity in held.items():
                 security = securities.get(key)
@@ -354,12 +361,20 @@ class PortfolioHistoryService:
                     and security.instrument_type in {"common_stock", "adr", "etf"}
                     and security.multiplier in {None, 1}
                     and ticker_counts[ticker] == 1
-                    and not (key in latest_split and at < latest_split[key])
                 )
-                if not supported or mark is None:
+                if any(
+                    day < split for split in missing_prices_before_split[ticker]
+                ) or any(day >= split for split in missing_shares_after_split[ticker]):
+                    missing.append(ticker)
+                    disputed.append(ticker)
+                elif not supported or mark is None:
                     missing.append(ticker)
                 else:
-                    value += quantity * mark[1]
+                    price = mark[1]
+                    for split, ratio in reported_splits.get(ticker, {}).items():
+                        if day < split:
+                            price *= ratio
+                    value += quantity * price
             point_reasons = list(reasons)
             if replay.unsupported:
                 point_reasons.append(
@@ -368,6 +383,12 @@ class PortfolioHistoryService:
             if missing:
                 point_reasons.append(
                     "Some holdings lack matching prices or a verified historical share basis."
+                )
+            if disputed:
+                point_reasons.append(
+                    "Price and ledger split records need reconciliation for "
+                    + ", ".join(sorted(disputed))
+                    + "."
                 )
             points.append(
                 PortfolioHistoryPoint(

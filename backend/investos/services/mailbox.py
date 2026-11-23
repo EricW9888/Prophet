@@ -1315,6 +1315,8 @@ class GmailMailboxService:
         return (
             document_type in RECONCILIATION_DOCUMENT_TYPES
             or action in RECONCILIATION_CORPORATE_ACTIONS
+            # Delivery time is neither the effective time nor a unique split receipt.
+            or (action == "split" and not classification.get("executed_at"))
         )
 
     async def _queue_reconciliation_review(

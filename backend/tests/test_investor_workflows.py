@@ -204,6 +204,126 @@ async def test_history_calculation_keeps_the_health_endpoint_responsive(
         await asyncio.gather(calculation, return_exceptions=True)
 
 
+async def test_stock_split_uses_matching_share_bases_for_live_and_history(
+    workflow_session, monkeypatch
+):
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    import exchange_calendars
+    import httpx
+
+    from investos.services.runtime_settings import RuntimeSettingsStore
+
+    session = workflow_session
+    calendar = exchange_calendars.get_calendar("XNYS")
+    now = datetime.now(UTC)
+    prior_day, split_day = calendar.sessions_in_range(
+        (now - timedelta(days=12)).date(), (now - timedelta(days=1)).date()
+    )[-2:]
+    old_open = calendar.session_open(prior_day).to_pydatetime()
+    old_close = calendar.session_close(prior_day).to_pydatetime()
+    new_open = calendar.session_open(split_day).to_pydatetime()
+    new_close = calendar.session_close(split_day).to_pydatetime()
+    provider_quote_time = new_close + timedelta(seconds=1)
+    portfolio = PortfolioService(session)
+    trade = await portfolio.add_transaction_by_ticker(
+        "SYNSPLIT",
+        TransactionCreate(action="buy", quantity=1, price=800, executed_at=old_open),
+    )
+
+    def epoch(moment):
+        return int(moment.timestamp())
+
+    def provider(request):
+        assert request.url.params["events"] == "splits"
+        return httpx.Response(
+            200,
+            json={
+                "chart": {
+                    "result": [
+                        {
+                            "meta": {
+                                "symbol": "SYNSPLIT",
+                                "currency": "USD",
+                                "exchangeName": "NYQ",
+                                "exchangeTimezoneName": "America/New_York",
+                                "regularMarketPrice": 101,
+                                "regularMarketTime": epoch(provider_quote_time),
+                                "currentTradingPeriod": {
+                                    "regular": {
+                                        "start": epoch(new_open),
+                                        "end": epoch(new_close),
+                                    }
+                                },
+                            },
+                            "timestamp": [epoch(old_open), epoch(new_open)],
+                            "indicators": {
+                                "quote": [{"close": [100, None]}],
+                                "adjclose": [{"adjclose": [100, None]}],
+                            },
+                            "events": {
+                                "splits": {
+                                    str(epoch(new_open)): {
+                                        "date": epoch(new_open),
+                                        "numerator": 8,
+                                        "denominator": 1,
+                                    }
+                                }
+                            },
+                        }
+                    ]
+                }
+            },
+        )
+
+    @asynccontextmanager
+    async def provider_client():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(provider)) as client:
+            yield client
+
+    monkeypatch.setattr(
+        MarketDataService, "_http_client", staticmethod(provider_client)
+    )
+    monkeypatch.setattr(
+        RuntimeSettingsStore,
+        "load",
+        lambda: SimpleNamespace(
+            market_data=SimpleNamespace(enabled=True, provider="yahoo_finance")
+        ),
+    )
+    markets = MarketDataService(session)
+    history = PortfolioHistoryService(session)
+    result = await markets.refresh_live_prices()
+    assert result["unavailable_tickers"] == ["SYNSPLIT"]
+    assert (await portfolio.overview()).total_value is None
+    before = {point.at: point for point in (await history.history()).points}
+    assert before[old_close].value == 800
+    assert before[new_close].value is None
+    assert "split records" in " ".join(before[new_close].reasons)
+
+    await portfolio.add_transaction(
+        trade.position_id,
+        TransactionCreate(
+            action="split",
+            quantity=8,
+            executed_at=old_close + timedelta(minutes=1),
+        ),
+    )
+    provider_quote_time = old_close
+    assert (await markets.refresh_live_prices())["unavailable_tickers"] == ["SYNSPLIT"]
+    assert (await portfolio.overview()).holdings[0].valuation["status"] == "unavailable"
+    provider_quote_time = new_close + timedelta(seconds=1)
+    assert (await markets.refresh_live_prices())["updated"] == 1
+    mark = (await portfolio.overview()).holdings[0].valuation
+    assert mark["market_value"] == 808
+    receipt = await history.history()
+    after = {point.at: point for point in receipt.points}
+    assert after[old_close].value == 800
+    assert after[new_close].value == 808
+    assert after[new_close].gain == 8
+
+
 async def test_portfolio_history_uses_close_time_cash_flows_gaps_and_receipts(
     workflow_session, monkeypatch
 ):
