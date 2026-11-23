@@ -172,17 +172,27 @@ pause choice, coverage checkpoint and fetch lease. The default feed set is
 configurable and claims no complete market coverage. Intake runs independently
 of the model circuit: new and changed headlines are batch-retained as provisional
 discovery, and bounded source-page fetches enter the normal extraction queue.
+Feed entries with the same publisher origin, canonical URL, publication time,
+and exact stored text share a document receipt. Each entry keeps its own
+discovery and fetch history. Revised content and independent origins retain
+their own evidence.
 An editorial-priority lane and an oldest-lead slot share fetch capacity; retry
 backoff, fenced leases and raw-receipt recovery preserve interrupted work.
 Failed or unverifiably dated items remain inspectable rather than becoming
-accepted claims. A changed live-page headline gets a new discovery timestamp;
-its original publisher date never implies earlier system availability.
+accepted claims. A publisher's authentication challenge leaves the feed entry
+visible and stops retries for that version. A changed live-page headline receives
+a new discovery timestamp. Its original publisher date never implies earlier
+system availability.
 An Atom entry with an update time can qualify for a fetch even without a
 publication time. Its update and observation clocks remain distinct. EDGAR
 filing indexes identify the primary filing in their document table. The URL
 intake path fetches that document and retains both the index and document URLs.
 The primary filing uses the configured upload byte budget so large prospectuses
 can reach the ordinary text-ingestion and extraction workflow.
+Extraction wakes again after durable progress when another attempt is ready.
+Attempts are ordered by when they became eligible, so long documents, new
+arrivals, and due retries share the queue. Provider cooldown preserves the
+document's retry budget. The usual provider request limits still apply.
 Recently checked, dated publisher summaries also enter the normal broad
 portfolio question's fresh context. They remain clearly provisional, with
 source receipts and recorded coverage limits. Sources exposes feed controls,

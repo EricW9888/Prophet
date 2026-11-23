@@ -632,6 +632,16 @@ class ExtractionWorker:
                     },
                 },
             )
+        except LLMProviderCooldownError as exc:
+            processing.record_provider_deferral(
+                processing_state, reason=compact_exception_message(exc)
+            )
+            await self.session.commit()
+            return {
+                "deferred": True,
+                "outcome": "provider_deferred",
+                "processing": processing.summary(processing_state),
+            }
         except Exception as exc:
             import logging
 

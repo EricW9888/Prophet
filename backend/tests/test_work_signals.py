@@ -1,5 +1,6 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
@@ -14,6 +15,8 @@ from investos.core.work_signals import listen_for_work_signals
 from investos.models.evidence import EvidenceProcessingState, RawEvidence
 from investos.models.source import Source
 from investos.services.automation import AutomationCoordinator, JobTelemetry
+from investos.services.evidence_processing import EvidenceProcessingService
+from investos.workers.extraction import ExtractionWorker
 
 
 async def test_only_committed_evidence_wakes_the_existing_worker(monkeypatch):
@@ -133,6 +136,52 @@ async def test_work_signals_preserve_provider_recovery_and_paid_work_limits(
     modify.assert_called_once_with(
         "research_loop", next_run_time=recent + timedelta(minutes=5)
     )
+
+
+async def test_extraction_drains_ready_work_after_one_wake_and_yields_on_deferral(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "AUTOMATION_ENABLED", True)
+    monkeypatch.setattr(
+        ProviderHealthStore, "public_status", lambda: {"state": "healthy"}
+    )
+    coordinator = AutomationCoordinator()
+    first = SimpleNamespace(id=uuid4())
+    second = SimpleNamespace(id=uuid4())
+    waiting = [first, second]
+    attempts = []
+    deferred = asyncio.Event()
+
+    async def next_due(_service, *, model_available):
+        assert model_available
+        return waiting[0]
+
+    async def extract(_worker, evidence_id):
+        attempts.append(evidence_id)
+        if evidence_id == first.id:
+            waiting.pop(0)
+            return {"processing": {"extraction_status": "completed"}}
+        assert evidence_id == second.id
+        deferred.set()
+        return {"deferred": True, "processing": {"extraction_status": "pending"}}
+
+    monkeypatch.setattr(EvidenceProcessingService, "next_due_evidence", next_due)
+    monkeypatch.setattr(ExtractionWorker, "process_evidence", extract)
+    monkeypatch.setattr(coordinator, "_log_job_action", Mock())
+    coordinator._register_job(
+        "evidence_processing", coordinator._run_evidence_processing, 120, True
+    )
+    coordinator.scheduler.start()
+    try:
+        coordinator.signal_ready_work("evidence_arrived")
+        await asyncio.wait_for(deferred.wait(), timeout=10)
+        telemetry = coordinator.telemetry["evidence_processing"]
+        assert telemetry.last_trigger == "signal:evidence_backlog"
+        assert telemetry.last_status == "deferred"
+        assert attempts == [first.id, second.id]
+        assert "evidence_processing" not in coordinator._pending_signals
+    finally:
+        await coordinator.shutdown()
 
 
 @pytest.mark.parametrize("object_count", [0, 1])

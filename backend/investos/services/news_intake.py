@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 from datetime import UTC, datetime, timedelta
+from http import HTTPStatus
 from urllib.parse import urlsplit
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
@@ -19,11 +20,15 @@ from sqlalchemy.dialects.postgresql import JSONB, insert
 from investos.config import settings
 from investos.core.dates import parse_publication_datetime
 from investos.core.research_providers import normalize_search_results
-from investos.core.url_security import fetch_public_text
+from investos.core.url_security import UrlFetchNetworkError, fetch_public_text
 from investos.models.evidence import RawEvidence, ResearchDiscoveryObservation
 from investos.models.news import PublisherFeed
 from investos.schemas.evidence import RawEvidenceCreate
-from investos.services.ingestion import IngestionService, _html_to_text
+from investos.services.ingestion import (
+    FetchedUrlDocument,
+    IngestionService,
+    _html_to_text,
+)
 from investos.services.source_learning import SourceLearningService
 
 FEED_PROVIDER = "publisher_feed"
@@ -381,7 +386,7 @@ class NewsIntakeService:
             return_exceptions=True,
         )
         results_by_id = dict(zip((row.id for row in pending_network), network_results))
-        fetched = failed = recovered = 0
+        fetched = failed = recovered = reused = 0
         for selected_row in selected:
             row = await self.session.scalar(
                 select(ResearchDiscoveryObservation)
@@ -403,21 +408,40 @@ class NewsIntakeService:
             metadata.pop("fetch_lease_until", None)
             metadata.pop("fetch_token", None)
             result = results_by_id.get(row.id)
+            if isinstance(result, FetchedUrlDocument):
+                metadata.update(
+                    canonical_source_url=result.canonical_url,
+                    fetched_at=datetime.now(UTC).isoformat(),
+                )
+                existing = await self._matching_document_receipt(result)
+                if existing is not None:
+                    metadata["reused_receipt"] = True
+                    reused += 1
             if existing is not None:
                 row.evidence_id = existing.id
                 row.outcome = "ingested_evidence"
                 row.error = None
-                metadata["recovered_receipt"] = True
-                recovered += 1
+                metadata.pop("next_fetch_at", None)
+                if result is None:
+                    metadata["recovered_receipt"] = True
+                    recovered += 1
             elif isinstance(result, Exception):
                 failed += 1
-                row.outcome = (
-                    "fetch_failed" if attempts < 3 else "fetch_retry_exhausted"
-                )
                 row.error = f"{type(result).__name__}: {str(result)[:300]}"
-                metadata["next_fetch_at"] = (
-                    datetime.now(UTC) + timedelta(minutes=15 * attempts)
-                ).isoformat()
+                if (
+                    isinstance(result, UrlFetchNetworkError)
+                    and result.status_code == HTTPStatus.UNAUTHORIZED
+                ):
+                    row.outcome = "fetch_access_required"
+                    metadata.pop("next_fetch_at", None)
+                elif attempts < 3:
+                    row.outcome = "fetch_failed"
+                    metadata["next_fetch_at"] = (
+                        datetime.now(UTC) + timedelta(minutes=15 * attempts)
+                    ).isoformat()
+                else:
+                    row.outcome = "fetch_retry_exhausted"
+                    metadata.pop("next_fetch_at", None)
             else:
                 source = await SourceLearningService(
                     self.session
@@ -442,7 +466,7 @@ class NewsIntakeService:
                             "feed_published_date": metadata.get("published_date"),
                             "feed_updated_date": metadata.get("updated_date"),
                             "discovered_at": row.observed_at.isoformat(),
-                            "fetched_at": datetime.now(UTC).isoformat(),
+                            "fetched_at": metadata["fetched_at"],
                             "content_origin": "direct_page",
                             "canonical_source_url": result.canonical_url,
                             "publication_time_source": (
@@ -462,7 +486,43 @@ class NewsIntakeService:
             "articles_fetched": fetched,
             "articles_failed": failed,
             "articles_recovered": recovered,
+            "articles_reused": reused,
         }
+
+    async def _matching_document_receipt(
+        self, document: FetchedUrlDocument
+    ) -> RawEvidence | None:
+        content_hash = hashlib.sha256(document.content.encode("utf-8")).hexdigest()
+        # Different feed-entry leases can resolve to the same document concurrently.
+        await self.session.execute(
+            select(
+                func.pg_advisory_xact_lock(
+                    func.hashtextextended(f"publisher-document:{content_hash}", 0)
+                )
+            )
+        )
+        matches = await self.session.scalars(
+            select(RawEvidence)
+            .where(
+                RawEvidence.content_hash == content_hash,
+                RawEvidence.public_time.is_not_distinct_from(document.public_time),
+                RawEvidence.raw_content_ref.is_not(None),
+                RawEvidence.metadata_json["storage_missing"].as_boolean().is_not(True),
+                RawEvidence.metadata_json["trigger"].astext == "publisher_feed_intake",
+                RawEvidence.metadata_json["canonical_source_url"].astext
+                == document.canonical_url,
+            )
+            .order_by(RawEvidence.created_at, RawEvidence.id)
+        )
+        origin = urlsplit(document.url).netloc.casefold()
+        return next(
+            (
+                row
+                for row in matches
+                if urlsplit(row.url or "").netloc.casefold() == origin
+            ),
+            None,
+        )
 
     async def recent_context(self, *, window_hours=24):
         """Expose only recently checked publisher discoveries as provisional context."""

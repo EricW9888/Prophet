@@ -23,6 +23,10 @@ class UnsafeUrlError(UrlFetchError):
 class UrlFetchNetworkError(UrlFetchError):
     """A policy-compliant URL could not be retrieved safely."""
 
+    def __init__(self, message: str, *, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
+
 
 @dataclass(frozen=True)
 class ResolvedUrl:
@@ -236,7 +240,8 @@ async def fetch_public_text(
         raise
     except httpx.HTTPStatusError as exc:
         raise UrlFetchNetworkError(
-            f"The remote server returned HTTP {exc.response.status_code}."
+            f"The remote server returned HTTP {exc.response.status_code}.",
+            status_code=exc.response.status_code,
         ) from exc
     except httpx.RequestError as exc:
         raise UrlFetchNetworkError(

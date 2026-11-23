@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import case, or_, select, true
+from sqlalchemy import case, func, or_, select, true
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -149,11 +149,24 @@ class EvidenceProcessingService:
     async def next_due_evidence(
         self, *, model_available: bool = True
     ) -> RawEvidence | None:
-        """Return the oldest evidence whose extraction stage may make progress."""
+        """Return the evidence whose next extraction attempt has waited longest."""
 
         now = datetime.now(UTC)
-        stale_before = now - timedelta(
-            seconds=max(settings.LLM_TIMEOUT_SECONDS * 2, 300)
+        stale_after = timedelta(seconds=max(settings.LLM_TIMEOUT_SECONDS * 2, 300))
+        stale_before = now - stale_after
+        ready_since = case(
+            (
+                EvidenceProcessingState.extraction_status == "retry_scheduled",
+                EvidenceProcessingState.next_extraction_attempt_at,
+            ),
+            (
+                EvidenceProcessingState.extraction_status == "running",
+                EvidenceProcessingState.last_extraction_attempt_at + stale_after,
+            ),
+            (
+                EvidenceProcessingState.last_extraction_attempt_at.is_not(None),
+                EvidenceProcessingState.updated_at,
+            ),
         )
         return (
             (
@@ -201,21 +214,9 @@ class EvidenceProcessingService:
                         )
                     )
                     .order_by(
-                        case(
-                            (
-                                EvidenceProcessingState.extraction_status
-                                == "retry_scheduled",
-                                1,
-                            ),
-                            (
-                                EvidenceProcessingState.extraction_status == "running",
-                                2,
-                            ),
-                            else_=0,
-                        ),
-                        EvidenceProcessingState.next_extraction_attempt_at.asc().nullsfirst(),
-                        EvidenceProcessingState.last_extraction_attempt_at.asc().nullsfirst(),
+                        func.coalesce(ready_since, RawEvidence.created_at),
                         RawEvidence.created_at.asc(),
+                        RawEvidence.id,
                     )
                     .limit(1)
                 )
@@ -262,6 +263,19 @@ class EvidenceProcessingService:
             },
         )
         return state.extraction_status
+
+    def record_provider_deferral(
+        self, state: EvidenceProcessingState, *, reason: str
+    ) -> None:
+        state.extraction_status = "pending"
+        state.extraction_attempt_count = max(0, state.extraction_attempt_count - 1)
+        state.updated_at = datetime.now(UTC)
+        self._append_history(
+            state,
+            stage="structured_extraction",
+            status="provider_deferred",
+            message=reason,
+        )
 
     def record_content_available(self, state: EvidenceProcessingState) -> None:
         if state.content_status == "completed":

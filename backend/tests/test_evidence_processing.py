@@ -454,6 +454,19 @@ async def test_next_due_evidence_skips_deferred_and_blocked_work() -> None:
 
             assert selected is not None
             assert selected.id == due.id
+
+            due_retry_state.next_extraction_attempt_at = due.created_at - timedelta(
+                seconds=1
+            )
+            await session.commit()
+            assert (await service.next_due_evidence()).id == due_retry.id
+
+            due_retry_state.extraction_status = "running"
+            due_retry_state.last_extraction_attempt_at = due.created_at - timedelta(
+                days=1
+            )
+            await session.commit()
+            assert (await service.next_due_evidence()).id == due_retry.id
     finally:
         if source_id is not None:
             async with async_session_maker() as session:

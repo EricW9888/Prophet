@@ -85,6 +85,7 @@ class AutomationCoordinator:
         "universe_directory_changed": ("opportunity_discovery",),
         "news_feed_changed": ("news_intake",),
         "evidence_arrived": ("evidence_processing",),
+        "evidence_backlog": ("evidence_processing",),
         "evidence_ready": (
             "question_resolution",
             "agent_reflection",
@@ -1822,7 +1823,8 @@ class AutomationCoordinator:
             try:
                 health = ProviderHealthStore.public_status()
                 model_available = ProviderHealthStore.can_admit_work(health)
-                evidence = await EvidenceProcessingService(session).next_due_evidence(
+                queue = EvidenceProcessingService(session)
+                evidence = await queue.next_due_evidence(
                     model_available=model_available
                 )
                 if not evidence:
@@ -1839,16 +1841,21 @@ class AutomationCoordinator:
                 loop_detail = await ExtractionWorker(session).process_evidence(
                     evidence.id
                 )
-                processing_status = ((loop_detail or {}).get("processing") or {}).get(
-                    "overall_status"
-                ) or "unknown"
-                outcome = evidence_work_outcome(loop_detail)
+                processing = (loop_detail or {}).get("processing") or {}
+                processing_status = processing.get("overall_status") or "unknown"
+                partial = bool(loop_detail and loop_detail.get("partial"))
+                outcome = (
+                    "source_text_advanced"
+                    if partial
+                    else evidence_work_outcome(loop_detail)
+                )
                 status = {
                     "failed": "error",
                     "rejected": "rejected",
                     "deferred": "deferred",
                     "skipped": "skipped",
                     "no_new_knowledge": "no_new_knowledge",
+                    "source_text_advanced": "partial",
                 }.get(outcome, "ok")
                 repeated_defer = (
                     status == "deferred"
@@ -1858,6 +1865,25 @@ class AutomationCoordinator:
                 )
                 telemetry.last_status = status
                 telemetry.detail = f"evidence={evidence.id} outcome={outcome} processing={processing_status}"
+                telemetry.provider_deferred = bool(
+                    loop_detail and loop_detail.get("outcome") == "provider_deferred"
+                )
+                # Coalesced arrival signals only wake one dispatch. Keep working
+                # while durable attempts advance and another attempt is eligible.
+                state = processing.get("extraction_status")
+                if partial or state in {
+                    "completed",
+                    "not_applicable",
+                    "retry_scheduled",
+                    "retry_exhausted",
+                    "blocked_missing_content",
+                }:
+                    model_available = ProviderHealthStore.can_admit_work(
+                        ProviderHealthStore.public_status()
+                    )
+                    telemetry.provider_deferred = not model_available
+                    if await queue.next_due_evidence(model_available=model_available):
+                        self.signal_ready_work("evidence_backlog")
                 if repeated_defer:
                     return
                 self._log_job_action(

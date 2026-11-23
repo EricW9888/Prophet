@@ -1,6 +1,7 @@
 """Publisher discovery must work without inference and preserve availability."""
 
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -10,6 +11,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 
 from investos.config import settings
+from investos.core.url_security import UrlFetchNetworkError
 from investos.db import get_session
 from investos.main import app
 from investos.models.coverage import CoverageMap, QuestionHistory, Resolution
@@ -95,6 +97,59 @@ def test_news_job_never_waits_for_the_model_circuit(monkeypatch):
         "investos.services.automation.ProviderHealthStore.public_status", forbidden
     )
     assert AutomationCoordinator()._provider_defers("news_intake") is False
+
+
+async def test_feed_aliases_reuse_exact_documents_but_keep_corrections_and_origins(
+    workflow_session, monkeypatch
+):
+    session = workflow_session
+    monkeypatch.setattr(settings, "NEWS_FEED_URLS", [])
+    monkeypatch.setattr(settings, "NEWS_INTAKE_FETCH_BATCH_SIZE", 4)
+    first, second = await feed(session), await feed(session)
+    service = NewsIntakeService(session)
+    canonical = f"https://example.test/{uuid4()}/filing"
+    primary = document(canonical)
+    lead, alias, revision = (f"{canonical}?receipt={i}" for i in range(3))
+    syndicated = canonical.replace("example.test", "publisher.test")
+    documents = {
+        lead: replace(primary, url=lead),
+        alias: replace(primary, url=alias),
+        revision: replace(
+            primary, url=revision, content="The board issued a correction."
+        ),
+        syndicated: replace(primary, url=syndicated),
+    }
+    monkeypatch.setattr(
+        IngestionService,
+        "fetch_url_document",
+        AsyncMock(side_effect=documents.__getitem__),
+    )
+    await service._record(first, [item(url=lead), item(url=revision, rank=4)])
+    await service._record(
+        second, [item(url=alias, rank=2), item(url=syndicated, rank=3)]
+    )
+    result = await service._fetch_pending()
+
+    observations = {
+        row.url: row
+        for row in await session.scalars(
+            select(ResearchDiscoveryObservation).where(
+                ResearchDiscoveryObservation.query.in_([first.url, second.url])
+            )
+        )
+    }
+    assert result["articles_fetched"] == 3
+    assert result["articles_reused"] == 1
+    assert len(observations) == 4
+    assert len({row.evidence_id for row in observations.values()}) == 3
+    assert observations[lead].evidence_id == observations[alias].evidence_id
+    assert observations[alias].metadata_json["reused_receipt"] is True
+    for row in observations.values():
+        assert row.outcome == "ingested_evidence"
+        assert row.metadata_json["canonical_source_url"] == canonical
+        assert (
+            datetime.fromisoformat(row.metadata_json["fetched_at"]) >= row.observed_at
+        )
 
 
 async def test_feed_intake_retains_qualifiers_beyond_the_old_prefix(
@@ -502,18 +557,21 @@ async def test_feed_api_paginates_retained_discoveries_and_pause_is_durable(
         app.dependency_overrides.pop(get_session, None)
 
 
-async def test_fetch_failure_keeps_a_retryable_lead_and_no_evidence(
-    workflow_session, monkeypatch
+@pytest.mark.parametrize("http_status", [401, 503])
+async def test_fetch_failure_distinguishes_access_requirements_from_retryable_leads(
+    workflow_session, monkeypatch, http_status
 ):
     session = workflow_session
     subscription = await feed(session)
     service = NewsIntakeService(session)
-    await service._record(subscription, [item()])
-    monkeypatch.setattr(
-        IngestionService,
-        "fetch_url_document",
-        AsyncMock(side_effect=ValueError("Publisher blocked page")),
+    entry = item()
+    await service._record(subscription, [entry])
+    fetcher = AsyncMock(
+        side_effect=UrlFetchNetworkError(
+            "Synthetic publisher failure", status_code=http_status
+        )
     )
+    monkeypatch.setattr(IngestionService, "fetch_url_document", fetcher)
     result = await service._fetch_pending()
     row = await session.scalar(
         select(ResearchDiscoveryObservation).where(
@@ -521,11 +579,17 @@ async def test_fetch_failure_keeps_a_retryable_lead_and_no_evidence(
         )
     )
     assert result["articles_failed"] == 1
-    assert row.outcome == "fetch_failed"
     assert row.evidence_id is None
     assert row.metadata_json["fetch_attempts"] == 1
-    assert row.metadata_json["next_fetch_at"] > datetime.now(UTC).isoformat()
+    if http_status == 401:
+        assert row.outcome == "fetch_access_required"
+        assert "next_fetch_at" not in row.metadata_json
+    else:
+        assert row.outcome == "fetch_failed"
+        assert row.metadata_json["next_fetch_at"] > datetime.now(UTC).isoformat()
+    assert await service._record(subscription, [entry]) == 0
     assert (await service._fetch_pending())["articles_failed"] == 0
+    fetcher.assert_awaited_once()
 
 
 async def test_crash_after_raw_commit_recovers_existing_receipt(

@@ -98,6 +98,19 @@ async def test_fetch_public_text_revalidates_redirect_destinations():
         )
 
 
+async def test_fetch_public_text_preserves_remote_status_for_retry_decisions():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401)
+
+    with pytest.raises(UrlFetchNetworkError) as error:
+        await fetch_public_text(
+            "https://example.com/article",
+            resolver=_public_resolver,
+            transport=httpx.MockTransport(handler),
+        )
+    assert error.value.status_code == 401
+
+
 async def test_fetch_public_text_rejects_oversized_streamed_body():
     async def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
