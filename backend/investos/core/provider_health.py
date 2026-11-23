@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import threading
+from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
@@ -27,10 +28,41 @@ from investos.core.providers import (
 _call_depth = ContextVar("provider_call_depth", default=0)
 _probe_call = ContextVar("provider_probe_call", default=False)
 _recovery_owner = ContextVar("provider_recovery_owner", default=None)
+_admission_interrupted = ContextVar("provider_admission_interrupted", default=False)
 
 
 class LLMProviderCooldownError(RuntimeError):
     """Provider work is deferred; only the shared health probe can reopen it."""
+
+
+class LocalAdmissionTimeout(TimeoutError):
+    """The request deadline expired before obtaining a local request slot."""
+
+
+@contextmanager
+def observe_local_admission():
+    try:
+        yield
+    except asyncio.CancelledError:
+        _admission_interrupted.set(True)
+        raise
+
+
+@asynccontextmanager
+async def request_deadline(seconds):
+    interrupted = _admission_interrupted.set(False)
+    deadline = asyncio.timeout(seconds)
+    try:
+        async with deadline:
+            yield
+    except TimeoutError as exc:
+        if deadline.expired() and _admission_interrupted.get():
+            raise LocalAdmissionTimeout(
+                "Timed out waiting for a local model request slot."
+            ) from exc
+        raise
+    finally:
+        _admission_interrupted.reset(interrupted)
 
 
 def provider_failure_cause(exc: Exception) -> Exception | None:
@@ -99,6 +131,12 @@ class ProviderHealthRecord(BaseModel):
     caller_timeout_count: int = Field(default=0, ge=0)
     last_caller_timeout_at: AwareDatetime | None = None
     last_caller_timeout_seconds: float | None = None
+    admission_timeout_count: int = Field(default=0, ge=0)
+    last_admission_timeout_at: AwareDatetime | None = None
+
+    def record_admission_timeout(self, now):
+        self.admission_timeout_count += 1
+        self.last_admission_timeout_at = now
 
 
 class ProviderHealthRegistry(BaseModel):
@@ -343,6 +381,16 @@ class ProviderHealthStore:
             cls._write(registry)
 
     @classmethod
+    def admission_timed_out(cls, key, provider):
+        with cls._lock:
+            registry = cls._read()
+            record = registry.records.setdefault(
+                key, ProviderHealthRecord(provider=provider)
+            )
+            record.record_admission_timeout(datetime.now(UTC))
+            cls._write(registry)
+
+    @classmethod
     def claim_probe(cls, provider=None, model=None):
         key, provider = cls.configuration(provider, model)
         with cls._lock:
@@ -380,6 +428,22 @@ class ProviderHealthStore:
             cls._write(registry)
             return True
 
+    @classmethod
+    def abandon_probe(cls, key, token, *, admission_timeout=False):
+        with cls._lock:
+            registry = cls._read()
+            record = registry.records.get(key)
+            if not record or record.state != "probing" or record.probe_token != token:
+                return
+            now = datetime.now(UTC)
+            record.state = "open"
+            record.probe_token = record.lease_until = None
+            record.next_probe_at = now
+            record.revision += 1
+            if admission_timeout:
+                record.record_admission_timeout(now)
+            cls._write(registry)
+
 
 def guarded_provider_call(function):
     parameters = signature(function)
@@ -405,10 +469,13 @@ def guarded_provider_call(function):
             budget if math.isfinite(budget) and budget > 0 else shared_budget
         )
         try:
-            async with asyncio.timeout(deadline_budget):
+            async with request_deadline(deadline_budget):
                 result = await function(*args, **kwargs)
         except LLMProviderCooldownError:
             # Denied queue admission is deferral, not another observed failure.
+            raise
+        except LocalAdmissionTimeout:
+            ProviderHealthStore.admission_timed_out(key, provider)
             raise
         except Exception as exc:
             if (
@@ -445,7 +512,7 @@ async def probe_llm_provider(*, provider=None, model=None):
     key, provider, token = claimed
     probe = _probe_call.set(True)
     try:
-        async with asyncio.timeout(max(1, settings.LLM_TIMEOUT_SECONDS)):
+        async with request_deadline(max(1, settings.LLM_TIMEOUT_SECONDS)):
             result = await call_llm_json(
                 system_prompt='This is a connectivity health probe. Return only {"ok":true}.',
                 user_prompt="Confirm structured generation is available.",
@@ -463,16 +530,10 @@ async def probe_llm_provider(*, provider=None, model=None):
             raise ValueError("Probe did not satisfy the generation contract")
         ProviderHealthStore.complete_probe(key, token)
     except asyncio.CancelledError:
-        with ProviderHealthStore._lock:
-            registry = ProviderHealthStore._read()
-            record = registry.records.get(key)
-            if record and record.state == "probing" and record.probe_token == token:
-                record.state = "open"
-                record.probe_token = record.lease_until = None
-                record.next_probe_at = datetime.now(UTC)
-                record.revision += 1
-                ProviderHealthStore._write(registry)
+        ProviderHealthStore.abandon_probe(key, token)
         raise
+    except LocalAdmissionTimeout:
+        ProviderHealthStore.abandon_probe(key, token, admission_timeout=True)
     except Exception as exc:
         ProviderHealthStore.failed(key, provider, exc, probe_token=token)
     finally:

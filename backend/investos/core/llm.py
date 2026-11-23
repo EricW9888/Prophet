@@ -20,6 +20,7 @@ from investos.core.provider_health import (
     ProviderHealthStore,
     _probe_call,
     guarded_provider_call,
+    observe_local_admission,
     retry_after_seconds,
     retryable_provider_failure,
 )
@@ -59,25 +60,26 @@ class AsyncRateLimiter:
     async def acquire(self, *, check: Callable[[], Any] | None = None) -> None:
         if check:
             check()
-        await self._sem.acquire()
-        try:
-            if check:
-                check()
-            async with self._lock:
+        with observe_local_admission():
+            await self._sem.acquire()
+            try:
                 if check:
                     check()
-                loop = asyncio.get_running_loop()
-                now = loop.time()
-                wait = self._next_allowed - now
-                if wait > 0:
-                    await asyncio.sleep(wait)
+                async with self._lock:
+                    if check:
+                        check()
+                    loop = asyncio.get_running_loop()
                     now = loop.time()
-                if check:
-                    check()
-                self._next_allowed = max(now, self._next_allowed) + self._interval
-        except BaseException:
-            self._sem.release()
-            raise
+                    wait = self._next_allowed - now
+                    if wait > 0:
+                        await asyncio.sleep(wait)
+                        now = loop.time()
+                    if check:
+                        check()
+                    self._next_allowed = max(now, self._next_allowed) + self._interval
+            except BaseException:
+                self._sem.release()
+                raise
 
     def release(self) -> None:
         self._sem.release()

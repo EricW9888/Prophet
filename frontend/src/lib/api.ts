@@ -1199,6 +1199,8 @@ export type DashboardSummary = {
 };
 
 export type ProviderHealth = {
+  admission_timeout_count?: number;
+  last_admission_timeout_at?: string | null;
   caller_timeout_count?: number;
   last_caller_timeout_at?: string | null;
   last_caller_timeout_seconds?: number | null;
