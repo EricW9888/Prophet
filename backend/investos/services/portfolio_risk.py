@@ -82,6 +82,7 @@ def freeze_packet(packet: dict) -> dict:
         "status",
         "expected_session_date",
         "observed_session",
+        "share_basis_splits",
     }
     for ticker, snapshot in frozen["snapshots"].items():
         acquired = (
@@ -153,6 +154,8 @@ def evaluate_packet(packet: dict, *, max_age_hours: int = 96) -> dict:
             or position.get("multiplier") != 1
         ):
             reason = "unsupported quantity or instrument payoff"
+        elif position.get("share_basis_issue"):
+            reason = position["share_basis_issue"]
         elif snapshot.get("status") == "missing_verified_session":
             reason = "provider omitted a previously observed completed session"
         elif snapshot.get("reported_symbol") != ticker:
@@ -606,6 +609,7 @@ class PortfolioRiskService:
 
     async def refresh(self) -> PortfolioRiskState:
         from investos.services.advisory_trial import AdvisoryTrialService
+        from investos.services.broker_equity import BrokerEquityService
 
         advisory = AdvisoryTrialService(self.session)
         trial = await advisory.active()
@@ -644,6 +648,25 @@ class PortfolioRiskService:
                     -LOOKBACK - 1 :
                 ]
         cutoff = datetime.now(UTC)
+        ledger = (
+            await BrokerEquityService(self.session).ledger(cutoff) if snapshots else ()
+        )
+        basis_issues = {}
+        for position, security in rows:
+            snapshot = snapshots.get(security.ticker.upper(), {})
+            receipt = position.quote_receipt_json or {}
+            splits = {
+                **receipt.get("share_basis_splits", {}),
+                **snapshot.get("share_basis_splits", {}),
+            }
+            issue = MarketDataService.quote_share_basis_issue(
+                {**snapshot, "quote_time": snapshot.get("as_of")},
+                splits,
+                ledger,
+                security.id,
+            )
+            if issue:
+                basis_issues[security.id] = issue
         packet = {
             "version": VERSION,
             "cutoff": cutoff.isoformat(),
@@ -662,6 +685,11 @@ class PortfolioRiskService:
                     "is_nonlinear": p.is_nonlinear,
                     "instrument_type": s.instrument_type,
                     "multiplier": 1.0 if s.multiplier is None else float(s.multiplier),
+                    **(
+                        {"share_basis_issue": basis_issues[s.id]}
+                        if s.id in basis_issues
+                        else {}
+                    ),
                 }
                 for p, s in rows
             ],

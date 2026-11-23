@@ -170,6 +170,25 @@ async def test_model_confidence_cannot_post_unverified_cash(
     assert review.review_domain == "portfolio_data"
 
 
+async def test_split_notice_delivery_time_cannot_adjust_shares(
+    mailbox_service, monkeypatch
+):
+    service = mailbox_service
+    message = receipt()
+    message.replace_header("Subject", "Stock split notice")
+    message.set_content(
+        "SYN underwent a 4-for-1 stock split. Your shares were adjusted."
+    )
+    post = AsyncMock()
+    monkeypatch.setattr(service.portfolio, "add_sourced_transaction_by_ticker", post)
+    result = await service._process_message(
+        "14", message, DEFAULT_SCOPE, allow_model=False
+    )
+    assert result["metadata"]["action"] == "split"
+    assert result["needs_reconciliation"] and not result["transaction_created"]
+    post.assert_not_awaited()
+
+
 async def test_mailbox_adopts_matching_legacy_fill_despite_float_tail(
     mailbox_service,
 ):
