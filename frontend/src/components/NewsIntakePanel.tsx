@@ -9,7 +9,7 @@ import HintMarker from "@/components/HintMarker";
 
 type Feed = { id: string; name: string; url: string; enabled: boolean; status: string; error: string | null; last_checked_at: string | null; last_success_at: string | null; entry_count: number; new_count: number };
 type Arrival = { id: string; title: string; url: string; published_date: string | null; updated_date: string | null; observed_at: string; outcome: string; error: string | null; evidence_id: string | null };
-type Intake = { enabled: boolean; pending_count: number; oldest_pending_at: string | null; poll_seconds: number; fetch_batch_size: number; feeds: Feed[]; total: number; offset: number; items: Arrival[] };
+type Intake = { enabled: boolean; pending_count: number; oldest_pending_at: string | null; poll_seconds: number; fetch_batch_size: number; lookback_hours: number; feeds: Feed[]; total: number; offset: number; items: Arrival[] };
 
 function displayTime(value: string | null, missing = "Not checked") {
   if (!value) return missing;
@@ -71,8 +71,8 @@ export default function NewsIntakePanel() {
     </div>
     <WorkspaceRead name="news intake" state={status.news} retry={() => void load()}>
       {data ? <>
-        <p className="mb-3 text-sm text-muted">{data.enabled ? "Collecting publisher feeds" : "Automatic intake disabled"} · {data.pending_count} awaiting source capture · {data.total} retained observations
-          <HintMarker label="Intake coverage and backlog">Checks run every {data.poll_seconds} seconds and fetch up to {data.fetch_batch_size} source pages per check. New and changed headlines are retained separately. One fetch slot serves the oldest lead so lower-ranked items are not silently discarded. {data.oldest_pending_at ? `Oldest pending discovery: ${displayTime(data.oldest_pending_at)}.` : "No pending source fetches."} This feed set is partial market coverage.</HintMarker>
+        <p className="mb-3 text-sm text-muted">{data.enabled ? "Automatic intake on" : "Automatic intake off"} · {data.pending_count} in capture queue · {data.total} retained observations
+          <HintMarker label="Intake coverage and backlog">The queue covers enabled feeds and discoveries from the past {data.lookback_hours} hours. It includes active fetches and pending retries. Paused feeds and older discoveries stay in the history. Checks run every {data.poll_seconds} seconds and fetch up to {data.fetch_batch_size} source pages per check. {data.oldest_pending_at ? `Oldest queued discovery ${displayTime(data.oldest_pending_at)}.` : "The capture queue is empty."} This feed set provides partial market coverage.</HintMarker>
         </p>
         <details className="mb-3 border border-line p-3">
           <summary className="cursor-pointer text-sm">Publisher feeds · {data.feeds.filter(f => f.enabled).length} enabled</summary>

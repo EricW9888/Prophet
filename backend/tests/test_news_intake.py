@@ -10,7 +10,8 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 
-from investos.config import settings
+from investos.config import Settings, settings
+from investos.core.prompting import compact_fresh_research_context
 from investos.core.url_security import UrlFetchNetworkError
 from investos.db import get_session
 from investos.main import app
@@ -313,6 +314,32 @@ async def test_retained_disclosure_reaches_question_while_search_is_limited(
     fetched = await session.get(RawEvidence, observation.evidence_id)
     assert fetched.public_time is None
 
+    monkeypatch.setattr(
+        ResearchService,
+        "search",
+        AsyncMock(
+            return_value=ResearchSearchResult(
+                False, "research_provider_limit_exceeded", "markets", []
+            )
+        ),
+    )
+    context = compact_fresh_research_context(
+        await AgentService(session)._portfolio_fresh_checks(
+            {}, "What important developments should I know about?"
+        )
+    )
+    assert context["status"] == "ok"
+    assert context["searched"]
+    assert context["checks"][0]["fresh_feeds"] == 1
+    assert len(context["results"]) == 1
+    candidate = context["results"][0]
+    assert candidate["url"] == article_url
+    assert candidate["published_date"] is None
+    assert candidate["updated_date"] == updated_at
+    assert candidate["time_basis"] == "publisher_feed_updated"
+    assert candidate["observed_at"] == observation.observed_at.isoformat()
+    assert candidate["evidence_id"] == str(fetched.id)
+
     payload = extraction_payload(issuer.name)
     payload["facts"] = [
         {**payload["facts"][0], "statement": quote, "supporting_quote": quote}
@@ -533,8 +560,27 @@ async def test_pausing_feed_preserves_leads_without_fetching_them(
     fetcher = AsyncMock(side_effect=AssertionError("Paused feed cannot fetch"))
     monkeypatch.setattr(IngestionService, "fetch_url_document", fetcher)
     assert (await service._fetch_pending())["articles_fetched"] == 0
-    assert (await service.status())["pending_count"] >= 1
+    status = await service.status()
+    assert status["pending_count"] == 0
+    assert status["oldest_pending_at"] is None
+    assert status["total"] == 1
     fetcher.assert_not_awaited()
+
+
+async def test_expired_capture_is_retained_outside_the_queue(workflow_session):
+    service = NewsIntakeService(workflow_session)
+    subscription = await feed(workflow_session)
+    expired = datetime.now(UTC) - timedelta(
+        hours=settings.NEWS_INTAKE_LOOKBACK_HOURS + 1
+    )
+    entry = item()
+    entry["published_date"] = expired.isoformat()
+    await service._record(subscription, [entry], observed_at=expired)
+    await service._record(subscription, [item(url="https://example.test/recent")])
+    status = await service.status()
+    assert status["pending_count"] == 1
+    assert status["oldest_pending_at"] > expired
+    assert status["total"] == 2
 
 
 async def test_stale_feed_checkpoint_is_not_current_coverage(workflow_session):
@@ -544,8 +590,32 @@ async def test_stale_feed_checkpoint_is_not_current_coverage(workflow_session):
     await service._record(subscription, [item()])
     subscription.last_success_at = datetime.now(UTC) - timedelta(hours=2)
     await session.flush()
-    assert (await service.recent_context())["results"] == []
+    context = await service.recent_context()
+    assert context["results"] == []
+    assert context["checks"][0]["status"] == "no_fresh_feed_checks"
+    assert context["checks"][0]["fresh_feeds"] == 0
+    assert context["checks"][0]["enabled_feeds"] == 1
     assert (await service.status())["pending_count"] >= 1
+
+
+async def test_official_feeds_are_durable_defaults(workflow_session, monkeypatch):
+    service = NewsIntakeService(workflow_session)
+    monkeypatch.setattr(
+        settings, "NEWS_FEED_URLS", Settings.model_construct().NEWS_FEED_URLS
+    )
+    await service.ensure_defaults()
+    feeds = list(await workflow_session.scalars(select(PublisherFeed)))
+    assert {row.url for row in feeds} == set(settings.NEWS_FEED_URLS)
+    official = [row for row in feeds if row.url.startswith("https://www.sec.gov/")]
+    assert len(official) == 2
+    assert any(row.url.startswith("https://www.federalreserve.gov/") for row in feeds)
+    official[0].enabled = False
+    await workflow_session.flush()
+    await service.ensure_defaults()
+    assert len(list(await workflow_session.scalars(select(PublisherFeed)))) == len(
+        feeds
+    )
+    assert official[0].enabled is False
 
 
 async def test_feed_api_paginates_retained_discoveries_and_pause_is_durable(

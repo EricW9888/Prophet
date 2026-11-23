@@ -168,8 +168,10 @@ they are not `RawEvidence` and cannot satisfy corroboration or accepted-state
 promotion.
 Publisher RSS/Atom intake uses `feedparser` over bytes fetched through the same
 bounded public-URL guard. Durable `PublisherFeed` subscriptions retain their
-pause choice, coverage checkpoint and fetch lease. The default feed set is
-configurable and claims no complete market coverage. Intake runs independently
+pause choice, coverage checkpoint and fetch lease. Default subscriptions include
+publisher news, SEC filings and releases, and Federal Reserve releases.
+`NEWS_FEED_URLS` configures which defaults are added; existing subscriptions
+retain their settings. Intake runs independently
 of the model circuit: new and changed headlines are batch-retained as provisional
 discovery, and bounded source-page fetches enter the normal extraction queue.
 Feed entries with the same publisher origin, canonical URL, publication time,
@@ -196,10 +198,13 @@ Extraction wakes again after durable progress when another attempt is ready.
 Attempts are ordered by when they became eligible, so long documents, new
 arrivals, and due retries share the queue. Provider cooldown preserves the
 document's retry budget. The usual provider request limits still apply.
-Recently checked, dated publisher summaries also enter the normal broad
-portfolio question's fresh context. They remain clearly provisional, with
-source receipts and recorded coverage limits. Sources exposes feed controls,
-retained observations, fetch state and unsent research drafts.
+Recently checked publisher summaries with a publication or feed update time in
+the current window enter the normal broad portfolio question's fresh context.
+Both clocks and the discovery time stay distinct in the candidate manifest.
+Sources exposes feed controls, retained observations, fetch state and unsent
+research drafts. The capture backlog counts enabled feeds within the intake
+window, including in-flight fetches and retries. Older and paused observations
+remain in the retained history.
 Prompt compaction retains a bounded candidate manifest and search-coverage
 receipts independently of excerpt capacity. Excerpts share capacity across
 search lanes; omitted content and candidates are explicit. Publication,

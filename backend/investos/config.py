@@ -147,6 +147,9 @@ class Settings(BaseSettings):
         "https://www.cnbc.com/id/100003114/device/rss/rss.html",
         "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain",
         "https://feeds.bbci.co.uk/news/business/rss.xml",
+        "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&count=100&owner=exclude&output=atom",
+        "https://www.sec.gov/news/pressreleases.rss",
+        "https://www.federalreserve.gov/feeds/press_all.xml",
     ]
     AUTOMATION_STARTUP_CATCHUP_DELAY_SECONDS: int = 30
     INVESTMENT_OBJECT_BACKFILL_ENABLED: bool = True

@@ -1823,7 +1823,15 @@ class AgentService:
                 "candidate_sources": [
                     {
                         key: item.get(key)
-                        for key in ("title", "url", "published_date", "lane")
+                        for key in (
+                            "title",
+                            "url",
+                            "published_date",
+                            "updated_date",
+                            "observed_at",
+                            "evidence_id",
+                            "lane",
+                        )
                     }
                     for item in fresh.get("results", [])
                     if item.get("url")
@@ -5975,7 +5983,7 @@ class AgentService:
             )
 
         publisher_context = (
-            await NewsIntakeService(self.session).recent_context()
+            await NewsIntakeService(self.session).recent_context(as_of=as_of)
             if self.session is not None
             else {"results": [], "checks": []}
         )
@@ -5983,7 +5991,7 @@ class AgentService:
             row["url"]: row for row in publisher_context["results"]
         }
         check_receipts = list(publisher_context["checks"])
-        searched = False
+        searched = any(check["fresh_feeds"] for check in check_receipts)
         provider_statuses = []
         for lane, query, anchors in checks:
             await self._emit_progress(

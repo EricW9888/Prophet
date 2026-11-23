@@ -50,3 +50,25 @@ test("a focused research scope is not presented as holdings coverage", async () 
     assert.doesNotMatch(container.textContent!, /holdings with linked evidence|Holding search coverage/);
   } finally {await act(async () => root.unmount()); container.remove();}
 });
+
+test("an updated feed lead shows its clocks and partial coverage", async () => {
+  const container = document.createElement("div"); document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<ResearchReceipt receipt={{
+      holdings_with_linked_evidence: [],
+      checks: [{lane: "Publisher news", query: "Issuer filings", status: "provisional", result_count: 1, fresh_feeds: 1, enabled_feeds: 2}],
+      candidate_sources: [{
+        title: "New filing",
+        url: "https://example.test/filing",
+        updated_date: "2026-11-14T05:00:00Z",
+        observed_at: "2026-11-14T06:00:00Z",
+        evidence_id: "evidence-1",
+      }],
+    }} />));
+    assert.match(container.textContent!, /1 of 2 enabled feeds checked recently/);
+    assert.match(container.textContent!, /Feed updated.*Discovered/);
+    assert.doesNotMatch(container.textContent!, /Published/);
+    assert.equal(container.querySelector('a[href="/sources/evidence/evidence-1"]')?.textContent, "Capture receipt");
+  } finally {await act(async () => root.unmount()); container.remove();}
+});
