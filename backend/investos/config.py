@@ -141,6 +141,7 @@ class Settings(BaseSettings):
         "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt",
     ]
     NEWS_INTAKE_POLL_SECONDS: int = Field(default=300, ge=60, le=86400)
+    NEWS_INTAKE_CAPTURE_SECONDS: int = Field(default=60, ge=10, le=86400)
     NEWS_INTAKE_FETCH_BATCH_SIZE: int = Field(default=3, ge=1, le=20)
     NEWS_INTAKE_LOOKBACK_HOURS: int = Field(default=72, ge=1, le=720)
     NEWS_FEED_URLS: list[str] = [

@@ -191,14 +191,21 @@ source reader. It reads PDF text with page boundaries and captures public
 caption tracks for YouTube video links. The receipt identifies the original
 document or video and its representation. Unreadable PDFs and unavailable
 captions remain discovery leads, with a capture outcome that describes the gap.
-An editorial-priority lane favors sources awaiting a first capture. An oldest-lead
-slot gives revisions and older leads a route through the queue. Retry
+Feed checks and source capture run independently. Capture takes bounded batches
+from the durable queue between feed checks, including during model outages. Its
+priority slots favor first captures, rotating across publisher hosts before taking
+multiple priority entries from one host. An oldest-lead slot gives revisions and
+older leads a route through the queue. Retry
 backoff, fenced leases and raw-receipt recovery preserve interrupted work.
 Failed or unverifiably dated items remain inspectable rather than becoming
 accepted claims. A publisher's authentication challenge leaves the feed entry
 visible and stops retries for that version. A changed live-page headline receives
 a new discovery timestamp. Its original publisher date never implies earlier
 system availability.
+When independently published entries all share a refresh stamp later than the
+feed's own update time, intake records it as feed metadata. Consistent bulk
+updates and changes to an article's title, summary or publication time still
+create new observations.
 An Atom entry with an update time can qualify for a fetch even without a
 publication time. Its update and observation clocks remain distinct. EDGAR
 filing indexes identify the primary filing in their document table. The URL

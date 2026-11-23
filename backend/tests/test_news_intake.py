@@ -102,6 +102,65 @@ def test_news_job_never_waits_for_the_model_circuit(monkeypatch):
         "investos.services.automation.ProviderHealthStore.public_status", forbidden
     )
     assert AutomationCoordinator()._provider_defers("news_intake") is False
+    assert AutomationCoordinator()._provider_defers("news_capture") is False
+
+
+async def test_feed_refresh_stamps_do_not_requeue_unchanged_articles(workflow_session):
+    service = NewsIntakeService(workflow_session)
+    subscription = await feed(workflow_session)
+    now = datetime.now(UTC)
+    published = {
+        "a": (now - timedelta(hours=1)).isoformat(),
+        "b": (now - timedelta(hours=2)).isoformat(),
+    }
+
+    def batch(
+        stamp, second_title="Second report", first_update=None, *, feed_time=None
+    ):
+        entries = []
+        for key, title, updated in (
+            ("a", "First report", first_update or stamp),
+            ("b", second_title, stamp),
+        ):
+            entries.append(
+                f"<entry><id>urn:{key}</id><title>{title}</title>"
+                f'<link href="https://example.test/{key}"/>'
+                f"<published>{published[key]}</published><updated>{updated}</updated>"
+                "</entry>"
+            )
+        return parse_feed(
+            '<feed xmlns="http://www.w3.org/2005/Atom">'
+            "<id>urn:publisher</id><title>Reports</title>"
+            f"<updated>{feed_time or published['a']}</updated>"
+            f"{''.join(entries)}</feed>"
+        )
+
+    first, second = [(now - timedelta(minutes=m)).isoformat() for m in (5, 1)]
+    assert await service._record(subscription, batch(first), observed_at=now) == 2
+    assert await service._record(subscription, batch(second), observed_at=now) == 0
+    assert (
+        await service._record(
+            subscription, batch(second, "Second report corrected"), observed_at=now
+        )
+        == 1
+    )
+    rows = list(
+        await workflow_session.scalars(
+            select(ResearchDiscoveryObservation).where(
+                ResearchDiscoveryObservation.query == subscription.url
+            )
+        )
+    )
+    assert len(rows) == 3
+    original = next(row for row in rows if row.result_title == "First report")
+    assert original.outcome == "observed"
+    assert original.metadata_json["published_date"] == published["a"]
+    assert original.metadata_json["updated_date"] is None
+    assert original.metadata_json["batch_updated_date"] == first
+    independent_updates = batch(second, first_update=first)
+    assert {row["updated_date"] for row in independent_updates} == {first, second}
+    consistent_bulk_update = batch(second, feed_time=second)
+    assert all(row["updated_date"] == second for row in consistent_bulk_update)
 
 
 async def test_feed_aliases_reuse_exact_documents_but_keep_corrections_and_origins(
@@ -133,7 +192,7 @@ async def test_feed_aliases_reuse_exact_documents_but_keep_corrections_and_origi
     await service._record(
         second, [item(url=alias, rank=2), item(url=syndicated, rank=3)]
     )
-    result = await service._fetch_pending()
+    result = await service.capture_pending()
 
     observations = {
         row.url: row
@@ -169,9 +228,9 @@ async def test_overlapping_feed_views_share_one_network_fetch(
     monkeypatch.setattr(IngestionService, "fetch_url_document", fetcher)
     await service._record(first, [entry])
     if not same_poll:
-        assert (await service._fetch_pending())["articles_fetched"] == 1
+        assert (await service.capture_pending())["articles_fetched"] == 1
     await service._record(second, [entry])
-    result = await service._fetch_pending()
+    result = await service.capture_pending()
     assert result["articles_fetched"] == int(same_poll)
     assert result["articles_reused"] == 1
     fetcher.assert_awaited_once_with(entry["url"])
@@ -186,7 +245,7 @@ async def test_overlapping_feed_views_share_one_network_fetch(
     await service._record(
         second, [{**entry, "title": "The publisher issues a correction"}]
     )
-    await service._fetch_pending()
+    await service.capture_pending()
     assert fetcher.await_count == 2
 
 
@@ -216,7 +275,9 @@ async def test_feed_intake_retains_qualifiers_beyond_the_old_prefix(
             )
         ),
     )
-    await NewsIntakeService(session).run()
+    service = NewsIntakeService(session)
+    await service.poll_feeds()
+    await service.capture_pending()
     observation = await session.scalar(
         select(ResearchDiscoveryObservation).where(
             ResearchDiscoveryObservation.query == subscription.url
@@ -253,7 +314,7 @@ async def test_oversize_source_leaves_receipt_and_other_lead_is_captured(
         return PublicDocument(url, html.encode(), "text/html", "utf-8")
 
     monkeypatch.setattr(IngestionService, "_fetch_public_document", fetched_html)
-    result = await service._fetch_pending()
+    result = await service.capture_pending()
     assert result["articles_failed"] == result["articles_fetched"] == 1
     observations = {
         row.url: row
@@ -341,8 +402,9 @@ async def test_retained_disclosure_reaches_question_while_search_is_limited(
             )
         ),
     )
-    intake = await NewsIntakeService(session).run()
-    assert intake["new_observations"] == intake["articles_fetched"] == 1
+    service = NewsIntakeService(session)
+    assert (await service.poll_feeds())["new_observations"] == 1
+    assert (await service.capture_pending())["articles_fetched"] == 1
     observation = await session.scalar(
         select(ResearchDiscoveryObservation).where(
             ResearchDiscoveryObservation.query == subscription.url,
@@ -557,14 +619,14 @@ async def test_slow_feed_check_does_not_skip_a_poll_interval(
     monkeypatch.setattr("investos.services.news_intake.datetime", Clock)
     monkeypatch.setattr(NewsIntakeService, "_read_feed", staticmethod(slow_read))
     service = NewsIntakeService(workflow_session)
-    first = await service.run()
+    first = await service.poll_feeds()
     assert first["feeds_failed"] == int(first_check_failed)
     assert subscription.last_checked_at == started + duration
     assert subscription.next_poll_at == started + interval
 
     later_start = started + interval + timedelta(seconds=2)
     clock_time = later_start
-    assert (await service.run())["feeds_checked"] == 1
+    assert (await service.poll_feeds())["feeds_checked"] == 1
     assert fetches == 2
     assert subscription.last_success_at == later_start + duration
     assert subscription.next_poll_at == started + 2 * interval
@@ -580,16 +642,16 @@ async def test_normal_intake_retains_then_fetches_unheld_headline_without_model_
     monkeypatch.setattr(
         NewsIntakeService, "_read_feed", AsyncMock(return_value=[item()])
     )
-    monkeypatch.setattr(
-        IngestionService, "fetch_url_document", AsyncMock(side_effect=document)
-    )
+    fetcher = AsyncMock(side_effect=document)
+    monkeypatch.setattr(IngestionService, "fetch_url_document", fetcher)
     no_extraction = AsyncMock(
         side_effect=AssertionError("Acquisition must not await extraction")
     )
     monkeypatch.setattr(ExtractionWorker, "process_evidence", no_extraction)
-    result = await NewsIntakeService(session).run()
-    assert result["new_observations"] == 1
-    assert result["articles_fetched"] == 1
+    service = NewsIntakeService(session)
+    assert (await service.poll_feeds())["new_observations"] == 1
+    fetcher.assert_not_awaited()
+    assert (await service.capture_pending())["articles_fetched"] == 1
     observation = await session.scalar(
         select(ResearchDiscoveryObservation).where(
             ResearchDiscoveryObservation.query == subscription.url
@@ -624,8 +686,8 @@ async def test_normal_intake_retains_then_fetches_unheld_headline_without_model_
     assert context["results"][0]["content_kind"] == "feed_summary"
     assert context["checks"][0]["fresh_feeds"] == 1
     # Normal reruns neither rediscover nor fetch an unchanged headline.
-    again = await NewsIntakeService(session).run()
-    assert again["articles_fetched"] == 0
+    assert (await service.poll_feeds())["new_observations"] == 0
+    assert (await service.capture_pending())["articles_fetched"] == 0
 
 
 async def test_pausing_feed_preserves_leads_without_fetching_them(
@@ -639,7 +701,7 @@ async def test_pausing_feed_preserves_leads_without_fetching_them(
     await session.flush()
     fetcher = AsyncMock(side_effect=AssertionError("Paused feed cannot fetch"))
     monkeypatch.setattr(IngestionService, "fetch_url_document", fetcher)
-    assert (await service._fetch_pending())["articles_fetched"] == 0
+    assert (await service.capture_pending())["articles_fetched"] == 0
     status = await service.status()
     assert status["pending_count"] == 0
     assert status["oldest_pending_at"] is None
@@ -672,7 +734,8 @@ async def test_autonomous_feed_captures_captions_and_retains_unreadable_video(
     )
     monkeypatch.setattr(IngestionService, "_fetch_public_document", no_html)
     service = NewsIntakeService(workflow_session)
-    run = await service.run()
+    await service.poll_feeds()
+    run = await service.capture_pending()
     assert run["articles_fetched"] == run["articles_failed"] == 1
     rows = {
         row.url: row
@@ -695,7 +758,7 @@ async def test_autonomous_feed_captures_captions_and_retains_unreadable_video(
     assert rows[missing].outcome == "fetch_content_unavailable"
     assert rows[missing].evidence_id is None
     assert "No public YouTube captions" in rows[missing].error
-    assert (await service._fetch_pending())["articles_failed"] == 0
+    assert (await service.capture_pending())["articles_failed"] == 0
     no_html.assert_not_awaited()
 
 
@@ -854,7 +917,7 @@ async def test_fetch_failure_distinguishes_access_requirements_from_retryable_le
         )
     )
     monkeypatch.setattr(IngestionService, "fetch_url_document", fetcher)
-    result = await service._fetch_pending()
+    result = await service.capture_pending()
     row = await session.scalar(
         select(ResearchDiscoveryObservation).where(
             ResearchDiscoveryObservation.query == subscription.url
@@ -870,7 +933,7 @@ async def test_fetch_failure_distinguishes_access_requirements_from_retryable_le
         assert row.outcome == "fetch_failed"
         assert row.metadata_json["next_fetch_at"] > datetime.now(UTC).isoformat()
     assert await service._record(subscription, [entry]) == 0
-    assert (await service._fetch_pending())["articles_failed"] == 0
+    assert (await service.capture_pending())["articles_failed"] == 0
     fetcher.assert_awaited_once()
 
 
@@ -900,7 +963,7 @@ async def test_crash_after_raw_commit_recovers_existing_receipt(
     )
     monkeypatch.setattr(IngestionService, "fetch_url_document", fetcher)
     before = await session.scalar(select(func.count()).select_from(RawEvidence))
-    result = await service._fetch_pending()
+    result = await service.capture_pending()
     assert result["articles_fetched"] == 0
     assert result["articles_recovered"] == 1
     assert row.evidence_id == evidence.id
@@ -934,8 +997,38 @@ async def test_priority_fetch_reserves_capacity_for_oldest_lead(
     monkeypatch.setattr(settings, "NEWS_INTAKE_FETCH_BATCH_SIZE", 3)
     fetcher = AsyncMock(side_effect=document)
     monkeypatch.setattr(IngestionService, "fetch_url_document", fetcher)
-    assert (await service._fetch_pending())["articles_fetched"] == 3
+    assert (await service.capture_pending())["articles_fetched"] == 3
     assert "https://example.test/old" in [a.args[0] for a in fetcher.await_args_list]
+
+
+async def test_busy_subscriptions_on_one_host_cannot_fill_the_priority_batch(
+    workflow_session, monkeypatch
+):
+    session = workflow_session
+    service = NewsIntakeService(session)
+    first_subscription, second_subscription, quieter_publisher = [
+        await feed(session) for _ in range(3)
+    ]
+    quieter_publisher.url = f"https://independent.example/{uuid4()}/rss"
+    now = datetime.now(UTC)
+    oldest = "https://example.test/earlier"
+    independent = "https://independent.example/supplier-update"
+    await service._record(
+        first_subscription,
+        [item(url=oldest, rank=90)],
+        observed_at=now - timedelta(minutes=10),
+    )
+    await service._record(first_subscription, [item(url="https://example.test/a")])
+    await service._record(second_subscription, [item(url="https://example.test/b")])
+    await service._record(quieter_publisher, [item(url=independent, rank=3)])
+    monkeypatch.setattr(settings, "NEWS_INTAKE_FETCH_BATCH_SIZE", 3)
+    fetcher = AsyncMock(side_effect=document)
+    monkeypatch.setattr(IngestionService, "fetch_url_document", fetcher)
+
+    assert (await service.capture_pending())["articles_fetched"] == 3
+    selected = {call.args[0] for call in fetcher.await_args_list}
+    assert {oldest, independent} <= selected
+    assert len(selected & {"https://example.test/a", "https://example.test/b"}) == 1
 
 
 async def test_new_source_gets_priority_without_dropping_revisions(
@@ -948,7 +1041,7 @@ async def test_new_source_gets_priority_without_dropping_revisions(
     monkeypatch.setattr(settings, "NEWS_INTAKE_FETCH_BATCH_SIZE", 2)
     live_page = item(url="https://example.test/live")
     await service._record(subscription, [live_page])
-    await service._fetch_pending()
+    await service.capture_pending()
     now = datetime.now(UTC)
     await service._record(
         subscription,
@@ -963,12 +1056,12 @@ async def test_new_source_gets_priority_without_dropping_revisions(
         ],
     )
     fetcher.reset_mock()
-    await service._fetch_pending()
+    await service.capture_pending()
     assert {call.args[0] for call in fetcher.await_args_list} == {
         "https://example.test/older",
         "https://example.test/first-report",
     }
-    await service._fetch_pending()
+    await service.capture_pending()
     assert fetcher.await_args.args[0] == live_page["url"]
 
 
@@ -992,5 +1085,5 @@ async def test_lost_fetch_lease_cannot_write_a_second_workers_result(
 
     monkeypatch.setattr(IngestionService, "fetch_url_document", steal_lease)
     before = await session.scalar(select(func.count()).select_from(RawEvidence))
-    assert (await service._fetch_pending())["articles_fetched"] == 0
+    assert (await service.capture_pending())["articles_fetched"] == 0
     assert await session.scalar(select(func.count()).select_from(RawEvidence)) == before

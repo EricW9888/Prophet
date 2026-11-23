@@ -63,8 +63,20 @@ def parse_feed(text: str) -> list[dict]:
     )
     if not parsed.get("version") or parsed.get("bozo"):
         raise ValueError("Publisher did not return a well-formed supported feed.")
+    entries = parsed.entries[:200]
+    updates = {dict.get(entry, "updated") for entry in entries}
+    publications = {dict.get(entry, "published") for entry in entries} - {None}
+    # Some feeds stamp a retrieval time onto all entries, even though the
+    # feed's own update clock still points to the last editorial change.
+    shared_update = None
+    if len(updates) == 1 and len(publications) > 1:
+        entry_update = next(iter(updates))
+        entry_time = parse_publication_datetime(entry_update)
+        feed_time = parse_publication_datetime(dict.get(parsed.feed, "updated"))
+        if entry_time and feed_time and entry_time > feed_time:
+            shared_update = entry_update
     rows = []
-    for rank, entry in enumerate(parsed.entries[:200], 1):
+    for rank, entry in enumerate(entries, 1):
         title = _html_to_text(str(entry.get("title") or "")).strip()
         summary = _html_to_text(str(entry.get("summary") or ""))[:4000]
         rows.append(
@@ -73,7 +85,7 @@ def parse_feed(text: str) -> list[dict]:
                 "url": entry.get("link"),
                 "content": summary,
                 "published_date": dict.get(entry, "published"),
-                "updated_date": dict.get(entry, "updated"),
+                "updated_date": None if shared_update else dict.get(entry, "updated"),
                 "feed_rank": rank,
             }
         )
@@ -83,6 +95,8 @@ def parse_feed(text: str) -> list[dict]:
         original = by_url.get(row["url"], {})
         row["feed_rank"] = original.get("feed_rank", 200)
         row["updated_date"] = original.get("updated_date")
+        if shared_update:
+            row["batch_updated_date"] = shared_update
     return normalized
 
 
@@ -124,7 +138,7 @@ class NewsIntakeService:
             existing.add(url)
         await self.session.commit()
 
-    async def run(self):
+    async def poll_feeds(self):
         await self.ensure_defaults()
         now = datetime.now(UTC)
         feeds = list(
@@ -180,13 +194,11 @@ class NewsIntakeService:
                 feed.last_error = None
                 feed.last_success_at = feed.last_checked_at
             await self.session.commit()
-        fetched = await self._fetch_pending()
         return {
-            "status": "warning" if failures or fetched["articles_failed"] else "ok",
+            "status": "warning" if failures else "ok" if feeds else "idle",
             "feeds_checked": len(feeds),
             "feeds_failed": failures,
             "new_observations": observed,
-            **fetched,
         }
 
     @staticmethod
@@ -252,6 +264,11 @@ class NewsIntakeService:
                         "content_hash": version,
                         "published_date": item.get("published_date"),
                         "updated_date": item.get("updated_date"),
+                        **(
+                            {"batch_updated_date": item["batch_updated_date"]}
+                            if item.get("batch_updated_date")
+                            else {}
+                        ),
                         "publication_basis": (
                             "publisher_feed_metadata" if published else None
                         ),
@@ -331,7 +348,7 @@ class NewsIntakeService:
             >= now - timedelta(hours=settings.NEWS_INTAKE_LOOKBACK_HOURS),
         )
 
-    async def _fetch_pending(self):
+    async def capture_pending(self):
         now = datetime.now(UTC)
         stamp = now.isoformat()
         await self.session.execute(
@@ -369,19 +386,45 @@ class NewsIntakeService:
             )
             .exists()
         )
-        # Reserve one slot for the oldest retained lead. Editorial priority
-        # cannot indefinitely starve the rest of the backlog.
+        # Separate subscriptions on the same host share editorial capacity.
+        # Rank each host's first unfetched lead before its second, and leave
+        # one oldest-first slot for leads that never rise in editorial rank.
+        editorial_order = (
+            already_captured,
+            ResearchDiscoveryObservation.result_rank,
+            ResearchDiscoveryObservation.observed_at.desc(),
+            ResearchDiscoveryObservation.id,
+        )
+        publisher_queue = base.with_only_columns(
+            ResearchDiscoveryObservation.id,
+            already_captured.label("already_captured"),
+            func.row_number()
+            .over(
+                partition_by=func.lower(
+                    func.split_part(ResearchDiscoveryObservation.query, "/", 3)
+                ),
+                order_by=editorial_order,
+            )
+            .label("publisher_position"),
+        ).subquery()
         priority = (
             list(
                 await self.session.scalars(
-                    base.order_by(
-                        already_captured,
+                    select(ResearchDiscoveryObservation)
+                    .join(
+                        publisher_queue,
+                        publisher_queue.c.id == ResearchDiscoveryObservation.id,
+                    )
+                    .where(*eligible)
+                    .order_by(
+                        publisher_queue.c.already_captured,
+                        publisher_queue.c.publisher_position,
                         ResearchDiscoveryObservation.result_rank,
                         ResearchDiscoveryObservation.observed_at.desc(),
                         ResearchDiscoveryObservation.id,
                     )
                     .limit(max(0, batch - 1))
-                    .with_for_update(skip_locked=True)
+                    .with_for_update(skip_locked=True, of=ResearchDiscoveryObservation)
                 )
             )
             if batch > 1
@@ -576,6 +619,7 @@ class NewsIntakeService:
             row.metadata_json = metadata
             await self.session.commit()
         return {
+            "articles_selected": len(selected),
             "articles_fetched": fetched,
             "articles_failed": failed,
             "articles_recovered": recovered,
@@ -789,6 +833,7 @@ class NewsIntakeService:
             "pending_count": count,
             "oldest_pending_at": oldest,
             "poll_seconds": settings.NEWS_INTAKE_POLL_SECONDS,
+            "capture_seconds": settings.NEWS_INTAKE_CAPTURE_SECONDS,
             "fetch_batch_size": settings.NEWS_INTAKE_FETCH_BATCH_SIZE,
             "lookback_hours": settings.NEWS_INTAKE_LOOKBACK_HOURS,
             "feeds": [

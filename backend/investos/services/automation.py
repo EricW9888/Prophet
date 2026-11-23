@@ -98,6 +98,7 @@ class AutomationCoordinator:
             "shadow_refresh",
         ),
         "queue_catchup": (
+            "news_capture",
             "evidence_processing",
             "question_resolution",
             "research_loop",
@@ -227,6 +228,12 @@ class AutomationCoordinator:
             "news_intake",
             self._run_news_intake,
             settings.NEWS_INTAKE_POLL_SECONDS,
+            settings.NEWS_INTAKE_ENABLED,
+        )
+        self._register_job(
+            "news_capture",
+            self._run_news_capture,
+            settings.NEWS_INTAKE_CAPTURE_SECONDS,
             settings.NEWS_INTAKE_ENABLED,
         )
         self._register_job(
@@ -403,6 +410,7 @@ class AutomationCoordinator:
         mapping = {
             "listing_directory": self._run_listing_directory,
             "news_intake": self._run_news_intake,
+            "news_capture": self._run_news_capture,
             "provider_health_probe": self._run_provider_health_probe,
             "database_backup": self._run_database_backup,
             "integrity_audit": self._run_integrity_audit,
@@ -769,21 +777,53 @@ class AutomationCoordinator:
         telemetry.last_status = "running"
         async with async_session_maker() as session:
             try:
-                result = await NewsIntakeService(session).run()
+                result = await NewsIntakeService(session).poll_feeds()
                 telemetry.last_status = result["status"]
                 telemetry.detail = " ".join(
                     f"{key}={value}" for key, value in result.items() if key != "status"
                 )
-                self._log_job_action(
-                    job_name="news_intake",
-                    status=telemetry.last_status,
-                    summary="Publisher feeds checked; discovered headlines remain provisional until source processing completes.",
-                    metadata=result,
-                )
+                if result["feeds_checked"]:
+                    self._log_job_action(
+                        job_name="news_intake",
+                        status=telemetry.last_status,
+                        summary="Publisher feeds checked for new headlines.",
+                        metadata=result,
+                    )
             except Exception as exc:
                 await session.rollback()
                 self._record_job_failure(
                     job_name="news_intake",
+                    error=exc,
+                    summary=f"{type(exc).__name__}: {str(exc)[:300]}",
+                    detail=f"{type(exc).__name__}: {str(exc)[:300]}",
+                )
+
+    async def _run_news_capture(self) -> None:
+        telemetry = self.telemetry["news_capture"]
+        telemetry.last_run_at = datetime.now(UTC)
+        telemetry.last_status = "running"
+        async with async_session_maker() as session:
+            try:
+                result = await NewsIntakeService(session).capture_pending()
+                telemetry.last_status = "idle"
+                telemetry.detail = "no_eligible_source_pages"
+                if result["articles_selected"]:
+                    telemetry.last_status = (
+                        "warning" if result["articles_failed"] else "ok"
+                    )
+                    telemetry.detail = " ".join(
+                        f"{key}={value}" for key, value in result.items()
+                    )
+                    self._log_job_action(
+                        job_name="news_capture",
+                        status=telemetry.last_status,
+                        summary="Queued publisher pages checked for source evidence.",
+                        metadata=result,
+                    )
+            except Exception as exc:
+                await session.rollback()
+                self._record_job_failure(
+                    job_name="news_capture",
                     error=exc,
                     summary=f"{type(exc).__name__}: {str(exc)[:300]}",
                     detail=f"{type(exc).__name__}: {str(exc)[:300]}",
