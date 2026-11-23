@@ -517,6 +517,7 @@ class ExtractionWorker:
 
         from investos.core.provider_health import (
             LLMProviderCooldownError,
+            LocalAdmissionTimeout,
             ProviderHealthStore,
         )
 
@@ -632,7 +633,7 @@ class ExtractionWorker:
                     },
                 },
             )
-        except LLMProviderCooldownError as exc:
+        except (LLMProviderCooldownError, LocalAdmissionTimeout) as exc:
             processing.record_provider_deferral(
                 processing_state, reason=compact_exception_message(exc)
             )
