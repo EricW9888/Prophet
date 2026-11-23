@@ -35,6 +35,14 @@ from investos.services.source_learning import SourceLearningService
 FEED_PROVIDER = "publisher_feed"
 
 
+def _feed_time_basis(published, updated, *, earliest, latest):
+    if published is not None and earliest <= published <= latest:
+        return "publisher_feed_publication"
+    if updated is not None and earliest <= updated <= latest:
+        return "publisher_feed_updated"
+    return None
+
+
 def parse_feed(text: str) -> list[dict]:
     # Passing bytes, not a URL, keeps all networking inside the SSRF/size guard.
     parsed = feedparser.parse(
@@ -172,12 +180,13 @@ class NewsIntakeService:
         for item in rows:
             published = parse_publication_datetime(item.get("published_date"))
             updated = parse_publication_datetime(item.get("updated_date"))
-            fresh_publication = published is not None and earliest <= published <= now
-            fresh_update = updated is not None and earliest <= updated <= now
+            time_basis = _feed_time_basis(
+                published, updated, earliest=earliest, latest=now
+            )
             outcome = "observed"
             if published is None and updated is None:
                 outcome = "publication_unverified"
-            elif not (fresh_publication or fresh_update):
+            elif time_basis is None:
                 outcome = (
                     "publication_outside_window"
                     if published
@@ -226,7 +235,7 @@ class NewsIntakeService:
                         ),
                         "intake_time_basis": (
                             "publisher_feed_updated"
-                            if fresh_update and not fresh_publication
+                            if time_basis == "publisher_feed_updated"
                             else None
                         ),
                         "fetch_attempts": 0,
@@ -286,6 +295,20 @@ class NewsIntakeService:
             )
         return len(created)
 
+    @staticmethod
+    def _capture_scope(now):
+        observation = ResearchDiscoveryObservation
+        return (
+            observation.provider == FEED_PROVIDER,
+            observation.metadata_json["feed_id"].astext.in_(
+                select(cast(PublisherFeed.id, String)).where(
+                    PublisherFeed.enabled.is_(True)
+                )
+            ),
+            observation.observed_at
+            >= now - timedelta(hours=settings.NEWS_INTAKE_LOOKBACK_HOURS),
+        )
+
     async def _fetch_pending(self):
         now = datetime.now(UTC)
         stamp = now.isoformat()
@@ -300,15 +323,8 @@ class NewsIntakeService:
             .values(outcome="observed")
         )
         eligible = [
-            ResearchDiscoveryObservation.provider == FEED_PROVIDER,
-            ResearchDiscoveryObservation.metadata_json["feed_id"].astext.in_(
-                select(cast(PublisherFeed.id, String)).where(
-                    PublisherFeed.enabled.is_(True)
-                )
-            ),
+            *self._capture_scope(now),
             ResearchDiscoveryObservation.outcome.in_(["observed", "fetch_failed"]),
-            ResearchDiscoveryObservation.observed_at
-            >= now - timedelta(hours=settings.NEWS_INTAKE_LOOKBACK_HOURS),
             or_(
                 ResearchDiscoveryObservation.metadata_json["next_fetch_at"].astext.is_(
                     None
@@ -529,60 +545,66 @@ class NewsIntakeService:
             None,
         )
 
-    async def recent_context(self, *, window_hours=24):
+    async def recent_context(self, *, window_hours=24, as_of=None):
         """Expose only recently checked publisher discoveries as provisional context."""
-        now = datetime.now(UTC)
+        now = as_of or datetime.now(UTC)
+        earliest = now - timedelta(hours=window_hours)
         fresh_since = now - timedelta(seconds=settings.NEWS_INTAKE_POLL_SECONDS * 2)
         feeds = list(
             await self.session.scalars(
-                select(PublisherFeed).where(PublisherFeed.enabled.is_(True))
+                select(PublisherFeed)
+                .where(PublisherFeed.enabled.is_(True))
+                .order_by(PublisherFeed.name, PublisherFeed.url)
             )
         )
         fresh = [
             f
             for f in feeds
-            if f.last_status == "ok"
+            if settings.NEWS_INTAKE_ENABLED
+            and f.last_status == "ok"
             and f.last_success_at
-            and f.last_success_at >= fresh_since
+            and fresh_since <= f.last_success_at <= now
         ]
-        if not fresh:
-            return {"results": [], "checks": []}
-        rows = list(
-            await self.session.scalars(
-                select(ResearchDiscoveryObservation)
-                .where(
-                    ResearchDiscoveryObservation.provider == FEED_PROVIDER,
-                    ResearchDiscoveryObservation.metadata_json["feed_id"].astext.in_(
-                        [str(f.id) for f in fresh]
-                    ),
-                    ResearchDiscoveryObservation.observed_at
-                    >= now - timedelta(hours=window_hours),
-                    ResearchDiscoveryObservation.outcome.not_in(
-                        [
-                            "superseded_by_feed_update",
-                            "publication_unverified",
-                            "publication_outside_window",
-                            "feed_update_outside_window",
-                        ]
-                    ),
+        rows = (
+            list(
+                await self.session.scalars(
+                    select(ResearchDiscoveryObservation)
+                    .where(
+                        ResearchDiscoveryObservation.provider == FEED_PROVIDER,
+                        ResearchDiscoveryObservation.metadata_json[
+                            "feed_id"
+                        ].astext.in_([str(f.id) for f in fresh]),
+                        ResearchDiscoveryObservation.observed_at.between(earliest, now),
+                        ResearchDiscoveryObservation.outcome.not_in(
+                            [
+                                "superseded_by_feed_update",
+                                "publication_unverified",
+                                "publication_outside_window",
+                                "feed_update_outside_window",
+                            ]
+                        ),
+                    )
+                    .order_by(
+                        ResearchDiscoveryObservation.observed_at.desc(),
+                        ResearchDiscoveryObservation.result_rank,
+                        ResearchDiscoveryObservation.id,
+                    )
+                    .limit(200)
                 )
-                .order_by(
-                    ResearchDiscoveryObservation.observed_at.desc(),
-                    ResearchDiscoveryObservation.result_rank,
-                    ResearchDiscoveryObservation.id,
-                )
-                .limit(200)
             )
+            if fresh
+            else []
         )
         by_url = {}
         for row in rows:
-            published = parse_publication_datetime(
-                (row.metadata_json or {}).get("published_date")
+            metadata = row.metadata_json or {}
+            time_basis = _feed_time_basis(
+                parse_publication_datetime(metadata.get("published_date")),
+                parse_publication_datetime(metadata.get("updated_date")),
+                earliest=earliest,
+                latest=now,
             )
-            if (
-                published is None
-                or not now - timedelta(hours=window_hours) <= published <= now
-            ):
+            if time_basis is None:
                 continue
             by_url.setdefault(
                 row.url,
@@ -590,7 +612,9 @@ class NewsIntakeService:
                     "title": row.result_title,
                     "url": row.url,
                     "content": row.snippet,
-                    "published_date": (row.metadata_json or {}).get("published_date"),
+                    "published_date": metadata.get("published_date"),
+                    "updated_date": metadata.get("updated_date"),
+                    "time_basis": time_basis,
                     "observed_at": row.observed_at.isoformat(),
                     "evidence_id": str(row.evidence_id) if row.evidence_id else None,
                     "content_kind": "feed_summary",
@@ -600,13 +624,20 @@ class NewsIntakeService:
                 },
             )
         results = sorted(by_url.values(), key=lambda r: r["feed_rank"])[:12]
+        if not settings.NEWS_INTAKE_ENABLED:
+            status = "intake_disabled"
+        elif not fresh:
+            status = "no_fresh_feed_checks"
+        else:
+            status = "provisional" if results else "no_recent_results"
         return {
             "results": results,
             "checks": [
                 {
                     "lane": "Publisher news",
-                    "query": "; ".join(f.name for f in fresh),
-                    "status": "provisional" if results else "no_recent_results",
+                    "query": "; ".join(dict.fromkeys(f.name for f in fresh))
+                    or "Publisher feeds",
+                    "status": status,
                     "result_count": len(results),
                     "window_hours": window_hours,
                     "coverage": "bounded_publisher_feeds_not_exhaustive",
@@ -629,7 +660,7 @@ class NewsIntakeService:
             await self.session.execute(
                 select(
                     func.count(), func.min(ResearchDiscoveryObservation.observed_at)
-                ).where(ResearchDiscoveryObservation.provider == FEED_PROVIDER, pending)
+                ).where(*self._capture_scope(datetime.now(UTC)), pending)
             )
         ).one()
         rows = list(
@@ -656,6 +687,7 @@ class NewsIntakeService:
             "oldest_pending_at": oldest,
             "poll_seconds": settings.NEWS_INTAKE_POLL_SECONDS,
             "fetch_batch_size": settings.NEWS_INTAKE_FETCH_BATCH_SIZE,
+            "lookback_hours": settings.NEWS_INTAKE_LOOKBACK_HOURS,
             "feeds": [
                 {
                     "id": f.id,

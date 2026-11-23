@@ -1,5 +1,14 @@
+import Link from "next/link";
 import type { AgentResearchReceipt } from "../lib/api";
 import { formatUserLabel } from "../lib/formatting";
+
+function SourceTime({ label, value }: { label: string; value?: string | null }) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
+  return <span>{label} <time dateTime={dateOnly ? value : date.toISOString()}>{dateOnly ? value : date.toLocaleString()}</time></span>;
+}
 
 export default function ResearchReceipt({ receipt }: { receipt: AgentResearchReceipt }) {
   const linkedCount = receipt.holdings_with_linked_evidence.length;
@@ -32,6 +41,9 @@ export default function ResearchReceipt({ receipt }: { receipt: AgentResearchRec
           {receipt.checks.map((check) => (
             <li key={`${check.lane}:${check.query}`} className="border-l border-line pl-2">
               <span className="font-medium">{check.lane}</span> · {check.result_count ? `${check.result_count} candidate${check.result_count === 1 ? "" : "s"}` : formatUserLabel(check.status)}
+              {check.fresh_feeds != null && check.enabled_feeds != null
+                ? <span className="text-muted"> · {check.fresh_feeds} of {check.enabled_feeds} enabled feeds checked recently</span>
+                : null}
               <p className="break-words text-xs text-muted">{check.query}</p>
             </li>
           ))}
@@ -40,7 +52,15 @@ export default function ResearchReceipt({ receipt }: { receipt: AgentResearchRec
       {receipt.candidate_sources.length ? (
         <ul className="mt-3 space-y-1">
           {receipt.candidate_sources.filter((source) => /^https?:\/\//i.test(source.url)).map((source) => (
-            <li key={source.url}><a className="break-words text-sky-600 underline dark:text-sky-400" href={source.url} target="_blank" rel="noreferrer">{source.title || source.url}</a>{source.published_date ? <span className="ml-2 text-xs text-muted">{source.published_date.slice(0, 10)}</span> : null}</li>
+            <li key={source.url} className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <a className="min-w-0 break-words text-sky-600 underline dark:text-sky-400" href={source.url} target="_blank" rel="noreferrer">{source.title || source.url}</a>
+              <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
+                <SourceTime label="Published" value={source.published_date} />
+                <SourceTime label="Feed updated" value={source.updated_date} />
+                <SourceTime label="Discovered" value={source.observed_at} />
+                {source.evidence_id ? <Link className="text-action underline" href={`/sources/evidence/${encodeURIComponent(source.evidence_id)}`}>Capture receipt</Link> : null}
+              </span>
+            </li>
           ))}
         </ul>
       ) : null}

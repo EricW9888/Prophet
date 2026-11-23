@@ -289,6 +289,8 @@ def compact_fresh_research_context(
                     for key in (
                         "url",
                         "published_date",
+                        "updated_date",
+                        "time_basis",
                         "observed_at",
                         "lane",
                         "content_kind",

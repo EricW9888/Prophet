@@ -1788,8 +1788,23 @@ export type AgentResearchReceipt = {
     candidate_count: number;
     candidate_urls: string[];
   }[];
-  checks: { lane: string; query: string; status: string; result_count: number }[];
-  candidate_sources: { title?: string | null; url: string; published_date?: string | null; lane?: string | null }[];
+  checks: {
+    lane: string;
+    query: string;
+    status: string;
+    result_count: number;
+    fresh_feeds?: number;
+    enabled_feeds?: number;
+  }[];
+  candidate_sources: {
+    title?: string | null;
+    url: string;
+    published_date?: string | null;
+    updated_date?: string | null;
+    observed_at?: string | null;
+    evidence_id?: string | null;
+    lane?: string | null;
+  }[];
 };
 
 export type ChatAttachment = {
