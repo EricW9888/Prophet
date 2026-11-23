@@ -1226,7 +1226,8 @@ function formatStatusText(value?: string | null): string {
 }
 
 const AUTOMATION_JOB_COPY: Record<string, { label: string; description: string }> = {
-  news_intake: { label: "Current news intake", description: "Collects new publisher headlines and fetches source pages without waiting for an LLM. Captured articles still require normal evidence and relevance checks." },
+  news_intake: { label: "Publisher feed checks", description: "Checks subscribed feeds for new or updated headlines." },
+  news_capture: { label: "Publisher source capture", description: "Fetches queued source pages independently of feed checks and model availability. Captured articles still require evidence and relevance checks." },
   listing_directory: { label: "Research listing directory", description: "Refreshes exchange listing metadata for the approved broad U.S. research scope. Directory coverage is separate from completed company investigations." },
   provider_health_probe: { label: "Provider health probe", description: "Verifies structured generation when recovery is eligible, then wakes waiting model-dependent work." },
   database_backup: { label: "Database backup", description: "Creates a recoverable database snapshot." },
