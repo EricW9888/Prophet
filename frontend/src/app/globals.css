@@ -60,6 +60,11 @@
   padding-inline: var(--workspace-gutter);
 }
 
+@utility workspace-chart-plot {
+  height: 13rem;
+  @variant sm { height: 16rem; }
+}
+
 @utility workspace-control {
   display: inline-flex;
   min-height: 2.25rem;

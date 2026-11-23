@@ -13,7 +13,15 @@ export default function Home() {
       <AppNav active="portfolio" />
 
       <main className="workspace-frame space-y-6 py-6">
-        <PageHeader title="Portfolio" description="Review what needs attention, then inspect your holdings and tracked positions." />
+        <PageHeader
+          title="Portfolio"
+          description="Review what needs attention, then inspect your holdings and tracked positions."
+          actions={<nav aria-label="Portfolio sections" className="flex flex-wrap gap-2">
+            <a href="#investment-attention" className="workspace-control">Attention</a>
+            <a href="#portfolio-history" className="workspace-control">History</a>
+            <a href="#portfolio-holdings" className="workspace-control">Holdings</a>
+          </nav>}
+        />
         <DashboardOverview history={<>
           <BrokerEquityPanel />
           <PortfolioHistoryPanel />

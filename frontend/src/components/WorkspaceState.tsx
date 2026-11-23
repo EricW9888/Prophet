@@ -7,6 +7,7 @@ import {
   LoaderCircle,
   RefreshCw,
 } from "lucide-react";
+import type { WorkspaceReadState } from "@/lib/workspace-reads";
 
 type WorkspaceStateKind = "loading" | "empty" | "error" | "degraded";
 
@@ -27,31 +28,64 @@ const stateIcon = {
 };
 
 export function WorkspaceRead({
-  name, state, retry, children,
+  name, state, retry, children, placeholder,
 }: {
   name: string;
-  state?: { ready: boolean; error?: string };
+  state?: WorkspaceReadState;
   retry: () => void;
   children: React.ReactNode;
+  placeholder?: React.ReactNode;
 }) {
+  const pending = Boolean(state?.pending);
   return (
     <div className="min-w-0 space-y-3">
       {!state?.ready && !state?.error ? (
-        <WorkspaceState compact kind="loading" title={`Loading ${name}`} description="The rest of the workspace remains available." />
+        placeholder ?? <WorkspaceSkeleton label={`Loading ${name}`} />
       ) : null}
       {state?.error ? (
         <WorkspaceState
           compact
           kind={state.ready ? "degraded" : "error"}
-          title={`${name} could not be loaded`}
+          title={state.ready ? `Could not refresh ${name}` : `Could not load ${name}`}
           description={state.ready ? `${state.error} Showing the last loaded data.` : state.error}
-          actionLabel="Retry"
+          actionLabel={pending ? "Retrying…" : "Retry"}
           onAction={retry}
+          actionDisabled={pending}
         />
       ) : null}
       {state?.ready ? children : null}
     </div>
   );
+}
+
+/** Reserve space for content. Keep placeholder graphics out of the accessibility tree. */
+export function WorkspaceSkeleton({ label, layout = "rows", rows = 3 }: {
+  label?: string;
+  layout?: "rows" | "chart";
+  rows?: number;
+}) {
+  return <div className="min-w-0">
+    {label && <p role="status" className="mb-2 text-sm text-muted">{label}…</p>}
+    {layout === "chart" ? (
+      <div aria-hidden="true" className="min-w-0 space-y-3 motion-safe:animate-pulse">
+        <div className="h-4 w-2/5 bg-panel-muted" />
+        <div className="min-w-0 border border-line bg-background px-2 pb-1 pt-3 sm:px-3">
+          <div className="mb-2 flex min-h-14 items-center px-2"><span className="h-5 w-1/4 bg-panel-muted" /></div>
+          <div className="workspace-chart-plot flex flex-col justify-between pb-5 pt-3">
+            {Array.from({ length: 4 }, (_, index) => <span key={index} className="border-t border-line" />)}
+          </div>
+        </div>
+        <div className="h-4 w-1/3 bg-panel-muted" />
+      </div>
+    ) : (
+      <div aria-hidden="true" className="divide-y divide-line motion-safe:animate-pulse">
+        {Array.from({ length: rows }, (_, index) => <div key={index} className="min-w-0 space-y-2 py-3">
+          <div className="h-4 w-2/5 bg-panel-muted" />
+          <div className="h-3 w-3/5 bg-panel-muted" />
+        </div>)}
+      </div>
+    )}
+  </div>;
 }
 
 export default function WorkspaceState({
@@ -60,6 +94,7 @@ export default function WorkspaceState({
   description,
   actionLabel,
   onAction,
+  actionDisabled = false,
   compact = false,
   className = "",
 }: {
@@ -68,6 +103,7 @@ export default function WorkspaceState({
   description: string;
   actionLabel?: string;
   onAction?: () => void;
+  actionDisabled?: boolean;
   compact?: boolean;
   className?: string;
 }) {
@@ -94,7 +130,8 @@ export default function WorkspaceState({
           <button
             type="button"
             onClick={onAction}
-            className="mt-3 inline-flex items-center gap-2 border border-current/25 px-3 py-2 text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/10"
+            disabled={actionDisabled}
+            className="mt-3 inline-flex items-center gap-2 border border-current/25 px-3 py-2 text-sm font-medium transition-colors hover:bg-black/5 disabled:opacity-60 dark:hover:bg-white/10"
           >
             <ActionIcon className="h-4 w-4" aria-hidden="true" />
             {actionLabel}

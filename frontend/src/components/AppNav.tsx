@@ -146,7 +146,7 @@ function NavLink({
   );
 }
 
-export default function AppNav({ active }: { active: NavKey }) {
+export default function AppNav({ active }: { active?: NavKey }) {
   const { t, i18n } = useTranslation();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);

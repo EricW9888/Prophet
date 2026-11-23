@@ -36,7 +36,7 @@ type NoteForm = {
 };
 
 type NoteType = "user_note" | "research_note" | "manual_transcript" | "video_notes" | "cagr_test";
-type WorkspaceTab = "review" | "capture" | "feedback" | "diagnostics";
+type WorkspaceTab = "review" | "news" | "capture" | "feedback" | "diagnostics";
 
 const noteTypeOptions: Array<{ value: NoteType; label: string }> = [
   { value: "user_note", label: "Research note" },
@@ -131,11 +131,9 @@ export default function SourcesWorkspace() {
     () => sources.filter((source) => source.source_type === "youtube" && source.url),
     [sources],
   );
-  const usefulFlags = feedback.filter((item) => item.rating === "useful");
-  const noisyFlags = feedback.filter((item) => item.rating === "not_useful");
 
   const { read, status } = useWorkspaceReads<"sources" | "evidence" | "discovery" | "feedback" | "notes" | "aliases" | "media">();
-  const loadWorkspace = useCallback(async () => {
+  const loadWorkspace = useCallback(async (replace = true) => {
     const requests = [];
     if (activeWorkspace === "review" || activeWorkspace === "capture") {
       requests.push(read<SourceRecord[]>("sources", "/sources", (data) => {
@@ -149,31 +147,32 @@ export default function SourcesWorkspace() {
           if (current.sourceId || data.length === 0) return current;
           return { ...current, sourceId: (data.find((source) => source.is_trusted) ?? data[0]).id };
         });
-      }));
+      }, replace));
     }
     if (activeWorkspace === "review") {
-      requests.push(read<ResearchDiscoveryObservation[]>("discovery", "/sources/discoveries?limit=40&exclude_provider=publisher_feed", setDiscoveries));
+      requests.push(read<ResearchDiscoveryObservation[]>("discovery", "/sources/discoveries?limit=40&exclude_provider=publisher_feed", setDiscoveries, replace));
     } else if (activeWorkspace === "capture") {
-      requests.push(read<MediaIngestionCapabilityResponse>("media", "/sources/youtube/capabilities", setMediaCapabilities));
+      requests.push(read<MediaIngestionCapabilityResponse>("media", "/sources/youtube/capabilities", setMediaCapabilities, replace));
     } else if (activeWorkspace === "feedback") {
       requests.push(
-        read<SourceEvidenceSummary[]>("evidence", "/sources/recent-evidence?limit=80", setRecentEvidence),
-        read<SourceFeedbackRecord[]>("feedback", "/sources/feedback?limit=80", setFeedback),
-        read<SourceEvidenceSummary[]>("notes", "/sources/notes?limit=30", setNotes),
+        read<SourceEvidenceSummary[]>("evidence", "/sources/recent-evidence?limit=80", setRecentEvidence, replace),
+        read<SourceFeedbackRecord[]>("feedback", "/sources/feedback?limit=80", setFeedback, replace),
+        read<SourceEvidenceSummary[]>("notes", "/sources/notes?limit=30", setNotes, replace),
       );
-    } else {
-      requests.push(read<SubjectAliasRecord[]>("aliases", "/graph/aliases?limit=80", setAliases));
+    } else if (activeWorkspace === "diagnostics") {
+      requests.push(read<SubjectAliasRecord[]>("aliases", "/graph/aliases?limit=80", setAliases, replace));
     }
     await Promise.all(requests);
   }, [activeWorkspace, read]);
 
   useEffect(() => {
+    if (activeWorkspace === "news") return;
     void loadWorkspace();
     const interval = window.setInterval(() => {
-      if (!document.hidden) void loadWorkspace();
+      if (!document.hidden) void loadWorkspace(false);
     }, 20000);
     return () => window.clearInterval(interval);
-  }, [loadWorkspace]);
+  }, [activeWorkspace, loadWorkspace]);
   const retry = () => void loadWorkspace();
 
   useEffect(() => {
@@ -494,32 +493,25 @@ export default function SourcesWorkspace() {
       <div className="mb-6 space-y-4">
         <PageHeader
           eyebrow="Research library"
-          title="Sources, notes, and feedback"
-          description="Manage operator-trusted sources, agent recommendations, provisional discoveries, research notes, and evidence feedback without confusing trust with proof."
+          title="Sources"
+          description="Review sources, check publisher feeds, and add evidence."
         />
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5 lg:max-w-3xl">
-          <SummaryCard label="Trusted" value={status.sources?.ready ? trustedSources.length : null} />
-          <SummaryCard label="Discovered" value={status.sources?.ready ? discoveredSources.length : null} />
-          <SummaryCard label="Useful" value={status.feedback?.ready ? usefulFlags.length : null} />
-          <SummaryCard label="Noisy" value={status.feedback?.ready ? noisyFlags.length : null} />
-          <SummaryCard label="Aliases" value={status.aliases?.ready ? aliases.length : null} />
-        </div>
       </div>
 
-      <NewsIntakePanel />
       {error ? (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">
           {error}
         </div>
       ) : null}
 
-      <div className="mb-6 flex flex-wrap gap-2 rounded-lg border border-line bg-panel p-1">
+      <div className="mb-6 flex flex-wrap gap-2 border border-line bg-panel p-1" role="group" aria-label="Sources views">
         <WorkspaceTabButton
           active={activeWorkspace === "review"}
           label="Source Review"
           count={status.sources?.ready ? sources.length : null}
           onClick={() => setActiveWorkspace("review")}
         />
+        <WorkspaceTabButton active={activeWorkspace === "news"} label="News intake" count={null} onClick={() => setActiveWorkspace("news")} />
         <WorkspaceTabButton
           active={activeWorkspace === "capture"}
           label="Add Evidence"
@@ -571,7 +563,7 @@ export default function SourcesWorkspace() {
             <DiscoveryObservationPanel discoveries={discoveries} />
           </WorkspaceRead>
         </section>
-      ) : activeWorkspace === "capture" ? (
+      ) : activeWorkspace === "news" ? <NewsIntakePanel /> : activeWorkspace === "capture" ? (
         <div className="grid gap-6 xl:grid-cols-2">
           <div className="space-y-4">
             <AddSourcePanel
@@ -670,23 +662,12 @@ function WorkspaceTabButton({
     <button
       type="button"
       onClick={onClick}
-      className={[
-        "inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition-colors",
-        active
-          ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950"
-          : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900",
-      ].join(" ")}
+      aria-pressed={active}
+      className="workspace-control"
     >
       <span>{label}</span>
       {count !== null ? (
-        <span
-          className={[
-            "rounded-none px-2 py-0.5 text-xs",
-            active
-              ? "bg-white/15 text-white dark:bg-slate-950/10 dark:text-slate-950"
-              : "bg-slate-100 text-slate-500 dark:bg-slate-900 dark:text-slate-400",
-          ].join(" ")}
-        >
+        <span className="bg-panel-muted px-1.5 py-0.5 text-xs tabular-nums text-muted">
           {count}
         </span>
       ) : null}
@@ -765,15 +746,6 @@ function AddDisclosurePanel({
         {saving ? "Saving..." : "Save disclosure"}
       </button>
     </form>
-  );
-}
-
-function SummaryCard({ label, value }: { label: string; value: number | null }) {
-  return (
-    <div className="rounded-lg border border-line bg-panel px-4 py-3">
-      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">{label}</div>
-      <div className="mt-1 text-2xl font-bold tracking-tight">{value ?? "—"}</div>
-    </div>
   );
 }
 

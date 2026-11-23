@@ -17,7 +17,7 @@ import { graphLabelCandidates } from "@/lib/graph-labels";
 import { filterGraphView } from "@/lib/graph-view";
 import AppNav from "@/components/AppNav";
 import WorkspaceDivider, { useWorkspacePane } from "@/components/WorkspaceDivider";
-import WorkspaceState from "@/components/WorkspaceState";
+import WorkspaceState, { WorkspaceSkeleton } from "@/components/WorkspaceState";
 import SourceProvenanceLinks from "@/components/SourceProvenanceLinks";
 import SourcePassage from "@/components/SourcePassage";
 import {
@@ -1084,7 +1084,7 @@ export default function GraphPage() {
               </div>}
             </div>
 
-            {!activeGraph && !showMap ? <WorkspaceState kind={error ? "error" : "loading"} title={error ? "Knowledge unavailable" : "Loading knowledge"} description={error ?? "Loading stored subjects and evidence."} /> : null}
+            {!activeGraph && !showMap ? (error ? <WorkspaceState kind="error" title="Knowledge unavailable" description={error} /> : <WorkspaceSkeleton label="Loading knowledge" rows={4} />) : null}
             <GraphNodeNavigator key={showMap ? "map" : "library"} library={!showMap}
               search={!showMap ? {value:knowledgeQuery,onChange:setKnowledgeQuery,remote:knowledgeQuery.trim().length >= 2,status:knowledgeSearching ? "Searching all stored knowledge…" : knowledgeSearchError ?? (!activeGraph ? (loading ? "Loading stored knowledge…" : "The loaded view is unavailable. Search is still available.") : undefined)} : undefined}
               nodes={!showMap && knowledgeQuery.trim().length >= 2 ? knowledgeResults.map(item => ({key:`${item.node_type}:${item.node_id}`,id:item.node_id,node_type:item.node_type,label:item.label,layer:item.layer,subtitle:item.subtitle,is_root:false,is_autonomous:false})) : graphView?.browseNodes ?? []} onSelect={(node) => {
@@ -1207,7 +1207,7 @@ export default function GraphPage() {
                   ) : (loading || layoutPending) && (
                     <div className="absolute inset-0 flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px] z-20 pointer-events-none">
                       <div className="flex flex-col items-center gap-4">
-                        <div className="w-8 h-8 border-4 border-sky-500/30 border-t-sky-500 rounded-full animate-spin"></div>
+                        <div className="h-8 w-8 rounded-full border-4 border-sky-500/30 border-t-sky-500 motion-safe:animate-spin" aria-hidden="true" />
                         <p className="text-sm text-sky-100" role="status">{loading ? "Loading graph…" : "Arranging graph…"}</p>
                       </div>
                     </div>
@@ -1402,9 +1402,7 @@ export default function GraphPage() {
             </div>
 
             {detailLoading ? (
-              <div className="mt-5 rounded-lg border border-slate-200 p-4 text-xs text-slate-500 animate-pulse dark:border-slate-800 dark:text-slate-400">
-                Loading node detail...
-              </div>
+              <div className="mt-5"><WorkspaceSkeleton label="Loading node detail" /></div>
             ) : detailError ? (
               <p role="alert" className="mt-4 text-sm text-rose-700 dark:text-rose-300">{detailError}</p>
             ) : selectedDetail ? (
