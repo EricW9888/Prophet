@@ -34,6 +34,12 @@ from investos.services.ingestion import (
 from investos.services.source_learning import SourceLearningService
 
 FEED_PROVIDER = "publisher_feed"
+NON_CURRENT_FEED_OUTCOMES = (
+    "superseded_by_feed_update",
+    "publication_unverified",
+    "publication_outside_window",
+    "feed_update_outside_window",
+)
 
 
 def _feed_time_basis(published, updated, *, earliest, latest):
@@ -584,12 +590,7 @@ class NewsIntakeService:
                         ].astext.in_([str(f.id) for f in fresh]),
                         ResearchDiscoveryObservation.observed_at.between(earliest, now),
                         ResearchDiscoveryObservation.outcome.not_in(
-                            [
-                                "superseded_by_feed_update",
-                                "publication_unverified",
-                                "publication_outside_window",
-                                "feed_update_outside_window",
-                            ]
+                            NON_CURRENT_FEED_OUTCOMES
                         ),
                     )
                     .order_by(
@@ -655,7 +656,8 @@ class NewsIntakeService:
             ],
         }
 
-    async def status(self, *, offset=0):
+    async def status(self, *, offset=0, current_only=False):
+        now = datetime.now(UTC)
         feeds = list(
             await self.session.scalars(
                 select(PublisherFeed).order_by(PublisherFeed.name, PublisherFeed.id)
@@ -668,14 +670,22 @@ class NewsIntakeService:
             await self.session.execute(
                 select(
                     func.count(), func.min(ResearchDiscoveryObservation.observed_at)
-                ).where(*self._capture_scope(datetime.now(UTC)), pending)
+                ).where(*self._capture_scope(now), pending)
             )
         ).one()
+        observations = select(ResearchDiscoveryObservation)
+        if current_only:
+            observations = observations.where(
+                *self._capture_scope(now),
+                ResearchDiscoveryObservation.outcome.not_in(NON_CURRENT_FEED_OUTCOMES),
+            )
+        else:
+            observations = observations.where(
+                ResearchDiscoveryObservation.provider == FEED_PROVIDER
+            )
         rows = list(
             await self.session.scalars(
-                select(ResearchDiscoveryObservation)
-                .where(ResearchDiscoveryObservation.provider == FEED_PROVIDER)
-                .order_by(
+                observations.order_by(
                     ResearchDiscoveryObservation.observed_at.desc(),
                     ResearchDiscoveryObservation.result_rank,
                     ResearchDiscoveryObservation.id.desc(),
@@ -713,6 +723,7 @@ class NewsIntakeService:
                 for f in feeds
             ],
             "total": total,
+            "current_only": current_only,
             "offset": offset,
             "items": [
                 {

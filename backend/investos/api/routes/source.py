@@ -100,9 +100,12 @@ async def list_recent_source_evidence(
 @router.get("/discoveries", response_model=list[ResearchDiscoveryObservationResponse])
 async def list_research_discoveries(
     limit: int = 80,
+    exclude_provider: str | None = None,
     session: AsyncSession = Depends(get_session),
 ):
-    return await SourceService(session).list_discovery_observations(limit=limit)
+    return await SourceService(session).list_discovery_observations(
+        limit=limit, exclude_provider=exclude_provider
+    )
 
 
 @router.get("/notes", response_model=list[SourceEvidenceSummary])

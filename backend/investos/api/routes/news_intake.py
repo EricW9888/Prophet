@@ -25,9 +25,13 @@ class FeedUpdate(BaseModel):
 
 @router.get("")
 async def status(
-    offset: int = Query(0, ge=0), session: AsyncSession = Depends(get_session)
+    offset: int = Query(0, ge=0),
+    current_only: bool = False,
+    session: AsyncSession = Depends(get_session),
 ):
-    return await NewsIntakeService(session).status(offset=offset)
+    return await NewsIntakeService(session).status(
+        offset=offset, current_only=current_only
+    )
 
 
 @router.post("/feeds")

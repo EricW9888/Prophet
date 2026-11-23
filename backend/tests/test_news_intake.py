@@ -656,6 +656,38 @@ async def test_stale_feed_checkpoint_is_not_current_coverage(workflow_session):
     assert (await service.status())["pending_count"] >= 1
 
 
+async def test_feed_backfill_stays_in_history_without_displacing_current_leads(
+    workflow_session,
+):
+    service = NewsIntakeService(workflow_session)
+    subscription = await feed(workflow_session)
+    now = datetime.now(UTC)
+    fresh = item(url="https://example.test/current")
+    await service._record(subscription, [fresh], observed_at=now - timedelta(minutes=1))
+    archive_date = (now - timedelta(days=90)).isoformat()
+    await service._record(
+        subscription,
+        [
+            {
+                **item(url=f"https://example.test/archive/{i}"),
+                "published_date": archive_date,
+            }
+            for i in range(25)
+        ],
+        observed_at=now,
+    )
+    current = await service.status(current_only=True)
+    assert current["total"] == 26
+    assert [row["url"] for row in current["items"]] == [fresh["url"]]
+    assert len((await service.status())["items"]) == 20
+    general = SourceService(workflow_session)
+    assert len(await general.list_discovery_observations()) == 26
+    assert (
+        await general.list_discovery_observations(exclude_provider="publisher_feed")
+        == []
+    )
+
+
 async def test_official_feeds_are_durable_defaults(workflow_session, monkeypatch):
     service = NewsIntakeService(workflow_session)
     monkeypatch.setattr(

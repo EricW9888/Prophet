@@ -344,17 +344,18 @@ class SourceService:
             for evidence, source, processing in rows
         ]
 
-    async def list_discovery_observations(self, limit: int = 80) -> list[dict]:
-        rows = (
-            (
-                await self.session.execute(
-                    select(ResearchDiscoveryObservation)
-                    .order_by(desc(ResearchDiscoveryObservation.observed_at))
-                    .limit(max(1, min(limit, 200)))
-                )
+    async def list_discovery_observations(
+        self, limit: int = 80, *, exclude_provider: str | None = None
+    ) -> list[dict]:
+        observations = select(ResearchDiscoveryObservation)
+        if exclude_provider:
+            observations = observations.where(
+                ResearchDiscoveryObservation.provider != exclude_provider
             )
-            .scalars()
-            .all()
+        rows = await self.session.scalars(
+            observations.order_by(desc(ResearchDiscoveryObservation.observed_at)).limit(
+                max(1, min(limit, 200))
+            )
         )
         return [
             {

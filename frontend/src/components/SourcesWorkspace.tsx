@@ -152,7 +152,7 @@ export default function SourcesWorkspace() {
       }));
     }
     if (activeWorkspace === "review") {
-      requests.push(read<ResearchDiscoveryObservation[]>("discovery", "/sources/discoveries?limit=40", setDiscoveries));
+      requests.push(read<ResearchDiscoveryObservation[]>("discovery", "/sources/discoveries?limit=40&exclude_provider=publisher_feed", setDiscoveries));
     } else if (activeWorkspace === "capture") {
       requests.push(read<MediaIngestionCapabilityResponse>("media", "/sources/youtube/capabilities", setMediaCapabilities));
     } else if (activeWorkspace === "feedback") {
