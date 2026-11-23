@@ -114,7 +114,9 @@ async def test_feed_refresh_stamps_do_not_requeue_unchanged_articles(workflow_se
         "b": (now - timedelta(hours=2)).isoformat(),
     }
 
-    def batch(stamp, second_title="Second report", first_update=None):
+    def batch(
+        stamp, second_title="Second report", first_update=None, *, feed_time=None
+    ):
         entries = []
         for key, title, updated in (
             ("a", "First report", first_update or stamp),
@@ -128,7 +130,8 @@ async def test_feed_refresh_stamps_do_not_requeue_unchanged_articles(workflow_se
             )
         return parse_feed(
             '<feed xmlns="http://www.w3.org/2005/Atom">'
-            f"<id>urn:publisher</id><title>Reports</title><updated>{stamp}</updated>"
+            "<id>urn:publisher</id><title>Reports</title>"
+            f"<updated>{feed_time or published['a']}</updated>"
             f"{''.join(entries)}</feed>"
         )
 
@@ -156,6 +159,8 @@ async def test_feed_refresh_stamps_do_not_requeue_unchanged_articles(workflow_se
     assert original.metadata_json["batch_updated_date"] == first
     independent_updates = batch(second, first_update=first)
     assert {row["updated_date"] for row in independent_updates} == {first, second}
+    consistent_bulk_update = batch(second, feed_time=second)
+    assert all(row["updated_date"] == second for row in consistent_bulk_update)
 
 
 async def test_feed_aliases_reuse_exact_documents_but_keep_corrections_and_origins(

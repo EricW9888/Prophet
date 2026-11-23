@@ -66,11 +66,15 @@ def parse_feed(text: str) -> list[dict]:
     entries = parsed.entries[:200]
     updates = {dict.get(entry, "updated") for entry in entries}
     publications = {dict.get(entry, "published") for entry in entries} - {None}
-    # A feed can stamp the same refresh time onto independently dated entries.
-    # Keep that stamp as feed metadata, without re-dating each article.
-    shared_update = (
-        next(iter(updates)) if len(updates) == 1 and len(publications) > 1 else None
-    )
+    # Some feeds stamp a retrieval time onto all entries, even though the
+    # feed's own update clock still points to the last editorial change.
+    shared_update = None
+    if len(updates) == 1 and len(publications) > 1:
+        entry_update = next(iter(updates))
+        entry_time = parse_publication_datetime(entry_update)
+        feed_time = parse_publication_datetime(dict.get(parsed.feed, "updated"))
+        if entry_time and feed_time and entry_time > feed_time:
+            shared_update = entry_update
     rows = []
     for rank, entry in enumerate(entries, 1):
         title = _html_to_text(str(entry.get("title") or "")).strip()

@@ -202,9 +202,10 @@ accepted claims. A publisher's authentication challenge leaves the feed entry
 visible and stops retries for that version. A changed live-page headline receives
 a new discovery timestamp. Its original publisher date never implies earlier
 system availability.
-When independently published entries share a single feed refresh stamp, intake
-records it as feed metadata. Changes to an article's title, summary or publication
-time still create a new observation.
+When independently published entries all share a refresh stamp later than the
+feed's own update time, intake records it as feed metadata. Consistent bulk
+updates and changes to an article's title, summary or publication time still
+create new observations.
 An Atom entry with an update time can qualify for a fetch even without a
 publication time. Its update and observation clocks remain distinct. EDGAR
 filing indexes identify the primary filing in their document table. The URL
