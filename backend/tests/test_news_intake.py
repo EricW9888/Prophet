@@ -774,6 +774,11 @@ async def test_official_feeds_are_durable_defaults(workflow_session, monkeypatch
     assert len(official) == 4
     assert any("type=8-K" in row.url for row in official)
     assert any("type=6-K" in row.url for row in official)
+    assert any(
+        row.url.startswith("https://www.globenewswire.com/AtomFeed/subjectcode/")
+        and "Management%20Changes" in row.url
+        for row in feeds
+    )
     assert any(row.url.startswith("https://www.federalreserve.gov/") for row in feeds)
     assert any(row.url.startswith("https://www.youtube.com/feeds/") for row in feeds)
     assert sum(row.url.startswith("https://www.bls.gov/feed/") for row in feeds) == 2
