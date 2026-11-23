@@ -221,6 +221,8 @@ arrivals, and due retries share the queue. Provider cooldown preserves the
 document's retry budget. The usual provider request limits still apply.
 Recently checked publisher summaries with a publication or feed update time in
 the current window enter the normal broad portfolio question's fresh context.
+The bounded shortlist rotates publisher hosts before filling extra slots from
+busy feeds, using the same host grouping as background source capture.
 Both clocks and the discovery time stay distinct in the candidate manifest.
 Sources exposes feed controls, retained observations, fetch state and unsent
 research drafts. The capture backlog counts enabled feeds within the intake
