@@ -157,6 +157,7 @@ async def test_feed_intake_retains_qualifiers_beyond_the_old_prefix(
 ):
     session = workflow_session
     monkeypatch.setattr(settings, "NEWS_FEED_URLS", [])
+    monkeypatch.setattr(settings, "INGESTION_MAX_NOTE_CHARS", 512)
     subscription = await feed(session)
     article = (
         "Retained source context. " * 1200
@@ -188,6 +189,44 @@ async def test_feed_intake_retains_qualifiers_beyond_the_old_prefix(
         evidence.raw_content_ref
     )
     assert stored.decode() == article
+    with pytest.raises(ValueError, match="note exceeds"):
+        await IngestionService(session).ingest_text(RawEvidenceCreate(content=article))
+
+
+async def test_oversize_source_leaves_receipt_and_other_lead_is_captured(
+    workflow_session, monkeypatch
+):
+    session = workflow_session
+    monkeypatch.setattr(settings, "INGESTION_MAX_UPLOAD_MB", 1)
+    monkeypatch.setattr(settings, "NEWS_INTAKE_FETCH_BATCH_SIZE", 2)
+    subscription = await feed(session)
+    oversized = "https://example.test/oversized"
+    valid = "https://example.test/valid"
+    service = NewsIntakeService(session)
+    await service._record(subscription, [item(url=oversized), item(url=valid, rank=2)])
+
+    async def fetched_html(_ingestion, url, **_kwargs):
+        return (
+            "<p>"
+            + ("x" * (1024 * 1024 + 1) if url == oversized else "Valid filing")
+            + "</p>"
+        )
+
+    monkeypatch.setattr(IngestionService, "_fetch_url_text", fetched_html)
+    result = await service._fetch_pending()
+    assert result["articles_failed"] == result["articles_fetched"] == 1
+    observations = {
+        row.url: row
+        for row in await session.scalars(
+            select(ResearchDiscoveryObservation).where(
+                ResearchDiscoveryObservation.query == subscription.url
+            )
+        )
+    }
+    assert observations[oversized].outcome == "fetch_size_limit"
+    assert observations[oversized].evidence_id is None
+    assert observations[valid].outcome == "ingested_evidence"
+    assert observations[valid].evidence_id is not None
 
 
 @pytest.mark.parametrize("quote_matches", [True, False])
