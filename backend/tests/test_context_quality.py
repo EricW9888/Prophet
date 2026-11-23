@@ -144,8 +144,12 @@ async def test_graph_attachment_follows_one_stored_hop_to_live_company():
 
     assert route["linked_companies"] == ["MEMB"]
     assert route["portfolio_connection_count"] == 1
-    assert route["intermediary_labels"] == ["HBM capacity reallocation pattern"]
-    assert "pattern affects MEMB" in route["path_phrases"][0]
+    assert route["intermediaries"] == {
+        ("market_setup_signal", signal_id): "HBM capacity reallocation pattern"
+    }
+    assert route["path_phrases"] == [
+        "HBM capacity reallocation pattern → pattern affects → MEMB"
+    ]
 
 
 def test_fallback_coverage_questions_are_generic_not_ticker_templates():

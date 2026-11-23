@@ -29,9 +29,12 @@ from investos.services.graph import (
 from tests.test_investor_workflows import workflow_session
 
 
-@pytest.mark.parametrize("destination", ["portfolio", "position"])
+@pytest.mark.parametrize(
+    ("reaches_holding", "attached_to_root"),
+    [(False, False), (True, False), (False, True), (True, True)],
+)
 async def test_context_route_to_portfolio_root_does_not_imply_holding_exposure(
-    workflow_session, destination
+    workflow_session, reaches_holding, attached_to_root
 ):
     session = workflow_session
     subject = Entity(name=f"Synthetic research subject {uuid4()}", entity_type="person")
@@ -56,28 +59,54 @@ async def test_context_route_to_portfolio_root_does_not_imply_holding_exposure(
     )
     session.add(position)
     await session.flush()
-    session.add_all(
-        [
-            Edge(
-                source_type="event",
-                source_id=context.id,
-                target_type="entity",
-                target_id=subject.id,
-                relationship_type="context_for",
-            ),
-            Edge(
-                source_type="event",
-                source_id=context.id,
-                target_type=destination,
-                target_id=(
-                    SYNTHETIC_PORTFOLIO_ID
-                    if destination == "portfolio"
-                    else position.id
-                ),
-                relationship_type="context_for",
-            ),
-        ]
+    session.add(
+        Edge(
+            source_type="event",
+            source_id=context.id,
+            target_type="entity",
+            target_id=subject.id,
+            relationship_type="context_for",
+        )
     )
+    if reaches_holding:
+        session.add(
+            Edge(
+                source_type="position",
+                source_id=position.id,
+                target_type="event",
+                target_id=context.id,
+                relationship_type="supports",
+            )
+        )
+    else:
+        session.add(
+            Edge(
+                source_type="event",
+                source_id=context.id,
+                target_type="portfolio",
+                target_id=SYNTHETIC_PORTFOLIO_ID,
+                relationship_type="context_for",
+            )
+        )
+    if attached_to_root:
+        session.add_all(
+            [
+                Edge(
+                    source_type="entity",
+                    source_id=subject.id,
+                    target_type="portfolio",
+                    target_id=SYNTHETIC_PORTFOLIO_ID,
+                    relationship_type="context_for",
+                ),
+                Edge(
+                    source_type="portfolio",
+                    source_id=SYNTHETIC_PORTFOLIO_ID,
+                    target_type="position",
+                    target_id=position.id,
+                    relationship_type="holds",
+                ),
+            ]
+        )
     await session.flush()
 
     async def use_test_session():
@@ -93,16 +122,23 @@ async def test_context_route_to_portfolio_root_does_not_imply_holding_exposure(
         response.raise_for_status()
     detail = response.json()
     properties = detail["properties"]
-    if destination == "portfolio":
+    assert properties.get("direct_portfolio_link", False) is attached_to_root
+    if not reaches_holding:
         assert properties["portfolio_significance"] == "portfolio-level context"
         assert properties["portfolio_linkage_status"] == "unresolved"
-        assert "does not establish" in properties["why_in_graph"]
+        assert "Holding linkage remains unresolved" in detail["relevance_reasoning"]
         assert not properties.get("linked_holdings")
         assert not properties.get("linked_companies")
         assert "affected_holdings" not in properties
     else:
         assert properties["portfolio_significance"] == "connected portfolio context"
         assert properties["linked_holdings"] == [security.ticker]
+        assert "Source context" in properties["why_in_graph"]
+        assert "indirect" in detail["relevance_reasoning"]
+        assert (
+            f"{security.ticker} → supports → Source context"
+            in properties["nearest_connections"]
+        )
     assert await session.get(Entity, subject.id) is subject
     await session.rollback()
 

@@ -515,6 +515,9 @@ An inspector route that reaches only the synthetic portfolio root remains
 portfolio-level context with unresolved holding linkage. A context attachment
 does not establish exposure or economic transmission; routes to actual tracked
 holdings retain their identities and the indirect-relationship qualification.
+A direct root attachment does not suppress an independent route to a holding.
+The root can be a destination for context but is excluded as an intermediary
+when looking for holding connections. Relationship descriptions retain direction.
 
 Source-attributed relationships are cited `Claim` assertions with two role
 edges (`relationship_subject` and `relationship_object`) and an open predicate
