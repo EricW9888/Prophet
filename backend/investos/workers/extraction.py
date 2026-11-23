@@ -1957,11 +1957,19 @@ class ExtractionWorker:
             or target_context.get("question_text"),
             max_chars=500,
         )
+        open_discovery = (
+            "This is open discovery. The headline is a source label, including headlines phrased as questions. "
+            "Identify the subject, what it does, and any concrete business, market, policy or economic significance established by the text. "
+            "Retain grounded indirect leads as adjacent context. Portfolio exposure requires separate evidence.\n"
+            if not target_subject and not target_question
+            else ""
+        )
         user_prompt = (
             "Research intent is context to test, not evidence:\n"
             f"- intended subject: {target_subject or 'not specified'}"
             f" ({target_type or 'not specified'})\n"
-            f"- intended question: {target_question or title}\n"
+            f"- intended question: {target_question or 'not specified'}\n"
+            f"{open_discovery}"
             f"Fallback subject guess: {fallback_subject} ({fallback_type})\n"
             f"Source window coordinates (Unicode codepoints; preceding overlap is context): {target_context.get('source_text_window') or 'not supplied'}\n"
             "Extract only from the supplied window; unseen source text is not available.\n"
@@ -2065,11 +2073,13 @@ class ExtractionWorker:
             + "Extract atomic market research objects from stored evidence for Prophet. "
             "Begin by assessing the supplied document itself against the stated research intent. The research title, intended "
             "subject, query, ticker, or fallback guess are context to test and are not evidence that the document supports them. "
-            "Set relevance_assessment.status to relevant only when the document directly supports the intended subject or question; "
+            "When research intent is explicit, set relevance_assessment.status to relevant only when the document directly supports the intended subject or question; "
             "adjacent when it contains attributable investment context about another named subject; irrelevant when it does not "
             "materially address the intent; and uncertain when the available text cannot establish relevance. Set target_supported "
-            "false when the intended subject is absent or unsupported. A statement that the document does not mention the target is "
-            "an extraction/relevance diagnostic, not a market fact or contradiction, and must not appear in facts or claims. For an "
+            "false when the intended subject is absent or unsupported. "
+            "Never treat the source title as an operator question. When no intent is supplied, assess open discovery against the source-supported economic significance; "
+            "retain adjacent evidence with a concrete relationship and no stronger implication than its source supports. "
+            "A statement that the document omits the target is an extraction diagnostic and must not appear in facts or claims. For an "
             "irrelevant or uncertain document, return empty event, fact, claim, fundamental-metric, and market-setup arrays. "
             "Preserve the distinction between event, fact, and claim. "
             "For each event, fact and claim, provide supporting_quote as the smallest complete verbatim passage that preserves "
@@ -2077,6 +2087,8 @@ class ExtractionWorker:
             "Include enough verbatim context to distinguish repeated wording within the supplied window; use null if unavailable. "
             "These quotations establish source location, not semantic verification. A correction, denial, quoted report or former role "
             "must not become an unqualified current fact. Keep corrections and the earlier assertion separately attributable. "
+            "Summarize what the subject does, what changed, and the documented consequence. Keep the dates and measurement basis, "
+            "including differences between operating measures and net results. Attribute reported claims in the summary. "
             "Facts should reflect stronger evidence than claims. "
             "When subject_type is entity, classify its entity_type with an accurate open-ended kind. "
             "Examples include company, person, organization, product, technology, index, commodity and currency. "

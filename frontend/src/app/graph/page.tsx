@@ -52,6 +52,9 @@ const FOCUSED_NEIGHBORHOOD_DEPTH = 2;
 const FOCUSED_NEIGHBORHOOD_LIMIT = 56;
 const HIDDEN_DETAIL_PROPERTY_KEYS = new Set([
   "portfolio_significance",
+  "profile_summary",
+  "profile_business_model",
+  "profile_updated_at",
   "why_in_graph",
   "linked_holdings",
   "linked_companies",
@@ -1409,7 +1412,9 @@ export default function GraphPage() {
                 <div className="min-w-0 rounded-lg border border-sky-200 bg-sky-50/70 p-4 dark:border-sky-900 dark:bg-sky-950/30">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-md border border-sky-300 bg-white/60 px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-sky-700 dark:border-sky-700 dark:bg-sky-900/50 dark:text-sky-300">
-                      {nodeTypeLabel(selectedDetail.node_type)}
+                      {selectedDetail.node_type === "entity" && propertyText(selectedDetail.properties?.entity_type)
+                        ? formatUserLabel(String(selectedDetail.properties.entity_type))
+                        : nodeTypeLabel(selectedDetail.node_type)}
                     </span>
                     {selectedDetail.tier || ["fact", "claim"].includes(selectedDetail.node_type) ? (
                       <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-400">
@@ -1421,6 +1426,18 @@ export default function GraphPage() {
                     </span>
                   </div>
                   <h3 className="mt-3 text-base font-semibold text-slate-900 dark:text-slate-100">{selectedDetail.label}</h3>
+                  {(propertyText(selectedDetail.properties?.profile_summary) || propertyText(selectedDetail.properties?.profile_business_model)) && (
+                    <div className="mt-3 space-y-2 border-t border-line pt-3">
+                      <div className="flex flex-wrap justify-between gap-1 text-xs text-muted">
+                        <h4 className="font-semibold">Research profile</h4>
+                        {typeof selectedDetail.properties.profile_updated_at === "string" && <time dateTime={selectedDetail.properties.profile_updated_at}>Updated {new Date(selectedDetail.properties.profile_updated_at).toLocaleDateString()}</time>}
+                      </div>
+                      {propertyText(selectedDetail.properties.profile_business_model) && selectedDetail.properties.profile_business_model !== selectedDetail.properties.profile_summary && (
+                        <p className="text-sm leading-relaxed text-foreground"><strong className="font-semibold">What it does</strong><br />{propertyText(selectedDetail.properties.profile_business_model)}</p>
+                      )}
+                      {propertyText(selectedDetail.properties.profile_summary) && <p className="text-sm leading-relaxed text-foreground">{propertyText(selectedDetail.properties.profile_summary)}</p>}
+                    </div>
+                  )}
                   {selectedDetail.node_type === "fundamental_metric" ? <GraphMetricSummary properties={selectedDetail.properties} /> : selectedDetail.body && selectedDetail.body.trim() !== selectedDetail.label.trim() ? (
                     <div className="mt-3 bg-white px-4 py-3 dark:bg-[#1e1e1e] border-l-4 border-sky-500 rounded-r-lg">
                       <div className="mb-2 text-xs font-bold uppercase tracking-widest text-sky-500/80 dark:text-sky-400/80">Evidence summary</div>
@@ -1494,7 +1511,19 @@ export default function GraphPage() {
                 </details>
                 {graphAskContext === "node" ? graphAskPanel : null}
 
-	                {selectedDetail.relevance_reasoning && (
+	                {selectedDetail.relevance_reasoning && (selectedDetail.properties?.portfolio_significance === "broad context" ? (
+                      <section className="space-y-2 border border-line bg-panel p-3" aria-label="Why this record appears">
+                        <h4 className="text-sm font-semibold">Why this appears</h4>
+                        {selectedDetail.citations.filter(citation => !citation.is_system).slice(0, 1).map(citation => (
+                          <p key={citation.raw_evidence_id} className="text-sm text-muted">
+                            {formatUserLabel(citation.origin_label ?? "Source catalog")} · {citation.source_name}
+                            {citation.raw_evidence_id && <Link className="ml-2 text-action underline" href={`/sources/evidence/${citation.raw_evidence_id}`}>Evidence receipt</Link>}
+                          </p>
+                        ))}
+                        <p className="text-sm font-medium">Holding connection unresolved</p>
+                        <p className="text-sm leading-relaxed text-muted">{selectedDetail.relevance_reasoning}</p>
+                      </section>
+                    ) : (
 	                  <div className="mb-6 mx-4 rounded-lg border border-teal-200 bg-teal-50 p-4 dark:border-teal-900/60 dark:bg-teal-950/25">
 	                    <div className="flex flex-wrap items-center gap-2 mb-2">
                       <div className="h-2 w-2 rounded-full bg-teal-500 dark:bg-teal-400" />
@@ -1569,13 +1598,13 @@ export default function GraphPage() {
                       </div>
                     ) : null}
                   </div>
-                )}
+                ))}
 
                 {Object.keys(selectedDetail.properties || {}).length > 0 ? (
                   <details className="border-t border-line pt-4">
                     <summary className="cursor-pointer text-sm font-medium text-muted">Record fields</summary>
                     <div className="mt-2 grid grid-cols-1 gap-1.5">
-                      {selectedDetail.relevance !== undefined && (
+                      {selectedDetail.relevance !== undefined && selectedDetail.properties?.portfolio_linkage_status !== "unresolved" && (
                         <div className="min-w-0 rounded-lg border border-sky-200 bg-sky-50/30 px-2 py-1.5 dark:border-sky-800/60 dark:bg-sky-950/20">
                           <div className="text-xs text-sky-500 font-bold uppercase tracking-tighter">Match Relevance</div>
                           <div className="mt-0.5 flex items-center gap-2">
