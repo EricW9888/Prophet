@@ -173,10 +173,14 @@ publisher news, SEC filings and releases, Federal Reserve releases and videos,
 and Bureau of Labor Statistics employment and inflation releases.
 Separate SEC current-report feeds cover domestic 8-K and foreign issuer 6-K
 filings across all issuers when busier filing types roll off the general feed.
+GlobeNewswire's management-changes feed adds issuer announcements independently
+of editorial news coverage.
 `NEWS_FEED_URLS` configures which defaults are added; existing subscriptions
 retain their settings. Intake runs independently
 of the model circuit: new and changed headlines are batch-retained as provisional
 discovery, and bounded source-page fetches enter the normal extraction queue.
+The host and backend must be running for continuous intake. After an interruption,
+catch-up covers entries the feeds still expose and records when Prophet first saw them.
 Feed entries with the same publisher origin, canonical URL, publication time,
 and exact stored text share a document receipt. An identical entry version
 across subscriptions can share a source fetch. Each entry keeps its own

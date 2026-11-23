@@ -147,6 +147,7 @@ class Settings(BaseSettings):
         "https://www.cnbc.com/id/100003114/device/rss/rss.html",
         "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain",
         "https://feeds.bbci.co.uk/news/business/rss.xml",
+        "https://www.globenewswire.com/AtomFeed/subjectcode/86-Management%20Changes/feedTitle/GlobeNewswire%20-%20Management%20Changes",
         "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&count=100&owner=exclude&output=atom",
         "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K&count=100&owner=exclude&output=atom",
         "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=6-K&count=100&owner=exclude&output=atom",
