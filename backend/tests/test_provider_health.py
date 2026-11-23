@@ -632,8 +632,10 @@ async def test_usage_counters_reconcile_with_real_analysis_and_critique_records(
         await engine.dispose()
 
 
+@pytest.mark.parametrize("after_claim", [False, True])
 async def test_provider_hold_preserves_extraction_budget_and_operational_receipts(
     monkeypatch,
+    after_claim,
 ):
     open_health()
     engine = create_async_engine(settings.SQLALCHEMY_DATABASE_URI, poolclass=NullPool)
@@ -667,7 +669,18 @@ async def test_provider_hold_preserves_extraction_budget_and_operational_receipt
                 session.add_all([old, operational])
                 await session.flush()
                 worker = ExtractionWorker(session)
-                network = AsyncMock()
+                network = AsyncMock(
+                    side_effect=LLMProviderCooldownError("Synthetic provider hold")
+                )
+                if after_claim:
+                    monkeypatch.setattr(
+                        ProviderHealthStore, "require_available", lambda: None
+                    )
+                    monkeypatch.setattr(
+                        worker.storage,
+                        "get_object",
+                        AsyncMock(return_value=b"This source has readable content."),
+                    )
                 monkeypatch.setattr(worker, "_extract_structured_data", network)
                 detail = await worker.process_evidence(old.id)
                 assert detail["outcome"] == "provider_deferred"
@@ -677,6 +690,8 @@ async def test_provider_hold_preserves_extraction_budget_and_operational_receipt
                     )
                 )
                 assert state.extraction_attempt_count == 0 and not old.is_processed
+                assert state.extraction_status == "pending"
+                assert state.next_extraction_attempt_at is None
                 assert (
                     await EvidenceProcessingService(session).next_due_evidence(
                         model_available=False
@@ -687,7 +702,7 @@ async def test_provider_hold_preserves_extraction_budget_and_operational_receipt
                     evidence_work_outcome(skipped) == "skipped"
                     and operational.is_processed
                 )
-                network.assert_not_awaited()
+                assert network.await_count == int(after_claim)
             await transaction.rollback()
     finally:
         await engine.dispose()
