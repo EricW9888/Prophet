@@ -193,7 +193,11 @@ benchmark, and cash as controls. This measures one return outcome; it does not
 prove that the causal thesis was correct, that the trade was executable, or that
 the historical price provider will never revise its data.
 
-YouTube ingestion uses available captions first and may request a deeper pass
+Discovered PDF links contribute readable text with page markers. Visual-only
+pages require separate visual reading. Discovered YouTube videos contribute
+public captions when available. Automatic URL intake captures this text without
+running the optional audio or frame passes.
+The dedicated YouTube investigation uses available captions first and may request a deeper pass
 when the representation leaves a material question unresolved. An operator may
 explicitly enable a free local audio adapter backed by separately installed
 `yt-dlp`, `ffmpeg`, and the OpenAI Whisper CLI. Tool availability, model download,

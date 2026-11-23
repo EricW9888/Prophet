@@ -28,6 +28,7 @@ from investos.schemas.evidence import RawEvidenceCreate
 from investos.services.ingestion import (
     FetchedUrlDocument,
     IngestionService,
+    SourceContentUnavailable,
     _html_to_text,
 )
 from investos.services.source_learning import SourceLearningService
@@ -454,6 +455,12 @@ class NewsIntakeService:
                 elif isinstance(result, UploadTooLargeError):
                     row.outcome = "fetch_size_limit"
                     metadata.pop("next_fetch_at", None)
+                elif (
+                    isinstance(result, SourceContentUnavailable)
+                    and not result.retryable
+                ):
+                    row.outcome = "fetch_content_unavailable"
+                    metadata.pop("next_fetch_at", None)
                 elif attempts < 3:
                     row.outcome = "fetch_failed"
                     metadata["next_fetch_at"] = (
@@ -475,11 +482,12 @@ class NewsIntakeService:
                     RawEvidenceCreate(
                         title=row.result_title,
                         source_id=source.source.id,
-                        source_item_type="news",
+                        source_item_type=result.source_item_type or "news",
                         url=row.url,
                         public_time=result.public_time,
                         content=result.content,
                         metadata_json={
+                            **result.capture_metadata,
                             "trigger": "publisher_feed_intake",
                             "discovery_observation_id": str(row.id),
                             "feed_id": metadata["feed_id"],

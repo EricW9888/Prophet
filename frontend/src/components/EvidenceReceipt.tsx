@@ -137,6 +137,7 @@ function Receipt({ evidenceId }: { evidenceId: string }) {
               <div className="mt-4 space-y-2">
                 <MetadataRow label="External ID" value={receipt.external_id} />
                 <MetadataRow label="Origin detail" value={origin.origin_detail} />
+                <MetadataRow label="Captured content" value={captureDescription(receipt.metadata)} />
                 <MetadataRow label="Ingested" value={formatReceiptDate(receipt.ingest_time)} />
                 <MetadataRow label="Action eligible" value={formatReceiptDate(receipt.eligible_action_time)} />
                 <MetadataRow label="Processing" value={formatUserLabel(receipt.source_item_processing_status)} />
@@ -334,6 +335,23 @@ function formatReceiptDate(value?: string | null): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Unknown";
   return date.toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function captureDescription(metadata?: Record<string, unknown>) {
+  if (metadata?.representation === "pdf_text") {
+    const coverage = metadata.source_coverage;
+    if (coverage && typeof coverage === "object" && "page_count" in coverage && "pages_with_text" in coverage
+      && typeof coverage.page_count === "number" && typeof coverage.pages_with_text === "number") {
+      return `PDF text · ${coverage.pages_with_text} of ${coverage.page_count} pages with readable text`;
+    }
+    return "PDF text";
+  }
+  if (metadata?.representation === "caption_transcript") {
+    const language = typeof metadata.caption_language === "string" ? metadata.caption_language : null;
+    return ["YouTube captions", language, metadata.captions_generated === true ? "Auto-generated" : null]
+      .filter(Boolean).join(" · ");
+  }
+  return null;
 }
 
 function evidenceMetadataRows(metadata?: Record<string, unknown>) {

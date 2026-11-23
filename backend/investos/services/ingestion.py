@@ -3,7 +3,7 @@ import hashlib
 import io
 import json
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
 from typing import Optional
@@ -11,14 +11,16 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 from uuid import UUID
 
 from fastapi import UploadFile
+from pypdfium2 import PdfiumError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.config import settings
 from investos.core.dates import parse_explicit_calendar_datetime, parse_iso_datetime
+from investos.core.pdf_text import read_pdf_text
 from investos.core.storage import LocalStorage
 from investos.core.uploads import UploadTooLargeError, read_upload_limited
-from investos.core.url_security import fetch_public_text
+from investos.core.url_security import PublicDocument, fetch_public_document
 from investos.models.evidence import RawEvidence
 from investos.models.source import Source
 from investos.schemas.evidence import RawEvidenceCreate
@@ -29,6 +31,14 @@ from investos.workers.extraction import ExtractionWorker
 DEFAULT_SOURCE_NAME = "Manual Research Inbox"
 
 
+class SourceContentUnavailable(ValueError):
+    """The located source has no usable representation for this reader."""
+
+    def __init__(self, message: str, *, retryable: bool = False):
+        super().__init__(message)
+        self.retryable = retryable
+
+
 @dataclass(frozen=True)
 class FetchedUrlDocument:
     url: str
@@ -36,6 +46,10 @@ class FetchedUrlDocument:
     title: str | None
     content: str
     public_time: datetime | None = None
+    source_item_type: str | None = None
+    capture_metadata: dict = field(
+        default_factory=lambda: {"content_type": "text/html"}
+    )
 
 
 class IngestionService:
@@ -161,13 +175,13 @@ class IngestionService:
             RawEvidenceCreate(
                 title=resolved_title,
                 source_id=source.id,
-                source_item_type=source_item_type,
+                source_item_type=document.source_item_type or source_item_type,
                 url=url,
                 author=author,
                 public_time=document.public_time,
                 metadata_json={
                     **(metadata_json or {}),
-                    "content_type": "text/html",
+                    **document.capture_metadata,
                     "fetched_url": url,
                     "canonical_source_url": document.canonical_url,
                     "publication_time_source": (
@@ -181,23 +195,65 @@ class IngestionService:
         )
 
     async def fetch_url_document(self, url: str) -> FetchedUrlDocument:
-        html = await self._fetch_url_text(url)
-        target = urlsplit(url)
-        if target.hostname in {"sec.gov", "www.sec.gov"} and re.fullmatch(
+        # The video service also uses ingestion to persist its own passes.
+        from investos.services.youtube import YouTubeService
+
+        if video_id := YouTubeService.video_id_for_url(url):
+            return await YouTubeService.fetch_caption_document(url, video_id)
+        response = await self._fetch_public_document(url)
+        if video_id := YouTubeService.video_id_for_url(response.url):
+            return await YouTubeService.fetch_caption_document(url, video_id)
+        target = urlsplit(response.url)
+        edgar_index = target.hostname in {"sec.gov", "www.sec.gov"} and re.fullmatch(
             r"/Archives/edgar/data/\d+/\d+/[\d-]+-index\.html?", target.path
-        ):
+        )
+        if edgar_index:
             primary_url = await asyncio.to_thread(
-                _edgar_primary_document_url, url, html
+                _edgar_primary_document_url, response.url, response.text()
             )
-            document = await asyncio.to_thread(
-                self._parse_url_document,
+            response = await self._fetch_public_document(
                 primary_url,
-                await self._fetch_url_text(
-                    primary_url, max_megabytes=settings.INGESTION_MAX_UPLOAD_MB
-                ),
+                max_megabytes=settings.INGESTION_MAX_UPLOAD_MB,
             )
-            return replace(document, url=url, canonical_url=primary_url)
-        return await asyncio.to_thread(self._parse_url_document, url, html)
+        document = await asyncio.to_thread(self._parse_public_document, response)
+        return replace(
+            document,
+            url=url,
+            canonical_url=response.url if edgar_index else document.canonical_url,
+        )
+
+    def _parse_public_document(self, response: PublicDocument) -> FetchedUrlDocument:
+        if response.media_type != "application/pdf":
+            return self._parse_url_document(response.url, response.text())
+        try:
+            max_bytes = settings.INGESTION_MAX_UPLOAD_MB * 1024 * 1024
+            content, pdf = read_pdf_text(response.body, max_chars=max_bytes)
+        except PdfiumError as exc:
+            raise SourceContentUnavailable("The PDF could not be read.") from exc
+        if pdf["warnings"] or len(content.encode("utf-8")) > max_bytes:
+            raise UploadTooLargeError(
+                "The PDF text exceeds the configured storage size limit."
+            )
+        if not pdf["pages_with_text"]:
+            raise SourceContentUnavailable(
+                "The PDF has no readable text layer. Its pages require visual reading."
+            )
+        if pdf["pages_with_text"] < pdf["page_count"]:
+            pdf["warnings"].append(
+                "Some PDF pages had no readable text layer. Graphics and scans were not read."
+            )
+        return FetchedUrlDocument(
+            url=response.url,
+            canonical_url=response.url,
+            title=None,
+            content=content,
+            capture_metadata={
+                "content_type": "text/plain",
+                "source_media_type": "application/pdf",
+                "representation": "pdf_text",
+                "source_coverage": pdf,
+            },
+        )
 
     @staticmethod
     def _parse_url_document(url: str, html: str) -> FetchedUrlDocument:
@@ -219,16 +275,17 @@ class IngestionService:
             public_time=_extract_public_time(html),
         )
 
-    async def _fetch_url_text(
+    async def _fetch_public_document(
         self, url: str, *, max_megabytes: int | None = None
-    ) -> str:
-        return await fetch_public_text(
+    ) -> PublicDocument:
+        return await fetch_public_document(
             url,
             timeout_seconds=settings.URL_FETCH_TIMEOUT_SECONDS,
             max_redirects=settings.URL_FETCH_MAX_REDIRECTS,
             max_bytes=(max_megabytes or settings.URL_FETCH_MAX_RESPONSE_MB)
             * 1024
             * 1024,
+            max_pdf_bytes=settings.INGESTION_MAX_UPLOAD_MB * 1024 * 1024,
             allowed_ports=settings.URL_FETCH_ALLOWED_PORT_SET,
         )
 
@@ -334,7 +391,7 @@ def _edgar_primary_document_url(index_url: str, html: str) -> str:
     accession = index.path.split("/")[-2]
     # Joint filings may list a different CIK and an SEC XSL rendering directory.
     document = re.fullmatch(
-        rf"/Archives/edgar/data/\d+/{re.escape(accession)}/(?:xsl[\w.-]+/)?([\w.-]+\.(?:html?|txt|xml))",
+        rf"/Archives/edgar/data/\d+/{re.escape(accession)}/(?:xsl[\w.-]+/)?([\w.-]+\.(?:html?|txt|xml|pdf))",
         target.path,
         flags=re.IGNORECASE,
     )

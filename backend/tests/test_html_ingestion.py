@@ -1,20 +1,30 @@
 import asyncio
+import io
 import threading
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
+import httpx
 import pytest
+from reportlab.pdfgen import canvas
 
 from investos.api.routes.ingestion import ingest_url
+from investos.core.url_security import PublicDocument, fetch_public_document
 from investos.schemas.evidence import UrlEvidenceCreate
 from investos.services.ingestion import (
     FetchedUrlDocument,
     IngestionService,
+    SourceContentUnavailable,
     _html_to_text,
 )
 from investos.services.source import SourceService
+from tests.test_chat_attachments import pdf_bytes
+
+
+def html_document(url, html):
+    return PublicDocument(url, html.encode(), "text/html", "utf-8")
 
 
 def test_page_text_excludes_executable_code_and_decodes_entities():
@@ -44,7 +54,9 @@ async def test_url_entry_point_retains_assisted_origin_in_source_receipts(monkey
 
 async def test_real_url_document_parsing_does_not_block_event_loop(monkeypatch):
     service = IngestionService(None)
-    service._fetch_url_text = AsyncMock(return_value="<p>Actual report</p>")
+    service._fetch_public_document = AsyncMock(
+        return_value=html_document("https://example.test/a", "<p>Actual report</p>")
+    )
     original = service._parse_url_document
     entered = threading.Event()
     release = threading.Event()
@@ -94,19 +106,24 @@ async def test_edgar_index_fetches_sequence_one_from_the_same_filing(document_lo
        <tr><td>2</td><td>Exhibit</td><td><a href="exhibit.htm">Exhibit</a></td></tr>
        </table>"""
     service = IngestionService(None)
-    service._fetch_url_text = AsyncMock(
-        side_effect=[html, "<p>The commission declined the application.</p>"]
+    service._fetch_public_document = AsyncMock(
+        side_effect=[
+            html_document(index, html),
+            html_document(document, "<p>The commission declined the application.</p>"),
+        ]
     )
     if document_location not in {"inline", "joint_filing"}:
         with pytest.raises(ValueError, match="supported primary filing"):
             await service.fetch_url_document(index)
-        service._fetch_url_text.assert_awaited_once_with(index)
+        service._fetch_public_document.assert_awaited_once_with(index)
         return
     result = await service.fetch_url_document(index)
     assert result.url == index
     assert result.canonical_url == document
     assert result.content == "The commission declined the application."
-    assert [call.args[0] for call in service._fetch_url_text.await_args_list] == [
+    assert [
+        call.args[0] for call in service._fetch_public_document.await_args_list
+    ] == [
         index,
         document,
     ]
@@ -135,3 +152,53 @@ async def test_url_intake_retains_material_after_previous_character_cutoff():
     assert payload.content == content
     assert payload.public_time == published
     assert service.ingest_text.await_args.kwargs["process_now"] is False
+
+
+@pytest.mark.parametrize("mime", ["application/pdf", "application/octet-stream"])
+async def test_public_pdf_redirect_keeps_page_text_and_provenance(monkeypatch, mime):
+    start = "https://example.test/latest-report"
+    original = "https://example.test/download/284"
+
+    async def resolve(_host, _port):
+        return ["93.184.216.34"]
+
+    def response(request):
+        if request.url.path == "/latest-report":
+            return httpx.Response(302, headers={"Location": original})
+        return httpx.Response(200, headers={"Content-Type": mime}, content=pdf_bytes())
+
+    async def guarded_fetch(url, **kwargs):
+        return await fetch_public_document(
+            url, resolver=resolve, transport=httpx.MockTransport(response), **kwargs
+        )
+
+    monkeypatch.setattr(
+        "investos.services.ingestion.fetch_public_document", guarded_fetch
+    )
+    service = IngestionService(None)
+    service._get_or_create_source = AsyncMock(return_value=SimpleNamespace(id=uuid4()))
+    service.ingest_text = AsyncMock()
+    await service.ingest_url(start, process_now=False)
+    payload = service.ingest_text.await_args.args[0]
+    assert payload.url == start
+    assert payload.metadata_json["canonical_source_url"] == original
+    assert payload.metadata_json["representation"] == "pdf_text"
+    assert payload.metadata_json["content_type"] == "text/plain"
+    assert payload.metadata_json["source_coverage"]["pages_with_text"] == 2
+    assert "[Page 2]\nSynthetic page 2" in payload.content
+
+
+async def test_empty_pdf_text_layer_cannot_become_evidence():
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer)
+    pdf.rect(72, 72, 200, 100, stroke=1)
+    pdf.showPage()
+    pdf.save()
+    service = IngestionService(None)
+    service._fetch_public_document = AsyncMock(
+        return_value=PublicDocument(
+            "https://example.test/scan", buffer.getvalue(), "application/pdf", "utf-8"
+        )
+    )
+    with pytest.raises(SourceContentUnavailable, match="no readable text layer"):
+        await service.fetch_url_document("https://example.test/scan")
