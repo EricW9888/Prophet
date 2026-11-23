@@ -148,6 +148,8 @@ class Settings(BaseSettings):
         "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain",
         "https://feeds.bbci.co.uk/news/business/rss.xml",
         "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&count=100&owner=exclude&output=atom",
+        "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K&count=100&owner=exclude&output=atom",
+        "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=6-K&count=100&owner=exclude&output=atom",
         "https://www.sec.gov/news/pressreleases.rss",
         "https://www.federalreserve.gov/feeds/press_all.xml",
         "https://www.youtube.com/feeds/videos.xml?channel_id=UCAzhpt9DmG6PnHXjmJTvRGQ",

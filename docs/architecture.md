@@ -171,12 +171,15 @@ bounded public-URL guard. Durable `PublisherFeed` subscriptions retain their
 pause choice, coverage checkpoint and fetch lease. Default subscriptions include
 publisher news, SEC filings and releases, Federal Reserve releases and videos,
 and Bureau of Labor Statistics employment and inflation releases.
+Separate SEC current-report feeds cover domestic 8-K and foreign issuer 6-K
+filings across all issuers when busier filing types roll off the general feed.
 `NEWS_FEED_URLS` configures which defaults are added; existing subscriptions
 retain their settings. Intake runs independently
 of the model circuit: new and changed headlines are batch-retained as provisional
 discovery, and bounded source-page fetches enter the normal extraction queue.
 Feed entries with the same publisher origin, canonical URL, publication time,
-and exact stored text share a document receipt. Each entry keeps its own
+and exact stored text share a document receipt. An identical entry version
+across subscriptions can share a source fetch. Each entry keeps its own
 discovery and fetch history. Revised content and independent origins retain
 their own evidence.
 URL submissions, external research results, and publisher feeds share the
@@ -184,7 +187,8 @@ source reader. It reads PDF text with page boundaries and captures public
 caption tracks for YouTube video links. The receipt identifies the original
 document or video and its representation. Unreadable PDFs and unavailable
 captions remain discovery leads, with a capture outcome that describes the gap.
-An editorial-priority lane and an oldest-lead slot share fetch capacity; retry
+An editorial-priority lane favors sources awaiting a first capture. An oldest-lead
+slot gives revisions and older leads a route through the queue. Retry
 backoff, fenced leases and raw-receipt recovery preserve interrupted work.
 Failed or unverifiably dated items remain inspectable rather than becoming
 accepted claims. A publisher's authentication challenge leaves the feed entry

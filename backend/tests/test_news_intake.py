@@ -157,6 +157,39 @@ async def test_feed_aliases_reuse_exact_documents_but_keep_corrections_and_origi
         )
 
 
+@pytest.mark.parametrize("same_poll", [True, False])
+async def test_overlapping_feed_views_share_one_network_fetch(
+    workflow_session, monkeypatch, same_poll
+):
+    service = NewsIntakeService(workflow_session)
+    first, second = await feed(workflow_session), await feed(workflow_session)
+    entry = item()
+    monkeypatch.setattr(settings, "NEWS_INTAKE_FETCH_BATCH_SIZE", 3)
+    fetcher = AsyncMock(side_effect=document)
+    monkeypatch.setattr(IngestionService, "fetch_url_document", fetcher)
+    await service._record(first, [entry])
+    if not same_poll:
+        assert (await service._fetch_pending())["articles_fetched"] == 1
+    await service._record(second, [entry])
+    result = await service._fetch_pending()
+    assert result["articles_fetched"] == int(same_poll)
+    assert result["articles_reused"] == 1
+    fetcher.assert_awaited_once_with(entry["url"])
+    rows = list(await workflow_session.scalars(select(ResearchDiscoveryObservation)))
+    assert len(rows) == 2
+    assert len({row.evidence_id for row in rows}) == 1
+    reused = next(row for row in rows if row.metadata_json.get("reused_receipt"))
+    assert reused.metadata_json["fetch_attempts"] == 0
+    assert reused.metadata_json["linked_at"]
+    assert not reused.metadata_json.get("fetched_at")
+
+    await service._record(
+        second, [{**entry, "title": "The publisher issues a correction"}]
+    )
+    await service._fetch_pending()
+    assert fetcher.await_count == 2
+
+
 async def test_feed_intake_retains_qualifiers_beyond_the_old_prefix(
     workflow_session, monkeypatch
 ):
@@ -697,7 +730,9 @@ async def test_official_feeds_are_durable_defaults(workflow_session, monkeypatch
     feeds = list(await workflow_session.scalars(select(PublisherFeed)))
     assert {row.url for row in feeds} == set(settings.NEWS_FEED_URLS)
     official = [row for row in feeds if row.url.startswith("https://www.sec.gov/")]
-    assert len(official) == 2
+    assert len(official) == 4
+    assert any("type=8-K" in row.url for row in official)
+    assert any("type=6-K" in row.url for row in official)
     assert any(row.url.startswith("https://www.federalreserve.gov/") for row in feeds)
     assert any(row.url.startswith("https://www.youtube.com/feeds/") for row in feeds)
     assert sum(row.url.startswith("https://www.bls.gov/feed/") for row in feeds) == 2
@@ -855,6 +890,40 @@ async def test_priority_fetch_reserves_capacity_for_oldest_lead(
     monkeypatch.setattr(IngestionService, "fetch_url_document", fetcher)
     assert (await service._fetch_pending())["articles_fetched"] == 3
     assert "https://example.test/old" in [a.args[0] for a in fetcher.await_args_list]
+
+
+async def test_new_source_gets_priority_without_dropping_revisions(
+    workflow_session, monkeypatch
+):
+    service = NewsIntakeService(workflow_session)
+    subscription = await feed(workflow_session)
+    fetcher = AsyncMock(side_effect=document)
+    monkeypatch.setattr(IngestionService, "fetch_url_document", fetcher)
+    monkeypatch.setattr(settings, "NEWS_INTAKE_FETCH_BATCH_SIZE", 2)
+    live_page = item(url="https://example.test/live")
+    await service._record(subscription, [live_page])
+    await service._fetch_pending()
+    now = datetime.now(UTC)
+    await service._record(
+        subscription,
+        [item(url="https://example.test/older", rank=90)],
+        observed_at=now - timedelta(minutes=15),
+    )
+    await service._record(
+        subscription,
+        [
+            {**live_page, "title": "New live page update"},
+            item(url="https://example.test/first-report", rank=18),
+        ],
+    )
+    fetcher.reset_mock()
+    await service._fetch_pending()
+    assert {call.args[0] for call in fetcher.await_args_list} == {
+        "https://example.test/older",
+        "https://example.test/first-report",
+    }
+    await service._fetch_pending()
+    assert fetcher.await_args.args[0] == live_page["url"]
 
 
 async def test_lost_fetch_lease_cannot_write_a_second_workers_result(
