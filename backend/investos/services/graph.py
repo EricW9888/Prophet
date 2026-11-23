@@ -1884,7 +1884,9 @@ class GraphService:
         linked_companies = attachment.get("linked_companies") or []
         mechanism = str(attachment.get("portfolio_mechanism") or "").strip()
         next_test = str(attachment.get("next_test") or "").strip()
-        connection_phrases = self._connection_phrases(connections or [])
+        connection_phrases = self._connection_phrases(
+            connections or [], self._node_label(node_type, node)
+        )
         source_names = list(
             dict.fromkeys(
                 citation.source_name
@@ -1894,9 +1896,14 @@ class GraphService:
         )
 
         if mechanism:
-            if next_test:
-                return f"{mechanism} Next useful test: {next_test}"
-            return mechanism
+            if reason and (
+                attachment.get("portfolio_linkage_status") == "unresolved"
+                or attachment.get("portfolio_route_depth") == 2
+            ):
+                mechanism = f"{reason} {mechanism}"
+            return (
+                f"{mechanism} Next useful test: {next_test}" if next_test else mechanism
+            )
         if reason:
             return reason
         if linked_holdings or linked_companies:
@@ -2099,10 +2106,13 @@ class GraphService:
                 **mechanism,
             }
 
-        direct_connections = connections or await self._connections_for_node(
-            node_type=node_type, node_id=node_id
+        direct_connections = (
+            connections
+            if connections is not None
+            else await self._connections_for_node(node_type=node_type, node_id=node_id)
         )
-        nearest_connections = self._connection_phrases(direct_connections)
+        label = self._node_label(node_type, node)
+        nearest_connections = self._connection_phrases(direct_connections, label)
         linked_holdings: list[str] = []
         linked_companies: list[str] = []
         direct_portfolio_link = False
@@ -2135,7 +2145,7 @@ class GraphService:
         if linked_holdings or linked_companies:
             connected = ", ".join((linked_holdings + linked_companies)[:4])
             mechanism = self._infer_portfolio_mechanism(
-                node_label=self._node_label(node_type, node),
+                node_label=label,
                 node_type=node_type,
                 linked_holdings=linked_holdings,
                 linked_companies=linked_companies,
@@ -2156,53 +2166,48 @@ class GraphService:
                 "nearest_connections": nearest_connections[:6],
                 **mechanism,
             }
-        one_hop = (
-            await self._one_hop_portfolio_connections(
-                direct_connections=direct_connections,
-                tracked_position_ids=tracked_position_ids,
-                tracked_entity_ids=tracked_entity_ids,
-                tracked_position_labels=tracked_position_labels,
-                tracked_entity_labels=tracked_entity_labels,
-            )
-            if not direct_portfolio_link
-            else self._empty_portfolio_route()
+        one_hop = await self._one_hop_portfolio_connections(
+            direct_connections=direct_connections,
+            tracked_position_ids=tracked_position_ids,
+            tracked_entity_ids=tracked_entity_ids,
+            tracked_position_labels=tracked_position_labels,
+            tracked_entity_labels=tracked_entity_labels,
         )
         one_hop_holdings = one_hop["linked_holdings"]
         one_hop_companies = one_hop["linked_companies"]
-        if one_hop_holdings or one_hop_companies or one_hop["reaches_portfolio"]:
+        if (
+            one_hop_holdings
+            or one_hop_companies
+            or (one_hop["reaches_portfolio"] and not direct_portfolio_link)
+        ):
             context_only = not one_hop_holdings and not one_hop_companies
             connected = ", ".join((one_hop_holdings + one_hop_companies)[:4])
-            intermediaries = ", ".join(one_hop["intermediary_labels"][:3])
+            intermediary_labels = one_hop["intermediaries"]
+            intermediaries = ", ".join(
+                list(dict.fromkeys(intermediary_labels.values()))[:3]
+            )
             route_description = (
                 f" through {intermediaries}"
                 if intermediaries
                 else " through a stored relationship"
             )
-            destination = (
-                f"tracked names: {connected}"
-                if connected
-                else "the live portfolio root"
-            )
             path_phrases = list(
-                dict.fromkeys([*nearest_connections, *one_hop["path_phrases"]])
+                dict.fromkeys([*one_hop["path_phrases"], *nearest_connections])
             )
             intermediary_contexts: list[str] = []
-            intermediary_set = set(one_hop["intermediary_labels"])
-            for connection in direct_connections:
-                if connection.label not in intermediary_set:
-                    continue
+            for intermediary_type, intermediary_id in intermediary_labels:
                 intermediary_node = await self._load_node(
-                    connection.node_type, connection.node_id
+                    intermediary_type, intermediary_id
                 )
                 if intermediary_node is None:
                     continue
                 intermediary_contexts.extend(
                     self._stored_mechanism_contexts(
-                        connection.node_type, intermediary_node
+                        intermediary_type, intermediary_node
                     )
                 )
             mechanism = self._infer_portfolio_mechanism(
-                node_label=self._node_label(node_type, node),
+                node_label=label,
                 node_type=node_type,
                 linked_holdings=one_hop_holdings,
                 linked_companies=one_hop_companies,
@@ -2221,18 +2226,18 @@ class GraphService:
                 ),
                 "reason": (
                     f"Stored context attaches this node to the portfolio root{route_description}. "
-                    "That attachment does not establish exposure to a live holding or an economic transmission mechanism. "
                     "Holding linkage remains unresolved by this bounded check."
                     if context_only
                     else (
-                        f"This node reaches {destination}{route_description}. "
-                        "The relationship is indirect, so the transmission path should be tested rather than assumed."
+                        f"Stored relationships reach tracked names {connected}{route_description}. "
+                        "This indirect path needs evidence of an economic effect."
                     )
                 ),
                 "linked_holdings": one_hop_holdings,
                 "linked_companies": one_hop_companies,
-                "direct_portfolio_link": False,
-                "portfolio_connection_count": one_hop["portfolio_connection_count"],
+                "direct_portfolio_link": direct_portfolio_link,
+                "portfolio_connection_count": one_hop["portfolio_connection_count"]
+                + int(direct_portfolio_link and not one_hop["reaches_portfolio"]),
                 "graph_connection_count": len(direct_connections)
                 + one_hop["traversed_connection_count"],
                 "nearest_connections": path_phrases[:8],
@@ -2242,7 +2247,7 @@ class GraphService:
             }
         if direct_portfolio_link:
             mechanism = self._infer_portfolio_mechanism(
-                node_label=self._node_label(node_type, node),
+                node_label=label,
                 node_type=node_type,
                 linked_holdings=[],
                 linked_companies=[],
@@ -2255,14 +2260,15 @@ class GraphService:
             return {
                 "category": "portfolio-level context",
                 "reason": (
-                    "This node is attached at portfolio level. Its usefulness depends on a clear impact route, "
-                    "not the edge alone."
+                    "This node is attached to the portfolio root. "
+                    "Holding linkage remains unresolved by this bounded check."
                 ),
                 "linked_holdings": [],
                 "linked_companies": [],
                 "direct_portfolio_link": True,
                 "portfolio_connection_count": 1,
                 "graph_connection_count": len(direct_connections),
+                "portfolio_linkage_status": "unresolved",
                 "nearest_connections": nearest_connections[:6],
                 **mechanism,
             }
@@ -2296,18 +2302,20 @@ class GraphService:
         tracked_position_labels: dict[UUID, str],
         tracked_entity_labels: dict[UUID, str],
     ) -> dict[str, Any]:
-        if not direct_connections:
-            return self._empty_portfolio_route()
-
         linked_holdings: list[str] = []
         linked_companies: list[str] = []
-        intermediary_labels: list[str] = []
-        path_phrases: list[str] = []
+        holding_intermediaries: dict[tuple[str, UUID], str] = {}
+        portfolio_intermediaries: dict[tuple[str, UUID], str] = {}
+        holding_paths: list[str] = []
+        portfolio_paths: list[str] = []
         reaches_portfolio = False
         intermediary_by_key = {
             (connection.node_type, connection.node_id): connection.label
             for connection in direct_connections
+            if connection.node_type != "portfolio"
         }
+        if not intermediary_by_key:
+            return self._empty_portfolio_route()
         intermediary_keys = list(intermediary_by_key)
         edges = (
             (
@@ -2356,21 +2364,32 @@ class GraphService:
                 linked_companies.append(destination_label)
             if destination_label:
                 intermediary_label = intermediary_by_key[intermediary_key]
-                intermediary_labels.append(intermediary_label)
-                relationship = edge.relationship_type.replace("_", " ")
-                path_phrases.append(
-                    f"via {intermediary_label}, which {relationship} {destination_label}"
+                intermediaries = (
+                    portfolio_intermediaries
+                    if destination_type == "portfolio"
+                    else holding_intermediaries
                 )
+                intermediaries[intermediary_key] = intermediary_label
+                relationship = edge.relationship_type.replace("_", " ")
+                source, target = (
+                    (intermediary_label, destination_label)
+                    if source_key == intermediary_key
+                    else (destination_label, intermediary_label)
+                )
+                paths = (
+                    portfolio_paths
+                    if destination_type == "portfolio"
+                    else holding_paths
+                )
+                paths.append(f"{source} → {relationship} → {target}")
 
         linked_holdings = list(dict.fromkeys(linked_holdings))
         linked_companies = list(dict.fromkeys(linked_companies))
-        intermediary_labels = list(dict.fromkeys(intermediary_labels))
-        path_phrases = list(dict.fromkeys(path_phrases))
         return {
             "linked_holdings": linked_holdings,
             "linked_companies": linked_companies,
-            "intermediary_labels": intermediary_labels,
-            "path_phrases": path_phrases,
+            "intermediaries": holding_intermediaries or portfolio_intermediaries,
+            "path_phrases": list(dict.fromkeys(holding_paths or portfolio_paths)),
             "reaches_portfolio": reaches_portfolio,
             "portfolio_connection_count": (
                 len(linked_holdings)
@@ -2385,7 +2404,7 @@ class GraphService:
         return {
             "linked_holdings": [],
             "linked_companies": [],
-            "intermediary_labels": [],
+            "intermediaries": {},
             "path_phrases": [],
             "reaches_portfolio": False,
             "portfolio_connection_count": 0,
@@ -2458,13 +2477,20 @@ class GraphService:
         return list(dict.fromkeys(context_texts))[:8]
 
     @staticmethod
-    def _connection_phrases(connections: list[GraphConnectionResponse]) -> list[str]:
+    def _connection_phrases(
+        connections: list[GraphConnectionResponse], node_label: str
+    ) -> list[str]:
         phrases: list[str] = []
         for connection in connections:
             relation = connection.relationship_type.replace("_", " ")
             label = connection.label.strip()
             if label:
-                phrases.append(f"{relation} {label}")
+                source, target = (
+                    (label, node_label)
+                    if connection.direction == "incoming"
+                    else (node_label, label)
+                )
+                phrases.append(f"{source} → {relation} → {target}")
         return list(dict.fromkeys(phrases))
 
     def _infer_portfolio_mechanism(
@@ -2583,7 +2609,9 @@ class GraphService:
                     "The precise economic channel is not explicit enough yet to treat as thesis evidence."
                 ),
                 "next_test": (
-                    "Convert the stored relationship into a falsifiable channel: what changes demand, supply, margins, financing, valuation, or timing for the affected holding?"
+                    "Check which change in demand, supply, margins, financing, valuation, or timing the evidence supports."
+                    if targets
+                    else "Check for a route to a current holding, then look for evidence of an economic effect."
                 ),
             }
         return {
