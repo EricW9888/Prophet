@@ -226,7 +226,7 @@ async def test_longer_portfolio_path_remains_unresolved_by_bounded_detail_check(
         detail = await graph.get_node_detail(node_type="entity", node_id=root.id)
         assert detail.properties["portfolio_linkage_status"] == "unresolved"
         assert detail.properties["portfolio_route_depth"] == 2
-        assert "bounded check" in detail.relevance_reasoning
+        assert "two-hop check" in detail.relevance_reasoning
         nearer = await graph.get_node_detail(
             node_type="entity", node_id=intermediary.id
         )

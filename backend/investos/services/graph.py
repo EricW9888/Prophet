@@ -1846,6 +1846,10 @@ class GraphService:
                         node_type=node_type, node=node, attachment=attachment
                     )
             properties["profile_summary"] = profile_summary
+            if profile:
+                properties["profile_business_model"] = profile.business_model
+                if profile.updated_at:
+                    properties["profile_updated_at"] = profile.updated_at.isoformat()
             properties["current_stance"] = (
                 conclusion.current_stance if conclusion else None
             )
@@ -2264,15 +2268,12 @@ class GraphService:
             }
         if direct_connections:
             reason = (
-                f"This bounded check inspected {len(direct_connections)} direct graph relationship"
-                f"{'' if len(direct_connections) == 1 else 's'} and did not establish a path to a live holding. "
-                "Other paths may exist; expand the graph or review subject identity."
+                "A two-hop check found no route to a live holding. "
+                f"It started from {len(direct_connections)} direct graph relationship"
+                f"{'' if len(direct_connections) == 1 else 's'}."
             )
         else:
-            reason = (
-                "No direct relationship was found by this bounded check. "
-                "Portfolio linkage remains unresolved."
-            )
+            reason = "The graph has no direct relationships to check for a route to a live holding."
         return {
             "category": "broad context",
             "reason": reason,
