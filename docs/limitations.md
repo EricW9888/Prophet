@@ -270,6 +270,12 @@ executable or would have produced the same return.
 
 Portfolio attribution is only as reliable as the transaction ledger, cash
 flows, corporate actions, price history, and selected measurement window.
+Portfolio history restores split-adjusted closes to the share basis of each
+session using reported split events. Live valuation and risk checks flag a
+reported split when held shares lack a matching ledger action. The provider's
+event coverage and the portfolio's recorded acquisition history still determine
+what can be verified. Market-data reports do not create ledger transactions.
+A broker email without a split's effective time creates a reconciliation item.
 
 Daily portfolio risk advisories replay a small sample of simultaneous historical
 returns under current holdings. They do not predict crashes, bound future loss,

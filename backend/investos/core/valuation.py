@@ -54,6 +54,8 @@ def quote_mark(
         issues.append("The position changed since this quote was captured.")
     if receipt.get("currency") != "USD":
         issues.append("A matching USD quote is unavailable; no FX rate was assumed.")
+    if receipt.get("share_basis_issue"):
+        issues.append(str(receipt["share_basis_issue"]))
     if price is None or price < 0:
         issues.append("The quote has no finite nonnegative price.")
     quoted = observed = None

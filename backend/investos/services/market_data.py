@@ -4,7 +4,7 @@ import asyncio
 import math
 import statistics
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -15,10 +15,72 @@ from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from investos.core.valuation import number
 from investos.models.entity import Security
 from investos.models.market_calendar import MarketSessionObservation
 from investos.models.portfolio import Position
 from investos.services.runtime_settings import RuntimeSettingsStore
+
+# Provider exchange codes use the same calendar for quotes and holdings history.
+YAHOO_CALENDARS = {
+    "NYQ": "XNYS",
+    "NMS": "XNAS",
+    "NGM": "XNAS",
+    "NCM": "XNAS",
+    "NAS": "XNAS",
+    "PCX": "ARCX",
+    "ASE": "XASE",
+    "BTS": "BATS",
+    "PNK": "OOTC",
+    "OQB": "OOTC",
+    "OQX": "OOTC",
+}
+
+
+def share_basis_reconciliation(rows, security_id, calendar, reported):
+    """Match ratios on the exchange session to which each ledger action applies."""
+    from collections import defaultdict
+
+    from investos.services.broker_equity import LedgerReplay
+
+    timezone = ZoneInfo(str(calendar.tz))
+    booked = defaultdict(lambda: Decimal(1))
+    for row in rows:
+        if row.action != "split" or row.security_id != security_id:
+            continue
+        day = row.at.astimezone(timezone).date()
+        if day < calendar.first_session.date() or day > calendar.last_session.date():
+            continue
+        session = calendar.date_to_session(day, direction="next")
+        if row.at > calendar.session_close(session):
+            session = calendar.next_session(session)
+        booked[session.date()] *= row.quantity
+
+    def agrees(day):
+        return (
+            day in booked
+            and day in reported
+            and float(booked[day]) == float(reported[day])
+        )
+
+    missing_prices = {day for day in booked if not agrees(day)}
+    missing_shares = set()
+    prior = LedgerReplay(rows)
+    for day in sorted(reported):
+        if not agrees(day) and calendar.is_session(day):
+            prior.advance(
+                calendar.session_open(day).to_pydatetime() - timedelta(microseconds=1)
+            )
+            if prior.quantities[security_id]:
+                missing_shares.add(day)
+    return booked, missing_prices, missing_shares
+
+
+def reported_share_splits(snapshot):
+    return {
+        date.fromisoformat(day): Decimal(ratio)
+        for day, ratio in snapshot.get("share_basis_splits", {}).items()
+    }
 
 
 def _to_decimal(value: float | int | Decimal | None) -> Decimal:
@@ -78,6 +140,12 @@ class MarketDataService:
         if not quotes:
             return {"updated": 0, "detail": "no_quotes_returned"}
 
+        ledger = ()
+        observed_at = datetime.now(UTC)
+        if any(quote.get("reported_exchange") for quote in quotes.values()):
+            from investos.services.broker_equity import BrokerEquityService
+
+            ledger = await BrokerEquityService(self.session).ledger(observed_at)
         updated = 0
         total_market_value = Decimal("0")
         updates: list[Position] = []
@@ -98,9 +166,12 @@ class MarketDataService:
             quantity = _to_decimal(position.quantity)
             avg_cost = _to_decimal(position.avg_cost_basis)
 
-            position.current_price = price
-            position.market_value = quantity * price
-            position.unrealized_pnl = quantity * (price - avg_cost)
+            prior_receipt = getattr(position, "quote_receipt_json", None) or {}
+            splits = {
+                **prior_receipt.get("share_basis_splits", {}),
+                **quote.get("share_basis_splits", {}),
+            }
+            issue = self.quote_share_basis_issue(quote, splits, ledger, security.id)
             position.quote_receipt_json = {
                 "version": 1,
                 "security_id": str(security.id),
@@ -110,11 +181,18 @@ class MarketDataService:
                 "direction": position.direction,
                 "price": str(price),
                 "quoted_at": quote.get("quote_time"),
-                "observed_at": datetime.now(UTC).isoformat(),
+                "observed_at": observed_at.isoformat(),
                 "currency": quote["currency"],
                 "provider": "yahoo_finance",
                 "session": quote.get("session"),
+                "share_basis_splits": splits,
+                "share_basis_issue": issue,
             }
+            if issue:
+                continue
+            position.current_price = price
+            position.market_value = quantity * price
+            position.unrealized_pnl = quantity * (price - avg_cost)
             entity = getattr(security, "entity", None)
             quote_name = str(quote.get("name") or "").strip()
             if (
@@ -154,6 +232,46 @@ class MarketDataService:
         quotes = await self.fetch_quotes([ticker])
         return quotes.get(ticker.upper()) or {}
 
+    @staticmethod
+    def quote_share_basis_issue(quote, splits, ledger, security_id):
+        exchange = YAHOO_CALENDARS.get(quote.get("reported_exchange"))
+        if not exchange or not quote.get("quote_time"):
+            return (
+                "The quote cannot be matched to the split's trading session."
+                if splits
+                else None
+            )
+        if not splits and not any(
+            row.security_id == security_id and row.action == "split" for row in ledger
+        ):
+            return None
+        if splits and not any(
+            row.security_id == security_id and row.action == "buy" for row in ledger
+        ):
+            return "The ledger has no acquisition record to verify the split's share basis."
+
+        import exchange_calendars
+
+        calendar = exchange_calendars.get_calendar(exchange)
+        if str(calendar.tz) != quote.get("exchange_timezone"):
+            return "The quote's exchange time zone cannot verify its share basis."
+        day = (
+            datetime.fromisoformat(quote["quote_time"])
+            .astimezone(ZoneInfo(str(calendar.tz)))
+            .date()
+        )
+        booked, _, missing_shares = share_basis_reconciliation(
+            ledger,
+            security_id,
+            calendar,
+            reported_share_splits({"share_basis_splits": splits}),
+        )
+        if any(split <= day for split in missing_shares):
+            return "A reported stock split needs a matching share adjustment in the ledger."
+        if any(split > day for split in booked):
+            return "The retained quote predates a recorded stock split."
+        return None
+
     async def fetch_quotes(self, tickers: list[str]) -> dict[str, dict[str, Any]]:
         semaphore = asyncio.Semaphore(4)
         normalized = sorted({str(t).strip().upper() for t in tickers if str(t).strip()})
@@ -178,7 +296,12 @@ class MarketDataService:
         for ticker in tickers:
             response = await client.get(
                 self.CHART_URL_TEMPLATE.format(ticker=ticker),
-                params={"interval": "1d", "range": "1d", "includePrePost": "true"},
+                params={
+                    "interval": "1d",
+                    "range": "1mo",
+                    "includePrePost": "true",
+                    "events": "splits",
+                },
                 headers={"User-Agent": "Mozilla/5.0"},
             )
             response.raise_for_status()
@@ -218,6 +341,11 @@ class MarketDataService:
                     price_session = "historical_close"
                     quote_epoch = None
             if price is not None:
+                exchange_timezone = meta.get("exchangeTimezoneName")
+                try:
+                    timezone = ZoneInfo(exchange_timezone or "UTC")
+                except ZoneInfoNotFoundError:
+                    timezone = ZoneInfo("UTC")
                 quotes[ticker.upper()] = {
                     "price": float(price),
                     "session": price_session,
@@ -230,6 +358,11 @@ class MarketDataService:
                     "name": meta.get("longName") or meta.get("shortName"),
                     "currency": meta.get("currency"),
                     "reported_symbol": meta.get("symbol"),
+                    "reported_exchange": meta.get("exchangeName"),
+                    "exchange_timezone": exchange_timezone,
+                    "share_basis_splits": self._reported_splits(
+                        chart, timezone, datetime.now(UTC)
+                    ),
                 }
         return quotes
 
@@ -327,6 +460,7 @@ class MarketDataService:
                 "interval": "1d",
                 "range": range_value,
                 "includeAdjustedClose": "true",
+                "events": "splits",
             },
             headers={"User-Agent": "Mozilla/5.0"},
         )
@@ -452,9 +586,35 @@ class MarketDataService:
                 "as_of_kind": "daily_bar_label",
                 "currency": meta.get("currency"),
                 "price_basis": "provider_adjusted_current_revision",
+                "share_basis_splits": self._reported_splits(
+                    chart, timezone, retrieved_at
+                ),
                 "historical_availability_verified": False,
             }
         )
+        # The regular-session quote can carry the final print while the matching
+        # daily candle is still empty. Retain it separately from daily signals.
+        price = self._finite_number(meta.get("regularMarketPrice"))
+        quote_time = self._finite_number(meta.get("regularMarketTime"))
+        if (
+            session_start
+            and session_end
+            and session_start < session_end
+            and price is not None
+            and price > 0
+            and quote_time is not None
+            and session_end <= quote_time <= retrieved_at.timestamp()
+            and datetime.fromtimestamp(quote_time, timezone).date()
+            == datetime.fromtimestamp(session_start, timezone).date()
+        ):
+            snapshot["latest_regular_close"] = {
+                "timestamp": datetime.fromtimestamp(session_start, UTC).isoformat(),
+                "completed_at": datetime.fromtimestamp(session_end, UTC).isoformat(),
+                "quoted_at": datetime.fromtimestamp(quote_time, UTC).isoformat(),
+                "completion_observed_at": retrieved_at.isoformat(),
+                "close": price,
+                "close_basis": "provider_regular_market_quote",
+            }
         if (
             meta.get("symbol") == ticker
             and meta.get("exchangeTimezoneName") == str(timezone)
@@ -490,6 +650,26 @@ class MarketDataService:
                 snapshot["status"] = "missing_verified_session"
                 snapshot["expected_session_date"] = expected.isoformat()
         return snapshot
+
+    @staticmethod
+    def _reported_splits(chart, timezone, observed_at):
+        splits = {}
+        for event in ((chart.get("events") or {}).get("splits") or {}).values():
+            numerator = number(event.get("numerator"))
+            denominator = number(event.get("denominator"))
+            if (
+                numerator is None
+                or denominator is None
+                or min(numerator, denominator) <= 0
+            ):
+                continue
+            try:
+                at = datetime.fromtimestamp(event["date"], timezone)
+            except (KeyError, OSError, OverflowError, TypeError, ValueError):
+                continue
+            if at <= observed_at:
+                splits[at.date().isoformat()] = str(numerator / denominator)
+        return splits
 
     async def fetch_signal_snapshots(
         self,

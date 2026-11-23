@@ -55,8 +55,8 @@ def test_option_assignment_routes_to_reconciliation():
     assert GmailMailboxService._classification_requires_reconciliation(r)
 
 
-def test_split_is_replayable_but_expiry_needs_contract_identity():
-    assert not GmailMailboxService._classification_requires_reconciliation(
+def test_split_needs_effective_time_and_expiry_needs_contract_identity():
+    assert GmailMailboxService._classification_requires_reconciliation(
         parse("AAPL underwent a 4-for-1 stock split. Your shares were adjusted.")
     )
     assert GmailMailboxService._classification_requires_reconciliation(
