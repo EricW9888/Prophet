@@ -120,6 +120,7 @@ async def test_edgar_index_fetches_sequence_one_from_the_same_filing(document_lo
     result = await service.fetch_url_document(index)
     assert result.url == index
     assert result.canonical_url == document
+    assert result.source_item_type == "filing"
     assert result.content == "The commission declined the application."
     assert [
         call.args[0] for call in service._fetch_public_document.await_args_list

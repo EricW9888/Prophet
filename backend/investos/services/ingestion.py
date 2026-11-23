@@ -220,6 +220,7 @@ class IngestionService:
             document,
             url=url,
             canonical_url=response.url if edgar_index else document.canonical_url,
+            source_item_type="filing" if edgar_index else document.source_item_type,
         )
 
     def _parse_public_document(self, response: PublicDocument) -> FetchedUrlDocument:

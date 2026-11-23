@@ -8,14 +8,15 @@ import io
 import json
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import feedparser
 from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy import text as sql_text
-from sqlalchemy import update
+from sqlalchemy import tuple_, update
 from sqlalchemy.dialects.postgresql import JSONB, insert
+from sqlalchemy.orm import aliased
 
 from investos.config import settings
 from investos.core.dates import parse_publication_datetime
@@ -48,6 +49,10 @@ def _feed_time_basis(published, updated, *, earliest, latest):
     if updated is not None and earliest <= updated <= latest:
         return "publisher_feed_updated"
     return None
+
+
+def _entry_version(row):
+    return row.url, (row.metadata_json or {}).get("content_hash") or str(row.id)
 
 
 def parse_feed(text: str) -> list[dict]:
@@ -95,12 +100,19 @@ class NewsIntakeService:
         for url in settings.NEWS_FEED_URLS[:20]:
             if url in existing or len(existing) >= 20:
                 continue
+            target = urlsplit(url)
+            name = target.hostname or "Publisher feed"
+            if name == "www.sec.gov" and target.path == "/cgi-bin/browse-edgar":
+                form = parse_qs(target.query).get("type", [None])[0]
+                name = (
+                    f"SEC EDGAR {form} filings" if form else "SEC EDGAR latest filings"
+                )
             await self.session.execute(
                 insert(PublisherFeed)
                 .values(
                     id=uuid5(NAMESPACE_URL, "prophet:publisher-feed:" + url),
                     url=url,
-                    name=urlsplit(url).hostname or "Publisher feed",
+                    name=name,
                     enabled=True,
                     last_status="not_checked",
                     entry_count=0,
@@ -342,12 +354,25 @@ class NewsIntakeService:
         ]
         batch = settings.NEWS_INTAKE_FETCH_BATCH_SIZE
         base = select(ResearchDiscoveryObservation).where(*eligible)
+        captured = aliased(ResearchDiscoveryObservation)
+        already_captured = (
+            select(captured.id)
+            .where(
+                captured.provider == FEED_PROVIDER,
+                captured.url == ResearchDiscoveryObservation.url,
+                captured.evidence_id.is_not(None),
+                captured.observed_at
+                >= now - timedelta(hours=settings.NEWS_INTAKE_LOOKBACK_HOURS),
+            )
+            .exists()
+        )
         # Reserve one slot for the oldest retained lead. Editorial priority
         # cannot indefinitely starve the rest of the backlog.
         priority = (
             list(
                 await self.session.scalars(
                     base.order_by(
+                        already_captured,
                         ResearchDiscoveryObservation.result_rank,
                         ResearchDiscoveryObservation.observed_at.desc(),
                         ResearchDiscoveryObservation.id,
@@ -402,14 +427,23 @@ class NewsIntakeService:
             (row.metadata_json or {}).get("discovery_observation_id"): row
             for row in existing_rows
         }
-        pending_network = [
-            row for row in selected if str(row.id) not in existing_by_observation
-        ]
+        versions = {_entry_version(row) for row in selected}
+        existing_by_version = await self._captured_versions(versions)
+        for row in selected:
+            recovered_receipt = existing_by_observation.get(str(row.id))
+            if recovered_receipt is not None:
+                existing_by_version.setdefault(_entry_version(row), recovered_receipt)
+        pending_network = dict.fromkeys(
+            _entry_version(row)
+            for row in selected
+            if str(row.id) not in existing_by_observation
+            and _entry_version(row) not in existing_by_version
+        )
         network_results = await asyncio.gather(
-            *(ingestion.fetch_url_document(row.url) for row in pending_network),
+            *(ingestion.fetch_url_document(url) for url, _version in pending_network),
             return_exceptions=True,
         )
-        results_by_id = dict(zip((row.id for row in pending_network), network_results))
+        results_by_version = dict(zip(pending_network, network_results))
         fetched = failed = recovered = reused = 0
         for selected_row in selected:
             row = await self.session.scalar(
@@ -425,13 +459,32 @@ class NewsIntakeService:
             )
             if row is None:
                 continue
+            version = _entry_version(row)
             existing = existing_by_observation.get(str(row.id))
+            matched_version = (
+                existing_by_version.get(version) if existing is None else None
+            )
             metadata = dict(row.metadata_json or {})
-            attempts = int(metadata.get("fetch_attempts") or 0) + 1
-            metadata["fetch_attempts"] = attempts
             metadata.pop("fetch_lease_until", None)
             metadata.pop("fetch_token", None)
-            result = results_by_id.get(row.id)
+            result = (
+                results_by_version.get(version)
+                if existing is None and matched_version is None
+                else None
+            )
+            if result is not None:
+                attempts = int(metadata.get("fetch_attempts") or 0) + 1
+                metadata["fetch_attempts"] = attempts
+            if matched_version is not None:
+                existing = matched_version
+                metadata["reused_receipt"] = True
+                metadata["linked_at"] = datetime.now(UTC).isoformat()
+                canonical_url = (existing.metadata_json or {}).get(
+                    "canonical_source_url"
+                )
+                if canonical_url:
+                    metadata["canonical_source_url"] = canonical_url
+                reused += 1
             if isinstance(result, FetchedUrlDocument):
                 metadata.update(
                     canonical_source_url=result.canonical_url,
@@ -446,7 +499,8 @@ class NewsIntakeService:
                 row.outcome = "ingested_evidence"
                 row.error = None
                 metadata.pop("next_fetch_at", None)
-                if result is None:
+                existing_by_version[version] = existing
+                if str(row.id) in existing_by_observation:
                     metadata["recovered_receipt"] = True
                     recovered += 1
             elif isinstance(result, Exception):
@@ -514,6 +568,7 @@ class NewsIntakeService:
                 row.evidence_id = evidence.id
                 row.outcome = "ingested_evidence"
                 row.error = None
+                existing_by_version[version] = evidence
                 fetched += 1
             row.metadata_json = metadata
             await self.session.commit()
@@ -523,6 +578,33 @@ class NewsIntakeService:
             "articles_recovered": recovered,
             "articles_reused": reused,
         }
+
+    async def _captured_versions(self, versions):
+        if not versions:
+            return {}
+        observation = ResearchDiscoveryObservation
+        rows = (
+            await self.session.execute(
+                select(observation, RawEvidence)
+                .join(RawEvidence, observation.evidence_id == RawEvidence.id)
+                .where(
+                    observation.provider == FEED_PROVIDER,
+                    tuple_(
+                        observation.url,
+                        observation.metadata_json["content_hash"].astext,
+                    ).in_(sorted(versions)),
+                    RawEvidence.raw_content_ref.is_not(None),
+                    RawEvidence.metadata_json["storage_missing"]
+                    .as_boolean()
+                    .is_not(True),
+                )
+                .order_by(observation.observed_at, observation.id)
+            )
+        ).all()
+        receipts = {}
+        for observation, evidence in rows:
+            receipts.setdefault(_entry_version(observation), evidence)
+        return receipts
 
     async def _matching_document_receipt(
         self, document: FetchedUrlDocument
