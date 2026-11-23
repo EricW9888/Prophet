@@ -690,6 +690,123 @@ async def test_normal_intake_retains_then_fetches_unheld_headline_without_model_
     assert (await service.capture_pending())["articles_fetched"] == 0
 
 
+@pytest.mark.parametrize("headlines_per_feed", [16, 110])
+async def test_broad_chat_and_unattended_capture_keep_quiet_publisher_visible(
+    workflow_session, monkeypatch, headlines_per_feed
+):
+    session = workflow_session
+    monkeypatch.setattr(settings, "NEWS_FEED_URLS", [])
+    monkeypatch.setattr(settings, "NEWS_INTAKE_FETCH_BATCH_SIZE", 3)
+    industry_feed = "https://supplier.example.test/releases.xml"
+    busy_feeds = [
+        "https://daily.example.test/headlines.xml",
+        "https://daily.example.test/markets.xml",
+    ]
+    session.add_all(
+        PublisherFeed(url=url, name=url) for url in [*busy_feeds, industry_feed]
+    )
+    published_at = datetime.now(UTC) - timedelta(minutes=10)
+    supplier_url = "https://supplier.example.test/production-update"
+    future_url = "https://supplier.example.test/future"
+    undated_url = "https://supplier.example.test/undated"
+    responses = {
+        feed_url: [
+            {
+                **item(
+                    title="Routine market calendar",
+                    url=f"{feed_url}/stories/{rank}",
+                    rank=rank,
+                ),
+                "published_date": published_at.isoformat(),
+            }
+            for rank in range(1, headlines_per_feed + 1)
+        ]
+        for feed_url in busy_feeds
+    }
+    responses[industry_feed] = [
+        {
+            **item(url=future_url),
+            "published_date": (published_at + timedelta(days=1)).isoformat(),
+        },
+        {**item(url=undated_url, rank=2), "published_date": None},
+        {
+            **item(
+                title="Unheld specialty supplier halted its only plant",
+                url=supplier_url,
+                rank=19,
+            ),
+            "content": "The company informed customers of force majeure on a component used across its industry.",
+            "published_date": published_at.isoformat(),
+        },
+    ]
+    monkeypatch.setattr(
+        NewsIntakeService, "_read_feed", AsyncMock(side_effect=responses.__getitem__)
+    )
+    documents = {
+        row["url"]: replace(
+            document(row["url"]), title=row["title"], content=row["content"]
+        )
+        for entries in responses.values()
+        for row in entries
+    }
+    monkeypatch.setattr(
+        IngestionService,
+        "fetch_url_document",
+        AsyncMock(side_effect=documents.__getitem__),
+    )
+    no_model = AsyncMock(
+        side_effect=AssertionError("Acquisition must not await model work")
+    )
+    monkeypatch.setattr(ExtractionWorker, "process_evidence", no_model)
+    search = AsyncMock(
+        return_value=ResearchSearchResult(
+            False, "research_provider_limit_exceeded", "markets", []
+        )
+    )
+    monkeypatch.setattr(ResearchService, "search", search)
+
+    @asynccontextmanager
+    async def same_session():
+        yield session
+
+    coordinator = AutomationCoordinator()
+    for job, seconds in (("news_intake", 300), ("news_capture", 10)):
+        coordinator.telemetry[job] = JobTelemetry(job, seconds)
+    monkeypatch.setattr(
+        "investos.services.automation.async_session_maker", same_session
+    )
+    monkeypatch.setattr(coordinator, "_log_job_action", lambda **kwargs: None)
+    await coordinator._run_news_intake()
+    await coordinator._run_news_capture()
+    assert coordinator.telemetry["news_intake"].last_status == "ok"
+    assert coordinator.telemetry["news_capture"].last_status == "ok"
+    no_model.assert_not_awaited()
+    observation = await session.scalar(
+        select(ResearchDiscoveryObservation).where(
+            ResearchDiscoveryObservation.url == supplier_url
+        )
+    )
+    assert observation.outcome == "ingested_evidence"
+    assert observation.observed_at >= published_at
+    assert await session.get(RawEvidence, observation.evidence_id) is not None
+
+    context = compact_fresh_research_context(
+        await AgentService(session)._portfolio_fresh_checks(
+            {}, "What recently changed in markets?"
+        )
+    )
+    by_url = {candidate["url"]: candidate for candidate in context["results"]}
+    assert supplier_url in by_url
+    assert future_url not in by_url and undated_url not in by_url
+    assert by_url[supplier_url]["evidence_id"] == str(observation.evidence_id)
+    assert by_url[supplier_url]["content_kind"] == "feed_summary"
+    assert "force majeure" in by_url[supplier_url]["content"]
+    assert all(
+        "supplier" not in call.kwargs["query"].lower()
+        for call in search.await_args_list
+    )
+
+
 async def test_pausing_feed_preserves_leads_without_fetching_them(
     workflow_session, monkeypatch
 ):

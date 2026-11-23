@@ -55,6 +55,15 @@ def _entry_version(row):
     return row.url, (row.metadata_json or {}).get("content_hash") or str(row.id)
 
 
+def _publisher_position(order_by):
+    return func.row_number().over(
+        partition_by=func.lower(
+            func.split_part(ResearchDiscoveryObservation.query, "/", 3)
+        ),
+        order_by=order_by,
+    )
+
+
 def parse_feed(text: str) -> list[dict]:
     # Passing bytes, not a URL, keeps all networking inside the SSRF/size guard.
     parsed = feedparser.parse(
@@ -398,14 +407,7 @@ class NewsIntakeService:
         publisher_queue = base.with_only_columns(
             ResearchDiscoveryObservation.id,
             already_captured.label("already_captured"),
-            func.row_number()
-            .over(
-                partition_by=func.lower(
-                    func.split_part(ResearchDiscoveryObservation.query, "/", 3)
-                ),
-                order_by=editorial_order,
-            )
-            .label("publisher_position"),
+            _publisher_position(editorial_order).label("publisher_position"),
         ).subquery()
         priority = (
             list(
@@ -708,31 +710,30 @@ class NewsIntakeService:
             and f.last_success_at
             and fresh_since <= f.last_success_at <= now
         ]
-        rows = (
-            list(
+        rows = []
+        if fresh:
+            observation = ResearchDiscoveryObservation
+            editorial_order = (
+                observation.result_rank,
+                observation.observed_at.desc(),
+                observation.id,
+            )
+            # Rotate publishers before applying the read bound, as for capture.
+            rows = list(
                 await self.session.scalars(
-                    select(ResearchDiscoveryObservation)
+                    select(observation)
                     .where(
-                        ResearchDiscoveryObservation.provider == FEED_PROVIDER,
-                        ResearchDiscoveryObservation.metadata_json[
-                            "feed_id"
-                        ].astext.in_([str(f.id) for f in fresh]),
-                        ResearchDiscoveryObservation.observed_at.between(earliest, now),
-                        ResearchDiscoveryObservation.outcome.not_in(
-                            NON_CURRENT_FEED_OUTCOMES
+                        observation.provider == FEED_PROVIDER,
+                        observation.metadata_json["feed_id"].astext.in_(
+                            [str(f.id) for f in fresh]
                         ),
+                        observation.observed_at.between(earliest, now),
+                        observation.outcome.not_in(NON_CURRENT_FEED_OUTCOMES),
                     )
-                    .order_by(
-                        ResearchDiscoveryObservation.observed_at.desc(),
-                        ResearchDiscoveryObservation.result_rank,
-                        ResearchDiscoveryObservation.id,
-                    )
+                    .order_by(_publisher_position(editorial_order), *editorial_order)
                     .limit(200)
                 )
             )
-            if fresh
-            else []
-        )
         by_url = {}
         for row in rows:
             metadata = row.metadata_json or {}
@@ -744,24 +745,23 @@ class NewsIntakeService:
             )
             if time_basis is None:
                 continue
-            by_url.setdefault(
-                row.url,
-                {
+            observed_at = row.observed_at.isoformat()
+            if row.url not in by_url or observed_at > by_url[row.url]["observed_at"]:
+                by_url[row.url] = {
                     "title": row.result_title,
                     "url": row.url,
                     "content": row.snippet,
                     "published_date": metadata.get("published_date"),
                     "updated_date": metadata.get("updated_date"),
                     "time_basis": time_basis,
-                    "observed_at": row.observed_at.isoformat(),
+                    "observed_at": observed_at,
                     "evidence_id": str(row.evidence_id) if row.evidence_id else None,
                     "content_kind": "feed_summary",
                     "lane": "Publisher news",
                     "score": None,
                     "feed_rank": row.result_rank,
-                },
-            )
-        results = sorted(by_url.values(), key=lambda r: r["feed_rank"])[:12]
+                }
+        results = list(by_url.values())[:12]
         if not settings.NEWS_INTAKE_ENABLED:
             status = "intake_disabled"
         elif not fresh:
