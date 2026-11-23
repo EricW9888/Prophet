@@ -9,7 +9,7 @@ import HintMarker from "@/components/HintMarker";
 
 type Feed = { id: string; name: string; url: string; enabled: boolean; status: string; error: string | null; last_checked_at: string | null; last_success_at: string | null; entry_count: number; new_count: number };
 type Arrival = { id: string; title: string; url: string; published_date: string | null; updated_date: string | null; observed_at: string; outcome: string; error: string | null; evidence_id: string | null };
-type Intake = { enabled: boolean; pending_count: number; oldest_pending_at: string | null; poll_seconds: number; fetch_batch_size: number; lookback_hours: number; feeds: Feed[]; total: number; offset: number; items: Arrival[] };
+type Intake = { enabled: boolean; pending_count: number; oldest_pending_at: string | null; poll_seconds: number; fetch_batch_size: number; lookback_hours: number; feeds: Feed[]; total: number; current_only: boolean; offset: number; items: Arrival[] };
 
 function displayTime(value: string | null, missing = "Not checked") {
   if (!value) return missing;
@@ -21,6 +21,7 @@ const outcomes: Record<string, string> = {
   observed: "Awaiting source fetch", fetching: "Fetching source", ingested_evidence: "Source captured",
   fetch_failed: "Fetch retry pending", fetch_retry_exhausted: "Fetch needs review",
   fetch_access_required: "Source requires sign-in",
+  fetch_content_unavailable: "Source content unavailable",
   fetch_size_limit: "Source exceeds storage size limit",
   publication_unverified: "Publication time unverified", publication_outside_window: "Outside intake window",
   feed_update_outside_window: "Feed update outside intake window",
@@ -36,7 +37,10 @@ export default function NewsIntakePanel() {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const { read, status } = useWorkspaceReads<"news">();
-  const load = useCallback(() => read<Intake>("news", `/news-intake?offset=${offset}`, setData), [offset, read]);
+  const load = useCallback(() => read<Intake>("news", `/news-intake?offset=${offset}&current_only=${!showAll}`, setData), [offset, read, showAll]);
+  const shownItems = data && data.current_only === !showAll
+    ? data.items.slice(0, showAll ? data.items.length : 5)
+    : null;
 
   useEffect(() => {
     void load();
@@ -90,7 +94,7 @@ export default function NewsIntakePanel() {
           </form>
         </details>
         {error ? <p role="alert" className="mb-3 text-sm text-red-400">{error}</p> : null}
-        <div className="divide-y divide-line">{(showAll ? data.items : data.items.slice(0, 5)).map(item => <article key={item.id} className="py-3">
+        <div className="divide-y divide-line">{shownItems?.map(item => <article key={item.id} className="py-3">
           <div className="flex flex-wrap items-start justify-between gap-2"><a className="min-w-0 flex-1 break-words text-sm font-medium text-action underline" href={item.url} target="_blank" rel="noreferrer">{item.title}</a>
             {item.evidence_id ? <Link className="text-sm text-action underline" href={`/sources/evidence/${item.evidence_id}`}>Evidence receipt</Link> : null}
             <Link className="text-sm text-action underline" href={`/chat?${new URLSearchParams({ q: `Investigate this provisional publisher report: ${JSON.stringify(item.title)}. Source: ${item.url}. Check the original report, contrary evidence, publication and discovery times, and any material direct or indirect portfolio implications. Separate reported claims from confirmed facts and hypotheses.` })}`}>Research draft</Link>
@@ -98,9 +102,9 @@ export default function NewsIntakePanel() {
           <p className="mt-1 text-xs text-muted">{outcomes[item.outcome] || item.outcome.replaceAll("_", " ")} · Discovered {displayTime(item.observed_at)} · Published {displayTime(item.published_date, "Unverified")}{item.updated_date && <> · Feed updated {displayTime(item.updated_date)}</>}</p>
           {item.error ? <p className="mt-1 break-words text-xs text-red-400">{item.error}</p> : null}
         </article>)}</div>
-        {!data.items.length ? <p className="py-3 text-sm text-muted">No publisher observations retained yet. Feed status above shows whether intake has checked successfully.</p> : null}
-        {!showAll && data.total > 5 ? <button type="button" className="mt-3 text-sm text-action underline" onClick={() => setShowAll(true)}>Browse all retained observations</button> : null}
-        {showAll && data.total > 20 ? <div className="mt-3 flex items-center gap-3 text-sm">
+        {shownItems?.length === 0 ? <p className="py-3 text-sm text-muted">{showAll ? "No publisher observations retained yet." : "No current publisher leads. Check feed status or browse retained observations."}</p> : null}
+        {data.total > 0 ? <button type="button" className="mt-3 text-sm text-action underline" onClick={() => { setOffset(0); setShowAll(!showAll); }}>{showAll ? "Show current leads" : "Browse all retained observations"}</button> : null}
+        {showAll && !data.current_only && data.total > 20 ? <div className="mt-3 flex items-center gap-3 text-sm">
           <button className="border border-line px-3 py-1 disabled:opacity-50" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 20))}>Previous</button>
           <span className="text-muted">{data.offset + 1}–{data.offset + data.items.length} of {data.total}</span>
           <button className="border border-line px-3 py-1 disabled:opacity-50" disabled={offset + 20 >= data.total} onClick={() => setOffset(offset + 20)}>Next</button>

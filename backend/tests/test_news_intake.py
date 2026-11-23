@@ -3,16 +3,18 @@
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
+from youtube_transcript_api import TranscriptsDisabled
 
 from investos.config import Settings, settings
 from investos.core.prompting import compact_fresh_research_context
-from investos.core.url_security import UrlFetchNetworkError
+from investos.core.url_security import PublicDocument, UrlFetchNetworkError
 from investos.db import get_session
 from investos.main import app
 from investos.models.coverage import CoverageMap, QuestionHistory, Resolution
@@ -34,6 +36,8 @@ from investos.services.research import (
     ResearchSearchResult,
     ResearchService,
 )
+from investos.services.source import SourceService
+from investos.services.youtube import YouTubeService
 from investos.workers.extraction import ExtractionWorker
 from tests.test_extraction_retention import extraction_payload
 from tests.test_investor_workflows import workflow_session
@@ -207,13 +211,15 @@ async def test_oversize_source_leaves_receipt_and_other_lead_is_captured(
     await service._record(subscription, [item(url=oversized), item(url=valid, rank=2)])
 
     async def fetched_html(_ingestion, url, **_kwargs):
-        return (
+        html = (
             "<p>"
             + ("x" * (1024 * 1024 + 1) if url == oversized else "Valid filing")
             + "</p>"
         )
 
-    monkeypatch.setattr(IngestionService, "_fetch_url_text", fetched_html)
+        return PublicDocument(url, html.encode(), "text/html", "utf-8")
+
+    monkeypatch.setattr(IngestionService, "_fetch_public_document", fetched_html)
     result = await service._fetch_pending()
     assert result["articles_failed"] == result["articles_fetched"] == 1
     observations = {
@@ -567,6 +573,58 @@ async def test_pausing_feed_preserves_leads_without_fetching_them(
     fetcher.assert_not_awaited()
 
 
+async def test_autonomous_feed_captures_captions_and_retains_unreadable_video(
+    workflow_session, monkeypatch
+):
+    monkeypatch.setattr(settings, "NEWS_FEED_URLS", [])
+    monkeypatch.setattr(settings, "NEWS_INTAKE_FETCH_BATCH_SIZE", 2)
+    subscription = await feed(workflow_session)
+    available = "https://youtu.be/CaseAudio01"
+    missing = "https://www.youtube.com/live/CaseAudio02"
+    monkeypatch.setattr(
+        NewsIntakeService,
+        "_read_feed",
+        AsyncMock(return_value=[item(url=available), item(url=missing, rank=2)]),
+    )
+
+    async def captions(video_id):
+        if video_id == "CaseAudio02":
+            raise TranscriptsDisabled(video_id)
+        return [SimpleNamespace(text="The supplier has paused shipments.")]
+
+    monkeypatch.setattr(YouTubeService, "_read_captions", staticmethod(captions))
+    no_html = AsyncMock(
+        side_effect=AssertionError("Do not read the watch page as a transcript")
+    )
+    monkeypatch.setattr(IngestionService, "_fetch_public_document", no_html)
+    service = NewsIntakeService(workflow_session)
+    run = await service.run()
+    assert run["articles_fetched"] == run["articles_failed"] == 1
+    rows = {
+        row.url: row
+        for row in await workflow_session.scalars(
+            select(ResearchDiscoveryObservation).where(
+                ResearchDiscoveryObservation.query == subscription.url
+            )
+        )
+    }
+    evidence = await workflow_session.get(RawEvidence, rows[available].evidence_id)
+    assert evidence.source_item_type == "video_transcript"
+    assert evidence.metadata_json["representation"] == "caption_transcript"
+    assert evidence.metadata_json["canonical_source_url"] == (
+        "https://www.youtube.com/watch?v=CaseAudio01"
+    )
+    assert not evidence.is_processed
+    detail = await SourceService(workflow_session).get_evidence_detail(evidence.id)
+    assert detail["origin_kind"] == "automation"
+    assert detail["origin_label"] == "Publisher feed intake"
+    assert rows[missing].outcome == "fetch_content_unavailable"
+    assert rows[missing].evidence_id is None
+    assert "No public YouTube captions" in rows[missing].error
+    assert (await service._fetch_pending())["articles_failed"] == 0
+    no_html.assert_not_awaited()
+
+
 async def test_expired_capture_is_retained_outside_the_queue(workflow_session):
     service = NewsIntakeService(workflow_session)
     subscription = await feed(workflow_session)
@@ -598,6 +656,38 @@ async def test_stale_feed_checkpoint_is_not_current_coverage(workflow_session):
     assert (await service.status())["pending_count"] >= 1
 
 
+async def test_feed_backfill_stays_in_history_without_displacing_current_leads(
+    workflow_session,
+):
+    service = NewsIntakeService(workflow_session)
+    subscription = await feed(workflow_session)
+    now = datetime.now(UTC)
+    fresh = item(url="https://example.test/current")
+    await service._record(subscription, [fresh], observed_at=now - timedelta(minutes=1))
+    archive_date = (now - timedelta(days=90)).isoformat()
+    await service._record(
+        subscription,
+        [
+            {
+                **item(url=f"https://example.test/archive/{i}"),
+                "published_date": archive_date,
+            }
+            for i in range(25)
+        ],
+        observed_at=now,
+    )
+    current = await service.status(current_only=True)
+    assert current["total"] == 26
+    assert [row["url"] for row in current["items"]] == [fresh["url"]]
+    assert len((await service.status())["items"]) == 20
+    general = SourceService(workflow_session)
+    assert len(await general.list_discovery_observations()) == 26
+    assert (
+        await general.list_discovery_observations(exclude_provider="publisher_feed")
+        == []
+    )
+
+
 async def test_official_feeds_are_durable_defaults(workflow_session, monkeypatch):
     service = NewsIntakeService(workflow_session)
     monkeypatch.setattr(
@@ -609,6 +699,8 @@ async def test_official_feeds_are_durable_defaults(workflow_session, monkeypatch
     official = [row for row in feeds if row.url.startswith("https://www.sec.gov/")]
     assert len(official) == 2
     assert any(row.url.startswith("https://www.federalreserve.gov/") for row in feeds)
+    assert any(row.url.startswith("https://www.youtube.com/feeds/") for row in feeds)
+    assert sum(row.url.startswith("https://www.bls.gov/feed/") for row in feeds) == 2
     official[0].enabled = False
     await workflow_session.flush()
     await service.ensure_defaults()

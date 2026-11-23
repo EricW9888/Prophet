@@ -4,10 +4,13 @@ import asyncio
 import importlib.util
 import re
 from datetime import UTC, datetime
+from time import monotonic
 from typing import Any, Awaitable, Callable
 from urllib.parse import parse_qs, urlparse
 from uuid import UUID
 
+from requests import Session
+from requests.exceptions import Timeout
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from youtube_transcript_api import (
@@ -18,11 +21,16 @@ from youtube_transcript_api import (
 )
 
 from investos.config import settings
+from investos.core.uploads import UploadTooLargeError
 from investos.models.evidence import EvidenceProcessingState, RawEvidence
 from investos.models.source import Source
 from investos.schemas.evidence import RawEvidenceCreate
 from investos.services.evidence_processing import EvidenceProcessingService
-from investos.services.ingestion import IngestionService
+from investos.services.ingestion import (
+    FetchedUrlDocument,
+    IngestionService,
+    SourceContentUnavailable,
+)
 from investos.services.media_investigation import MediaInvestigationPlanner
 from investos.services.media_workspace import MediaIngestionPolicy, media_temp_workspace
 from investos.services.research import ResearchService
@@ -39,6 +47,20 @@ from investos.services.youtube_transcription import (
 )
 
 ProgressCallback = Callable[[str, str, dict[str, Any] | None], Awaitable[None]]
+
+
+class _CaptionSession(Session):
+    def __init__(self, timeout: float):
+        super().__init__()
+        self.trust_env = False
+        self.deadline = monotonic() + timeout
+
+    def send(self, request, **kwargs):
+        remaining = self.deadline - monotonic()
+        if remaining <= 0:
+            raise Timeout("YouTube caption retrieval exceeded its deadline.")
+        kwargs["timeout"] = remaining
+        return super().send(request, **kwargs)
 
 
 class YouTubeService:
@@ -63,6 +85,74 @@ class YouTubeService:
         self.research = research_service or ResearchService(session)
         self.frame_extractor = frame_extractor or LocalYouTubeFrameOCR()
         self.media_policy = media_policy or MediaIngestionPolicy.from_settings()
+
+    @classmethod
+    def video_id_for_url(cls, url: str) -> str | None:
+        return cls._classify_url(url).get("video_id")
+
+    @staticmethod
+    async def _read_captions(video_id: str):
+        def fetch():
+            with _CaptionSession(settings.URL_FETCH_TIMEOUT_SECONDS) as session:
+                api = YouTubeTranscriptApi(http_client=session)
+                try:
+                    return api.fetch(video_id)
+                except NoTranscriptFound as exc:
+                    # English is preferred. Retain original-language captions
+                    # when the publisher only offers other languages.
+                    transcript = next(iter(api.list(video_id)), None)
+                    if transcript is None:
+                        raise exc
+                    return transcript.fetch()
+
+        async with asyncio.timeout(settings.URL_FETCH_TIMEOUT_SECONDS):
+            return await asyncio.to_thread(fetch)
+
+    @classmethod
+    async def fetch_caption_document(
+        cls, url: str, video_id: str
+    ) -> FetchedUrlDocument:
+        try:
+            transcript = await cls._read_captions(video_id)
+        except (NoTranscriptFound, TranscriptsDisabled) as exc:
+            raise SourceContentUnavailable(
+                "No public YouTube captions were available."
+            ) from exc
+        except VideoUnavailable as exc:
+            raise SourceContentUnavailable("The YouTube video is unavailable.") from exc
+        except Exception as exc:
+            raise SourceContentUnavailable(
+                f"YouTube caption retrieval failed ({type(exc).__name__}).",
+                retryable=True,
+            ) from exc
+        content = " ".join(item.text for item in transcript).strip()
+        if not content:
+            raise SourceContentUnavailable(
+                "The YouTube caption track has no readable text."
+            )
+        if (
+            len(content.encode("utf-8"))
+            > settings.INGESTION_MAX_UPLOAD_MB * 1024 * 1024
+        ):
+            raise UploadTooLargeError(
+                "The caption text exceeds the configured storage size limit."
+            )
+        return FetchedUrlDocument(
+            url=url,
+            canonical_url=f"https://www.youtube.com/watch?v={video_id}",
+            title=None,
+            content=content,
+            source_item_type="video_transcript",
+            capture_metadata={
+                "content_type": "text/plain",
+                "video_id": video_id,
+                "media_asset_id": f"youtube:{video_id}",
+                "representation": "caption_transcript",
+                "ingest_mode": "caption_transcript",
+                "caption_language": getattr(transcript, "language_code", None),
+                "captions_generated": getattr(transcript, "is_generated", None),
+            },
+        )
 
     async def ingest_video(
         self,
@@ -124,9 +214,7 @@ class YouTubeService:
         source = bound_source
         media_asset_id = f"youtube:{video_id}"
         try:
-            transcript_list = await asyncio.to_thread(
-                YouTubeTranscriptApi().fetch, video_id
-            )
+            transcript_list = await self._read_captions(video_id)
             full_text = " ".join([item.text for item in transcript_list])
         except (NoTranscriptFound, TranscriptsDisabled):
             readiness = self.audio_transcriber.readiness()
@@ -942,12 +1030,23 @@ class YouTubeService:
         }
 
     def _extract_video_id(self, url: str) -> str | None:
-        return self._classify_url(url).get("video_id")
+        return self.video_id_for_url(url)
 
     @staticmethod
     def _classify_url(url: str) -> dict[str, str | None]:
-        parsed = urlparse((url or "").strip())
-        host = (parsed.netloc or "").lower()
+        try:
+            parsed = urlparse((url or "").strip())
+            port = parsed.port
+        except ValueError:
+            return {"kind": "invalid", "video_id": None}
+        if (
+            parsed.scheme not in {"http", "https"}
+            or parsed.username is not None
+            or parsed.password is not None
+            or (port is not None and port not in settings.URL_FETCH_ALLOWED_PORT_SET)
+        ):
+            return {"kind": "invalid", "video_id": None}
+        host = (parsed.hostname or "").rstrip(".").lower()
         path_parts = [part for part in parsed.path.split("/") if part]
         if host.startswith("www."):
             host = host[4:]

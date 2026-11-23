@@ -9,6 +9,7 @@ from investos.models.fundamental import FundamentalMetric
 from investos.models.market_setup import MarketSetupSignal
 from investos.services.artifact_hygiene import label_from_profile_texts
 from investos.services.entity_hygiene import EntityHygieneService
+from investos.services.ingestion import FetchedUrlDocument
 from investos.services.integrity import IntegrityService
 from investos.services.research import ResearchSearchResult, ResearchService
 from investos.services.review import ReviewService
@@ -212,15 +213,17 @@ async def test_research_continues_after_irrelevant_top_result(monkeypatch):
     )
     service.ingestion.fetch_url_document = AsyncMock(
         side_effect=[
-            SimpleNamespace(
+            FetchedUrlDocument(
                 content="A Ford recall report.",
+                url="https://example.com/pe12-019",
                 canonical_url="https://example.com/pe12-019",
-                public_time=None,
+                title=None,
             ),
-            SimpleNamespace(
+            FetchedUrlDocument(
                 content="A Tesla report.",
+                url="https://example.com/pe23-019",
                 canonical_url="https://example.com/pe23-019",
-                public_time=None,
+                title=None,
             ),
         ]
     )
@@ -307,10 +310,11 @@ async def test_research_activity_preserves_explicit_extraction_retry_state(monke
         )
     )
     service.ingestion.fetch_url_document = AsyncMock(
-        return_value=SimpleNamespace(
+        return_value=FetchedUrlDocument(
             content="A directly attributable company filing.",
+            url="https://example.com/filing",
             canonical_url="https://example.com/filing",
-            public_time=None,
+            title=None,
         )
     )
     service.ingestion.ingest_text = AsyncMock(

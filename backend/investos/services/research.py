@@ -46,7 +46,7 @@ from investos.services.artifact_hygiene import (
     strip_research_wrappers,
 )
 from investos.services.evidence_processing import EvidenceProcessingService
-from investos.services.ingestion import IngestionService
+from investos.services.ingestion import IngestionService, SourceContentUnavailable
 from investos.services.question_lifecycle import (
     MAX_EXTRACTION_WAIT_DAYS,
     MAX_RESEARCH_ATTEMPTS,
@@ -1605,11 +1605,26 @@ class ResearchService:
                     content_origin = "direct_page"
                     fetch_error: str | None = None
                     document_public_time = None
+                    capture_metadata = {}
+                    document_item_type = None
                     try:
                         document = await self.ingestion.fetch_url_document(source_url)
                         content = document.content
                         canonical_source_url = document.canonical_url
                         document_public_time = document.public_time
+                        capture_metadata = document.capture_metadata
+                        document_item_type = document.source_item_type
+                    except SourceContentUnavailable as exc:
+                        await self._update_discovery_outcome(
+                            observation_id,
+                            outcome=(
+                                "fetch_failed"
+                                if exc.retryable
+                                else "fetch_content_unavailable"
+                            ),
+                            error=str(exc),
+                        )
+                        continue
                     except (UnsafeUrlError, UrlFetchNetworkError, ValueError) as exc:
                         fetch_error = f"{type(exc).__name__}: {exc}"
                         raw_content = str(candidate.get("raw_content") or "").strip()
@@ -1631,12 +1646,9 @@ class ResearchService:
                         description=f"Auto-discovered via {RESEARCH_PROVIDER_CAPABILITIES[provider].label}.",
                     )
                     evidence_metadata = {
-                        "content_type": (
-                            "text/html"
-                            if content_origin == "direct_page"
-                            else "text/plain"
-                        ),
+                        "content_type": "text/plain",
                         **(metadata_json or {}),
+                        **capture_metadata,
                         "normalized_query": query,
                         "effective_query": discovery.query,
                         "search_title": title,
@@ -1655,7 +1667,8 @@ class ResearchService:
                         RawEvidenceCreate(
                             title=title,
                             source_id=source_context.source.id,
-                            source_item_type=source_context.inferred_type,
+                            source_item_type=document_item_type
+                            or source_context.inferred_type,
                             url=source_url,
                             public_time=document_public_time,
                             metadata_json=evidence_metadata,
@@ -1746,7 +1759,7 @@ class ResearchService:
                     self._log_research_action(
                         status=status,
                         summary=(
-                            f"External research ingested from the source page for {title}"
+                            f"External research captured from the original source for {title}"
                             if content_origin == "direct_page"
                             else f"External research ingested from Tavily's source extraction for {title}"
                         ),

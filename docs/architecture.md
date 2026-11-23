@@ -169,7 +169,8 @@ promotion.
 Publisher RSS/Atom intake uses `feedparser` over bytes fetched through the same
 bounded public-URL guard. Durable `PublisherFeed` subscriptions retain their
 pause choice, coverage checkpoint and fetch lease. Default subscriptions include
-publisher news, SEC filings and releases, and Federal Reserve releases.
+publisher news, SEC filings and releases, Federal Reserve releases and videos,
+and Bureau of Labor Statistics employment and inflation releases.
 `NEWS_FEED_URLS` configures which defaults are added; existing subscriptions
 retain their settings. Intake runs independently
 of the model circuit: new and changed headlines are batch-retained as provisional
@@ -178,6 +179,11 @@ Feed entries with the same publisher origin, canonical URL, publication time,
 and exact stored text share a document receipt. Each entry keeps its own
 discovery and fetch history. Revised content and independent origins retain
 their own evidence.
+URL submissions, external research results, and publisher feeds share the
+source reader. It reads PDF text with page boundaries and captures public
+caption tracks for YouTube video links. The receipt identifies the original
+document or video and its representation. Unreadable PDFs and unavailable
+captions remain discovery leads, with a capture outcome that describes the gap.
 An editorial-priority lane and an oldest-lead slot share fetch capacity; retry
 backoff, fenced leases and raw-receipt recovery preserve interrupted work.
 Failed or unverifiably dated items remain inspectable rather than becoming

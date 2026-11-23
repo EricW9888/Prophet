@@ -36,6 +36,20 @@ class ResolvedUrl:
     host_header: str
 
 
+@dataclass(frozen=True)
+class PublicDocument:
+    url: str
+    body: bytes
+    media_type: str
+    encoding: str
+
+    def text(self) -> str:
+        try:
+            return self.body.decode(self.encoding, errors="replace")
+        except LookupError:
+            return self.body.decode("utf-8", errors="replace")
+
+
 async def _system_resolver(hostname: str, port: int) -> Sequence[str]:
     loop = asyncio.get_running_loop()
     try:
@@ -146,9 +160,32 @@ async def fetch_public_text(
     resolver: Resolver | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> str:
+    document = await fetch_public_document(
+        url,
+        timeout_seconds=timeout_seconds,
+        max_redirects=max_redirects,
+        max_bytes=max_bytes,
+        allowed_ports=allowed_ports,
+        resolver=resolver,
+        transport=transport,
+    )
+    return document.text()
+
+
+async def fetch_public_document(
+    url: str,
+    *,
+    timeout_seconds: float = 20.0,
+    max_redirects: int = 5,
+    max_bytes: int = 2 * 1024 * 1024,
+    max_pdf_bytes: int | None = None,
+    allowed_ports: set[int] | frozenset[int] = frozenset({80, 443}),
+    resolver: Resolver | None = None,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> PublicDocument:
     if max_redirects < 0:
         raise ValueError("max_redirects must be non-negative")
-    if max_bytes <= 0:
+    if max_bytes <= 0 or (max_pdf_bytes is not None and max_pdf_bytes <= 0):
         raise ValueError("max_bytes must be positive")
 
     current_url = url
@@ -156,6 +193,8 @@ async def fetch_public_text(
         "Accept": "text/html,application/xhtml+xml,text/plain,application/json,application/xml;q=0.9,*/*;q=0.1",
         "User-Agent": "Mozilla/5.0 (compatible; Prophet/0.1)",
     }
+    if max_pdf_bytes is not None:
+        headers["Accept"] = "application/pdf," + headers["Accept"]
     timeout = httpx.Timeout(timeout_seconds)
 
     try:
@@ -196,24 +235,34 @@ async def fetch_public_text(
                         continue
 
                     response.raise_for_status()
-                    content_type = response.headers.get("content-type", "").casefold()
+                    content_type = (
+                        response.headers.get("content-type", "")
+                        .split(";", 1)[0]
+                        .strip()
+                        .casefold()
+                    )
+                    pdf_response = max_pdf_bytes is not None and content_type in {
+                        "application/pdf",
+                        "application/octet-stream",
+                    }
                     allowed_content = (
                         not content_type
                         or content_type.startswith("text/")
                         or "json" in content_type
                         or "xml" in content_type
                     )
-                    if not allowed_content:
+                    if not allowed_content and not pdf_response:
                         raise UrlFetchNetworkError(
                             "The URL did not return a supported text document."
                         )
+                    byte_limit = max_pdf_bytes if pdf_response else max_bytes
                     content_length = response.headers.get("content-length")
                     if content_length:
                         try:
                             declared_length = int(content_length)
                         except ValueError:
                             declared_length = 0
-                        if declared_length > max_bytes:
+                        if declared_length > byte_limit:
                             raise UrlFetchNetworkError(
                                 "The remote document exceeds the configured size limit."
                             )
@@ -221,15 +270,30 @@ async def fetch_public_text(
                     body = bytearray()
                     async for chunk in response.aiter_bytes():
                         body.extend(chunk)
-                        if len(body) > max_bytes:
+                        if len(body) > byte_limit:
                             raise UrlFetchNetworkError(
                                 "The remote document exceeds the configured size limit."
                             )
-                    encoding = response.encoding or "utf-8"
-                    try:
-                        return bytes(body).decode(encoding, errors="replace")
-                    except LookupError:
-                        return bytes(body).decode("utf-8", errors="replace")
+                        if (
+                            content_type == "application/octet-stream"
+                            and len(body) >= 1024
+                            and b"%PDF-" not in body[:1024]
+                        ):
+                            raise UrlFetchNetworkError(
+                                "The URL did not return a supported document."
+                            )
+                    if content_type == "application/octet-stream":
+                        if b"%PDF-" not in body[:1024]:
+                            raise UrlFetchNetworkError(
+                                "The URL did not return a supported document."
+                            )
+                        content_type = "application/pdf"
+                    return PublicDocument(
+                        url=target.original_url,
+                        body=bytes(body),
+                        media_type=content_type,
+                        encoding=response.encoding or "utf-8",
+                    )
     except TimeoutError as exc:
         raise UrlFetchNetworkError(
             "The remote document exceeded its retrieval deadline."

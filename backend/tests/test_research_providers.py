@@ -15,7 +15,7 @@ from investos.core.research_providers import (
 )
 from investos.core.url_security import UrlFetchNetworkError
 from investos.schemas.integrations import ResearchIntegrationSettingsUpdate
-from investos.services.ingestion import FetchedUrlDocument
+from investos.services.ingestion import FetchedUrlDocument, SourceContentUnavailable
 from investos.services.research import ResearchSearchResult, ResearchService
 from investos.services.runtime_settings import (
     ResearchRuntimeSettings,
@@ -193,6 +193,73 @@ async def test_known_first_candidate_does_not_hide_unseen_source(
         assert result.reason == "duplicate_recent_research"
         assert result.evidence_id == duplicate.id
         service.ingestion.fetch_url_document.assert_not_awaited()
+
+
+async def test_failed_caption_capture_stays_a_lead_and_search_continues(monkeypatch):
+    video_url = "https://www.youtube.com/watch?v=CaseAudio01"
+    report_url = "https://example.test/report"
+    service = ResearchService(None)
+    service.session = SimpleNamespace(commit=AsyncMock())
+    service._find_recent_duplicate_research = AsyncMock(return_value=None)
+    service._discover = AsyncMock(
+        return_value=ResearchSearchResult(
+            True,
+            "ok",
+            "supplier shipments",
+            results=[
+                {
+                    "title": "Briefing",
+                    "url": video_url,
+                    "raw_content": "Watch page description",
+                },
+                {"title": "Report", "url": report_url},
+            ],
+            observation_ids_by_url={video_url: uuid4(), report_url: uuid4()},
+        )
+    )
+    service._update_discovery_outcome = AsyncMock()
+    service.ingestion.fetch_url_document = AsyncMock(
+        side_effect=[
+            SourceContentUnavailable("No public captions were available."),
+            FetchedUrlDocument(
+                report_url,
+                report_url,
+                "Report",
+                "[Page 1]\nShipments paused.",
+                capture_metadata={
+                    "content_type": "text/plain",
+                    "representation": "pdf_text",
+                },
+            ),
+        ]
+    )
+    service.source_learning.get_or_create_source_for_url = AsyncMock(
+        return_value=SimpleNamespace(
+            source=SimpleNamespace(id=uuid4()), inferred_type="web_research"
+        )
+    )
+    service.ingestion.ingest_text = AsyncMock(return_value=SimpleNamespace(id=uuid4()))
+    monkeypatch.setattr(
+        RuntimeSettingsStore,
+        "load",
+        lambda: SimpleNamespace(research=_research(provider_order=["tavily"])),
+    )
+    monkeypatch.setattr(ResearchService, "_append_usage_log", lambda *_: None)
+    monkeypatch.setattr(ResearchService, "_log_research_action", lambda *_a, **_k: None)
+    result = await service.run_ad_hoc_request(
+        query="supplier shipments",
+        title="Supplier shipments",
+        process_after_ingest=False,
+    )
+    assert result.started
+    assert [
+        call.kwargs["outcome"]
+        for call in service._update_discovery_outcome.await_args_list
+    ] == ["fetch_content_unavailable", "ingested_evidence"]
+    assert service.ingestion.ingest_text.await_count == 1
+    payload = service.ingestion.ingest_text.await_args.args[0]
+    assert payload.url == report_url
+    assert payload.metadata_json["representation"] == "pdf_text"
 
 
 def test_legacy_tavily_runtime_settings_gain_free_first_provider_order():

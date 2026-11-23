@@ -344,17 +344,18 @@ class SourceService:
             for evidence, source, processing in rows
         ]
 
-    async def list_discovery_observations(self, limit: int = 80) -> list[dict]:
-        rows = (
-            (
-                await self.session.execute(
-                    select(ResearchDiscoveryObservation)
-                    .order_by(desc(ResearchDiscoveryObservation.observed_at))
-                    .limit(max(1, min(limit, 200)))
-                )
+    async def list_discovery_observations(
+        self, limit: int = 80, *, exclude_provider: str | None = None
+    ) -> list[dict]:
+        observations = select(ResearchDiscoveryObservation)
+        if exclude_provider:
+            observations = observations.where(
+                ResearchDiscoveryObservation.provider != exclude_provider
             )
-            .scalars()
-            .all()
+        rows = await self.session.scalars(
+            observations.order_by(desc(ResearchDiscoveryObservation.observed_at)).limit(
+                max(1, min(limit, 200))
+            )
         )
         return [
             {
@@ -2010,6 +2011,12 @@ class SourceService:
                 "origin_label": "Email ingestion",
                 "origin_detail": detail,
             }
+        if trigger == "publisher_feed_intake":
+            return {
+                "origin_kind": "automation",
+                "origin_label": "Publisher feed intake",
+                "origin_detail": "Discovered through a configured publisher feed.",
+            }
         if (
             trigger == "manual_youtube_ingest"
             or item_type
@@ -2029,6 +2036,18 @@ class SourceService:
                 or evidence.url
                 or ""
             ).strip()
+            if item_type == "video_transcript" and metadata.get("discovery_provider"):
+                unattended = trigger in {
+                    "research_loop",
+                    "source_claim_assessment_followup",
+                }
+                return {
+                    "origin_kind": "automation" if unattended else "discovery",
+                    "origin_label": (
+                        "Autonomous research" if unattended else "External research"
+                    ),
+                    "origin_detail": query or video_ref,
+                }
             if item_type == "manual_transcript":
                 label = "Manual YouTube transcript"
                 detail = (

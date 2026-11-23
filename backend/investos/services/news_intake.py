@@ -28,11 +28,18 @@ from investos.schemas.evidence import RawEvidenceCreate
 from investos.services.ingestion import (
     FetchedUrlDocument,
     IngestionService,
+    SourceContentUnavailable,
     _html_to_text,
 )
 from investos.services.source_learning import SourceLearningService
 
 FEED_PROVIDER = "publisher_feed"
+NON_CURRENT_FEED_OUTCOMES = (
+    "superseded_by_feed_update",
+    "publication_unverified",
+    "publication_outside_window",
+    "feed_update_outside_window",
+)
 
 
 def _feed_time_basis(published, updated, *, earliest, latest):
@@ -454,6 +461,12 @@ class NewsIntakeService:
                 elif isinstance(result, UploadTooLargeError):
                     row.outcome = "fetch_size_limit"
                     metadata.pop("next_fetch_at", None)
+                elif (
+                    isinstance(result, SourceContentUnavailable)
+                    and not result.retryable
+                ):
+                    row.outcome = "fetch_content_unavailable"
+                    metadata.pop("next_fetch_at", None)
                 elif attempts < 3:
                     row.outcome = "fetch_failed"
                     metadata["next_fetch_at"] = (
@@ -475,11 +488,12 @@ class NewsIntakeService:
                     RawEvidenceCreate(
                         title=row.result_title,
                         source_id=source.source.id,
-                        source_item_type="news",
+                        source_item_type=result.source_item_type or "news",
                         url=row.url,
                         public_time=result.public_time,
                         content=result.content,
                         metadata_json={
+                            **result.capture_metadata,
                             "trigger": "publisher_feed_intake",
                             "discovery_observation_id": str(row.id),
                             "feed_id": metadata["feed_id"],
@@ -576,12 +590,7 @@ class NewsIntakeService:
                         ].astext.in_([str(f.id) for f in fresh]),
                         ResearchDiscoveryObservation.observed_at.between(earliest, now),
                         ResearchDiscoveryObservation.outcome.not_in(
-                            [
-                                "superseded_by_feed_update",
-                                "publication_unverified",
-                                "publication_outside_window",
-                                "feed_update_outside_window",
-                            ]
+                            NON_CURRENT_FEED_OUTCOMES
                         ),
                     )
                     .order_by(
@@ -647,7 +656,8 @@ class NewsIntakeService:
             ],
         }
 
-    async def status(self, *, offset=0):
+    async def status(self, *, offset=0, current_only=False):
+        now = datetime.now(UTC)
         feeds = list(
             await self.session.scalars(
                 select(PublisherFeed).order_by(PublisherFeed.name, PublisherFeed.id)
@@ -660,14 +670,22 @@ class NewsIntakeService:
             await self.session.execute(
                 select(
                     func.count(), func.min(ResearchDiscoveryObservation.observed_at)
-                ).where(*self._capture_scope(datetime.now(UTC)), pending)
+                ).where(*self._capture_scope(now), pending)
             )
         ).one()
+        observations = select(ResearchDiscoveryObservation)
+        if current_only:
+            observations = observations.where(
+                *self._capture_scope(now),
+                ResearchDiscoveryObservation.outcome.not_in(NON_CURRENT_FEED_OUTCOMES),
+            )
+        else:
+            observations = observations.where(
+                ResearchDiscoveryObservation.provider == FEED_PROVIDER
+            )
         rows = list(
             await self.session.scalars(
-                select(ResearchDiscoveryObservation)
-                .where(ResearchDiscoveryObservation.provider == FEED_PROVIDER)
-                .order_by(
+                observations.order_by(
                     ResearchDiscoveryObservation.observed_at.desc(),
                     ResearchDiscoveryObservation.result_rank,
                     ResearchDiscoveryObservation.id.desc(),
@@ -705,6 +723,7 @@ class NewsIntakeService:
                 for f in feeds
             ],
             "total": total,
+            "current_only": current_only,
             "offset": offset,
             "items": [
                 {

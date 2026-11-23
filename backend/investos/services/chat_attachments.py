@@ -6,7 +6,6 @@ import asyncio
 import base64
 import hashlib
 import io
-import threading
 import zipfile
 from contextlib import closing
 from copy import deepcopy
@@ -22,6 +21,7 @@ from sqlalchemy import select
 
 from investos.config import settings
 from investos.core.llm import call_llm_json
+from investos.core.pdf_text import PDFIUM_LOCK, read_pdf_text
 from investos.core.provider_health import ProviderHealthStore, probe_llm_provider
 from investos.core.providers import llm_provider_capability
 from investos.core.storage import LocalStorage
@@ -30,8 +30,6 @@ from investos.models.attachment import ChatAttachment
 from investos.schemas.agent import ChatAttachmentResponse
 from investos.services.runtime_settings import RuntimeSettingsStore
 
-# PDFium explicitly forbids concurrent calls across threads, including documents.
-_PDF_LOCK = threading.Lock()
 TEXT_EXTENSIONS = {
     ".txt",
     ".md",
@@ -71,29 +69,17 @@ def _read_document(name: str, data: bytes) -> tuple[str, str, dict]:
     warnings = []
     meta = {"warnings": warnings, "page_count": None, "visual_count": 0}
     if b"%PDF-" in data[:1024]:
-        with _PDF_LOCK, closing(pdfium.PdfDocument(data)) as document:
-            meta.update(
-                kind="pdf", page_count=len(document), visual_count=len(document)
-            )
-            parts, remaining = [], settings.CHAT_ATTACHMENT_MAX_TEXT_CHARS
-            for index in range(len(document)):
-                if remaining <= 0:
-                    warnings.append(
-                        f"Extracted text reached the configured limit before page {index + 1}; original pages remain available for visual reading."
-                    )
-                    break
-                with (
-                    closing(document[index]) as page,
-                    closing(page.get_textpage()) as textpage,
-                ):
-                    text = textpage.get_text_bounded()
-                parts.append(f"[Page {index + 1}]\n{text[:remaining]}")
-                if len(text) > remaining:
-                    warnings.append(
-                        f"Text on page {index + 1} exceeds the configured text limit."
-                    )
-                remaining -= len(text)
-        return "application/pdf", "\n\n".join(parts), meta
+        text, pdf = read_pdf_text(
+            data, max_chars=settings.CHAT_ATTACHMENT_MAX_TEXT_CHARS
+        )
+        meta.update(
+            kind="pdf", page_count=pdf["page_count"], visual_count=pdf["page_count"]
+        )
+        warnings.extend(
+            f"{warning} Original pages remain available for visual reading."
+            for warning in pdf["warnings"]
+        )
+        return "application/pdf", text, meta
     if extension in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
         _image_png(data)  # Decode and validate before accepting an image.
         with Image.open(io.BytesIO(data)) as image:
@@ -198,7 +184,7 @@ def _read_document(name: str, data: bytes) -> tuple[str, str, dict]:
 
 def _pdf_page_png(data: bytes, page_number: int) -> bytes:
     with (
-        _PDF_LOCK,
+        PDFIUM_LOCK,
         closing(pdfium.PdfDocument(data)) as document,
         closing(document[page_number - 1]) as page,
     ):
