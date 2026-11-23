@@ -529,6 +529,47 @@ async def test_feed_updates_recover_legacy_unqualified_observations(workflow_ses
     assert observation.metadata_json["intake_time_basis"] == "publisher_feed_updated"
 
 
+@pytest.mark.parametrize("first_check_failed", [False, True])
+async def test_slow_feed_check_does_not_skip_a_poll_interval(
+    workflow_session, monkeypatch, first_check_failed
+):
+    monkeypatch.setattr(settings, "NEWS_FEED_URLS", [])
+    subscription = await feed(workflow_session)
+    started = datetime.now(UTC)
+    clock_time = started
+    interval = timedelta(seconds=settings.NEWS_INTAKE_POLL_SECONDS)
+    duration = timedelta(seconds=12)
+    fetches = 0
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock_time
+
+    async def slow_read(_url):
+        nonlocal clock_time, fetches
+        clock_time += duration
+        fetches += 1
+        if first_check_failed and fetches == 1:
+            raise UrlFetchNetworkError("Timeout in the first feed request.")
+        return []
+
+    monkeypatch.setattr("investos.services.news_intake.datetime", Clock)
+    monkeypatch.setattr(NewsIntakeService, "_read_feed", staticmethod(slow_read))
+    service = NewsIntakeService(workflow_session)
+    first = await service.run()
+    assert first["feeds_failed"] == int(first_check_failed)
+    assert subscription.last_checked_at == started + duration
+    assert subscription.next_poll_at == started + interval
+
+    later_start = started + interval + timedelta(seconds=2)
+    clock_time = later_start
+    assert (await service.run())["feeds_checked"] == 1
+    assert fetches == 2
+    assert subscription.last_success_at == later_start + duration
+    assert subscription.next_poll_at == started + 2 * interval
+
+
 async def test_normal_intake_retains_then_fetches_unheld_headline_without_model_work(
     workflow_session, monkeypatch
 ):

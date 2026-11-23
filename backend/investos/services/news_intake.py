@@ -156,11 +156,14 @@ class NewsIntakeService:
         )
         observed_at = datetime.now(UTC)
         observed = failures = 0
+        poll_interval = timedelta(seconds=settings.NEWS_INTAKE_POLL_SECONDS)
         for feed, response in zip(feeds, responses):
+            scheduled_at = feed.next_poll_at or now
+            # Advance from the scheduled check. A download may finish after
+            # the scheduler's anchor and otherwise make it skip the next tick.
+            elapsed_intervals = (now - scheduled_at) // poll_interval
+            feed.next_poll_at = scheduled_at + (elapsed_intervals + 1) * poll_interval
             feed.last_checked_at = datetime.now(UTC)
-            feed.next_poll_at = feed.last_checked_at + timedelta(
-                seconds=settings.NEWS_INTAKE_POLL_SECONDS
-            )
             feed.lease_until = None
             if isinstance(response, Exception):
                 failures += 1
