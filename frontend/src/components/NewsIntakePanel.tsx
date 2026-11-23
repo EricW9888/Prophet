@@ -21,6 +21,7 @@ const outcomes: Record<string, string> = {
   observed: "Awaiting source fetch", fetching: "Fetching source", ingested_evidence: "Source captured",
   fetch_failed: "Fetch retry pending", fetch_retry_exhausted: "Fetch needs review",
   fetch_access_required: "Source requires sign-in",
+  fetch_size_limit: "Source exceeds storage size limit",
   publication_unverified: "Publication time unverified", publication_outside_window: "Outside intake window",
   feed_update_outside_window: "Feed update outside intake window",
   superseded_by_feed_update: "Publisher updated this item",

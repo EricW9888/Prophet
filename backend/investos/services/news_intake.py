@@ -20,6 +20,7 @@ from sqlalchemy.dialects.postgresql import JSONB, insert
 from investos.config import settings
 from investos.core.dates import parse_publication_datetime
 from investos.core.research_providers import normalize_search_results
+from investos.core.uploads import UploadTooLargeError
 from investos.core.url_security import UrlFetchNetworkError, fetch_public_text
 from investos.models.evidence import RawEvidence, ResearchDiscoveryObservation
 from investos.models.news import PublisherFeed
@@ -434,6 +435,9 @@ class NewsIntakeService:
                 ):
                     row.outcome = "fetch_access_required"
                     metadata.pop("next_fetch_at", None)
+                elif isinstance(result, UploadTooLargeError):
+                    row.outcome = "fetch_size_limit"
+                    metadata.pop("next_fetch_at", None)
                 elif attempts < 3:
                     row.outcome = "fetch_failed"
                     metadata["next_fetch_at"] = (
@@ -475,6 +479,7 @@ class NewsIntakeService:
                         },
                     ),
                     process_now=False,
+                    fetched_document=True,
                 )
                 row.evidence_id = evidence.id
                 row.outcome = "ingested_evidence"

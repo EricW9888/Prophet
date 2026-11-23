@@ -1662,6 +1662,7 @@ class ResearchService:
                             content=content,
                         ),
                         process_now=False,
+                        fetched_document=content_origin == "direct_page",
                     )
                     await self._update_discovery_outcome(
                         observation_id,

@@ -153,8 +153,36 @@ def test_extraction_prompt_treats_absence_as_diagnostic_not_market_knowledge():
     prompt = ExtractionWorker._structured_extraction_system_prompt()
 
     assert "context to test" in prompt
-    assert "not a market fact or contradiction" in prompt
+    assert "must not appear in facts or claims" in prompt
     assert "actual subject supported by that individual object" in prompt
+
+
+async def test_untargeted_source_headline_is_not_a_research_question(monkeypatch):
+    call = AsyncMock(
+        return_value={
+            "primary_subject": "Example Retailer",
+            "subject_type": "entity",
+            "summary": "A reported supplier dispute at a discount retailer.",
+        }
+    )
+    monkeypatch.setattr("investos.workers.extraction.call_llm_json", call)
+    worker = ExtractionWorker.__new__(ExtractionWorker)
+    title = "What is going on with Example Retailer?"
+    await worker._extract_structured_data(title, "A creditor restricted store funding.")
+    prompt = call.await_args.kwargs["user_prompt"]
+    assert "intended question: not specified" in prompt
+    assert f"Evidence title: {title}" in prompt
+    assert "open discovery" in prompt
+    await worker._extract_structured_data(
+        title,
+        "A creditor restricted store funding.",
+        target_context={
+            "research_question": "Which suppliers will be paid?",
+        },
+    )
+    prompt = call.await_args.kwargs["user_prompt"]
+    assert "intended question: Which suppliers will be paid?" in prompt
+    assert "open discovery" not in prompt
 
 
 async def test_research_continues_after_irrelevant_top_result(monkeypatch):

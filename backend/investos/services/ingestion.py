@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from investos.config import settings
 from investos.core.dates import parse_explicit_calendar_datetime, parse_iso_datetime
 from investos.core.storage import LocalStorage
-from investos.core.uploads import read_upload_limited
+from investos.core.uploads import UploadTooLargeError, read_upload_limited
 from investos.core.url_security import fetch_public_text
 from investos.models.evidence import RawEvidence
 from investos.models.source import Source
@@ -116,8 +116,13 @@ class IngestionService:
         self,
         payload: RawEvidenceCreate,
         process_now: bool = True,
+        *,
+        fetched_document: bool = False,
     ) -> RawEvidence:
-        if len(payload.content) > settings.INGESTION_MAX_NOTE_CHARS:
+        if (
+            not fetched_document
+            and len(payload.content) > settings.INGESTION_MAX_NOTE_CHARS
+        ):
             raise ValueError("The note exceeds the configured size limit.")
         filename = f"{(payload.title or 'manual_note').replace(' ', '_')[:40]}.txt"
         upload = UploadFile(
@@ -172,6 +177,7 @@ class IngestionService:
                 content=document.content,
             ),
             process_now=process_now,
+            fetched_document=True,
         )
 
     async def fetch_url_document(self, url: str) -> FetchedUrlDocument:
@@ -198,6 +204,13 @@ class IngestionService:
         text_content = _html_to_text(html)
         if not text_content.strip():
             raise ValueError("Fetched URL did not contain extractable text content.")
+        if (
+            len(text_content.encode("utf-8"))
+            > settings.INGESTION_MAX_UPLOAD_MB * 1024 * 1024
+        ):
+            raise UploadTooLargeError(
+                "The extracted document exceeds the configured storage size limit."
+            )
         return FetchedUrlDocument(
             url=url,
             canonical_url=_extract_canonical_url(html, url),

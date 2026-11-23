@@ -188,7 +188,10 @@ publication time. Its update and observation clocks remain distinct. EDGAR
 filing indexes identify the primary filing in their document table. The URL
 intake path fetches that document and retains both the index and document URLs.
 The primary filing uses the configured upload byte budget so large prospectuses
-can reach the ordinary text-ingestion and extraction workflow.
+can reach the ordinary extraction workflow. Fetched text uses the document
+storage budget. Handwritten notes retain their own character limit. A source
+that exceeds the storage budget leaves its discovery receipt and other queued
+sources can still be captured.
 Extraction wakes again after durable progress when another attempt is ready.
 Attempts are ordered by when they became eligible, so long documents, new
 arrivals, and due retries share the queue. Provider cooldown preserves the
