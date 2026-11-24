@@ -456,7 +456,7 @@ QUESTION_RESEARCH_PLAN_SCHEMA = {
         },
         "coverage_scope": {
             "type": "string",
-            "enum": ["portfolio_wide", "question_specific"],
+            "enum": ["portfolio_wide", "market_wide", "question_specific"],
         },
         "use_historical_analogies": {"type": "boolean"},
         "reason": {"type": "string"},
@@ -5358,10 +5358,11 @@ class AgentService:
             "Do not make causes, magnitude, historical frequency, legal process, valuation and every stakeholder's outcome separate core prerequisites unless the question actually asks for them. "
             "Set external_research_required when answering requires a current fact, a comparison dataset, a universe scan, or evidence unlikely to be established by stored context alone. "
             "Use opportunity_universe only when the user is asking Prophet to canvass for new investable opportunities; this mode is a capability route, not a conclusion that an opportunity exists. "
-            "Use focused_external for a bounded company, industry, macro, event, or historical question that needs outside evidence. "
+            "Use focused_external for a market-wide roundup or a bounded company, industry, macro, event, or historical question that needs outside evidence. "
             "Use stored_context only when durable stored evidence can reasonably answer the question without pretending that retrieval coverage is complete. "
             "Describe whether portfolio data is the primary evidence, a secondary read-through after the question is answered, or unnecessary. "
             "Set coverage_scope to portfolio_wide for a whole-book update, daily portfolio review, or a request to check changes across holdings, regardless of how detailed the question is. "
+            "Set coverage_scope to market_wide for a current roundup of developments across the market, even if the turn is anchored on the portfolio or classified as a theme. This includes business events, economic data, and policy wherever relevant. Use this scope when the user wants a broad scan without a particular subject or mechanism. "
             "Use question_specific for a focused company, macro, comparison, static accounting, or opportunity-universe question; a portfolio subject alone does not make it a whole-book update. "
             "Enable historical analogies only when the user asks for a historical comparison or a causal historical channel is part of the actual research objective. "
             "Do not force a fixed investor checklist. Derive dimensions from this question and leave irrelevant dimensions out. "
@@ -5432,15 +5433,21 @@ class AgentService:
             if mode == "stored_context":
                 mode = "focused_external"
         coverage_scope = result.get("coverage_scope", fallback["coverage_scope"])
-        if coverage_scope not in {"portfolio_wide", "question_specific"}:
+        if coverage_scope not in {"portfolio_wide", "market_wide", "question_specific"}:
             coverage_scope = fallback["coverage_scope"]
-        if subject_type != "portfolio" or mode == "opportunity_universe":
-            coverage_scope = "question_specific"
         question_scope = self._classified_question_scope(freshness_requirement)
-        if question_scope:
+        if mode == "opportunity_universe" or (
+            coverage_scope == "portfolio_wide"
+            and (subject_type != "portfolio" or question_scope)
+        ):
             coverage_scope = "question_specific"
-            if portfolio_role == "primary_evidence":
-                portfolio_role = "secondary_read_through"
+        if (
+            question_scope or coverage_scope == "market_wide"
+        ) and portfolio_role == "primary_evidence":
+            portfolio_role = "secondary_read_through"
+        if coverage_scope == "market_wide":
+            external_required = True
+            mode = "focused_external"
         return {
             "question_scope": question_scope,
             "research_objective": objective or fallback["research_objective"],
@@ -5788,10 +5795,14 @@ class AgentService:
             subject_type == "portfolio"
             and self._is_broad_portfolio_update(message, question_research_plan)
         )
+        market_update = (question_research_plan or {}).get(
+            "coverage_scope"
+        ) == "market_wide"
         if (
             not requirement["required"]
             and not plan_requires_external
             and not broad_portfolio_update
+            and not market_update
         ):
             return None
         if not requirement["reason"]:
@@ -5800,9 +5811,11 @@ class AgentService:
                 or "The answer requires external evidence matched to the question."
             )
 
-        if broad_portfolio_update:
+        if broad_portfolio_update or market_update:
             return await self._portfolio_fresh_checks(
-                packet_context, str(requirement["reason"]), progress_callback
+                packet_context if broad_portfolio_update else None,
+                str(requirement["reason"]),
+                progress_callback,
             )
 
         fallback_query = self._fresh_research_query(
@@ -5877,7 +5890,7 @@ class AgentService:
         if (plan or {}).get("research_mode") == "opportunity_universe":
             return False
         scope = (plan or {}).get("coverage_scope")
-        if scope in {"portfolio_wide", "question_specific"}:
+        if scope in {"portfolio_wide", "market_wide", "question_specific"}:
             return scope == "portfolio_wide"
         if (plan or {}).get("portfolio_context_role") in {
             "secondary_read_through",
@@ -5928,7 +5941,7 @@ class AgentService:
         checks = [
             (
                 "Market",
-                "US stock market latest major company breaking news",
+                "US stock market latest major developments economic reports policy decisions company disclosures",
                 tuple(
                     filter(
                         None,

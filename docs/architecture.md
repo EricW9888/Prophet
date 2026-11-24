@@ -242,6 +242,9 @@ Both stages share provider admission. Direct ingestion still returns its
 subject analysis synchronously when requested.
 Recently checked publisher summaries with a publication or feed update time in
 the current window enter the normal broad portfolio question's fresh context.
+Market-wide chat questions use the same dated publisher and market sources
+even when their working context is a theme. They skip holding-specific search
+batches and leave portfolio evidence available for secondary analysis.
 The bounded shortlist rotates publisher hosts before filling extra slots from
 busy feeds, using the same host grouping as background source capture. The
 latest eligible observation per URL takes one slot before the read limit.

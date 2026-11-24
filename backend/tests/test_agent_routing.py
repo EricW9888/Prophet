@@ -10,6 +10,7 @@ from investos.core.prompting import compact_fresh_research_context
 from investos.core.provider_health import LLMProviderCooldownError
 from investos.schemas.agent import AgentContextCandidateResponse, AgentTurnRequest
 from investos.services.agent import AGENT_TOOLS, PORTFOLIO_SUBJECT_ID, AgentService
+from investos.services.news_intake import NewsIntakeService
 from investos.services.portfolio_lookahead import PortfolioLookaheadService
 from investos.services.research import ResearchSearchResult, ResearchService
 
@@ -418,6 +419,70 @@ async def test_vague_portfolio_update_checks_market_industry_and_loss_driver(
     assert [item["url"] for item in result["results"]] == [
         f"https://example.test/{path}" for path in ("market", "industry", "holding")
     ]
+
+
+@pytest.mark.asyncio
+async def test_market_wide_theme_checks_dated_sources_without_holding_search(
+    monkeypatch,
+):
+    service = AgentService(object())
+    message = "What changed across U.S. markets today, including outside my holdings?"
+    freshness = {
+        "requires_fresh_research": True,
+        "subject_hint": {
+            "subject_kind": "theme",
+            "search_text": "U.S. market developments today",
+        },
+    }
+    plan = service._normalize_question_research_plan(
+        {"coverage_scope": "market_wide", "portfolio_context_role": "primary_evidence"},
+        message=message,
+        subject_name="Portfolio",
+        subject_type="portfolio",
+        freshness_requirement=freshness,
+    )
+    assert plan["coverage_scope"] == "market_wide"
+    assert plan["portfolio_context_role"] == "secondary_read_through"
+    assert plan["external_research_required"]
+
+    recent_release = {
+        "title": "A scheduled demand survey was released",
+        "url": "https://publisher.example/release",
+        "published_date": datetime.now(UTC).isoformat(),
+        "lane": "Publisher news",
+    }
+    publisher = AsyncMock(
+        return_value={
+            "results": [recent_release],
+            "checks": [{"lane": "Publisher news", "fresh_feeds": 1, "query": "RSS"}],
+        }
+    )
+    monkeypatch.setattr(NewsIntakeService, "recent_context", publisher)
+    search = AsyncMock(
+        return_value=ResearchSearchResult(
+            True,
+            "ok",
+            "market query",
+            [{"url": "https://example.test/markets", "title": "Markets"}],
+        )
+    )
+    monkeypatch.setattr(ResearchService, "search", search)
+    fresh = await service._maybe_fresh_research_context(
+        message=message,
+        subject_name="Portfolio",
+        subject_type="portfolio",
+        packet_context={"portfolio_context": {"holdings": [{"ticker": "EXMPL"}]}},
+        freshness_requirement=freshness,
+        question_research_plan=plan,
+    )
+
+    publisher.assert_awaited_once()
+    search.assert_awaited_once()
+    assert search.await_args.kwargs["news_window_hours"] == 24
+    assert "EXMPL" not in search.await_args.kwargs["query"]
+    assert [check["lane"] for check in fresh["checks"]] == ["Publisher news", "Market"]
+    assert fresh["results"] == [recent_release]
+    assert fresh["holding_search_coverage"] == []
 
 
 @pytest.mark.asyncio
