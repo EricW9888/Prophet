@@ -119,6 +119,7 @@ export type PortfolioHistory = {
     covered_positions: number;
     total_positions: number;
     unavailable_tickers: string[];
+    retained_close_tickers?: string[];
     reasons: string[];
   }>;
   events: Array<{

@@ -7,9 +7,11 @@ from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import case, cast, column, func, select, true
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from investos.core.dates import parse_iso_datetime
 from investos.models.entity import Security
 from investos.models.evidence import RawEvidence
 from investos.models.portfolio import Position
@@ -32,7 +34,7 @@ from investos.services.risk import RiskService
 from investos.services.runtime_settings import RuntimeSettingsStore
 
 EVENT_LIMIT = 250
-HISTORY_RECEIPT_VERSION = 2
+HISTORY_RECEIPT_VERSION = 3
 
 
 class PortfolioHistoryService:
@@ -120,6 +122,7 @@ class PortfolioHistoryService:
                     )
             except TimeoutError:
                 snapshots = {}
+        await self._load_retained_regular_closes(snapshots, start, now)
         points, reasons, calendar_version = await asyncio.to_thread(
             self._build_values,
             snapshots,
@@ -261,11 +264,58 @@ class PortfolioHistoryService:
         await self.session.commit()
         return response
 
+    async def _load_retained_regular_closes(self, snapshots, start, now):
+        if not snapshots:
+            return
+        receipts = AttributionResult.factor_contributions_json
+        prices = receipts["prices"]
+        stored = func.jsonb_each(
+            case((func.jsonb_typeof(prices) == "object", prices), else_=cast({}, JSONB))
+        ).table_valued("key", column("value", JSONB))
+        quote = stored.c.value["latest_regular_close"]
+        identity_fields = (
+            "provider",
+            "reported_symbol",
+            "reported_exchange",
+            "exchange_timezone",
+            "currency",
+        )
+        rows = await self.session.execute(
+            select(
+                AttributionResult.id,
+                stored.c.key,
+                quote,
+                *(stored.c.value[key].astext for key in identity_fields),
+            )
+            .select_from(AttributionResult)
+            .join(stored, true())
+            .where(
+                receipts["kind"].astext == "portfolio_history",
+                AttributionResult.computed_at.between(start, now),
+                stored.c.key.in_(list(snapshots)),
+                func.jsonb_typeof(quote) == "object",
+            )
+            .order_by(AttributionResult.computed_at.desc(), AttributionResult.id.desc())
+        )
+        for receipt_id, ticker, close, *identity in rows:
+            snapshot = snapshots[ticker]
+            if identity[0] != "yahoo_finance" or tuple(identity) != tuple(
+                snapshot.get(key) for key in identity_fields
+            ):
+                continue
+            snapshot.setdefault("retained_regular_closes", []).append(
+                {
+                    **close,
+                    "receipt_id": str(receipt_id),
+                }
+            )
+
     @staticmethod
     def _build_values(
         snapshots, securities, rows, current, reconciled_quantities, start, now
     ):
         prices = defaultdict(dict)
+        retained_tickers = defaultdict(set)
         valuation_times = {}
         missing_prices_before_split = defaultdict(set)
         missing_shares_after_split = defaultdict(set)
@@ -319,9 +369,48 @@ class PortfolioHistoryService:
                     else calendar.session_close(day.isoformat()).to_pydatetime()
                 )
                 if start <= completed <= now:
-                    prices[day][ticker] = (completed, Decimal(str(bar["close"])))
+                    prices[day][ticker] = (
+                        Decimal(str(bar["close"])),
+                        bar.get("close_basis") == "provider_regular_market_quote",
+                    )
                     if day not in valuation_times:
                         valuation_times[day] = completed
+            retained = snapshot.pop("retained_regular_closes", [])
+            for quote in retained:
+                if quote.get("close_basis") != "provider_regular_market_quote":
+                    continue
+                opens_at, closes_at, quoted_at, observed_at = (
+                    parse_iso_datetime(quote.get(key))
+                    for key in (
+                        "timestamp",
+                        "completed_at",
+                        "quoted_at",
+                        "completion_observed_at",
+                    )
+                )
+                close = MarketDataService._finite_number(quote.get("close"))
+                if not (
+                    opens_at
+                    and closes_at
+                    and quoted_at
+                    and observed_at
+                    and close
+                    and close > 0
+                ):
+                    continue
+                day = opens_at.astimezone(calendar.tz).date()
+                if (
+                    ticker in prices.get(day, {})
+                    or not start <= closes_at <= quoted_at <= observed_at <= now
+                    or quoted_at.astimezone(calendar.tz).date() != day
+                    or not calendar.is_session(day.isoformat())
+                    or calendar.session_open(day.isoformat()) != opens_at
+                    or calendar.session_close(day.isoformat()) != closes_at
+                ):
+                    continue
+                prices[day][ticker] = (Decimal(str(close)), True)
+                retained_tickers[day].add(ticker)
+                snapshot.setdefault("retained_regular_closes", []).append(quote)
 
         # Keep current positions as an independent check on ledger completeness.
         reasons = []
@@ -348,6 +437,7 @@ class PortfolioHistoryService:
             held = {key: value for key, value in replay.quantities.items() if value}
             missing = []
             disputed = []
+            retained_used = []
             value = Decimal(0)
             for key, quantity in held.items():
                 security = securities.get(key)
@@ -370,10 +460,13 @@ class PortfolioHistoryService:
                 elif not supported or mark is None:
                     missing.append(ticker)
                 else:
-                    price = mark[1]
-                    for split, ratio in reported_splits.get(ticker, {}).items():
-                        if day < split:
-                            price *= ratio
+                    price, regular_quote = mark
+                    if ticker in retained_tickers.get(day, ()):
+                        retained_used.append(ticker)
+                    if not regular_quote:
+                        for split, ratio in reported_splits.get(ticker, {}).items():
+                            if day < split:
+                                price *= ratio
                     value += quantity * price
             point_reasons = list(reasons)
             if replay.unsupported:
@@ -397,6 +490,7 @@ class PortfolioHistoryService:
                     covered_positions=len(held) - len(missing),
                     total_positions=len(held),
                     unavailable_tickers=sorted(missing),
+                    retained_close_tickers=sorted(retained_used),
                     reasons=point_reasons,
                 )
             )

@@ -213,6 +213,7 @@ async def test_stock_split_uses_matching_share_bases_for_live_and_history(
     import exchange_calendars
     import httpx
 
+    from investos.models.quant import AttributionResult
     from investos.services.runtime_settings import RuntimeSettingsStore
 
     session = workflow_session
@@ -220,12 +221,17 @@ async def test_stock_split_uses_matching_share_bases_for_live_and_history(
     now = datetime.now(UTC)
     prior_day, split_day = calendar.sessions_in_range(
         (now - timedelta(days=12)).date(), (now - timedelta(days=1)).date()
-    )[-2:]
+    )[-3:-1]
     old_open = calendar.session_open(prior_day).to_pydatetime()
     old_close = calendar.session_close(prior_day).to_pydatetime()
     new_open = calendar.session_open(split_day).to_pydatetime()
     new_close = calendar.session_close(split_day).to_pydatetime()
+    provider_session_open = new_open
+    provider_session_close = new_close
     provider_quote_time = new_close + timedelta(seconds=1)
+    provider_dates = [old_open, new_open]
+    provider_closes = [100, None]
+    provider_quote = 101
     portfolio = PortfolioService(session)
     trade = await portfolio.add_transaction_by_ticker(
         "SYNSPLIT",
@@ -248,19 +254,19 @@ async def test_stock_split_uses_matching_share_bases_for_live_and_history(
                                 "currency": "USD",
                                 "exchangeName": "NYQ",
                                 "exchangeTimezoneName": "America/New_York",
-                                "regularMarketPrice": 101,
+                                "regularMarketPrice": provider_quote,
                                 "regularMarketTime": epoch(provider_quote_time),
                                 "currentTradingPeriod": {
                                     "regular": {
-                                        "start": epoch(new_open),
-                                        "end": epoch(new_close),
+                                        "start": epoch(provider_session_open),
+                                        "end": epoch(provider_session_close),
                                     }
                                 },
                             },
-                            "timestamp": [epoch(old_open), epoch(new_open)],
+                            "timestamp": [epoch(moment) for moment in provider_dates],
                             "indicators": {
-                                "quote": [{"close": [100, None]}],
-                                "adjclose": [{"adjclose": [100, None]}],
+                                "quote": [{"close": provider_closes}],
+                                "adjclose": [{"adjclose": provider_closes}],
                             },
                             "events": {
                                 "splits": {
@@ -322,6 +328,32 @@ async def test_stock_split_uses_matching_share_bases_for_live_and_history(
     assert after[old_close].value == 800
     assert after[new_close].value == 808
     assert after[new_close].gain == 8
+
+    # The provider still leaves the split-day candle empty after its summary
+    # advances. Recalculate the ledger against the retained same-session quote.
+    following_day = calendar.next_session(split_day)
+    provider_session_open = calendar.session_open(following_day).to_pydatetime()
+    provider_session_close = calendar.session_close(following_day).to_pydatetime()
+    provider_quote_time = provider_session_close + timedelta(seconds=1)
+    provider_quote = 102
+    provider_dates.append(provider_session_open)
+    provider_closes.append(102)
+    rebuilt = await history.history(refresh=True)
+    values = {point.at: point.value for point in rebuilt.points}
+    assert values[old_close] == 800
+    assert values[new_close] == 808
+    assert values[provider_session_close] == 816
+    split_point = next(point for point in rebuilt.points if point.at == new_close)
+    assert split_point.retained_close_tickers == ["SYNSPLIT"]
+    saved = await session.get(AttributionResult, rebuilt.receipt_id)
+    retained = saved.factor_contributions_json["prices"]["SYNSPLIT"][
+        "retained_regular_closes"
+    ]
+    assert retained[0]["receipt_id"] == str(receipt.receipt_id)
+
+    provider_closes[1] = 99
+    revised = await history.history(refresh=True)
+    assert next(point.value for point in revised.points if point.at == new_close) == 792
 
 
 async def test_portfolio_history_uses_close_time_cash_flows_gaps_and_receipts(

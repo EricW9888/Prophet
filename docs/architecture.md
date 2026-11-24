@@ -216,9 +216,12 @@ storage budget. Handwritten notes retain their own character limit. A source
 that exceeds the storage budget leaves its discovery receipt and other queued
 sources can still be captured.
 Extraction wakes again after durable progress when another attempt is ready.
-Attempts are ordered by when they became eligible, so long documents, new
-arrivals, and due retries share the queue. Provider cooldown preserves the
-document's retry budget. The usual provider request limits still apply.
+The worker alternates oldest eligible work with a first attempt on publisher
+evidence discovered and captured in the last two feed polls. A priority turn
+falls back to the oldest eligible attempt when there is no recent candidate.
+Continuations and due retries keep their existing eligibility rules. Provider
+cooldown preserves the document's retry budget. The usual provider request
+limits still apply.
 Recently checked publisher summaries with a publication or feed update time in
 the current window enter the normal broad portfolio question's fresh context.
 The bounded shortlist rotates publisher hosts before filling extra slots from
@@ -447,6 +450,11 @@ coverage without fetching new prices. Complete valuation is distinct from having
 enough observations for a stress estimate. Holdings marks exclude cash; ledger
 cash is not broker buying power; dated Modified Dietz returns retain their own
 period and denominator.
+Portfolio history can fill a missing daily candle with a retained regular-close
+quote from the same instrument and exchange session. The current calculation
+links to the source receipt, uses the quote on its original session share basis,
+and still checks the ledger's corporate actions. A published daily candle takes
+precedence when available.
 
 Generated assertions, material assumptions, source references, contradictions,
 falsifiers and alternative explanations are retained in full before review and

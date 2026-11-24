@@ -152,7 +152,7 @@ async def test_extraction_drains_ready_work_after_one_wake_and_yields_on_deferra
     attempts = []
     deferred = asyncio.Event()
 
-    async def next_due(_service, *, model_available):
+    async def next_due(_service, *, model_available, prefer_recent_publisher=False):
         assert model_available
         return waiting[0]
 

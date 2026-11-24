@@ -46,7 +46,7 @@ export default function PortfolioHistoryPanel() {
       <div className="flex items-center gap-2">
         <h2 className="font-semibold">Portfolio performance</h2>
         <HintMarker label="About portfolio performance">
-          Historical holdings value is reconstructed from recorded trades and daily prices downloaded at the calculation time. Cash is excluded. Gain and loss account for buys, sells and dividends over the displayed period. Missing prices or an unverified share basis create gaps. Open the calculation receipt to inspect its inputs.
+          Historical holdings value uses recorded trades and verified closing prices, including retained quotes for the same session. Cash is excluded. Gain and loss account for buys, sells and dividends over the displayed period. Missing prices or an unverified share basis create gaps. Open the calculation receipt to inspect its inputs.
         </HintMarker>
       </div>
       <button type="button" disabled={busy} onClick={() => void load(true)} className="workspace-control">{busy ? "Updating…" : "Refresh prices"}</button>
@@ -72,7 +72,12 @@ export default function PortfolioHistoryPanel() {
       <CapturedValueChart label={metric === "value" ? "Holdings value" : "Holdings gain and loss"} eventsLabel="Portfolio activity" collapseEvents
         points={history.points.map((point) => ({
           id: point.at, at: point.at, value: metric === "value" ? point.value : point.gain,
-          detail: [`${point.covered_positions}/${point.total_positions} holdings priced`, ...point.reasons, point.unavailable_tickers.length ? `Missing ${point.unavailable_tickers.join(", ")}` : ""].filter(Boolean).join(" · "),
+          detail: [
+            `${point.covered_positions}/${point.total_positions} holdings priced`,
+            ...point.reasons,
+            point.unavailable_tickers.length ? `Missing ${point.unavailable_tickers.join(", ")}` : "",
+            point.retained_close_tickers?.length ? `Retained close for ${point.retained_close_tickers.join(", ")}` : "",
+          ].filter(Boolean).join(" · "),
           href: `${API_BASE}/risk/portfolio/history/${history.receipt_id}`, receiptLabel: "Open calculation receipt",
         }))}
         events={history.events.map((event) => ({

@@ -14,6 +14,7 @@ from youtube_transcript_api import TranscriptsDisabled
 
 from investos.config import Settings, settings
 from investos.core.prompting import compact_fresh_research_context
+from investos.core.provider_health import ProviderHealthStore
 from investos.core.url_security import PublicDocument, UrlFetchNetworkError
 from investos.db import get_session
 from investos.main import app
@@ -28,6 +29,7 @@ from investos.models.news import PublisherFeed
 from investos.schemas.evidence import RawEvidenceCreate
 from investos.services.agent import AgentService
 from investos.services.automation import AutomationCoordinator, JobTelemetry
+from investos.services.evidence_processing import EvidenceProcessingService
 from investos.services.ingestion import FetchedUrlDocument, IngestionService
 from investos.services.news_intake import NewsIntakeService, parse_feed
 from investos.services.question_lifecycle import QuestionLifecycleService
@@ -805,6 +807,104 @@ async def test_broad_chat_and_unattended_capture_keep_quiet_publisher_visible(
         "supplier" not in call.kwargs["query"].lower()
         for call in search.await_args_list
     )
+
+
+async def test_unattended_extraction_interleaves_new_publisher_work_with_backlog(
+    workflow_session, monkeypatch
+):
+    session = workflow_session
+    now = datetime.now(UTC)
+    monkeypatch.setattr(settings, "NEWS_FEED_URLS", [])
+    monkeypatch.setattr(settings, "NEWS_INTAKE_POLL_SECONDS", 300)
+    monkeypatch.setattr(settings, "NEWS_INTAKE_FETCH_BATCH_SIZE", 3)
+    older = []
+    for age in (6, 5):
+        record = await IngestionService(session).ingest_text(
+            RawEvidenceCreate(
+                title=f"Existing research backlog {age}",
+                source_item_type="news",
+                content=f"Previously retained source body {age}.",
+            ),
+            process_now=False,
+        )
+        record.created_at = now - timedelta(hours=age)
+        older.append(record.id)
+    await session.commit()
+    subscription = await feed(session)
+    service = NewsIntakeService(session)
+    backfill = "https://example.test/discovered-earlier"
+    await service._record(
+        subscription, [item(url=backfill)], observed_at=now - timedelta(minutes=30)
+    )
+    new_urls = [
+        "https://example.test/current-release-1",
+        "https://example.test/current-release-2",
+    ]
+    await service._record(
+        subscription, [item(url=url) for url in new_urls], observed_at=now
+    )
+
+    async def fetch(url):
+        return replace(document(url), content=f"Synthetic primary document for {url}")
+
+    monkeypatch.setattr(
+        IngestionService, "fetch_url_document", AsyncMock(side_effect=fetch)
+    )
+    assert (await service.capture_pending())["articles_fetched"] == 3
+    records = {
+        row.url: row.evidence_id
+        for row in await session.scalars(
+            select(ResearchDiscoveryObservation).where(
+                ResearchDiscoveryObservation.query == subscription.url
+            )
+        )
+    }
+
+    @asynccontextmanager
+    async def same_session():
+        yield session
+
+    monkeypatch.setattr(
+        "investos.services.automation.async_session_maker", same_session
+    )
+    health = {"state": "healthy"}
+    monkeypatch.setattr(ProviderHealthStore, "public_status", lambda: health)
+    attempts = []
+    processing = EvidenceProcessingService(session)
+
+    async def extract(_worker, evidence_id):
+        attempts.append(evidence_id)
+        record = await session.get(RawEvidence, evidence_id)
+        claim = await processing.claim_extraction(record)
+        assert claim.claimed
+        processing.record_extraction_completed(
+            claim.state,
+            investment_object_status="no_eligible_objects",
+            persisted_object_count=0,
+        )
+        record.is_processed = True
+        await session.commit()
+        return {"processing": processing.summary(claim.state)}
+
+    monkeypatch.setattr(ExtractionWorker, "process_evidence", extract)
+    coordinator = AutomationCoordinator()
+    coordinator.telemetry["evidence_processing"] = JobTelemetry(
+        "evidence_processing", 120
+    )
+    monkeypatch.setattr(coordinator, "_log_job_action", lambda **kwargs: None)
+
+    await coordinator._run_evidence_processing()
+    assert attempts == older[:1]
+    health["state"] = "open"
+    await coordinator._run_evidence_processing()
+    assert attempts == older[:1]
+    assert coordinator.telemetry["evidence_processing"].last_status == "deferred"
+    health["state"] = "healthy"
+    for _ in range(4):
+        await coordinator._run_evidence_processing()
+    assert attempts[2] == older[1]
+    assert {attempts[1], attempts[3]} == {records[url] for url in new_urls}
+    assert attempts[4] == records[backfill]
 
 
 async def test_pausing_feed_preserves_leads_without_fetching_them(
