@@ -192,8 +192,10 @@ caption tracks for YouTube video links. The receipt identifies the original
 document or video and its representation. Unreadable PDFs and unavailable
 captions remain discovery leads, with a capture outcome that describes the gap.
 Feed checks and source capture run independently. Capture takes bounded batches
-from the durable queue between feed checks, including during model outages. Its
-priority slots favor first captures, rotating across publisher hosts before taking
+from the durable queue between feed checks, including during model outages.
+Ready discoveries that match an already retained version link to its receipt
+before the worker claims download slots. Download priority favors first
+captures, rotating across publisher hosts before taking
 multiple priority entries from one host. EDGAR current reports rank before
 routine filings within that host's priority slots. An oldest-lead slot gives revisions and
 older leads a route through the queue. Retry

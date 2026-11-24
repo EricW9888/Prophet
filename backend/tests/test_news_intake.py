@@ -251,6 +251,42 @@ async def test_overlapping_feed_views_share_one_network_fetch(
     assert fetcher.await_count == 2
 
 
+async def test_existing_receipts_do_not_consume_network_capture_slots(
+    workflow_session, monkeypatch
+):
+    session = workflow_session
+    service = NewsIntakeService(session)
+    first, mirror, news = [await feed(session) for _ in range(3)]
+    entries = [item(url=f"https://example.test/shared-{index}") for index in range(2)]
+    fetcher = AsyncMock(side_effect=document)
+    monkeypatch.setattr(IngestionService, "fetch_url_document", fetcher)
+    monkeypatch.setattr(settings, "NEWS_INTAKE_FETCH_BATCH_SIZE", len(entries))
+    await service._record(first, entries)
+    assert (await service.capture_pending())["articles_fetched"] == len(entries)
+
+    next_url = "https://example.test/previously-uncaptured"
+    await service._record(mirror, entries)
+    await service._record(news, [item(url=next_url)])
+    monkeypatch.setattr(settings, "NEWS_INTAKE_FETCH_BATCH_SIZE", 1)
+    fetcher.reset_mock()
+
+    result = await service.capture_pending()
+
+    fetcher.assert_awaited_once_with(next_url)
+    assert result["articles_fetched"] == 1
+    assert result["articles_reused"] == len(entries)
+    rows = list(await session.scalars(select(ResearchDiscoveryObservation)))
+    first_receipts = {
+        row.url: row.evidence_id for row in rows if row.query == first.url
+    }
+    for row in (row for row in rows if row.query == mirror.url):
+        assert row.evidence_id == first_receipts[row.url]
+        assert row.metadata_json["reused_receipt"]
+        assert row.metadata_json["linked_at"]
+        assert row.metadata_json["fetch_attempts"] == 0
+        assert not row.metadata_json.get("fetched_at")
+
+
 async def test_feed_intake_retains_qualifiers_beyond_the_old_prefix(
     workflow_session, monkeypatch
 ):

@@ -14,7 +14,7 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 import feedparser
 from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy import text as sql_text
-from sqlalchemy import tuple_, update
+from sqlalchemy import true, tuple_, update
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.orm import aliased
 
@@ -382,6 +382,7 @@ class NewsIntakeService:
                 <= stamp,
             ),
         ]
+        linked_before_fetch = await self._link_captured_versions(eligible, stamp)
         batch = settings.NEWS_INTAKE_FETCH_BATCH_SIZE
         base = select(ResearchDiscoveryObservation).where(*eligible)
         captured = aliased(ResearchDiscoveryObservation)
@@ -626,12 +627,81 @@ class NewsIntakeService:
             row.metadata_json = metadata
             await self.session.commit()
         return {
-            "articles_selected": len(selected),
+            "articles_selected": len(selected) + linked_before_fetch,
             "articles_fetched": fetched,
             "articles_failed": failed,
             "articles_recovered": recovered,
-            "articles_reused": reused,
+            "articles_reused": reused + linked_before_fetch,
         }
+
+    @staticmethod
+    def _usable_capture_receipts(observation):
+        return (
+            select(observation, RawEvidence)
+            .join(RawEvidence, observation.evidence_id == RawEvidence.id)
+            .where(
+                observation.provider == FEED_PROVIDER,
+                RawEvidence.raw_content_ref.is_not(None),
+                RawEvidence.metadata_json["storage_missing"].as_boolean().is_not(True),
+            )
+            .order_by(observation.observed_at, observation.id)
+        )
+
+    async def _link_captured_versions(self, eligible, stamp):
+        """Resolve already retained versions before reserving download slots."""
+        observation = ResearchDiscoveryObservation
+        captured = aliased(observation)
+        receipt = (
+            self._usable_capture_receipts(captured)
+            .with_only_columns(
+                RawEvidence.id.label("evidence_id"),
+                RawEvidence.metadata_json["canonical_source_url"].astext.label(
+                    "canonical_url"
+                ),
+                maintain_column_froms=True,
+            )
+            .where(
+                captured.url == observation.url,
+                captured.metadata_json["content_hash"].astext
+                == observation.metadata_json["content_hash"].astext,
+            )
+            .correlate(observation)
+            .limit(1)
+            .lateral()
+        )
+        links = (
+            select(observation.id, receipt.c.evidence_id, receipt.c.canonical_url)
+            .select_from(observation)
+            .join(receipt, true())
+            .where(*eligible)
+            .with_for_update(skip_locked=True, of=observation)
+            .cte("captured_links")
+        )
+        metadata = (
+            observation.metadata_json.op("-")("fetch_token")
+            .op("-")("fetch_lease_until")
+            .op("-")("next_fetch_at")
+            .op("||")(cast({"reused_receipt": True, "linked_at": stamp}, JSONB))
+            .op("||")(
+                func.jsonb_strip_nulls(
+                    func.jsonb_build_object(
+                        cast("canonical_source_url", String), links.c.canonical_url
+                    )
+                )
+            )
+        )
+        linked = await self.session.scalars(
+            update(observation)
+            .where(observation.id == links.c.id)
+            .values(
+                evidence_id=links.c.evidence_id,
+                outcome="ingested_evidence",
+                error=None,
+                metadata_json=metadata,
+            )
+            .returning(observation.id)
+        )
+        return len(linked.all())
 
     async def _captured_versions(self, versions):
         if not versions:
@@ -639,20 +709,12 @@ class NewsIntakeService:
         observation = ResearchDiscoveryObservation
         rows = (
             await self.session.execute(
-                select(observation, RawEvidence)
-                .join(RawEvidence, observation.evidence_id == RawEvidence.id)
-                .where(
-                    observation.provider == FEED_PROVIDER,
+                self._usable_capture_receipts(observation).where(
                     tuple_(
                         observation.url,
                         observation.metadata_json["content_hash"].astext,
                     ).in_(sorted(versions)),
-                    RawEvidence.raw_content_ref.is_not(None),
-                    RawEvidence.metadata_json["storage_missing"]
-                    .as_boolean()
-                    .is_not(True),
                 )
-                .order_by(observation.observed_at, observation.id)
             )
         ).all()
         receipts = {}
