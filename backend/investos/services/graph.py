@@ -2114,7 +2114,6 @@ class GraphService:
                     linked_companies=[],
                     direct_portfolio_link=True,
                     context_texts=context_texts,
-                    allow_unlabeled_context=False,
                 )
                 return {
                     "category": "direct holding",
@@ -2147,7 +2146,6 @@ class GraphService:
                 linked_companies=[],
                 direct_portfolio_link=True,
                 context_texts=context_texts,
-                allow_unlabeled_context=False,
             )
             return {
                 "category": "tracked company",
@@ -2205,10 +2203,7 @@ class GraphService:
                 linked_holdings=linked_holdings,
                 linked_companies=linked_companies,
                 direct_portfolio_link=direct_portfolio_link,
-                context_texts=[
-                    self._node_body(node_type, node) or "",
-                    *nearest_connections[:6],
-                ],
+                context_texts=self._stored_mechanism_contexts(node_type, node),
             )
             return {
                 "category": "direct portfolio context",
@@ -2269,8 +2264,7 @@ class GraphService:
                 direct_portfolio_link=False,
                 context_texts=[
                     *intermediary_contexts,
-                    self._node_body(node_type, node) or "",
-                    *path_phrases[:8],
+                    *self._stored_mechanism_contexts(node_type, node),
                 ],
             )
             return {
@@ -2307,10 +2301,7 @@ class GraphService:
                 linked_holdings=[],
                 linked_companies=[],
                 direct_portfolio_link=True,
-                context_texts=[
-                    self._node_body(node_type, node) or "",
-                    *nearest_connections[:6],
-                ],
+                context_texts=self._stored_mechanism_contexts(node_type, node),
             )
             return {
                 "category": "portfolio-level context",
@@ -2554,7 +2545,6 @@ class GraphService:
         linked_companies: list[str],
         direct_portfolio_link: bool,
         context_texts: list[str] | None = None,
-        allow_unlabeled_context: bool = True,
     ) -> dict[str, object]:
         explicit_links = [
             str(item)
@@ -2570,7 +2560,6 @@ class GraphService:
                 node_label,
                 explicit_links,
                 context_texts=context_texts,
-                allow_unlabeled_context=allow_unlabeled_context,
             )
             return {
                 "portfolio_mechanism": channel["mechanism"],
@@ -2606,7 +2595,6 @@ class GraphService:
         targets: list[str],
         *,
         context_texts: list[str] | None = None,
-        allow_unlabeled_context: bool = True,
     ) -> dict[str, str]:
         target_text = (
             ", ".join([target for target in targets[:4] if target])
@@ -2643,45 +2631,10 @@ class GraphService:
                 or "Check the premise, timing, source support and counterevidence before treating this hypothesis as an investment effect.",
             }
 
-        if not allow_unlabeled_context:
-            return {
-                "mechanism_status": "not_established",
-                "portfolio_mechanism": "",
-                "mechanism": "",
-                "next_test": next_test or "",
-            }
-
-        relationship_context = "; ".join(normalized_contexts[:3])
-        if relationship_context:
-            return {
-                "mechanism_status": "not_established",
-                "portfolio_mechanism": (
-                    f"Stored relationship context for {target_text}: {relationship_context}. "
-                    "The precise economic channel is not explicit enough yet to treat as thesis evidence."
-                ),
-                "mechanism": (
-                    f"Stored relationship context for {target_text}: {relationship_context}. "
-                    "The precise economic channel is not explicit enough yet to treat as thesis evidence."
-                ),
-                "next_test": (
-                    "Check which change in demand, supply, margins, financing, valuation, or timing the evidence supports."
-                    if targets
-                    else "Check for a route to a current holding, then look for evidence of an economic effect."
-                ),
-            }
         return {
             "mechanism_status": "not_established",
-            "portfolio_mechanism": (
-                f"A stored connection to {target_text} is present, but the exact driver is not yet explicit. "
-                "Treat it as a prompt for channel discovery, not as thesis evidence."
-            ),
-            "mechanism": (
-                f"A stored connection to {target_text} is present, but the exact driver is not yet explicit. "
-                "Treat it as a prompt for channel discovery, not as thesis evidence."
-            ),
-            "next_test": (
-                "Name the specific channel first: demand, supply, margins, financing, regulation, valuation, or timing; then attach source-backed evidence to that channel."
-            ),
+            "mechanism": "",
+            "next_test": next_test or "",
         }
 
     @staticmethod

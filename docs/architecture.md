@@ -541,6 +541,8 @@ edges disclose their comparison basis from edge metadata.
 When a company lacks a dossier business model, the inspector surfaces current
 business-model evidence directly linked to that company with its source and
 verification status.
+Extraction can seed an empty dossier summary. Subsequent source summaries
+remain on their source items and cannot replace the existing dossier narrative.
 
 Source-attributed relationships are cited `Claim` assertions with two role
 edges (`relationship_subject` and `relationship_object`) and an open predicate

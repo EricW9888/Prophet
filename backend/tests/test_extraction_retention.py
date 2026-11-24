@@ -6,10 +6,12 @@ import fastjsonschema
 import pytest
 from sqlalchemy import select
 
+from investos.models.entity import Entity
 from investos.models.fundamental import FundamentalMetric
 from investos.models.graph import Edge
 from investos.models.knowledge import Claim, Event, Fact
 from investos.models.market_setup import MarketSetupSignal
+from investos.models.profile import Profile
 from investos.workers.extraction import EXTRACTION_SCHEMA, ExtractionWorker
 from tests.test_investor_workflows import workflow_session
 from tests.test_source_relationships import source_fixture
@@ -133,6 +135,18 @@ async def test_extraction_retains_all_generated_objects_through_database(
         AsyncMock(return_value=deepcopy(payload)),
     )
     session = workflow_session
+    narrative = "An existing research synthesis about the company and its strategy."
+    if investment_objects:
+        entity = Entity(name=subject, entity_type="company")
+        session.add(entity)
+        await session.flush()
+        session.add(
+            Profile(
+                subject_type="entity",
+                subject_id=entity.id,
+                executive_summary=narrative,
+            )
+        )
     evidence, item = await source_fixture(session, "Synthetic source observations")
     evidence.is_processed = False
     evidence.raw_content_ref = "synthetic/source.txt"
@@ -140,6 +154,12 @@ async def test_extraction_retains_all_generated_objects_through_database(
     worker = ExtractionWorker(session)
     worker.storage.get_object = AsyncMock(return_value=b"Synthetic source observations")
     outcome = await worker.process_evidence(evidence.id)
+    summary = await session.scalar(
+        select(Profile.executive_summary)
+        .join(Entity, Profile.subject_id == Entity.id)
+        .where(Profile.subject_type == "entity", Entity.name == subject)
+    )
+    assert summary == (narrative if investment_objects else payload["summary"])
     for model, field in [
         (Event, "events"),
         (Fact, "facts"),

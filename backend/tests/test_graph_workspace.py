@@ -138,6 +138,13 @@ async def test_inspector_distinguishes_holdings_profile_and_peer_context(
     assert evidence.statement == facts[0].statement
     assert evidence.is_verified is False
     assert evidence.citation.raw_evidence_id == raw.id
+    evidence_detail = await service.get_node_detail(
+        node_type="fact", node_id=evidence.fact_id
+    )
+    assert evidence_detail.properties["portfolio_mechanism_status"] == "not_established"
+    assert "portfolio_mechanism" not in evidence_detail.properties
+    assert security.ticker in evidence_detail.relevance_reasoning
+    assert evidence.statement not in evidence_detail.relevance_reasoning
 
     result = await service.get_neighborhood(
         node_type="entity", node_id=issuer.id, depth=1, limit=20

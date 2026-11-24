@@ -2176,12 +2176,11 @@ def test_graph_portfolio_mechanism_does_not_invent_debt_channel_from_keywords():
     result = GraphService._portfolio_channel_from_text(
         "Debt maturity wall and weaker interest coverage could pressure refinancing",
         ["MRVL"],
+        context_texts=["The annual report lists the maturity of the long-term debt."],
     )
 
-    mechanism = result["mechanism"].lower()
-    assert "mrvl" in mechanism
-    assert "exact driver is not yet explicit" in mechanism
-    assert "refinancing risk" not in mechanism
+    assert result["mechanism_status"] == "not_established"
+    assert not result["mechanism"]
 
 
 def test_graph_keeps_proposed_economic_effect_explicitly_unverified():

@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -2480,13 +2480,24 @@ class ExtractionWorker:
                 .limit(1)
             )
         ).scalar_one_or_none()
-        if profile:
-            profile.executive_summary = summary
-        else:
+        if profile is None:
             profile = Profile(
                 subject_type=subject_type,
                 subject_id=subject_id,
                 executive_summary=summary,
             )
             self.session.add(profile)
+        elif not (profile.executive_summary or "").strip():
+            await self.session.execute(
+                update(Profile)
+                .where(
+                    Profile.id == profile.id,
+                    or_(
+                        Profile.executive_summary.is_(None),
+                        func.trim(Profile.executive_summary) == "",
+                    ),
+                )
+                .values(executive_summary=summary)
+                .execution_options(synchronize_session="fetch")
+            )
         await self.session.flush()
