@@ -51,6 +51,11 @@ from investos.services.evidence_provenance import build_evidence_source_referenc
 from investos.services.graph_registry import durable_graph_model_map
 from investos.services.shadow_metrics import result_metrics
 from investos.services.source import SourceService
+from investos.services.source_assessment_state import (
+    assessment_note_available,
+    trust_assessment_available,
+    value_assessment_available,
+)
 from investos.services.source_passages import SourcePassageService, text_digest
 
 CONVERSATION_SOURCE_NAME = "Prophet Agent Conversation"
@@ -1620,20 +1625,25 @@ class GraphService:
         elif node_type == "source":
             profile = (
                 await self.session.execute(
-                    select(SourceProfile).where(SourceProfile.source_id == node.id)
+                    select(SourceProfile).where(
+                        SourceProfile.source_id == node.id,
+                        assessment_note_available(SourceProfile.notes),
+                    )
                 )
             ).scalar_one_or_none()
             trust = (
                 await self.session.execute(
                     select(SourceTrustProfile).where(
-                        SourceTrustProfile.source_id == node.id
+                        SourceTrustProfile.source_id == node.id,
+                        trust_assessment_available(SourceTrustProfile.source_id),
                     )
                 )
             ).scalar_one_or_none()
             value = (
                 await self.session.execute(
                     select(SourceValueProfile).where(
-                        SourceValueProfile.source_id == node.id
+                        SourceValueProfile.source_id == node.id,
+                        value_assessment_available(SourceValueProfile.source_id),
                     )
                 )
             ).scalar_one_or_none()

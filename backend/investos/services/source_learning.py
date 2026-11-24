@@ -17,6 +17,7 @@ from investos.models.catalog import (
 )
 from investos.models.evidence import RawEvidence, SourceItem
 from investos.models.source import Source, SourceQualitySegment
+from investos.services.source_assessment_state import documented_unavailable_assessment
 
 SOURCE_EVALUATION_SCHEMA = {
     "type": "object",
@@ -393,6 +394,9 @@ class SourceLearningService:
                 select(SourceProfile).where(SourceProfile.source_id == source.id)
             )
         ).scalar_one_or_none()
+        unavailable = profile is not None and documented_unavailable_assessment(
+            profile.notes
+        )
         if profile is None:
             profile = SourceProfile(
                 source_id=source.id,
@@ -432,6 +436,8 @@ class SourceLearningService:
             self.session.add(trust)
         else:
             trust.factual_reliability = evaluation["factual_reliability"]
+            if unavailable:
+                trust.calibration = trust.correction_quality = "unknown"
             trust.noise_ratio = evaluation["noise_ratio"]
             trust.trust_trajectory = evaluation["trust_trajectory"]
             trust.last_evaluated_at = datetime.now(UTC)

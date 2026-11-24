@@ -6,15 +6,23 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select
 
-from investos.models.catalog import SourceClaimRecord, SourceTrustProfile
+from investos.models.catalog import (
+    SourceClaimRecord,
+    SourceProfile,
+    SourceTrustProfile,
+    SourceValueProfile,
+)
 from investos.models.evidence import RawEvidence
-from investos.models.knowledge import Claim
-from investos.models.source import Source
+from investos.models.knowledge import Claim, Fact
+from investos.models.source import Source, SourceQualitySegment
 from investos.schemas.source import (
     SourceClaimBatchAssessmentCreate,
     SourceClaimBatchAssessmentResponse,
     SourceCreate,
 )
+from investos.services.graph import GraphService
+from investos.services.operating_state import OperatingStateService
+from investos.services.retrieval import RetrievalService
 from investos.services.review import ReviewService
 from investos.services.source import (
     NOTE_SOURCE_ITEM_TYPES,
@@ -22,6 +30,7 @@ from investos.services.source import (
     SOURCE_FEEDBACK_LESSON_TYPE,
     SourceService,
 )
+from investos.services.source_assessment_state import LEGACY_UNAVAILABLE_ASSESSMENT
 from investos.services.source_claim_policy import source_claim_priority
 from investos.services.source_learning import SourceLearningService
 from tests.test_investor_workflows import source_records, workflow_session
@@ -114,6 +123,84 @@ async def test_correctness_outcomes_do_not_claim_calibration_or_correction(
     assert (
         trust.calibration == trust.correction_quality == trust.noise_ratio == "unknown"
     )
+
+
+async def test_documented_legacy_assessment_failure_is_excluded_without_erasing_history(
+    workflow_session,
+):
+    session = workflow_session
+    raw, item = await source_records(session)
+    source = await session.get(Source, raw.source_id)
+    source.apply_operator_trust(True)
+    clock = datetime.now(timezone.utc)
+    note = (
+        LEGACY_UNAVAILABLE_ASSESSMENT
+        + " User feedback observed: 1 useful, 0 not useful."
+    )
+    trust = SourceTrustProfile(
+        source_id=source.id,
+        factual_reliability="medium",
+        calibration="calibrated",
+        correction_quality="slow_corrects",
+        noise_ratio="moderate",
+        trust_trajectory="stable",
+    )
+    fact = Fact(
+        source_item_id=item.id,
+        statement="The cited document reports a production schedule.",
+        fact_type="operational",
+        confidence=0.8,
+        tier="hard_fact",
+        importance="medium",
+        directness="primary",
+        novelty="historical",
+        contradiction_role="neutral",
+    )
+    session.add_all(
+        [
+            SourceProfile(
+                source_id=source.id,
+                first_tracked_at=clock,
+                active_since=clock,
+                trust_trajectory="stable",
+                notes=note,
+            ),
+            trust,
+            SourceValueProfile(
+                source_id=source.id,
+                idea_generation_value="medium",
+                timing_value="medium",
+                portfolio_relevance_value="low",
+                specificity="moderate",
+                originality="occasional_original",
+            ),
+            SourceQualitySegment(
+                source_id=source.id, notes=note, quality_score=0.6, last_evaluated=clock
+            ),
+            fact,
+        ]
+    )
+    await session.commit()
+
+    catalog = next(
+        row
+        for row in await SourceService(session).list_sources()
+        if row["id"] == source.id
+    )
+    assert catalog["is_trusted"] and catalog["trust_origin"] == "operator"
+    assert catalog["trust_profile"] is None
+    assert catalog["value_profile"] is None
+    assert catalog["quality_segments"] == []
+    assert await OperatingStateService(session)._source_trust_summary(source.id) is None
+    detail = await GraphService(session).get_node_detail(
+        node_type="source", node_id=str(source.id)
+    )
+    assert detail.properties.get("factual_reliability") is None
+    assert detail.properties.get("timing_value") is None
+    cited = (await RetrievalService(session)._load_nodes([fact.id]))[0]["source"]
+    assert cited["is_trusted"] and cited["trust_profile"] is None
+    assert cited["quality"] is None and cited["value_profile"] is None
+    assert trust.calibration == "calibrated"
 
 
 def test_source_feedback_lesson_payload_preserves_user_signal():

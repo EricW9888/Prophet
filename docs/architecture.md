@@ -397,6 +397,8 @@ Source outcome reviews update factual reliability from assessed claims.
 Correctness alone leaves probabilistic calibration, correction behavior, and
 noise unknown. Targeted source evaluation works from completed excerpts.
 An unavailable evaluation leaves existing profiles and trust untouched.
+Legacy grades with a recorded unavailable assessment are retained for audit
+and omitted from source views and retrieval.
 Ordinary publisher processing relies on outcome review for source quality
 instead of grading each captured article. A disagreement with an operator
 choice creates a dated review recommendation.

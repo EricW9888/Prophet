@@ -39,6 +39,11 @@ from investos.services.review import ReviewService
 from investos.services.risk import RiskService
 from investos.services.runtime_settings import RuntimeSettingsStore
 from investos.services.shadow import ShadowService
+from investos.services.source_assessment_state import (
+    assessment_note_available,
+    trust_assessment_available,
+    value_assessment_available,
+)
 
 
 class OperatingStateService:
@@ -110,20 +115,25 @@ class OperatingStateService:
     async def _source_trust_summary(self, source_id: UUID) -> dict[str, object] | None:
         profile = (
             await self.session.execute(
-                select(SourceProfile).where(SourceProfile.source_id == source_id)
+                select(SourceProfile).where(
+                    SourceProfile.source_id == source_id,
+                    assessment_note_available(SourceProfile.notes),
+                )
             )
         ).scalar_one_or_none()
         trust = (
             await self.session.execute(
                 select(SourceTrustProfile).where(
-                    SourceTrustProfile.source_id == source_id
+                    SourceTrustProfile.source_id == source_id,
+                    trust_assessment_available(SourceTrustProfile.source_id),
                 )
             )
         ).scalar_one_or_none()
         value = (
             await self.session.execute(
                 select(SourceValueProfile).where(
-                    SourceValueProfile.source_id == source_id
+                    SourceValueProfile.source_id == source_id,
+                    value_assessment_available(SourceValueProfile.source_id),
                 )
             )
         ).scalar_one_or_none()

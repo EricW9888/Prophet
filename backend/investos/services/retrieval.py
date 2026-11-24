@@ -29,6 +29,11 @@ from investos.services.operating_state import OperatingStateService
 from investos.services.portfolio_peers import PortfolioPeerContextService
 from investos.services.quantity_evidence import ledger_holdings, portfolio_measurements
 from investos.services.risk import RiskService
+from investos.services.source_assessment_state import (
+    assessment_note_available,
+    trust_assessment_available,
+    value_assessment_available,
+)
 from investos.services.source_passages import SourcePassageService
 
 
@@ -877,7 +882,10 @@ class RetrievalService:
                 for segment in (
                     await self.session.execute(
                         select(SourceQualitySegment)
-                        .where(SourceQualitySegment.source_id.in_(source_ids))
+                        .where(
+                            SourceQualitySegment.source_id.in_(source_ids),
+                            assessment_note_available(SourceQualitySegment.notes),
+                        )
                         .order_by(
                             desc(SourceQualitySegment.last_evaluated),
                             desc(SourceQualitySegment.quality_score),
@@ -890,7 +898,10 @@ class RetrievalService:
                     for profile in (
                         await self.session.execute(
                             select(SourceTrustProfile).where(
-                                SourceTrustProfile.source_id.in_(source_ids)
+                                SourceTrustProfile.source_id.in_(source_ids),
+                                trust_assessment_available(
+                                    SourceTrustProfile.source_id
+                                ),
                             )
                         )
                     ).scalars()
@@ -900,7 +911,10 @@ class RetrievalService:
                     for profile in (
                         await self.session.execute(
                             select(SourceValueProfile).where(
-                                SourceValueProfile.source_id.in_(source_ids)
+                                SourceValueProfile.source_id.in_(source_ids),
+                                value_assessment_available(
+                                    SourceValueProfile.source_id
+                                ),
                             )
                         )
                     ).scalars()
