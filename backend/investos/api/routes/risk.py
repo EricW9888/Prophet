@@ -24,9 +24,12 @@ router = APIRouter(prefix="/risk", tags=["risk"])
 async def get_portfolio_history(
     window_days: int = Query(default=31, ge=1, le=366),
     refresh: bool = False,
+    revalidate: UUID | None = None,
     session: AsyncSession = Depends(get_session),
 ):
-    return await PortfolioHistoryService(session).history(window_days, refresh=refresh)
+    return await PortfolioHistoryService(session).history(
+        window_days, refresh=refresh, revalidate=revalidate
+    )
 
 
 @router.get("/portfolio/history/{receipt_id}")

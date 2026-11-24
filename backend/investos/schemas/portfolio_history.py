@@ -30,6 +30,7 @@ class PortfolioHistoryResponse(BaseModel):
     receipt_id: UUID
     computed_at: datetime
     cache_hit: bool = False
+    refresh_due: bool = False
     window_days: int
     points: list[PortfolioHistoryPoint]
     events: list[PortfolioHistoryEvent]

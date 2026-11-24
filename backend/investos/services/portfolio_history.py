@@ -5,7 +5,8 @@ from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
+from weakref import WeakValueDictionary
 
 from sqlalchemy import case, cast, column, func, select, true
 from sqlalchemy.dialects.postgresql import JSONB
@@ -38,12 +39,26 @@ HISTORY_RECEIPT_VERSION = 3
 
 
 class PortfolioHistoryService:
+    _revalidations = WeakValueDictionary()
+
     def __init__(self, session: AsyncSession):
         self.session = session
 
     async def history(
-        self, window_days: int = 31, *, refresh: bool = False
+        self,
+        window_days: int = 31,
+        *,
+        refresh: bool = False,
+        revalidate: UUID | None = None,
     ) -> PortfolioHistoryResponse:
+        if revalidate is not None:
+            async with self._revalidations.setdefault(window_days, asyncio.Lock()):
+                return await self._history(
+                    window_days, refresh=False, revalidate=revalidate
+                )
+        return await self._history(window_days, refresh=refresh, revalidate=None)
+
+    async def _history(self, window_days, *, refresh, revalidate):
         now = datetime.now(UTC)
         start = now - timedelta(days=window_days)
         rows = await BrokerEquityService(self.session).ledger(now)
@@ -85,33 +100,56 @@ class PortfolioHistoryService:
                 ),
             }
         )
-        if not refresh:
-            cached = await self.session.scalar(
-                select(AttributionResult)
-                .where(
-                    AttributionResult.factor_contributions_json["kind"].astext
-                    == "portfolio_history",
-                    AttributionResult.factor_contributions_json["version"].as_integer()
-                    == HISTORY_RECEIPT_VERSION,
-                    AttributionResult.factor_contributions_json[
-                        "window_days"
-                    ].as_integer()
-                    == window_days,
-                    AttributionResult.factor_contributions_json["ledger_hash"].astext
-                    == ledger_hash,
-                )
-                .order_by(
-                    AttributionResult.computed_at.desc(), AttributionResult.id.desc()
-                )
-                .limit(1)
-            )
-            if cached:
-                return PortfolioHistoryResponse.model_validate(
-                    cached.factor_contributions_json["response"]
-                ).model_copy(update={"cache_hit": True})
         runtime = RuntimeSettingsStore.load().market_data
+        market_data_enabled = runtime.enabled and runtime.provider == "yahoo_finance"
+        if not refresh:
+            receipt = AttributionResult.factor_contributions_json
+            cached = (
+                await self.session.execute(
+                    select(
+                        AttributionResult.id,
+                        AttributionResult.computed_at,
+                        receipt["response"].label("response"),
+                        receipt["next_market_close"].astext.label("next_market_close"),
+                    )
+                    .where(
+                        receipt["kind"].astext == "portfolio_history",
+                        receipt["version"].as_integer() == HISTORY_RECEIPT_VERSION,
+                        receipt["window_days"].as_integer() == window_days,
+                        receipt["ledger_hash"].astext == ledger_hash,
+                    )
+                    .order_by(
+                        AttributionResult.computed_at.desc(),
+                        AttributionResult.id.desc(),
+                    )
+                    .limit(1)
+                )
+            ).first()
+            if cached:
+                response = PortfolioHistoryResponse.model_validate(cached.response)
+                next_close = parse_iso_datetime(cached.next_market_close)
+                if (
+                    next_close is None
+                    or not response.points
+                    or response.points[-1].value is None
+                ):
+                    retry_at = cached.computed_at + timedelta(
+                        seconds=max(1, runtime.refresh_interval_seconds)
+                    )
+                    next_close = min(next_close, retry_at) if next_close else retry_at
+                due = market_data_enabled and next_close <= now
+                if not due or revalidate != cached.id:
+                    events, truncated = await self._events(rows, start, now)
+                    return response.model_copy(
+                        update={
+                            "cache_hit": True,
+                            "refresh_due": due,
+                            "events": events,
+                            "events_truncated": truncated,
+                        }
+                    )
         snapshots = {}
-        if runtime.enabled and runtime.provider == "yahoo_finance":
+        if market_data_enabled:
             try:
                 async with asyncio.timeout(60):
                     snapshots = await MarketDataService(
@@ -123,7 +161,7 @@ class PortfolioHistoryService:
             except TimeoutError:
                 snapshots = {}
         await self._load_retained_regular_closes(snapshots, start, now)
-        points, reasons, calendar_version = await asyncio.to_thread(
+        points, reasons, calendar_version, next_close = await asyncio.to_thread(
             self._build_values,
             snapshots,
             securities,
@@ -133,93 +171,14 @@ class PortfolioHistoryService:
             start,
             now,
         )
-        events = [
-            PortfolioHistoryEvent(
-                id=f"{row.receipt_type}-{row.id}",
-                at=row.at,
-                kind="ledger",
-                label=" ".join(
-                    str(part)
-                    for part in (
-                        row.action.replace("_", " ").title(),
-                        row.quantity if row.security_id else None,
-                        row.ticker,
-                    )
-                    if part is not None
-                ),
-                detail=(
-                    f"Cash change {row.cash:+,.2f} USD"
-                    if row.cash is not None
-                    else None
-                ),
-                href=f"/history/receipt/{row.receipt_type}/{row.id}",
-            )
-            for row in rows
-            if start <= row.at <= now
-        ][-EVENT_LIMIT:]
-        ledger_truncated = sum(start <= row.at <= now for row in rows) > EVENT_LIMIT
-        evidence = (
-            await self.session.scalars(
-                select(RawEvidence)
-                .where(
-                    RawEvidence.ingest_time >= start,
-                    RawEvidence.ingest_time <= now,
-                    RawEvidence.source_item_type.not_in(
-                        (
-                            "conversation_turn",
-                            "email_order_confirmation",
-                            "source_claim_followup",
-                            "market_setup_outcome_followup",
-                        )
-                    ),
-                )
-                .order_by(RawEvidence.ingest_time.desc(), RawEvidence.id.desc())
-                .limit(EVENT_LIMIT + 1)
-            )
-        ).all()
-        events.extend(
-            PortfolioHistoryEvent(
-                id=f"evidence-{item.id}",
-                at=item.ingest_time,
-                kind="research",
-                label=item.title or "Evidence received",
-                detail="Recorded in Prophet at this time.",
-                href=f"/sources/evidence/{item.id}",
-            )
-            for item in evidence[:EVENT_LIMIT]
-        )
-        watches = (
-            await self.session.scalars(
-                select(ActiveWatcher)
-                .where(
-                    ActiveWatcher.triggered_at >= start,
-                    ActiveWatcher.triggered_at <= now,
-                )
-                .order_by(ActiveWatcher.triggered_at.desc(), ActiveWatcher.id.desc())
-                .limit(EVENT_LIMIT + 1)
-            )
-        ).all()
-        events.extend(
-            PortfolioHistoryEvent(
-                id=f"watch-{watch.id}",
-                at=watch.triggered_at,
-                kind="alert",
-                label=watch.objective,
-                detail=watch.trigger_detail,
-                href=f"/api_proxy/watcher/{watch.id}",
-            )
-            for watch in watches[:EVENT_LIMIT]
-        )
-        events.sort(key=lambda event: (event.at, event.id))
+        events, truncated = await self._events(rows, start, now)
         response = PortfolioHistoryResponse(
             receipt_id=uuid4(),
             computed_at=datetime.now(UTC),
             window_days=window_days,
             points=points,
             events=events,
-            events_truncated=ledger_truncated
-            or len(evidence) > EVENT_LIMIT
-            or len(watches) > EVENT_LIMIT,
+            events_truncated=truncated,
             reasons=reasons,
         )
         self.session.add(
@@ -256,6 +215,7 @@ class PortfolioHistoryService:
                         for row in rows
                     ],
                     "calendar_version": calendar_version,
+                    "next_market_close": next_close.isoformat() if next_close else None,
                     "response": response.model_dump(mode="json"),
                     "prices": snapshots,
                 },
@@ -263,6 +223,97 @@ class PortfolioHistoryService:
         )
         await self.session.commit()
         return response
+
+    async def _events(self, rows, start, now):
+        events = [
+            PortfolioHistoryEvent(
+                id=f"{row.receipt_type}-{row.id}",
+                at=row.at,
+                kind="ledger",
+                label=" ".join(
+                    str(part)
+                    for part in (
+                        row.action.replace("_", " ").title(),
+                        row.quantity if row.security_id else None,
+                        row.ticker,
+                    )
+                    if part is not None
+                ),
+                detail=(
+                    f"Cash change {row.cash:+,.2f} USD"
+                    if row.cash is not None
+                    else None
+                ),
+                href=f"/history/receipt/{row.receipt_type}/{row.id}",
+            )
+            for row in rows
+            if start <= row.at <= now
+        ][-EVENT_LIMIT:]
+        ledger_truncated = sum(start <= row.at <= now for row in rows) > EVENT_LIMIT
+        evidence = (
+            await self.session.execute(
+                select(RawEvidence.id, RawEvidence.ingest_time, RawEvidence.title)
+                .where(
+                    RawEvidence.ingest_time >= start,
+                    RawEvidence.ingest_time <= now,
+                    RawEvidence.source_item_type.not_in(
+                        (
+                            "conversation_turn",
+                            "email_order_confirmation",
+                            "source_claim_followup",
+                            "market_setup_outcome_followup",
+                        )
+                    ),
+                )
+                .order_by(RawEvidence.ingest_time.desc(), RawEvidence.id.desc())
+                .limit(EVENT_LIMIT + 1)
+            )
+        ).all()
+        events.extend(
+            PortfolioHistoryEvent(
+                id=f"evidence-{item.id}",
+                at=item.ingest_time,
+                kind="research",
+                label=item.title or "Evidence received",
+                detail="Recorded in Prophet at this time.",
+                href=f"/sources/evidence/{item.id}",
+            )
+            for item in evidence[:EVENT_LIMIT]
+        )
+        watches = (
+            await self.session.execute(
+                select(
+                    ActiveWatcher.id,
+                    ActiveWatcher.triggered_at,
+                    ActiveWatcher.objective,
+                    ActiveWatcher.trigger_detail,
+                )
+                .where(
+                    ActiveWatcher.triggered_at >= start,
+                    ActiveWatcher.triggered_at <= now,
+                )
+                .order_by(ActiveWatcher.triggered_at.desc(), ActiveWatcher.id.desc())
+                .limit(EVENT_LIMIT + 1)
+            )
+        ).all()
+        events.extend(
+            PortfolioHistoryEvent(
+                id=f"watch-{watch.id}",
+                at=watch.triggered_at,
+                kind="alert",
+                label=watch.objective,
+                detail=watch.trigger_detail,
+                href=f"/api_proxy/watcher/{watch.id}",
+            )
+            for watch in watches[:EVENT_LIMIT]
+        )
+        events.sort(key=lambda event: (event.at, event.id))
+        truncated = (
+            ledger_truncated
+            or len(evidence) > EVENT_LIMIT
+            or len(watches) > EVENT_LIMIT
+        )
+        return events, truncated
 
     async def _load_retained_regular_closes(self, snapshots, start, now):
         if not snapshots:
@@ -320,6 +371,7 @@ class PortfolioHistoryService:
         missing_prices_before_split = defaultdict(set)
         missing_shares_after_split = defaultdict(set)
         reported_splits = {}
+        next_close = None
         security_ids = {security.ticker: key for key, security in securities.items()}
         import exchange_calendars
 
@@ -337,6 +389,14 @@ class PortfolioHistoryService:
             calendar = exchange_calendars.get_calendar(calendar_name)
             if str(calendar.tz) != snapshot.get("exchange_timezone"):
                 continue
+            session = calendar.date_to_session(
+                now.astimezone(calendar.tz).date(), direction="next"
+            )
+            close = calendar.session_close(session)
+            if close <= now:
+                close = calendar.session_close(calendar.next_session(session))
+            close = close.to_pydatetime()
+            next_close = min(next_close, close) if next_close else close
             provider_splits = reported_share_splits(snapshot)
             reported_splits[ticker] = provider_splits
             (
@@ -495,7 +555,7 @@ class PortfolioHistoryService:
                 )
             )
         PortfolioHistoryService._performance(points, rows)
-        return points, reasons, exchange_calendars.__version__
+        return points, reasons, exchange_calendars.__version__, next_close
 
     @staticmethod
     def _performance(points, rows):

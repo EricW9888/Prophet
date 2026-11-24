@@ -182,7 +182,7 @@ async def test_history_calculation_keeps_the_health_endpoint_responsive(
     def waiting_calculation(*_args):
         started.set()
         assert health_done.wait(5), "The API event loop was blocked by the valuation"
-        return [], [], "synthetic"
+        return [], [], "synthetic", None
 
     monkeypatch.setattr(
         PortfolioHistoryService, "_build_values", staticmethod(waiting_calculation)
@@ -295,7 +295,9 @@ async def test_stock_split_uses_matching_share_bases_for_live_and_history(
         RuntimeSettingsStore,
         "load",
         lambda: SimpleNamespace(
-            market_data=SimpleNamespace(enabled=True, provider="yahoo_finance")
+            market_data=SimpleNamespace(
+                enabled=True, provider="yahoo_finance", refresh_interval_seconds=60
+            )
         ),
     )
     markets = MarketDataService(session)
@@ -446,7 +448,9 @@ async def test_portfolio_history_uses_close_time_cash_flows_gaps_and_receipts(
         RuntimeSettingsStore,
         "load",
         lambda: SimpleNamespace(
-            market_data=SimpleNamespace(enabled=True, provider="yahoo_finance")
+            market_data=SimpleNamespace(
+                enabled=True, provider="yahoo_finance", refresh_interval_seconds=60
+            )
         ),
     )
     service = PortfolioHistoryService(session)
@@ -465,7 +469,23 @@ async def test_portfolio_history_uses_close_time_cash_flows_gaps_and_receipts(
         "daily_observations"
     ]
     assert saved.factor_contributions_json["ledger"]
-    assert (await service.history()).cache_hit
+    current_receipt = await service.history()
+    assert current_receipt.cache_hit and not current_receipt.refresh_due
+    assert current_receipt.receipt_id == result.receipt_id
+    assert (await service.history(revalidate=result.receipt_id)).cache_hit
+    assert len(calls) == 1
+
+    later_evidence = RawEvidence(
+        source_id=source.id,
+        source_item_type="manual",
+        title="New evidence after the calculation",
+        is_processed=True,
+    )
+    session.add(later_evidence)
+    await session.commit()
+    overlay = await service.history()
+    assert overlay.receipt_id == result.receipt_id
+    assert any(event.id == f"evidence-{later_evidence.id}" for event in overlay.events)
     assert len(calls) == 1
 
     async def session_override():
@@ -478,9 +498,27 @@ async def test_portfolio_history_uses_close_time_cash_flows_gaps_and_receipts(
         receipt = await client.get(f"/api/risk/portfolio/history/{result.receipt_id}")
         assert receipt.status_code == 200
         assert receipt.json()["response"]["receipt_id"] == str(result.receipt_id)
+        assert all(
+            event["id"] != f"evidence-{later_evidence.id}"
+            for event in receipt.json()["response"]["events"]
+        )
         alert = await client.get(f"/api/watcher/{watch.id}")
         assert alert.status_code == 200
         assert alert.json()["status"] == "triggered"
+
+    saved.factor_contributions_json = {
+        **saved.factor_contributions_json,
+        "next_market_close": (now - timedelta(seconds=1)).isoformat(),
+    }
+    await session.commit()
+    assert (await service.history()).refresh_due
+    first, second = await asyncio.gather(
+        service.history(revalidate=result.receipt_id),
+        service.history(revalidate=result.receipt_id),
+    )
+    assert not first.cache_hit and second.cache_hit
+    assert second.receipt_id == first.receipt_id
+    assert len(calls) == 2
 
     bars.pop(1)
     refreshed = await service.history(refresh=True)

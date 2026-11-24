@@ -35,6 +35,7 @@ from investos.models.shadow import ExperimentResult, ShadowAction, ShadowExperim
 from investos.models.source import Source
 from investos.models.theme import Theme
 from investos.schemas.graph import (
+    GraphBusinessEvidence,
     GraphCitationResponse,
     GraphConnectionResponse,
     GraphNeighborhoodResponse,
@@ -242,6 +243,14 @@ class GraphService:
         passage = await self._source_passage_for_node(
             node_type, node_id, node, citations
         )
+        properties = await self._node_properties(node_type, node_id, node, attachment)
+        business_evidence = (
+            await self._business_evidence(node.id)
+            if node_type == "entity"
+            and node.entity_type == "company"
+            and not str(properties.get("profile_business_model") or "").strip()
+            else []
+        )
         return GraphNodeDetailResponse(
             id=node_id,
             node_type=node_type,
@@ -252,9 +261,8 @@ class GraphService:
             tier=getattr(node, "tier", None),
             created_at=getattr(node, "created_at", None),
             is_autonomous=await self._node_is_autonomous(node_type, node),
-            properties=await self._node_properties(
-                node_type, node_id, node, attachment
-            ),
+            properties=properties,
+            business_evidence=business_evidence,
             relevance=relevance,
             relevance_reasoning=self._generate_relevance_reasoning(
                 node_type,
@@ -267,6 +275,53 @@ class GraphService:
             citations=citations,
             connections=connections,
         )
+
+    async def _business_evidence(self, entity_id: UUID) -> list[GraphBusinessEvidence]:
+        rows = await self.session.execute(
+            select(Fact, SourceItem.id, RawEvidence, Source)
+            .join(Edge, Edge.source_id == Fact.id)
+            .join(SourceItem, SourceItem.id == Fact.source_item_id)
+            .join(RawEvidence, RawEvidence.id == SourceItem.raw_evidence_id)
+            .join(Source, Source.id == RawEvidence.source_id)
+            .where(
+                Edge.source_type == "fact",
+                Edge.target_type == "entity",
+                Edge.target_id == entity_id,
+                Edge.relationship_type == "supports",
+                Fact.fact_type.in_(("business_model", "business_segmentation")),
+                Fact.is_deprecated.is_(False),
+                Fact.superseded_by_id.is_(None),
+                or_(Fact.valid_until.is_(None), Fact.valid_until > datetime.now(UTC)),
+            )
+            .order_by(
+                Fact.is_verified.desc(),
+                (Fact.fact_type == "business_model").desc(),
+                Fact.created_at.desc(),
+                Fact.id.desc(),
+            )
+            .limit(8)
+        )
+        evidence: list[GraphBusinessEvidence] = []
+        seen: set[str] = set()
+        for fact, item_id, raw, source in rows:
+            statement = self._compact_body(fact.statement, max_chars=600)
+            if not statement or statement in seen:
+                continue
+            citation = self._build_graph_citation(raw, source, item_id)
+            if citation.is_system:
+                continue
+            seen.add(statement)
+            evidence.append(
+                GraphBusinessEvidence(
+                    fact_id=fact.id,
+                    statement=statement,
+                    is_verified=fact.is_verified,
+                    citation=citation,
+                )
+            )
+            if len(evidence) == 2:
+                break
+        return evidence
 
     async def _source_passage_for_node(
         self, node_type, node_id, node, citations
@@ -845,13 +900,7 @@ class GraphService:
                 continue
             if edge.id in edge_map:
                 continue
-            edge_map[edge.id] = GraphWebEdgeResponse(
-                id=edge.id,
-                source_key=source_key,
-                target_key=target_key,
-                relationship_type=edge.relationship_type,
-                confidence=float(edge.confidence or 0.0),
-            )
+            edge_map[edge.id] = self._stored_web_edge(edge)
         source_relationships = await self._project_source_relationships(nodes, edge_map)
         source_direct = [
             edge
@@ -887,16 +936,7 @@ class GraphService:
         return GraphRelationResponse(
             node_a_key=key_a,
             node_b_key=key_b,
-            direct_relationships=[
-                GraphWebEdgeResponse(
-                    id=edge.id,
-                    source_key=self._node_key(edge.source_type, edge.source_id),
-                    target_key=self._node_key(edge.target_type, edge.target_id),
-                    relationship_type=edge.relationship_type,
-                    confidence=float(edge.confidence or 0.0),
-                )
-                for edge in direct_edges
-            ]
+            direct_relationships=[self._stored_web_edge(edge) for edge in direct_edges]
             + source_direct,
             shared_neighbor_keys=shared_keys,
             summary=" ".join(summary_parts),
@@ -1329,6 +1369,11 @@ class GraphService:
         source = (
             await self.session.execute(select(Source).where(Source.id == raw.source_id))
         ).scalar_one()
+        return self._build_graph_citation(raw, source, source_item_id)
+
+    def _build_graph_citation(
+        self, raw: RawEvidence, source: Source, source_item_id: UUID | None
+    ) -> GraphCitationResponse:
         is_system, system_reason = self._raw_is_system(raw, source)
         reference = build_evidence_source_reference(
             source_item_id=source_item_id,
@@ -1884,6 +1929,9 @@ class GraphService:
         linked_companies = attachment.get("linked_companies") or []
         mechanism = str(attachment.get("portfolio_mechanism") or "").strip()
         next_test = str(attachment.get("next_test") or "").strip()
+        if attachment.get("category") in {"direct holding", "tracked company"}:
+            return reason or None
+
         connection_phrases = self._connection_phrases(
             connections or [], self._node_label(node_type, node)
         )
@@ -2066,6 +2114,7 @@ class GraphService:
                     linked_companies=[],
                     direct_portfolio_link=True,
                     context_texts=context_texts,
+                    allow_unlabeled_context=False,
                 )
                 return {
                     "category": "direct holding",
@@ -2081,6 +2130,11 @@ class GraphService:
 
         if node_type == "entity" and getattr(node, "id", None) in tracked_entity_ids:
             label = self._node_label(node_type, node)
+            holdings = list(
+                dict.fromkeys(
+                    row[2] or row[3] for row in tracked_rows if row[1] == node.id
+                )
+            )
             context_texts = await self._subject_mechanism_contexts(
                 node_type=node_type,
                 node_id=getattr(node, "id", node_id),
@@ -2089,16 +2143,17 @@ class GraphService:
             mechanism = self._infer_portfolio_mechanism(
                 node_label=label,
                 node_type=node_type,
-                linked_holdings=[],
-                linked_companies=[label],
+                linked_holdings=holdings,
+                linked_companies=[],
                 direct_portfolio_link=True,
                 context_texts=context_texts,
+                allow_unlabeled_context=False,
             )
             return {
                 "category": "tracked company",
-                "reason": f"{label} is directly represented in your live book.",
-                "linked_holdings": [],
-                "linked_companies": [label],
+                "reason": f"Your current holdings include {', '.join(holdings)}.",
+                "linked_holdings": holdings,
+                "linked_companies": [],
                 "direct_portfolio_link": True,
                 "portfolio_connection_count": 1,
                 "graph_connection_count": 1,
@@ -2452,12 +2507,9 @@ class GraphService:
                 context_texts.extend(
                     text
                     for text in (
-                        profile.executive_summary,
-                        profile.business_model,
                         profile.bull_case,
                         profile.bear_case,
                         profile.key_drivers,
-                        profile.competitor_landscape,
                     )
                     if text and text.strip()
                 )
@@ -2502,6 +2554,7 @@ class GraphService:
         linked_companies: list[str],
         direct_portfolio_link: bool,
         context_texts: list[str] | None = None,
+        allow_unlabeled_context: bool = True,
     ) -> dict[str, object]:
         explicit_links = [
             str(item)
@@ -2512,19 +2565,12 @@ class GraphService:
             str(text).strip() for text in (context_texts or []) if str(text).strip()
         ]
 
-        if explicit_links:
+        if explicit_links or direct_portfolio_link:
             channel = self._portfolio_channel_from_text(
-                node_label, explicit_links, context_texts=context_texts
-            )
-            return {
-                "portfolio_mechanism": channel["mechanism"],
-                "portfolio_mechanism_status": channel["mechanism_status"],
-                "next_test": channel["next_test"],
-            }
-
-        if direct_portfolio_link:
-            channel = self._portfolio_channel_from_text(
-                node_label, [], context_texts=context_texts
+                node_label,
+                explicit_links,
+                context_texts=context_texts,
+                allow_unlabeled_context=allow_unlabeled_context,
             )
             return {
                 "portfolio_mechanism": channel["mechanism"],
@@ -2560,6 +2606,7 @@ class GraphService:
         targets: list[str],
         *,
         context_texts: list[str] | None = None,
+        allow_unlabeled_context: bool = True,
     ) -> dict[str, str]:
         target_text = (
             ", ".join([target for target in targets[:4] if target])
@@ -2594,6 +2641,14 @@ class GraphService:
                 "mechanism": mechanism_text,
                 "next_test": next_test
                 or "Check the premise, timing, source support and counterevidence before treating this hypothesis as an investment effect.",
+            }
+
+        if not allow_unlabeled_context:
+            return {
+                "mechanism_status": "not_established",
+                "portfolio_mechanism": "",
+                "mechanism": "",
+                "next_test": next_test or "",
             }
 
         relationship_context = "; ".join(normalized_contexts[:3])
@@ -2910,6 +2965,19 @@ class GraphService:
             return f"alpha {float(alpha):+.2%}"
         return None
 
+    def _stored_web_edge(self, edge: Edge) -> GraphWebEdgeResponse:
+        peer_basis = None
+        if (edge.properties_json or {}).get("origin") == "portfolio_peer_context":
+            peer_basis = edge.reasoning or "Shared holdings research or classification"
+        return GraphWebEdgeResponse(
+            id=edge.id,
+            source_key=self._node_key(edge.source_type, edge.source_id),
+            target_key=self._node_key(edge.target_type, edge.target_id),
+            relationship_type=edge.relationship_type,
+            confidence=float(edge.confidence or 0.0),
+            portfolio_peer_basis=peer_basis,
+        )
+
     async def _web_edges_touching_node(
         self,
         *,
@@ -2925,13 +2993,7 @@ class GraphService:
                 node_type=node_type, node_id=node_id
             )
         for edge in explicit:
-            output[edge.id] = GraphWebEdgeResponse(
-                id=edge.id,
-                source_key=self._node_key(edge.source_type, edge.source_id),
-                target_key=self._node_key(edge.target_type, edge.target_id),
-                relationship_type=edge.relationship_type,
-                confidence=float(edge.confidence or 0.0),
-            )
+            output[edge.id] = self._stored_web_edge(edge)
         specs = await self._synthetic_connection_specs(
             node_type=node_type, node_id=node_id, node=node, reads=reads
         )

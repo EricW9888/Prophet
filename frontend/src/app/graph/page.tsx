@@ -753,6 +753,7 @@ export default function GraphPage() {
     const target = nodeByKey[edge.target_key];
     const sName = source?.label ?? edge.source_key;
     const tName = target?.label ?? edge.target_key;
+    if (edge.portfolio_peer_basis) return `Peer comparison · ${sName} and ${tName}`;
     const attribution = edge.supporting_claim_id ? "Source reports: " : "";
     return `${attribution}${sName} ${edge.relationship_type.replace(/_/g, " ")} ${tName}`;
   }, [nodeByKey]);
@@ -1346,14 +1347,19 @@ export default function GraphPage() {
                 <GraphConnectionSelect edges={displayedEdges} selected={activeEdge} nodes={nodeByKey} edgeKey={graphEdgeIdentity} onSelect={selectGraphEdge} />
                 <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900 dark:bg-amber-950/20">
                   <div className="text-xs uppercase tracking-wider text-amber-500 dark:text-amber-300">
-                    {activeEdge.relationship_type.replaceAll("_", " ")}
+                    {activeEdge.portfolio_peer_basis ? "Research context" : activeEdge.relationship_type.replaceAll("_", " ")}
                   </div>
                   <div className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
                     {describeEdge(activeEdge)}
                   </div>
-                  <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                    {activeEdge.supporting_claim_id ? "Model confidence" : "Confidence"} {Math.round(activeEdge.confidence * 100)}%
-                  </div>
+                  {activeEdge.portfolio_peer_basis ? (
+                    <div className="mt-2 space-y-1 text-sm text-muted">
+                      <p className="first-letter:uppercase">{activeEdge.portfolio_peer_basis}</p>
+                      <p>No business relationship established by this comparison.</p>
+                    </div>
+                  ) : activeEdge.supporting_claim_id ? (
+                    <p className="mt-2 text-xs text-muted">Model confidence {Math.round(activeEdge.confidence * 100)}%</p>
+                  ) : null}
                 </div>
                 <div className="grid grid-cols-1 gap-2">
                   <div className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
@@ -1424,16 +1430,36 @@ export default function GraphPage() {
                     </span>
                   </div>
                   <h3 className="mt-3 text-base font-semibold text-slate-900 dark:text-slate-100">{selectedDetail.label}</h3>
-                  {(propertyText(selectedDetail.properties?.profile_summary) || propertyText(selectedDetail.properties?.profile_business_model)) && (
+                  {(selectedDetail.properties?.entity_type === "company" || propertyText(selectedDetail.properties?.profile_summary) || propertyText(selectedDetail.properties?.profile_business_model)) && (
                     <div className="mt-3 space-y-2 border-t border-line pt-3">
                       <div className="flex flex-wrap justify-between gap-1 text-xs text-muted">
                         <h4 className="font-semibold">Research profile</h4>
                         {typeof selectedDetail.properties.profile_updated_at === "string" && <time dateTime={selectedDetail.properties.profile_updated_at}>Updated {new Date(selectedDetail.properties.profile_updated_at).toLocaleDateString()}</time>}
                       </div>
-                      {propertyText(selectedDetail.properties.profile_business_model) && selectedDetail.properties.profile_business_model !== selectedDetail.properties.profile_summary && (
+                      {propertyText(selectedDetail.properties.profile_business_model) ? (
                         <p className="text-sm leading-relaxed text-foreground"><strong className="font-semibold">What it does</strong><br />{propertyText(selectedDetail.properties.profile_business_model)}</p>
+                      ) : selectedDetail.business_evidence?.length ? (
+                        <>
+                          <h5 className="text-sm font-semibold text-foreground">What it does</h5>
+                          {selectedDetail.business_evidence.map(({ fact_id, statement, is_verified, citation }) => (
+                            <div key={fact_id} className="space-y-1 border-l border-line pl-3">
+                              <p className="text-sm leading-relaxed text-foreground">{statement}</p>
+                              <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted">
+                                <span>{is_verified ? "Verified evidence" : "Unverified evidence"} · {citation.source_name}</span>
+                                <button type="button" className="text-action underline" onClick={() => handleNodeClick({key: `fact:${fact_id}`, node_type: "fact", id: fact_id})}>Inspect evidence</button>
+                              </div>
+                            </div>
+                          ))}
+                        </>
+                      ) : selectedDetail.properties.entity_type === "company" ? (
+                        <p className="text-sm text-muted">Business model research is missing.</p>
+                      ) : null}
+                      {propertyText(selectedDetail.properties.profile_summary) && selectedDetail.properties.profile_summary !== selectedDetail.properties.profile_business_model && (
+                        <details className="min-w-0 text-sm">
+                          <summary className="cursor-pointer text-muted">Profile summary</summary>
+                          <p className="mt-2 break-words leading-relaxed text-foreground">{propertyText(selectedDetail.properties.profile_summary)}</p>
+                        </details>
                       )}
-                      {propertyText(selectedDetail.properties.profile_summary) && <p className="text-sm leading-relaxed text-foreground">{propertyText(selectedDetail.properties.profile_summary)}</p>}
                     </div>
                   )}
                   {selectedDetail.node_type === "fundamental_metric" ? <GraphMetricSummary properties={selectedDetail.properties} /> : selectedDetail.body && selectedDetail.body.trim() !== selectedDetail.label.trim() ? (

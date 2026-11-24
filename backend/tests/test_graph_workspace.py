@@ -29,6 +29,124 @@ from investos.services.graph import (
 from tests.test_investor_workflows import workflow_session
 
 
+async def test_inspector_distinguishes_holdings_profile_and_peer_context(
+    workflow_session,
+):
+    session = workflow_session
+    issuer = Entity(name="Test infrastructure issuer", entity_type="company")
+    peer = Entity(name="Test component issuer", entity_type="company")
+    session.add_all([issuer, peer])
+    await session.flush()
+    security = Security(
+        entity_id=issuer.id,
+        ticker=f"C{uuid4().hex[:8]}",
+        asset_class="equity",
+        instrument_type="common_stock",
+    )
+    summary = "The filing confirms registration and lists the annual report sections."
+    basis = "stored knowledge overlaps on infrastructure"
+    peer_edge = Edge(
+        source_type="entity",
+        source_id=issuer.id,
+        target_type="entity",
+        target_id=peer.id,
+        relationship_type="contextualizes",
+        confidence=0.42,
+        reasoning=basis,
+        properties_json={"origin": "portfolio_peer_context"},
+    )
+    session.add_all(
+        [
+            security,
+            peer_edge,
+            Profile(
+                subject_type="entity",
+                subject_id=issuer.id,
+                executive_summary=summary,
+                key_drivers="This filing includes a consolidated balance sheet.",
+            ),
+        ]
+    )
+    await session.flush()
+    session.add(
+        Position(
+            security_id=security.id,
+            direction="long",
+            list_type="holding",
+            quantity=1,
+        )
+    )
+    source = Source(name="Test issuer report", source_type="web_research")
+    session.add(source)
+    await session.flush()
+    raw = RawEvidence(source_id=source.id, source_item_type="web_research")
+    session.add(raw)
+    await session.flush()
+    item = SourceItem(raw_evidence_id=raw.id, source_id=source.id)
+    session.add(item)
+    await session.flush()
+    facts = [
+        Fact(
+            statement=statement,
+            source_item_id=item.id,
+            fact_type="business_model",
+            confidence=1,
+            tier="hard_fact",
+            importance="high",
+            directness="primary",
+            novelty="incremental",
+            contradiction_role="neutral",
+            is_verified=verified,
+            is_deprecated=deprecated,
+        )
+        for statement, verified, deprecated in [
+            ("The issuer leases compute capacity.", False, False),
+            ("A deprecated account of the issuer's business.", True, True),
+            ("The peer sells components.", True, False),
+        ]
+    ]
+    session.add_all(facts)
+    await session.flush()
+    session.add_all(
+        [
+            Edge(
+                source_type="fact",
+                source_id=fact.id,
+                target_type="entity",
+                target_id=target.id,
+                relationship_type="supports",
+            )
+            for fact, target in zip(facts, [issuer, issuer, peer], strict=True)
+        ]
+    )
+    await session.flush()
+    service = GraphService(session)
+    detail = await service.get_node_detail(node_type="entity", node_id=issuer.id)
+    assert detail is not None
+    assert (
+        detail.relevance_reasoning
+        == f"Your current holdings include {security.ticker}."
+    )
+    assert detail.properties["linked_holdings"] == [security.ticker]
+    assert "linked_companies" not in detail.properties
+    assert detail.properties["profile_summary"] == summary
+    assert detail.properties["portfolio_mechanism_status"] == "not_established"
+    assert "portfolio_mechanism" not in detail.properties
+    assert len(detail.business_evidence) == 1
+    evidence = detail.business_evidence[0]
+    assert evidence.fact_id == facts[0].id
+    assert evidence.statement == facts[0].statement
+    assert evidence.is_verified is False
+    assert evidence.citation.raw_evidence_id == raw.id
+
+    result = await service.get_neighborhood(
+        node_type="entity", node_id=issuer.id, depth=1, limit=20
+    )
+    edge = next(edge for edge in result.edges if edge.id == peer_edge.id)
+    assert edge.portfolio_peer_basis == basis
+    assert edge.supporting_claim_id is None
+
+
 @pytest.mark.parametrize(
     ("reaches_holding", "attached_to_root"),
     [(False, False), (True, False), (False, True), (True, True)],

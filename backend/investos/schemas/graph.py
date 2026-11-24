@@ -26,6 +26,13 @@ class GraphConnectionResponse(BaseModel):
     created_at: Optional[datetime] = None
 
 
+class GraphBusinessEvidence(BaseModel):
+    fact_id: UUID
+    statement: str
+    is_verified: bool
+    citation: GraphCitationResponse
+
+
 class GraphNodeDetailResponse(BaseModel):
     id: UUID | str
     node_type: str
@@ -37,6 +44,7 @@ class GraphNodeDetailResponse(BaseModel):
     created_at: Optional[datetime] = None
     relevance: Optional[float] = None
     relevance_reasoning: Optional[str] = None
+    business_evidence: list[GraphBusinessEvidence] = Field(default_factory=list)
     properties: dict[str, object] = {}
     citations: list[GraphCitationResponse] = []
     connections: list[GraphConnectionResponse] = []
@@ -72,6 +80,9 @@ class GraphLayoutSyncRequest(BaseModel):
 
 
 class GraphWebEdgeResponse(BaseModel):
+    portfolio_peer_basis: str | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     supporting_claim_id: Optional[UUID] = Field(
         default=None, exclude_if=lambda value: value is None
     )
