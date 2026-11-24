@@ -60,6 +60,7 @@ EXPANDED_WEB_SEED_LIMIT = 100
 WEB_NEIGHBORHOOD_DEPTH = 2
 WEB_NEIGHBORHOOD_LIMIT = 20
 EXPLICIT_NODE_EDGE_LIMIT = 40
+CLAIM_ENDPOINT_ROLES = ("relationship_subject", "relationship_object")
 
 # Internal job/run labels that leaked into the entity table as if they were
 # real subjects. They are pipeline bookkeeping, not knowledge, and should never
@@ -720,10 +721,7 @@ class GraphService:
                 continue
             if nodes[edge.source_key].node_type != "claim":
                 continue
-            if edge.relationship_type in {
-                "relationship_subject",
-                "relationship_object",
-            }:
+            if edge.relationship_type in CLAIM_ENDPOINT_ROLES:
                 role = edge.relationship_type.removeprefix("relationship_")
                 roles.setdefault(edge.source_key, {}).setdefault(role, set()).add(
                     edge.target_key
@@ -1538,9 +1536,7 @@ class GraphService:
                     select(Edge).where(
                         Edge.source_type == "claim",
                         Edge.source_id == node.id,
-                        Edge.relationship_type.in_(
-                            ["relationship_subject", "relationship_object"]
-                        ),
+                        Edge.relationship_type.in_(CLAIM_ENDPOINT_ROLES),
                     )
                 )
                 for role in roles:
@@ -2170,6 +2166,8 @@ class GraphService:
         linked_companies: list[str] = []
         direct_portfolio_link = False
         for connection in direct_connections:
+            if connection.relationship_type in CLAIM_ENDPOINT_ROLES:
+                continue
             if connection.node_type == "portfolio":
                 direct_portfolio_link = True
             elif (
@@ -2359,6 +2357,7 @@ class GraphService:
             (connection.node_type, connection.node_id): connection.label
             for connection in direct_connections
             if connection.node_type != "portfolio"
+            and connection.relationship_type not in CLAIM_ENDPOINT_ROLES
         }
         if not intermediary_by_key:
             return self._empty_portfolio_route()
@@ -2367,6 +2366,7 @@ class GraphService:
             (
                 await self.session.execute(
                     select(Edge).where(
+                        Edge.relationship_type.not_in(CLAIM_ENDPOINT_ROLES),
                         or_(
                             tuple_(Edge.source_type, Edge.source_id).in_(
                                 intermediary_keys
@@ -2374,7 +2374,7 @@ class GraphService:
                             tuple_(Edge.target_type, Edge.target_id).in_(
                                 intermediary_keys
                             ),
-                        )
+                        ),
                     )
                 )
             )

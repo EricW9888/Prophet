@@ -92,6 +92,9 @@ class EvidenceProcessingState(Base):
     extraction_completed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    planning_seen_extraction_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     persisted_object_count: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     history_json: Mapped[list] = mapped_column(JSONB, default=list)

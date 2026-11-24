@@ -568,6 +568,8 @@ or either endpoint is outside the admitted view. Ordinary cross-subject events,
 facts and claims also retain their document-primary context, as investment
 metrics already did. Subject kinds remain open; creating a product assertion
 does not silently reclassify or consolidate existing issuer identities.
+The portfolio attachment check excludes relationship subject and object edges.
+Those edges locate a claim's named parties and remain visible in Knowledge.
 
 Workspace graph reads batch node and provenance dependencies within each
 request while retaining per-node admission limits. Bounded neighborhoods share
@@ -750,9 +752,13 @@ for external polling, time-based eligibility, and recovery if a signal is missed
 Completed extraction also wakes the existing portfolio planner. Its operating
 snapshot includes newly processed source changes across intake types, including
 unheld subjects, with distinct observation, publication and processing clocks.
-The latest five eligible sources carry up to three non-deprecated assertions
-each, using the ordinary retrieval provenance and original-passage projection.
-These are explicit, provisional previews; full source records remain available.
+The planner prioritizes unseen extraction versions within the news lookback,
+with one slot for the oldest pending version when the preview is full and the
+other slots for recent changes. Up to five sources carry up to three assertions
+each with ordinary retrieval provenance and original passages. Successful
+planning records the extraction versions it saw. A provider deferral or blocked
+follow-up leaves them eligible, and a newer extraction cannot be acknowledged
+by a turn that saw its predecessor. These receipts measure input coverage.
 Source/version/assertion identity participates in planner deduplication. Existing
 execution, provider and quantity guards still apply. A qualifying policy or theme
 research goal can execute using its question when no stock ticker applies.
