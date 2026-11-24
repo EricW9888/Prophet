@@ -1084,6 +1084,33 @@ async def test_issuer_current_report_keeps_priority_during_a_filing_backlog(
         await queue.next_due_evidence(prefer_recent_publisher=True)
     ).id == new_story.id
 
+    # Late capture gets a first pass even after the discovery priority window.
+    observation = await session.scalar(
+        select(ResearchDiscoveryObservation).where(
+            ResearchDiscoveryObservation.url == fresh
+        )
+    )
+    observation.observed_at = now - timedelta(minutes=25)
+    routine_observation = await session.scalar(
+        select(ResearchDiscoveryObservation).where(
+            ResearchDiscoveryObservation.url == urls[1]
+        )
+    )
+    assert routine_observation.evidence_id is not None
+    routine_observation.observed_at = now
+    await session.flush()
+    assert (
+        await queue.next_due_evidence(prefer_recent_publisher=True)
+    ).id == new_story.id
+
+    # A provider outage can outlast the short capture window as well.
+    new_story.created_at = now - timedelta(minutes=20)
+    await session.flush()
+    assert (await queue.next_due_evidence()).id == records[urls[0]].id
+    assert (
+        await queue.next_due_evidence(prefer_recent_publisher=True)
+    ).id == new_story.id
+
 
 async def test_current_context_counts_each_publisher_url_once_before_the_read_limit(
     workflow_session,
@@ -1433,6 +1460,53 @@ async def test_priority_fetch_reserves_capacity_for_oldest_lead(
     monkeypatch.setattr(IngestionService, "fetch_url_document", fetcher)
     assert (await service.capture_pending())["articles_fetched"] == 3
     assert "https://example.test/old" in [a.args[0] for a in fetcher.await_args_list]
+
+
+async def test_backlog_slot_rotates_between_publishers_across_batches(
+    workflow_session, monkeypatch
+):
+    session = workflow_session
+    service = NewsIntakeService(session)
+    busy, busy_second_feed, quieter, daily_headlines = [
+        await feed(session) for _ in range(4)
+    ]
+    quieter.url = "https://data.example/releases.rss"
+    daily_headlines.url = "https://daily.example/top-stories.rss"
+    await session.flush()
+    now = datetime.now(UTC)
+    busy_oldest = "https://example.test/oldest"
+    busy_next = "https://example.test/next-oldest"
+    release = "https://data.example/survey-release"
+    for subscription, url, age in (
+        (busy, busy_oldest, 40),
+        (busy_second_feed, busy_next, 30),
+        (quieter, release, 15),
+    ):
+        await service._record(
+            subscription,
+            [item(url=url, rank=18)],
+            observed_at=now - timedelta(minutes=age),
+        )
+
+    fetcher = AsyncMock(side_effect=document)
+    monkeypatch.setattr(IngestionService, "fetch_url_document", fetcher)
+    monkeypatch.setattr(settings, "NEWS_INTAKE_FETCH_BATCH_SIZE", 3)
+
+    for cycle, backlog_url in enumerate((busy_oldest, release, busy_next)):
+        # A new dispatcher reads the durable publisher rotation from the queue.
+        service = NewsIntakeService(session)
+        headline_urls = [
+            f"https://{host}/fresh-{cycle}"
+            for host in ("example.test", "daily.example")
+        ]
+        await service._record(busy, [item(url=headline_urls[0])])
+        await service._record(daily_headlines, [item(url=headline_urls[1])])
+        fetcher.reset_mock()
+        assert (await service.capture_pending())["articles_fetched"] == 3
+        assert [call.args[0] for call in fetcher.await_args_list][-1] == backlog_url
+        assert {call.args[0] for call in fetcher.await_args_list[:-1]} == set(
+            headline_urls
+        )
 
 
 async def test_busy_subscriptions_on_one_host_cannot_fill_the_priority_batch(

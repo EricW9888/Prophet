@@ -200,8 +200,10 @@ Ready discoveries that match an already retained version link to its receipt
 before the worker claims download slots. Download priority favors first
 captures, rotating across publisher hosts before taking
 multiple priority entries from one host. EDGAR current reports rank before
-routine filings within that host's priority slots. An oldest-lead slot gives revisions and
-older leads a route through the queue. Retry
+routine filings within that host's priority slots. The backlog slot takes the
+oldest due lead from the publisher that has waited longest for that slot.
+Subscriptions on the same host share a turn, and the claim time survives a
+restart. Revisions and older leads keep a route through the queue. Retry
 backoff, fenced leases and raw-receipt recovery preserve interrupted work.
 Failed or unverifiably dated items remain inspectable rather than becoming
 accepted claims. A publisher's authentication challenge leaves the feed entry
@@ -226,10 +228,11 @@ that exceeds the storage budget leaves its discovery receipt and other queued
 sources can still be captured.
 Extraction wakes again after durable progress when another attempt is ready.
 The worker alternates oldest eligible work with a publisher first pass.
-Priority turns favor evidence discovered and captured within two feed polls.
-If none is waiting, EDGAR current reports remain eligible for priority within
-the news lookback. A priority turn falls back to the oldest eligible attempt
-when there is no qualifying candidate.
+Priority turns favor publisher releases and EDGAR current reports, led by those
+discovered and captured within two feed polls. Both stay eligible for priority
+within the news lookback through capture delays or model outages. Other newly
+discovered and captured publisher documents can take spare priority turns.
+Oldest-first turns continue to advance the full queue and eligible retries.
 Continuations and due retries keep their existing eligibility rules. Provider
 cooldown preserves the document's retry budget. The usual provider request
 limits still apply.
