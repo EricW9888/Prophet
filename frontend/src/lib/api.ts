@@ -110,6 +110,7 @@ export type PortfolioHistory = {
   receipt_id: string;
   computed_at: string;
   cache_hit: boolean;
+  refresh_due?: boolean;
   window_days: number;
   points: Array<{
     at: string;
@@ -267,6 +268,12 @@ export type GraphNodeDetail = {
   created_at?: string | null;
   relevance?: number | null;
   relevance_reasoning?: string | null;
+  business_evidence?: Array<{
+    fact_id: string;
+    statement: string;
+    is_verified: boolean;
+    citation: GraphCitation;
+  }>;
   properties: Record<string, unknown>;
   citations: GraphCitation[];
   connections: GraphConnection[];
@@ -328,6 +335,7 @@ export type GraphNodeLayoutItem = {
 };
 
 export type GraphWebEdge = {
+  portfolio_peer_basis?: string | null;
   supporting_claim_id?: string | null;
   supporting_claim_verified?: boolean | null;
   id: string;

@@ -21,20 +21,22 @@ export default function PortfolioHistoryPanel() {
   const [{ history, warning: refreshWarning }, setDisplay] = useState<{ history: PortfolioHistory | null; warning: string }>({ history: null, warning: "" });
   const { read, status } = useWorkspaceReads<"history">();
   const lastAutomaticRefresh = useRef<string | null>(null);
-  const load = useCallback((refresh = false, replace = true) =>
-    read<PortfolioHistory>("history", `/risk/portfolio/history?window_days=${days}&refresh=${refresh}`, (result) => {
+  const load = useCallback((refresh = false, receiptId?: string) => {
+    const query = receiptId ? `revalidate=${encodeURIComponent(receiptId)}` : `refresh=${refresh}`;
+    return read<PortfolioHistory>("history", `/risk/portfolio/history?window_days=${days}&${query}`, (result) => {
       setDisplay((previous) => {
         if (previous.history && previous.history.window_days === result.window_days && result.points.length === 0 && result.reasons.length) {
           return { ...previous, warning: result.reasons.join(" ") };
         }
         return { history: result, warning: "" };
       });
-    }, replace, PORTFOLIO_HISTORY_REQUEST_TIMEOUT_MS), [days, read]);
+    }, !receiptId, PORTFOLIO_HISTORY_REQUEST_TIMEOUT_MS);
+  }, [days, read]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    if (!history?.cache_hit || history.window_days !== days || lastAutomaticRefresh.current === history.receipt_id) return;
+    if (!history?.refresh_due || history.window_days !== days || lastAutomaticRefresh.current === history.receipt_id) return;
     lastAutomaticRefresh.current = history.receipt_id;
-    void load(true, false);
+    void load(false, history.receipt_id);
   }, [history, days, load]);
   const latest = history?.points.at(-1);
   const baseline = history?.points.find((point) => point.value != null);

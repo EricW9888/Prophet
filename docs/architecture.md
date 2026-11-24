@@ -455,6 +455,12 @@ quote from the same instrument and exchange session. The current calculation
 links to the source receipt, uses the quote on its original session share basis,
 and still checks the ledger's corporate actions. A published daily candle takes
 precedence when available.
+The history service sets when a saved valuation is due for automatic refresh
+using the next exchange close. Missing latest coverage can retry at the market
+data cadence. The browser can display the saved valuation immediately and
+revalidates against its receipt ID only when due. Reopening a chart reads current
+timeline events without downloading prices again within the same session. The
+original calculation receipt retains its original inputs and event snapshot.
 
 Generated assertions, material assumptions, source references, contradictions,
 falsifiers and alternative explanations are retained in full before review and
@@ -528,6 +534,15 @@ holdings retain their identities and the indirect-relationship qualification.
 A direct root attachment does not suppress an independent route to a holding.
 The root can be a destination for context but is excluded as an intermediary
 when looking for holding connections. Relationship descriptions retain direction.
+An issuer's live holdings come from positions and securities. A dossier's
+general summary stays in the research profile. Explicit economic hypotheses
+can appear alongside holdings with their unverified status. Peer context
+edges disclose their comparison basis from edge metadata.
+When a company lacks a dossier business model, the inspector surfaces current
+business-model evidence directly linked to that company with its source and
+verification status.
+Extraction can seed an empty dossier summary. Subsequent source summaries
+remain on their source items and cannot replace the existing dossier narrative.
 
 Source-attributed relationships are cited `Claim` assertions with two role
 edges (`relationship_subject` and `relationship_object`) and an open predicate
