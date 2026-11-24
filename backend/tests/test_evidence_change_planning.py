@@ -123,6 +123,7 @@ async def test_new_unheld_news_reaches_planner_with_original_qualification(
     monkeypatch.setattr(ResearchService, "run_ad_hoc_request", research)
     first = await AgentService(session).run_strategic_planning_cycle()
     assert first["actions_taken"] == 1
+    assert state.planning_seen_extraction_at == state.extraction_completed_at
     assert research.await_args.kwargs["metadata_json"]["lead_evidence_id"] == str(
         evidence.id
     )
@@ -174,3 +175,83 @@ async def test_new_unheld_news_reaches_planner_with_original_qualification(
     quiet = await AgentService(session).run_strategic_planning_cycle()
     assert quiet["detail"] == "no_material_planning_signal"
     assert len(captured) == 2
+
+
+async def test_planner_drains_unseen_extractions_without_acknowledging_deferral(
+    workflow_session, monkeypatch
+):
+    session = workflow_session
+    now = datetime.now(UTC)
+    states = []
+    for age in reversed(range(7)):
+        evidence, _ = await source_fixture(session, f"Source change {age}.")
+        evidence.url = f"https://example.test/source-change-{age}"
+        state = EvidenceProcessingState(
+            raw_evidence_id=evidence.id,
+            extraction_status="completed",
+            extraction_completed_at=now - timedelta(minutes=age),
+            persisted_object_count=1,
+        )
+        session.add(state)
+        states.append(state)
+    await session.flush()
+    operating = OperatingStateService(session)
+    oldest = str(states[0].raw_evidence_id)
+    ordinary_preview = await operating._recent_evidence_changes()
+    assert oldest not in {row["evidence_id"] for row in ordinary_preview}
+    pending = await operating._recent_evidence_changes(include_unseen=True)
+    assert pending[0]["evidence_id"] == oldest
+    assert str(states[-1].raw_evidence_id) in {row["evidence_id"] for row in pending}
+
+    for target in (
+        "portfolio_state_payload",
+        "review_queue_payload",
+        "lessons_payload",
+    ):
+        monkeypatch.setattr(OperatingStateService, target, AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        AgentActionLogService, "has_recent_fingerprint", lambda *args, **kwargs: False
+    )
+    llm = AsyncMock(side_effect=TimeoutError("Model timed out"))
+    monkeypatch.setattr("investos.services.agent.call_llm_json", llm)
+    service = AgentService(session)
+    assert (await service.run_strategic_planning_cycle())["status"] == "deferred"
+    assert all(state.planning_seen_extraction_at is None for state in states)
+
+    llm.side_effect = None
+    llm.return_value = {
+        "strategic_goals": [
+            {
+                "action": "research",
+                "goal_name": "Check whether the supply change is operational",
+                "portfolio_connection": "independent_opportunity",
+                "lead_evidence_id": oldest,
+                "why_now": "The reported change is new.",
+                "rationale": "Verify shipping status with the supplier.",
+            }
+        ]
+    }
+    monkeypatch.setattr(
+        ResearchService,
+        "run_ad_hoc_request",
+        AsyncMock(return_value=SimpleNamespace(started=False, reason="rate_limited")),
+    )
+    blocked = await service.run_strategic_planning_cycle()
+    assert blocked["status"] == "warning"
+    assert blocked["decision_fingerprint"] is None
+    assert all(state.planning_seen_extraction_at is None for state in states)
+
+    llm.return_value = {"strategic_goals": [{"action": "none"}]}
+    assert (await service.run_strategic_planning_cycle())["status"] == "ok"
+    assert sum(state.planning_seen_extraction_at is not None for state in states) == 5
+    assert states[0].planning_seen_extraction_at == states[0].extraction_completed_at
+    assert (await service.run_strategic_planning_cycle())["status"] == "ok"
+    assert all(
+        state.planning_seen_extraction_at == state.extraction_completed_at
+        for state in states
+    )
+
+    states[-1].extraction_completed_at += timedelta(seconds=1)
+    await session.flush()
+    await operating.record_planning_inputs(pending)
+    assert states[-1].planning_seen_extraction_at != states[-1].extraction_completed_at

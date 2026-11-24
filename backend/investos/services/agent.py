@@ -2618,7 +2618,7 @@ class AgentService:
         state = OperatingStateService(self.session)
 
         portfolio = await state.portfolio_state_payload()
-        monitor = await state.portfolio_monitor_payload()
+        monitor = await state.portfolio_monitor_payload(for_planning=True)
         review_queue = await state.review_queue_payload()
         lessons_data = await state.lessons_payload()
 
@@ -2857,6 +2857,8 @@ class AgentService:
                 elif res.reason in SEARCH_BLOCKED_REASONS:
                     blocked_search = res.reason
 
+        if goals and not blocked_search:
+            await state.record_planning_inputs(evidence_changes)
         await self.session.commit()
         return {
             "status": (
@@ -2884,7 +2886,7 @@ class AgentService:
             ),
             "goals": goals,
             "actions_taken": len(actions_taken),
-            "decision_fingerprint": decision_fingerprint,
+            "decision_fingerprint": None if blocked_search else decision_fingerprint,
         }
 
     @staticmethod

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import desc, func, or_, select
+from sqlalchemy import desc, func, or_, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.config import settings
@@ -895,7 +896,9 @@ class OperatingStateService:
             ],
         }
 
-    async def portfolio_monitor_payload(self) -> dict[str, object]:
+    async def portfolio_monitor_payload(
+        self, *, for_planning: bool = False
+    ) -> dict[str, object]:
         holding_rows = (
             await self.session.execute(
                 select(Position, Security, Entity)
@@ -978,35 +981,69 @@ class OperatingStateService:
                 for item in relevant_queue
             ],
             "recent_research_items": recent_research,
-            "recent_evidence_changes": await self._recent_evidence_changes(),
+            "recent_evidence_changes": await self._recent_evidence_changes(
+                include_unseen=for_planning
+            ),
         }
 
-    async def _recent_evidence_changes(self, limit: int = 5) -> list[dict]:
-        rows = (
-            await self.session.execute(
-                select(RawEvidence, SourceItem, EvidenceProcessingState)
-                .join(SourceItem, SourceItem.raw_evidence_id == RawEvidence.id)
-                .join(
-                    EvidenceProcessingState,
-                    EvidenceProcessingState.raw_evidence_id == RawEvidence.id,
-                )
-                .where(
-                    RawEvidence.is_processed.is_(True),
-                    RawEvidence.source_item_type != "conversation_turn",
-                    EvidenceProcessingState.extraction_status == "completed",
-                    EvidenceProcessingState.persisted_object_count > 0,
-                    SourceItem.processing_status.in_(
-                        ("processed", "processed_adjacent_context")
-                    ),
-                )
-                .order_by(
-                    EvidenceProcessingState.extraction_completed_at.desc().nullslast(),
-                    EvidenceProcessingState.updated_at.desc(),
-                    RawEvidence.id,
-                )
-                .limit(limit)
+    async def _recent_evidence_changes(
+        self, limit: int = 5, *, include_unseen: bool = False
+    ) -> list[dict]:
+        state = EvidenceProcessingState
+        eligible = (
+            select(RawEvidence, SourceItem, state)
+            .join(SourceItem, SourceItem.raw_evidence_id == RawEvidence.id)
+            .join(state, state.raw_evidence_id == RawEvidence.id)
+            .where(
+                RawEvidence.is_processed.is_(True),
+                RawEvidence.source_item_type != "conversation_turn",
+                state.extraction_status == "completed",
+                state.persisted_object_count > 0,
+                SourceItem.processing_status.in_(
+                    ("processed", "processed_adjacent_context")
+                ),
             )
-        ).all()
+        )
+        newest_order = (
+            state.extraction_completed_at.desc().nullslast(),
+            state.updated_at.desc(),
+            RawEvidence.id,
+        )
+        rows_by_id = {}
+        if include_unseen and limit:
+            cutoff = datetime.now(UTC) - timedelta(
+                hours=settings.NEWS_INTAKE_LOOKBACK_HOURS
+            )
+            unseen = eligible.where(
+                state.extraction_completed_at >= cutoff,
+                state.planning_seen_extraction_at.is_distinct_from(
+                    state.extraction_completed_at
+                ),
+            )
+            newest = (
+                await self.session.execute(unseen.order_by(*newest_order).limit(limit))
+            ).all()
+            if len(newest) == limit:
+                oldest = (
+                    await self.session.execute(
+                        unseen.order_by(
+                            state.extraction_completed_at, RawEvidence.id
+                        ).limit(1)
+                    )
+                ).first()
+                if oldest is not None:
+                    rows_by_id[oldest[0].id] = oldest
+            for row in newest:
+                rows_by_id.setdefault(row[0].id, row)
+        if len(rows_by_id) < limit:
+            recent = (
+                await self.session.execute(
+                    eligible.order_by(*newest_order).limit(limit)
+                )
+            ).all()
+            for row in recent:
+                rows_by_id.setdefault(row[0].id, row)
+        rows = list(rows_by_id.values())[:limit]
         if not rows:
             return []
         ranked = (
@@ -1074,6 +1111,35 @@ class OperatingStateService:
             }
             for evidence, item, state in rows
         ]
+
+    async def record_planning_inputs(self, changes: list[dict]) -> None:
+        versions = [
+            (
+                UUID(change["evidence_id"]),
+                datetime.fromisoformat(change["processed_at"]),
+            )
+            for change in changes
+        ]
+        if not versions:
+            return
+        state = EvidenceProcessingState
+        await self.session.execute(
+            update(state)
+            .where(
+                tuple_(state.raw_evidence_id, state.extraction_completed_at).in_(
+                    versions
+                ),
+                state.extraction_status == "completed",
+                state.planning_seen_extraction_at.is_distinct_from(
+                    state.extraction_completed_at
+                ),
+            )
+            .values(
+                planning_seen_extraction_at=state.extraction_completed_at,
+                updated_at=state.updated_at,
+            )
+            .execution_options(synchronize_session="fetch")
+        )
 
     async def subject_name(self, subject_id: UUID, subject_type: str) -> str:
         if subject_type == "portfolio":

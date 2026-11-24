@@ -754,7 +754,7 @@ export default function GraphPage() {
     const sName = source?.label ?? edge.source_key;
     const tName = target?.label ?? edge.target_key;
     if (edge.portfolio_peer_basis) return `Peer comparison · ${sName} and ${tName}`;
-    const attribution = edge.supporting_claim_id ? "Source reports: " : "";
+    const attribution = edge.supporting_claim_id ? "Extracted relationship · " : "";
     return `${attribution}${sName} ${edge.relationship_type.replace(/_/g, " ")} ${tName}`;
   }, [nodeByKey]);
 
@@ -1376,7 +1376,7 @@ export default function GraphPage() {
                   </div>
                 </div>
                 {activeEdge.supporting_claim_id && <div className="space-y-2 border border-line p-3 text-sm">
-                  <p>Source-attributed relationship · {activeEdge.supporting_claim_verified ? "corroborated claim" : "corroboration not established"}</p>
+                  <p>{activeEdge.supporting_claim_verified ? "Corroborated claim" : "Unverified interpretation of the source"}</p>
                   <button type="button" className="workspace-control" onClick={() => {
                     const id = activeEdge.supporting_claim_id!;
                     handleNodeClick({key: `claim:${id}`, node_type: "claim", id});

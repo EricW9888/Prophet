@@ -6,11 +6,12 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import func, select
 
-from investos.models.entity import Entity
+from investos.models.entity import Entity, Security
 from investos.models.evidence import RawEvidence, SourceItem
 from investos.models.graph import Edge
 from investos.models.knowledge import Claim
 from investos.models.knowledge_mutation import KnowledgeMutation
+from investos.models.portfolio import Position
 from investos.models.source import Source
 from investos.services.evidence_relevance import (
     EvidenceRelevanceAssessment,
@@ -124,9 +125,33 @@ async def test_relationship_assertions_keep_both_endpoints_provenance_and_source
     assert any(
         e.supporting_claim_id == assertion.id for e in compared.direct_relationships
     )
+    security = Security(
+        entity_id=entities[company].id,
+        ticker=f"X{token}",
+        asset_class="equity",
+        instrument_type="common_stock",
+    )
+    session.add(security)
+    await session.flush()
+    session.add(
+        Position(
+            security_id=security.id, direction="long", list_type="holding", quantity=1
+        )
+    )
+    await session.flush()
+    person_detail = await GraphService(session).get_node_detail(
+        node_type="entity", node_id=entities[person].id
+    )
+    assert any(
+        connection.node_id == assertion.id for connection in person_detail.connections
+    )
+    assert person_detail.properties["portfolio_linkage_status"] == "unresolved"
+    assert not person_detail.properties.get("linked_companies")
     detail = await GraphService(session).get_node_detail(
         node_type="claim", node_id=assertion.id
     )
+    assert not detail.properties.get("linked_companies")
+    assert not detail.properties.get("portfolio_mechanism")
     assert str(detail.citations[0].raw_evidence_id) == str(evidence.id)
     assert detail.properties["creation_method"] == "Source extraction"
     assert detail.properties["recorded_at"] == assertion.created_at.isoformat()
