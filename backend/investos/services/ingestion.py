@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
+from http import HTTPStatus
 from typing import Optional
 from urllib.parse import parse_qs, urljoin, urlsplit
 from uuid import UUID
@@ -20,7 +21,11 @@ from investos.core.dates import parse_explicit_calendar_datetime, parse_iso_date
 from investos.core.pdf_text import read_pdf_text
 from investos.core.storage import LocalStorage
 from investos.core.uploads import UploadTooLargeError, read_upload_limited
-from investos.core.url_security import PublicDocument, fetch_public_document
+from investos.core.url_security import (
+    PublicDocument,
+    UrlFetchNetworkError,
+    fetch_public_document,
+)
 from investos.models.evidence import RawEvidence
 from investos.models.source import Source
 from investos.schemas.evidence import RawEvidenceCreate
@@ -29,6 +34,11 @@ from investos.services.evidence_processing import EvidenceProcessingService
 from investos.workers.extraction import ExtractionWorker
 
 DEFAULT_SOURCE_NAME = "Manual Research Inbox"
+EDGAR_HOSTS = {"sec.gov", "www.sec.gov"}
+EDGAR_INDEX_PATH = re.compile(
+    r"/Archives/edgar/data/(?P<cik>[0-9]+)/(?:(?P<directory>[0-9]{18})/)?"
+    r"(?P<accession>[0-9]{10}-[0-9]{2}-[0-9]{6})-index\.html?"
+)
 
 
 class SourceContentUnavailable(ValueError):
@@ -200,13 +210,32 @@ class IngestionService:
 
         if video_id := YouTubeService.video_id_for_url(url):
             return await YouTubeService.fetch_caption_document(url, video_id)
-        response = await self._fetch_public_document(url)
+        try:
+            response = await self._fetch_public_document(url)
+        except UrlFetchNetworkError as exc:
+            index = _edgar_index_match(url)
+            if exc.status_code != HTTPStatus.NOT_FOUND or index is None:
+                raise
+            accession = index["accession"]
+            submission_url = (
+                urlsplit(url)
+                ._replace(
+                    path=f"/Archives/edgar/data/{index['cik']}/{accession}.txt",
+                    query="",
+                    fragment="",
+                )
+                .geturl()
+            )
+            response = await self._fetch_public_document(
+                submission_url, max_megabytes=settings.INGESTION_MAX_UPLOAD_MB
+            )
+            document = await asyncio.to_thread(
+                self._parse_edgar_submission, response, accession
+            )
+            return replace(document, url=url)
         if video_id := YouTubeService.video_id_for_url(response.url):
             return await YouTubeService.fetch_caption_document(url, video_id)
-        target = urlsplit(response.url)
-        edgar_index = target.hostname in {"sec.gov", "www.sec.gov"} and re.fullmatch(
-            r"/Archives/edgar/data/\d+/\d+/[\d-]+-index\.html?", target.path
-        )
+        edgar_index = _edgar_index_match(response.url)
         if edgar_index:
             primary_url = await asyncio.to_thread(
                 _edgar_primary_document_url, response.url, response.text()
@@ -221,6 +250,52 @@ class IngestionService:
             url=url,
             canonical_url=response.url if edgar_index else document.canonical_url,
             source_item_type="filing" if edgar_index else document.source_item_type,
+        )
+
+    def _parse_edgar_submission(
+        self, response: PublicDocument, accession: str
+    ) -> FetchedUrlDocument:
+        header, *documents = re.split(r"(?im)^<DOCUMENT>[ \t]*\r?$", response.text())
+        if urlsplit(response.url).hostname not in EDGAR_HOSTS or not re.search(
+            rf"(?im)^[ \t]*(?:ACCESSION NUMBER:|<ACCESSION-NUMBER>)[ \t]*{re.escape(accession)}[ \t]*\r?$",
+            header,
+        ):
+            raise SourceContentUnavailable(
+                "The EDGAR complete submission did not identify the requested accession."
+            )
+        primary = []
+        for section in documents:
+            fields, _, body = section.partition("<TEXT>")
+            if re.search(r"(?im)^<SEQUENCE>[ \t]*0*1[ \t]*\r?$", fields):
+                primary.append((fields, body))
+        if len(primary) != 1:
+            raise SourceContentUnavailable(
+                "The EDGAR complete submission did not identify one primary document."
+            )
+        fields, body = primary[0]
+        filename = re.search(
+            r"(?im)^<FILENAME>[ \t]*([\w.-]+\.(?:html?|txt|xml))[ \t]*\r?$", fields
+        )
+        content, text_end, tail = body.partition("</TEXT>")
+        if (
+            filename is None
+            or not text_end
+            or not tail.lstrip().startswith("</DOCUMENT>")
+        ):
+            raise SourceContentUnavailable(
+                "The EDGAR primary document has no supported text representation."
+            )
+        document = self._parse_url_document(response.url, content)
+        return replace(
+            document,
+            canonical_url=response.url,
+            source_item_type="filing",
+            capture_metadata={
+                **document.capture_metadata,
+                "representation": "edgar_primary_text",
+                "source_media_type": response.media_type,
+                "edgar_primary_filename": filename[1],
+            },
         )
 
     def _parse_public_document(self, response: PublicDocument) -> FetchedUrlDocument:
@@ -380,6 +455,16 @@ class _EdgarDocumentIndex(HTMLParser):
             self.in_document_table = False
 
 
+def _edgar_index_match(url: str) -> re.Match[str] | None:
+    target = urlsplit(url)
+    if target.hostname not in EDGAR_HOSTS:
+        return None
+    match = EDGAR_INDEX_PATH.fullmatch(target.path)
+    if match and match["directory"] not in (None, match["accession"].replace("-", "")):
+        return None
+    return match
+
+
 def _edgar_primary_document_url(index_url: str, html: str) -> str:
     index = urlsplit(index_url)
     parser = _EdgarDocumentIndex()
@@ -389,7 +474,7 @@ def _edgar_primary_document_url(index_url: str, html: str) -> str:
         target = urlsplit(
             urljoin(index_url, parse_qs(target.query).get("doc", [""])[0])
         )
-    accession = index.path.split("/")[-2]
+    accession = index.path.rsplit("/", 1)[-1].split("-index.", 1)[0].replace("-", "")
     # Joint filings may list a different CIK and an SEC XSL rendering directory.
     document = re.fullmatch(
         rf"/Archives/edgar/data/\d+/{re.escape(accession)}/(?:xsl[\w.-]+/)?([\w.-]+\.(?:html?|txt|xml|pdf))",

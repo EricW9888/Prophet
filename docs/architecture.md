@@ -213,6 +213,9 @@ An Atom entry with an update time can qualify for a fetch even without a
 publication time. Its update and observation clocks remain distinct. EDGAR
 filing indexes identify the primary filing in their document table. The URL
 intake path fetches that document and retains both the index and document URLs.
+If an EDGAR index returns 404, the reader can use the SEC complete-submission
+file. It checks the accession and retains the primary text with its filename
+and complete-submission URL as provenance.
 The primary filing uses the configured upload byte budget so large prospectuses
 can reach the ordinary extraction workflow. Fetched text uses the document
 storage budget. Handwritten notes retain their own character limit. A source

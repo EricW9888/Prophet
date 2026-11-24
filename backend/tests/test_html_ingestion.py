@@ -11,7 +11,11 @@ import pytest
 from reportlab.pdfgen import canvas
 
 from investos.api.routes.ingestion import ingest_url
-from investos.core.url_security import PublicDocument, fetch_public_document
+from investos.core.url_security import (
+    PublicDocument,
+    UrlFetchNetworkError,
+    fetch_public_document,
+)
 from investos.schemas.evidence import UrlEvidenceCreate
 from investos.services.ingestion import (
     FetchedUrlDocument,
@@ -127,6 +131,63 @@ async def test_edgar_index_fetches_sequence_one_from_the_same_filing(document_lo
     ] == [
         index,
         document,
+    ]
+
+
+@pytest.mark.parametrize("matches_accession", [True, False])
+async def test_edgar_missing_index_reads_primary_document_from_complete_submission(
+    matches_accession,
+):
+    root = "https://www.sec.gov/Archives/edgar/data/123456"
+    accession = "0000123456-26-000001"
+    index = f"{root}/000012345626000001/{accession}-index.htm"
+    complete = f"{root}/{accession}.txt"
+    submitted_accession = accession if matches_accession else "0000123456-26-000002"
+    sgml = f"""<SEC-HEADER>
+ACCESSION NUMBER: {submitted_accession}
+</SEC-HEADER>
+<DOCUMENT>
+<TYPE>EX-99
+<SEQUENCE>2
+<FILENAME>exhibit.htm
+<TEXT>
+<p>Exhibit text must stay outside the primary document.</p>
+</TEXT>
+</DOCUMENT>
+<DOCUMENT>
+<TYPE>8-K
+<SEQUENCE>1
+<FILENAME>report.htm
+<TEXT>
+<p>The commission declined the application.</p>
+</TEXT>
+</DOCUMENT>
+"""
+    service = IngestionService(None)
+    service._fetch_public_document = AsyncMock(
+        side_effect=[
+            UrlFetchNetworkError("Missing index", status_code=404),
+            PublicDocument(complete, sgml.encode(), "text/plain", "utf-8"),
+        ]
+    )
+
+    if not matches_accession:
+        with pytest.raises(SourceContentUnavailable, match="requested accession"):
+            await service.fetch_url_document(index)
+        return
+    result = await service.fetch_url_document(index)
+
+    assert result.url == index
+    assert result.canonical_url == complete
+    assert result.source_item_type == "filing"
+    assert result.content == "The commission declined the application."
+    assert result.public_time is None
+    assert result.capture_metadata["edgar_primary_filename"] == "report.htm"
+    assert [
+        call.args[0] for call in service._fetch_public_document.await_args_list
+    ] == [
+        index,
+        complete,
     ]
 
 
