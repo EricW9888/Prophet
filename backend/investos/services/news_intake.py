@@ -26,6 +26,7 @@ from investos.core.url_security import UrlFetchNetworkError, fetch_public_text
 from investos.models.evidence import RawEvidence, ResearchDiscoveryObservation
 from investos.models.news import PublisherFeed
 from investos.schemas.evidence import RawEvidenceCreate
+from investos.services.edgar_intake import is_edgar_current_report
 from investos.services.ingestion import (
     FetchedUrlDocument,
     IngestionService,
@@ -396,10 +397,14 @@ class NewsIntakeService:
             .exists()
         )
         # Separate subscriptions on the same host share editorial capacity.
-        # Rank each host's first unfetched lead before its second, and leave
-        # one oldest-first slot for leads that never rise in editorial rank.
+        # Prioritize current disclosures within EDGAR's shared host allocation.
+        # Keep publisher rotation and an oldest-first slot across all feeds.
         editorial_order = (
             already_captured,
+            is_edgar_current_report(
+                ResearchDiscoveryObservation.url,
+                ResearchDiscoveryObservation.result_title,
+            ).desc(),
             ResearchDiscoveryObservation.result_rank,
             ResearchDiscoveryObservation.observed_at.desc(),
             ResearchDiscoveryObservation.id,
@@ -718,23 +723,37 @@ class NewsIntakeService:
                 observation.observed_at.desc(),
                 observation.id,
             )
-            # Rotate publishers before applying the read bound, as for capture.
+            latest_version = (
+                select(
+                    observation.id,
+                    func.row_number()
+                    .over(
+                        partition_by=observation.url,
+                        order_by=(observation.observed_at.desc(), observation.id),
+                    )
+                    .label("version_rank"),
+                )
+                .where(
+                    observation.provider == FEED_PROVIDER,
+                    observation.metadata_json["feed_id"].astext.in_(
+                        [str(f.id) for f in fresh]
+                    ),
+                    observation.observed_at.between(earliest, now),
+                    observation.outcome.not_in(NON_CURRENT_FEED_OUTCOMES),
+                )
+                .subquery()
+            )
+            # Versions of the same story should not each take a publisher slot.
             rows = list(
                 await self.session.scalars(
                     select(observation)
-                    .where(
-                        observation.provider == FEED_PROVIDER,
-                        observation.metadata_json["feed_id"].astext.in_(
-                            [str(f.id) for f in fresh]
-                        ),
-                        observation.observed_at.between(earliest, now),
-                        observation.outcome.not_in(NON_CURRENT_FEED_OUTCOMES),
-                    )
+                    .join(latest_version, latest_version.c.id == observation.id)
+                    .where(latest_version.c.version_rank == 1)
                     .order_by(_publisher_position(editorial_order), *editorial_order)
                     .limit(200)
                 )
             )
-        by_url = {}
+        results = []
         for row in rows:
             metadata = row.metadata_json or {}
             time_basis = _feed_time_basis(
@@ -745,23 +764,24 @@ class NewsIntakeService:
             )
             if time_basis is None:
                 continue
-            observed_at = row.observed_at.isoformat()
-            if row.url not in by_url or observed_at > by_url[row.url]["observed_at"]:
-                by_url[row.url] = {
+            results.append(
+                {
                     "title": row.result_title,
                     "url": row.url,
                     "content": row.snippet,
                     "published_date": metadata.get("published_date"),
                     "updated_date": metadata.get("updated_date"),
                     "time_basis": time_basis,
-                    "observed_at": observed_at,
+                    "observed_at": row.observed_at.isoformat(),
                     "evidence_id": str(row.evidence_id) if row.evidence_id else None,
                     "content_kind": "feed_summary",
                     "lane": "Publisher news",
                     "score": None,
                     "feed_rank": row.result_rank,
                 }
-        results = list(by_url.values())[:12]
+            )
+            if len(results) == 12:
+                break
         if not settings.NEWS_INTAKE_ENABLED:
             status = "intake_disabled"
         elif not fresh:

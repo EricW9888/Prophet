@@ -431,7 +431,7 @@ async def test_retained_disclosure_reaches_question_while_search_is_limited(
             {}, "What important developments should I know about?"
         )
     )
-    assert context["status"] == "ok"
+    assert context["status"] == "partial"
     assert context["searched"]
     assert context["checks"][0]["fresh_feeds"] == 1
     assert len(context["results"]) == 1
@@ -442,6 +442,11 @@ async def test_retained_disclosure_reaches_question_while_search_is_limited(
     assert candidate["time_basis"] == "publisher_feed_updated"
     assert candidate["observed_at"] == observation.observed_at.isoformat()
     assert candidate["evidence_id"] == str(fetched.id)
+    answer = AgentService(session)._merge_fresh_research_context_into_answer(
+        "Here is the available evidence.", context
+    )
+    assert "some source searches were unavailable" in answer
+    assert "1 candidate source" in answer
 
     payload = extraction_payload(issuer.name)
     payload["facts"] = [
@@ -905,6 +910,104 @@ async def test_unattended_extraction_interleaves_new_publisher_work_with_backlog
     assert attempts[2] == older[1]
     assert {attempts[1], attempts[3]} == {records[url] for url in new_urls}
     assert attempts[4] == records[backfill]
+
+
+async def test_issuer_current_report_keeps_priority_during_a_filing_backlog(
+    workflow_session, monkeypatch
+):
+    session = workflow_session
+    now = datetime.now(UTC)
+    monkeypatch.setattr(settings, "NEWS_FEED_URLS", [])
+    monkeypatch.setattr(settings, "NEWS_INTAKE_POLL_SECONDS", 300)
+    monkeypatch.setattr(settings, "NEWS_INTAKE_FETCH_BATCH_SIZE", 2)
+    subscription = PublisherFeed(
+        url="https://www.sec.gov/synthetic-test-feed.xml", name="Synthetic EDGAR feed"
+    )
+    session.add(subscription)
+    await session.flush()
+    service = NewsIntakeService(session)
+    urls = [
+        f"https://www.sec.gov/Archives/edgar/data/101/{number:018d}/{number:018d}-index.htm"
+        for number in range(3)
+    ]
+    await service._record(
+        subscription,
+        [item(title="424B2 - Earlier prospectus", url=urls[0], rank=1)],
+        observed_at=now - timedelta(minutes=45),
+    )
+    await service._record(
+        subscription,
+        [
+            item(title="NPORT-P - Routine holdings report", url=urls[1], rank=1),
+            item(title="6-K - Unheld issuer current report", url=urls[2], rank=8),
+        ],
+        observed_at=now - timedelta(minutes=20),
+    )
+
+    async def fetch(url):
+        return replace(
+            document(url),
+            source_item_type="filing",
+            content=f"Synthetic filing text for {url}",
+        )
+
+    fetcher = AsyncMock(side_effect=fetch)
+    monkeypatch.setattr(IngestionService, "fetch_url_document", fetcher)
+    assert (await service.capture_pending())["articles_fetched"] == 2
+    assert [call.args[0] for call in fetcher.await_args_list] == [urls[2], urls[0]]
+    records = {
+        row.url: row
+        for row in await session.scalars(
+            select(RawEvidence).where(RawEvidence.url.in_(urls))
+        )
+    }
+    records[urls[0]].created_at = now - timedelta(minutes=35)
+    records[urls[2]].created_at = now - timedelta(minutes=15)
+    await session.flush()
+    queue = EvidenceProcessingService(session)
+    assert (await queue.next_due_evidence()).id == records[urls[0]].id
+    assert (await queue.next_due_evidence(prefer_recent_publisher=True)).id == records[
+        urls[2]
+    ].id
+
+
+async def test_current_context_counts_each_publisher_url_once_before_the_read_limit(
+    workflow_session,
+):
+    session = workflow_session
+    now = datetime.now(UTC)
+    subscription = await feed(session)
+    subscription.last_status = "ok"
+    subscription.last_success_at = now
+    repeated = "https://example.test/repeated"
+    lead = "https://example.test/distinct"
+    session.add_all(
+        [
+            ResearchDiscoveryObservation(
+                provider="publisher_feed",
+                query=subscription.url,
+                effective_query=subscription.url,
+                search_title=subscription.name,
+                result_rank=rank,
+                result_title=f"Revision {idx}",
+                url=url,
+                content_kind="feed_summary",
+                outcome="ingested_evidence",
+                observed_at=now - timedelta(seconds=idx),
+                metadata_json={
+                    "feed_id": str(subscription.id),
+                    "published_date": (now - timedelta(hours=1)).isoformat(),
+                },
+            )
+            for idx, (url, rank) in enumerate([(repeated, 1)] * 205 + [(lead, 2)])
+        ]
+    )
+    await session.flush()
+    result = await NewsIntakeService(session).recent_context(as_of=now)
+    assert [(row["url"], row["title"]) for row in result["results"]] == [
+        (repeated, "Revision 0"),
+        (lead, "Revision 205"),
+    ]
 
 
 async def test_pausing_feed_preserves_leads_without_fetching_them(

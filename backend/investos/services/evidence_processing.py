@@ -17,6 +17,7 @@ from investos.models.evidence import (
     ResearchDiscoveryObservation,
     SourceItem,
 )
+from investos.services.edgar_intake import is_edgar_current_report
 from investos.services.source_text import source_text_coverage
 
 MEDIA_EVIDENCE_TYPES = {
@@ -183,22 +184,41 @@ class EvidenceProcessingService:
                 seconds=2 * settings.NEWS_INTAKE_POLL_SECONDS
             )
             observation = ResearchDiscoveryObservation
-            recent_publisher = (
-                (RawEvidence.created_at.between(recent_since, now))
-                & (
-                    func.coalesce(EvidenceProcessingState.extraction_attempt_count, 0)
-                    == 0
-                )
-                & select(observation.id)
+            eligible_since = now - timedelta(hours=settings.NEWS_INTAKE_LOOKBACK_HOURS)
+            source_priority = case(
+                (
+                    (RawEvidence.source_item_type == "filing")
+                    & is_edgar_current_report(
+                        observation.url, observation.result_title
+                    ),
+                    2,
+                ),
+                (
+                    RawEvidence.created_at.between(recent_since, now)
+                    & observation.observed_at.between(recent_since, now),
+                    1,
+                ),
+                else_=0,
+            )
+            publisher_priority = (
+                select(func.max(source_priority))
                 .where(
                     observation.evidence_id == RawEvidence.id,
                     observation.provider == "publisher_feed",
                     observation.outcome == "ingested_evidence",
-                    observation.observed_at.between(recent_since, now),
+                    observation.observed_at.between(eligible_since, now),
                 )
-                .exists()
+                .scalar_subquery()
             )
-            order = (recent_publisher.desc(), *order)
+            first_pass_priority = case(
+                (
+                    func.coalesce(EvidenceProcessingState.extraction_attempt_count, 0)
+                    == 0,
+                    func.coalesce(publisher_priority, 0),
+                ),
+                else_=0,
+            )
+            order = (first_pass_priority.desc(), *order)
         return (
             (
                 await self.session.execute(

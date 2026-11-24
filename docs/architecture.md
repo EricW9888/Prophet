@@ -194,7 +194,8 @@ captions remain discovery leads, with a capture outcome that describes the gap.
 Feed checks and source capture run independently. Capture takes bounded batches
 from the durable queue between feed checks, including during model outages. Its
 priority slots favor first captures, rotating across publisher hosts before taking
-multiple priority entries from one host. An oldest-lead slot gives revisions and
+multiple priority entries from one host. EDGAR current reports rank before
+routine filings within that host's priority slots. An oldest-lead slot gives revisions and
 older leads a route through the queue. Retry
 backoff, fenced leases and raw-receipt recovery preserve interrupted work.
 Failed or unverifiably dated items remain inspectable rather than becoming
@@ -216,17 +217,22 @@ storage budget. Handwritten notes retain their own character limit. A source
 that exceeds the storage budget leaves its discovery receipt and other queued
 sources can still be captured.
 Extraction wakes again after durable progress when another attempt is ready.
-The worker alternates oldest eligible work with a first attempt on publisher
-evidence discovered and captured in the last two feed polls. A priority turn
-falls back to the oldest eligible attempt when there is no recent candidate.
+The worker alternates oldest eligible work with a publisher first pass.
+EDGAR current reports stay eligible for priority within the news lookback.
+Other publisher evidence qualifies when discovered and captured within two feed
+polls. A priority turn falls back to the oldest eligible attempt when there is
+no qualifying candidate.
 Continuations and due retries keep their existing eligibility rules. Provider
 cooldown preserves the document's retry budget. The usual provider request
 limits still apply.
 Recently checked publisher summaries with a publication or feed update time in
 the current window enter the normal broad portfolio question's fresh context.
 The bounded shortlist rotates publisher hosts before filling extra slots from
-busy feeds, using the same host grouping as background source capture.
+busy feeds, using the same host grouping as background source capture. The
+latest eligible observation per URL takes one slot before the read limit.
 Both clocks and the discovery time stay distinct in the candidate manifest.
+When publisher leads are available and a search lane is blocked, chat reports
+partial coverage while retaining the leads and the failed search receipt.
 Sources exposes feed controls, retained observations, fetch state and unsent
 research drafts. The capture backlog counts enabled feeds within the intake
 window, including in-flight fetches and retries. Older and paused observations
@@ -564,7 +570,9 @@ The map projects a direct, dashed relationship from an admitted assertion and
 links it back to the supporting claim and source. It does not persist a second
 edge that could outlive withdrawn evidence. Projection reuses batched node
 reads, preserves per-source assertion identity, and is absent when its claim
-or either endpoint is outside the admitted view. Ordinary cross-subject events,
+or either endpoint is outside the admitted view. A recorded invalid quotation
+binding keeps the underlying assertion inspectable and suppresses its direct
+projection. Ordinary cross-subject events,
 facts and claims also retain their document-primary context, as investment
 metrics already did. Subject kinds remain open; creating a product assertion
 does not silently reclassify or consolidate existing issuer identities.
