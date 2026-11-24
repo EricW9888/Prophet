@@ -2305,9 +2305,9 @@ class SourceService:
             trust = SourceTrustProfile(
                 source_id=source.id,
                 factual_reliability=reliability,
-                calibration="calibrated",
-                correction_quality="slow_corrects",
-                noise_ratio="moderate",
+                calibration="unknown",
+                correction_quality="unknown",
+                noise_ratio="unknown",
                 trust_trajectory=trajectory,
             )
             self.session.add(trust)

@@ -1271,6 +1271,7 @@ class ExtractionWorker:
         subject_name: str,
         persisted_object_count: int,
         defer_on_provider_failure: bool = False,
+        assess_source: bool = True,
     ) -> dict[str, object]:
         await CoverageWorker(self.session).audit_subject_coverage(
             subject_id=subject_id,
@@ -1284,7 +1285,10 @@ class ExtractionWorker:
                 else None
             ),
         )
-        if evidence.source_item_type not in {"conversation_turn", "manual_note"}:
+        if assess_source and evidence.source_item_type not in {
+            "conversation_turn",
+            "manual_note",
+        }:
             await SourceLearningService(self.session).learn_from_source(
                 source_id=evidence.source_id,
                 subject_name=subject_name,

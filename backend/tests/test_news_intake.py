@@ -495,12 +495,16 @@ async def test_retained_disclosure_reaches_question_while_search_is_limited(
     )
     for service in (
         "CoverageWorker.audit_subject_coverage",
-        "SourceLearningService.learn_from_source",
         "WatcherService.evaluate_new_evidence",
     ):
         monkeypatch.setattr(
             f"investos.workers.extraction.{service}", AsyncMock(return_value={})
         )
+    source_assessment = AsyncMock()
+    monkeypatch.setattr(
+        "investos.workers.extraction.SourceLearningService.learn_from_source",
+        source_assessment,
+    )
     refresh = AsyncMock(
         side_effect=[
             TimeoutError("Provider temporarily unavailable"),
@@ -613,6 +617,7 @@ async def test_retained_disclosure_reaches_question_while_search_is_limited(
     assert state.subject_refresh_json["status"] == "completed"
     assert state.next_subject_refresh_at is None
     assert await queue.finish_subject_refresh(abandoned) == "lease_lost"
+    source_assessment.assert_not_awaited()
 
 
 async def test_observation_versions_are_idempotent_and_never_backdated(

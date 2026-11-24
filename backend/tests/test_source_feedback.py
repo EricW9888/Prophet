@@ -4,7 +4,11 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import select
 
+from investos.models.catalog import SourceClaimRecord, SourceTrustProfile
+from investos.models.evidence import RawEvidence
+from investos.models.knowledge import Claim
 from investos.models.source import Source
 from investos.schemas.source import (
     SourceClaimBatchAssessmentCreate,
@@ -20,6 +24,96 @@ from investos.services.source import (
 )
 from investos.services.source_claim_policy import source_claim_priority
 from investos.services.source_learning import SourceLearningService
+from tests.test_investor_workflows import source_records, workflow_session
+
+
+async def test_source_learning_requires_extracted_material_and_keeps_trust_on_timeout(
+    workflow_session, monkeypatch
+):
+    session = workflow_session
+    raw, item = await source_records(session)
+    source = await session.get(Source, raw.source_id)
+    source.apply_operator_trust(True)
+    reviewed_at = source.trust_reviewed_at
+    request = AsyncMock(side_effect=TimeoutError("Assessment deadline"))
+    monkeypatch.setattr("investos.services.source_learning.call_llm_json", request)
+    service = SourceLearningService(session)
+    assert (await service.learn_from_source(source_id=source.id))["reason"] == (
+        "no_extracted_evidence"
+    )
+    request.assert_not_awaited()
+
+    raw.is_processed = True
+    item.processing_status = "processed"
+    item.summary = "Attributable completed source summary."
+    session.add(
+        RawEvidence(
+            source_id=source.id,
+            source_item_type="news",
+            title="Unprocessed newest headline",
+        )
+    )
+    await session.flush()
+
+    assert (await service.learn_from_source(source_id=source.id))["reason"] == (
+        "assessment_unavailable"
+    )
+    prompt = request.await_args.kwargs["user_prompt"]
+    assert item.summary in prompt
+    assert "Unprocessed newest headline" not in prompt
+    assert source.is_trusted and source.trust_origin == "operator"
+    assert source.trust_reviewed_at == reviewed_at
+    assert (
+        await session.scalar(
+            select(SourceTrustProfile).where(SourceTrustProfile.source_id == source.id)
+        )
+        is None
+    )
+
+
+async def test_correctness_outcomes_do_not_claim_calibration_or_correction(
+    workflow_session,
+):
+    session = workflow_session
+    raw, item = await source_records(session)
+    clock = datetime.now(timezone.utc)
+    for statement, outcome in (
+        ("Output rises", "correct"),
+        ("Costs fall", "incorrect"),
+    ):
+        claim = Claim(
+            source_item_id=item.id,
+            statement=statement,
+            claim_type="forecast",
+            confidence=0.7,
+            tier="signal",
+            importance="medium",
+            directness="secondary",
+            novelty="historical",
+            contradiction_role="neutral",
+        )
+        session.add(claim)
+        await session.flush()
+        session.add(
+            SourceClaimRecord(
+                source_id=raw.source_id,
+                claim_id=claim.id,
+                claim_time=clock - timedelta(days=30),
+                assessment=outcome,
+                assessment_time=clock,
+            )
+        )
+    await session.commit()
+
+    history = await SourceService(session).recompute_source_performance(raw.source_id)
+    trust = await session.scalar(
+        select(SourceTrustProfile).where(SourceTrustProfile.source_id == raw.source_id)
+    )
+    assert history["accuracy_rate"] == 0.5
+    assert trust.factual_reliability == "low"
+    assert (
+        trust.calibration == trust.correction_quality == trust.noise_ratio == "unknown"
+    )
 
 
 def test_source_feedback_lesson_payload_preserves_user_signal():
