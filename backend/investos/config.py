@@ -149,6 +149,8 @@ class Settings(BaseSettings):
         "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain",
         "https://feeds.bbci.co.uk/news/business/rss.xml",
         "https://www.globenewswire.com/AtomFeed/subjectcode/86-Management%20Changes/feedTitle/GlobeNewswire%20-%20Management%20Changes",
+        "https://www.prnewswire.com/rss/business-technology-latest-news/business-technology-latest-news-list.rss",
+        "https://www.prnewswire.com/rss/policy-public-interest-latest-news/policy-public-interest-latest-news-list.rss",
         "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&count=100&owner=exclude&output=atom",
         "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K&count=100&owner=exclude&output=atom",
         "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=6-K&count=100&owner=exclude&output=atom",

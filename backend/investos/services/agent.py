@@ -608,6 +608,7 @@ STRATEGIC_PLANNING_SCHEMA = {
                     "why_now": {"type": "string"},
                     "lead_evidence_id": {"type": ["string", "null"]},
                     "rationale": {"type": "string"},
+                    "source_verification_question": {"type": ["string", "null"]},
                     "quantity_bindings": {
                         "type": "array",
                         "items": QUANTITY_BINDING_SCHEMA,
@@ -621,6 +622,7 @@ STRATEGIC_PLANNING_SCHEMA = {
                     "why_now",
                     "lead_evidence_id",
                     "rationale",
+                    "source_verification_question",
                     "quantity_bindings",
                 ],
             },
@@ -2719,6 +2721,7 @@ class AgentService:
             "\n- Keep each field concise and practical."
             "\n- Each goal must include portfolio_connection and why_now."
             "\n- Only set action to research/prospect if the decision relevance is concrete and timely. Use a null lead_evidence_id when no particular recent source triggered the goal."
+            "\n- For a goal with a lead_evidence_id, supply a standalone source_verification_question naming the relevant subject and asking what primary evidence would verify the change. Frame it as a question without asserted dollar amounts, percentages, or other quantities. It must make sense without why_now or rationale. Use null for goals without a source to verify."
             "\n- If no strong goal exists, return one item with action='none'."
         )
         strategist_user_prompt = json.dumps(
@@ -2779,15 +2782,21 @@ class AgentService:
                 if financial_quotes(statement)
                 else {"status": "not_applicable", "verified": True, "issues": []}
             )
+            question = str(goal.get("source_verification_question") or "").strip()
+            goal["source_verification_question"] = (
+                question
+                if question
+                and goal["lead_evidence_id"]
+                and not financial_quotes(question)
+                else None
+            )
         actions_taken = []
         blocked_search = None
 
-        # 3. Execute Top Goal
-        executable_goals = [
+        actionable_goals = [
             goal
             for goal in goals
             if goal.get("action") in {"research", "prospect"}
-            and goal["quantity_verification"]["verified"]
             and (
                 goal.get("portfolio_connection")
                 in {
@@ -2802,73 +2811,94 @@ class AgentService:
                 )
             )
         ]
-        for goal in executable_goals[
-            :1
-        ]:  # Keep execution conservative; planning can still surface more than one goal.
-            ticker = goal.get("target_ticker")
-            action = goal.get("action")
-            target = ticker or str(goal.get("goal_name") or "").strip()
+        unresolved_leads = {
+            goal["lead_evidence_id"]
+            for goal in actionable_goals
+            if goal["lead_evidence_id"]
+        }
+        executable_goals = [
+            goal
+            for goal in actionable_goals
+            if goal["quantity_verification"]["verified"]
+            or goal["source_verification_question"]
+        ]
+        for goal in executable_goals[:1]:
+            lead_id = goal["lead_evidence_id"]
+            verification_only = not goal["quantity_verification"]["verified"]
+            question = goal["source_verification_question"]
+            goal_name = question if verification_only else goal["goal_name"].strip()
+            rationale = question if verification_only else goal["rationale"]
+            target = (
+                goal_name
+                if verification_only
+                else goal.get("target_ticker") or goal_name
+            )
 
-            if target and action in {"research", "prospect"}:
+            if target:
                 res = await ResearchService(self.session).run_ad_hoc_request(
-                    query=f"Analysis of {target} focusing on {goal['goal_name']}. Rationale: {goal['rationale']}",
+                    query=question
+                    or f"Analysis of {target} focusing on {goal_name}. Rationale: {rationale}",
                     title=f"Autonomous Discovery: {target}",
                     metadata_json={
                         "is_autonomous": True,
-                        "review_reason": goal["rationale"],
-                        "goal_name": goal["goal_name"],
+                        "review_reason": rationale,
+                        "goal_name": goal_name,
                         "portfolio_connection": goal["portfolio_connection"],
-                        "why_now": goal["why_now"],
-                        **(
-                            {"lead_evidence_id": goal["lead_evidence_id"]}
-                            if goal.get("lead_evidence_id")
-                            else {}
-                        ),
+                        **({"lead_evidence_id": lead_id} if lead_id else {}),
+                        **({} if verification_only else {"why_now": goal["why_now"]}),
                     },
                 )
                 if res.started:
-                    # Update Profile/Position metadata
-                    if res.loop_detail and res.loop_detail.get("subject_id"):
+                    unresolved_leads.discard(lead_id)
+                    if (
+                        not verification_only
+                        and goal["action"] == "prospect"
+                        and res.loop_detail
+                        and res.loop_detail.get("subject_id")
+                    ):
                         subject_id = UUID(str(res.loop_detail["subject_id"]))
-                        if goal["action"] == "prospect":
-                            profile = (
-                                await self.session.execute(
-                                    select(Profile).where(
-                                        Profile.subject_id == subject_id,
-                                        Profile.subject_type == "entity",
-                                    )
+                        profile = (
+                            await self.session.execute(
+                                select(Profile).where(
+                                    Profile.subject_id == subject_id,
+                                    Profile.subject_type == "entity",
                                 )
-                            ).scalar_one_or_none()
-                            if profile:
-                                profile.is_autonomous = True
-                                profile.review_status = "pending"
-                                profile.review_reason = goal["rationale"]
-                                profile.strategist_reasoning = (
-                                    f"Agent prospect identified {goal['why_now']}."
-                                )
-                                profile.source_rationale = goal["why_now"]
+                            )
+                        ).scalar_one_or_none()
+                        if profile:
+                            profile.is_autonomous = True
+                            profile.review_status = "pending"
+                            profile.review_reason = rationale
+                            profile.strategist_reasoning = (
+                                f"Agent prospect identified {goal['why_now']}."
+                            )
+                            profile.source_rationale = goal["why_now"]
 
                     actions_taken.append(
-                        f"Started research on {target} "
-                        f"({goal['portfolio_connection']}: {goal['why_now']})"
+                        f"Started source verification for {target}"
+                        if verification_only
+                        else f"Started research on {target} ({goal['portfolio_connection']}: {goal['why_now']})"
                     )
                 elif res.reason in SEARCH_BLOCKED_REASONS:
                     blocked_search = res.reason
 
         if goals and not blocked_search:
-            await state.record_planning_inputs(evidence_changes)
+            await state.record_planning_inputs(
+                [
+                    item
+                    for item in evidence_changes
+                    if item["evidence_id"] not in unresolved_leads
+                ]
+            )
+        unsupported_count = sum(
+            not goal["quantity_verification"]["verified"] for goal in goals
+        )
         await self.session.commit()
         return {
             "status": (
                 "warning"
                 if blocked_search
-                else (
-                    "partial"
-                    if any(
-                        not goal["quantity_verification"]["verified"] for goal in goals
-                    )
-                    else "ok"
-                )
+                else ("partial" if unsupported_count else "ok")
             ),
             "detail": (
                 f"Planned {len(goals)} goals. "
@@ -2880,6 +2910,11 @@ class AgentService:
                         if blocked_search
                         else "No qualifying autonomous research was started."
                     )
+                )
+                + (
+                    f" Withheld financial claims from {unsupported_count} unverified goals."
+                    if unsupported_count
+                    else ""
                 )
             ),
             "goals": goals,

@@ -255,3 +255,95 @@ async def test_planner_drains_unseen_extractions_without_acknowledging_deferral(
     await session.flush()
     await operating.record_planning_inputs(pending)
     assert states[-1].planning_seen_extraction_at != states[-1].extraction_completed_at
+
+    states[0].extraction_completed_at += timedelta(seconds=1)
+    await session.flush()
+    llm.return_value = {
+        "strategic_goals": [
+            {
+                "action": "research",
+                "goal_name": "Verify the source's operational change",
+                "portfolio_connection": "independent_opportunity",
+                "lead_evidence_id": str(state.raw_evidence_id),
+                "why_now": "The release changed the timeline.",
+                "rationale": "Check the original announcement.",
+            }
+            for state in (states[0], states[-1])
+        ]
+    }
+    monkeypatch.setattr(
+        ResearchService,
+        "run_ad_hoc_request",
+        AsyncMock(return_value=SimpleNamespace(started=True, loop_detail=None)),
+    )
+    assert (await service.run_strategic_planning_cycle())["actions_taken"] == 1
+    assert states[0].planning_seen_extraction_at == states[0].extraction_completed_at
+    assert states[-1].planning_seen_extraction_at != states[-1].extraction_completed_at
+
+
+async def test_planner_can_verify_a_source_without_propagating_unsupported_figures(
+    workflow_session, monkeypatch
+):
+    session = workflow_session
+    evidence, _ = await source_fixture(session, "Arbor Power announces a supply deal.")
+    evidence.url = "https://example.test/press/supply-deal"
+    state = EvidenceProcessingState(
+        raw_evidence_id=evidence.id,
+        extraction_status="completed",
+        extraction_completed_at=datetime.now(UTC),
+        persisted_object_count=1,
+    )
+    session.add(state)
+    await session.flush()
+
+    for target in (
+        "portfolio_state_payload",
+        "review_queue_payload",
+        "lessons_payload",
+    ):
+        monkeypatch.setattr(OperatingStateService, target, AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        AgentActionLogService, "has_recent_fingerprint", lambda *args, **kwargs: False
+    )
+    question = (
+        "What purchase obligations does Arbor Power's supply agreement establish?"
+    )
+    proposal = {
+        "action": "prospect",
+        "goal_name": "Arbor Power wins a $90 million deal",
+        "portfolio_connection": "independent_opportunity",
+        "lead_evidence_id": str(evidence.id),
+        "why_now": "The deal will drive 20% sales growth.",
+        "rationale": "The $90 million deal is binding.",
+        "source_verification_question": "Is the $90 million deal binding?",
+    }
+    llm = AsyncMock(side_effect=lambda **_: {"strategic_goals": [dict(proposal)]})
+    monkeypatch.setattr("investos.services.agent.call_llm_json", llm)
+    research = AsyncMock(return_value=SimpleNamespace(started=True, loop_detail=None))
+    monkeypatch.setattr(ResearchService, "run_ad_hoc_request", research)
+
+    planner = AgentService(session)
+    blocked = await planner.run_strategic_planning_cycle()
+    assert blocked["status"] == "partial"
+    assert blocked["actions_taken"] == 0
+    assert state.planning_seen_extraction_at is None
+    research.assert_not_awaited()
+
+    proposal["source_verification_question"] = question
+    verified_lead = await planner.run_strategic_planning_cycle()
+    assert verified_lead["status"] == "partial"
+    assert verified_lead["actions_taken"] == 1
+    assert verified_lead["goals"][0]["quantity_verification"]["verified"] is False
+    assert state.planning_seen_extraction_at == state.extraction_completed_at
+    assert research.await_count == 1
+    search = research.await_args.kwargs
+    assert search["query"] == question
+    assert search["metadata_json"]["lead_evidence_id"] == str(evidence.id)
+    assert "$90 million" not in json.dumps(search)
+    assert "20%" not in json.dumps(search)
+    assert "why_now" not in search["metadata_json"]
+
+    proposal["lead_evidence_id"] = str(uuid4())
+    unknown_lead = await planner.run_strategic_planning_cycle()
+    assert unknown_lead["actions_taken"] == 0
+    assert research.await_count == 1

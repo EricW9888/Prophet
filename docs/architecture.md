@@ -174,7 +174,10 @@ and Bureau of Labor Statistics employment and inflation releases.
 Separate SEC current-report feeds cover domestic 8-K and foreign issuer 6-K
 filings across all issuers when busier filing types roll off the general feed.
 GlobeNewswire's management-changes feed adds issuer announcements independently
-of editorial news coverage.
+of editorial news coverage. PR Newswire's business technology and public
+interest feeds add direct announcements about businesses, economic data and
+policy. These topic feeds preserve more relevant coverage than a single
+all-releases feed whose entries compete with unrelated releases.
 `NEWS_FEED_URLS` configures which defaults are added; existing subscriptions
 retain their settings. Intake runs independently
 of the model circuit: new and changed headlines are batch-retained as provisional
@@ -789,7 +792,12 @@ Source/version/assertion identity participates in planner deduplication. Existin
 execution, provider and quantity guards still apply. A qualifying policy or theme
 research goal can execute using its question when no stock ticker applies.
 The planner can start research on an independent investment opportunity when its
-goal identifies a retained source from the current preview. Coverage audits can
+goal identifies a retained source from the current preview. If the proposal contains
+unverified financial figures, only its standalone verification question can advance.
+The figures do not enter search input or prospect records, and the lead remains
+eligible if verification cannot start. When the planner chooses one of several
+follow-ups, other actionable source leads stay eligible for later planning.
+Coverage audits can
 also attach the triggering source to a concrete question with a mechanism, time
 horizon and decision relevance. Linked questions remain eligible outside the
 portfolio through research, assessment and owner renewal. The link identifies
