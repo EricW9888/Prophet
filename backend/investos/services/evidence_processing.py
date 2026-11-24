@@ -187,15 +187,15 @@ class EvidenceProcessingService:
             eligible_since = now - timedelta(hours=settings.NEWS_INTAKE_LOOKBACK_HOURS)
             source_priority = case(
                 (
+                    RawEvidence.created_at.between(recent_since, now)
+                    & observation.observed_at.between(recent_since, now),
+                    2,
+                ),
+                (
                     (RawEvidence.source_item_type == "filing")
                     & is_edgar_current_report(
                         observation.url, observation.result_title
                     ),
-                    2,
-                ),
-                (
-                    RawEvidence.created_at.between(recent_since, now)
-                    & observation.observed_at.between(recent_since, now),
                     1,
                 ),
                 else_=0,

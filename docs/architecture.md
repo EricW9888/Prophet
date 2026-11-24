@@ -218,10 +218,10 @@ that exceeds the storage budget leaves its discovery receipt and other queued
 sources can still be captured.
 Extraction wakes again after durable progress when another attempt is ready.
 The worker alternates oldest eligible work with a publisher first pass.
-EDGAR current reports stay eligible for priority within the news lookback.
-Other publisher evidence qualifies when discovered and captured within two feed
-polls. A priority turn falls back to the oldest eligible attempt when there is
-no qualifying candidate.
+Priority turns favor evidence discovered and captured within two feed polls.
+If none is waiting, EDGAR current reports remain eligible for priority within
+the news lookback. A priority turn falls back to the oldest eligible attempt
+when there is no qualifying candidate.
 Continuations and due retries keep their existing eligibility rules. Provider
 cooldown preserves the document's retry budget. The usual provider request
 limits still apply.
