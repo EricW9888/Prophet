@@ -271,7 +271,7 @@ class EvidenceProcessingService:
     async def next_due_evidence(
         self, *, model_available: bool = True, prefer_recent_publisher: bool = False
     ) -> RawEvidence | None:
-        """Select eligible work, optionally favoring a recent publisher first pass."""
+        """Select eligible work, optionally favoring timely publisher first passes."""
 
         now = datetime.now(UTC)
         stale_after = _claim_timeout()
@@ -301,19 +301,16 @@ class EvidenceProcessingService:
             )
             observation = ResearchDiscoveryObservation
             eligible_since = now - timedelta(hours=settings.NEWS_INTAKE_LOOKBACK_HOURS)
+            recently_captured = RawEvidence.created_at.between(recent_since, now)
+            recently_observed = observation.observed_at.between(recent_since, now)
+            current_release = (RawEvidence.source_item_type != "filing") | (
+                is_edgar_current_report(observation.url, observation.result_title)
+            )
             source_priority = case(
-                (
-                    RawEvidence.created_at.between(recent_since, now)
-                    & observation.observed_at.between(recent_since, now),
-                    2,
-                ),
-                (
-                    (RawEvidence.source_item_type == "filing")
-                    & is_edgar_current_report(
-                        observation.url, observation.result_title
-                    ),
-                    1,
-                ),
+                (current_release & recently_captured & recently_observed, 4),
+                (current_release & recently_captured, 3),
+                (current_release, 2),
+                (recently_captured & recently_observed, 1),
                 else_=0,
             )
             publisher_priority = (

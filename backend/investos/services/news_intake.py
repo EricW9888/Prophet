@@ -56,12 +56,13 @@ def _entry_version(row):
     return row.url, (row.metadata_json or {}).get("content_hash") or str(row.id)
 
 
+def _publisher_host(observation):
+    return func.lower(func.split_part(observation.query, "/", 3))
+
+
 def _publisher_position(order_by):
     return func.row_number().over(
-        partition_by=func.lower(
-            func.split_part(ResearchDiscoveryObservation.query, "/", 3)
-        ),
-        order_by=order_by,
+        partition_by=_publisher_host(ResearchDiscoveryObservation), order_by=order_by
     )
 
 
@@ -361,6 +362,7 @@ class NewsIntakeService:
     async def capture_pending(self):
         now = datetime.now(UTC)
         stamp = now.isoformat()
+        oldest_observation = now - timedelta(hours=settings.NEWS_INTAKE_LOOKBACK_HOURS)
         await self.session.execute(
             update(ResearchDiscoveryObservation)
             .where(
@@ -392,14 +394,13 @@ class NewsIntakeService:
                 captured.provider == FEED_PROVIDER,
                 captured.url == ResearchDiscoveryObservation.url,
                 captured.evidence_id.is_not(None),
-                captured.observed_at
-                >= now - timedelta(hours=settings.NEWS_INTAKE_LOOKBACK_HOURS),
+                captured.observed_at >= oldest_observation,
             )
             .exists()
         )
         # Separate subscriptions on the same host share editorial capacity.
         # Prioritize current disclosures within EDGAR's shared host allocation.
-        # Keep publisher rotation and an oldest-first slot across all feeds.
+        # Prioritize first captures without letting one publisher fill the batch.
         editorial_order = (
             already_captured,
             is_edgar_current_report(
@@ -438,20 +439,41 @@ class NewsIntakeService:
             if batch > 1
             else []
         )
-        old = list(
+        observation = ResearchDiscoveryObservation
+        publisher_host = _publisher_host(observation)
+        backlog_claim = observation.metadata_json["backlog_claimed_at"].astext
+        last_backlog_claim = (
+            select(
+                publisher_host.label("host"),
+                func.max(backlog_claim).label("claimed_at"),
+            )
+            .where(
+                observation.provider == FEED_PROVIDER,
+                observation.observed_at >= oldest_observation,
+                backlog_claim.is_not(None),
+            )
+            .group_by("host")
+            .subquery()
+        )
+        # Give each publisher's oldest due lead a turn through the backlog slot.
+        backlog = list(
             await self.session.scalars(
-                base.where(
-                    ResearchDiscoveryObservation.id.not_in([o.id for o in priority])
+                base.outerjoin(
+                    last_backlog_claim,
+                    last_backlog_claim.c.host == publisher_host,
                 )
+                .where(observation.id.not_in([row.id for row in priority]))
                 .order_by(
-                    ResearchDiscoveryObservation.observed_at,
-                    ResearchDiscoveryObservation.id,
+                    last_backlog_claim.c.claimed_at.asc().nullsfirst(),
+                    observation.observed_at,
+                    observation.id,
                 )
                 .limit(batch - len(priority))
-                .with_for_update(skip_locked=True)
+                .with_for_update(skip_locked=True, of=observation)
             )
         )
-        selected = priority + old
+        selected = priority + backlog
+        backlog_ids = {row.id for row in backlog}
         tokens = {row.id: str(uuid4()) for row in selected}
         for row in selected:
             row.outcome = "fetching"
@@ -459,6 +481,7 @@ class NewsIntakeService:
                 **(row.metadata_json or {}),
                 "fetch_token": tokens[row.id],
                 "fetch_lease_until": (now + timedelta(minutes=3)).isoformat(),
+                **({"backlog_claimed_at": stamp} if row.id in backlog_ids else {}),
             }
         await self.session.commit()
         ingestion = IngestionService(self.session)
