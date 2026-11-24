@@ -11,7 +11,12 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.config import settings
-from investos.models.evidence import EvidenceProcessingState, RawEvidence, SourceItem
+from investos.models.evidence import (
+    EvidenceProcessingState,
+    RawEvidence,
+    ResearchDiscoveryObservation,
+    SourceItem,
+)
 from investos.services.source_text import source_text_coverage
 
 MEDIA_EVIDENCE_TYPES = {
@@ -147,9 +152,9 @@ class EvidenceProcessingService:
         return ExtractionClaim(True, "claimed", state)
 
     async def next_due_evidence(
-        self, *, model_available: bool = True
+        self, *, model_available: bool = True, prefer_recent_publisher: bool = False
     ) -> RawEvidence | None:
-        """Return the evidence whose next extraction attempt has waited longest."""
+        """Select eligible work, optionally favoring a recent publisher first pass."""
 
         now = datetime.now(UTC)
         stale_after = timedelta(seconds=max(settings.LLM_TIMEOUT_SECONDS * 2, 300))
@@ -168,6 +173,32 @@ class EvidenceProcessingService:
                 EvidenceProcessingState.updated_at,
             ),
         )
+        order = (
+            func.coalesce(ready_since, RawEvidence.created_at),
+            RawEvidence.created_at.asc(),
+            RawEvidence.id,
+        )
+        if model_available and prefer_recent_publisher and settings.NEWS_INTAKE_ENABLED:
+            recent_since = now - timedelta(
+                seconds=2 * settings.NEWS_INTAKE_POLL_SECONDS
+            )
+            observation = ResearchDiscoveryObservation
+            recent_publisher = (
+                (RawEvidence.created_at.between(recent_since, now))
+                & (
+                    func.coalesce(EvidenceProcessingState.extraction_attempt_count, 0)
+                    == 0
+                )
+                & select(observation.id)
+                .where(
+                    observation.evidence_id == RawEvidence.id,
+                    observation.provider == "publisher_feed",
+                    observation.outcome == "ingested_evidence",
+                    observation.observed_at.between(recent_since, now),
+                )
+                .exists()
+            )
+            order = (recent_publisher.desc(), *order)
         return (
             (
                 await self.session.execute(
@@ -213,11 +244,7 @@ class EvidenceProcessingService:
                             ),
                         )
                     )
-                    .order_by(
-                        func.coalesce(ready_since, RawEvidence.created_at),
-                        RawEvidence.created_at.asc(),
-                        RawEvidence.id,
-                    )
+                    .order_by(*order)
                     .limit(1)
                 )
             )

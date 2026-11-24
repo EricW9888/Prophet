@@ -13,6 +13,7 @@ class PortfolioHistoryPoint(BaseModel):
     covered_positions: int
     total_positions: int
     unavailable_tickers: list[str] = Field(default_factory=list)
+    retained_close_tickers: list[str] = Field(default_factory=list)
     reasons: list[str] = Field(default_factory=list)
 
 

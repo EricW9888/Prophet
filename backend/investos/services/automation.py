@@ -139,6 +139,7 @@ class AutomationCoordinator:
         self._discovery_resume_run_id = None
         self._active_jobs: set[str] = set()
         self._last_model_attempt_at: dict[str, datetime] = {}
+        self._recent_publisher_turn = False
 
     @property
     def enabled(self):
@@ -1865,7 +1866,8 @@ class AutomationCoordinator:
                 model_available = ProviderHealthStore.can_admit_work(health)
                 queue = EvidenceProcessingService(session)
                 evidence = await queue.next_due_evidence(
-                    model_available=model_available
+                    model_available=model_available,
+                    prefer_recent_publisher=self._recent_publisher_turn,
                 )
                 if not evidence:
                     telemetry.provider_deferred = not model_available
@@ -1918,6 +1920,8 @@ class AutomationCoordinator:
                     "retry_exhausted",
                     "blocked_missing_content",
                 }:
+                    if model_available:
+                        self._recent_publisher_turn = not self._recent_publisher_turn
                     model_available = ProviderHealthStore.can_admit_work(
                         ProviderHealthStore.public_status()
                     )
