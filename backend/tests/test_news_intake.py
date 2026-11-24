@@ -970,6 +970,28 @@ async def test_issuer_current_report_keeps_priority_during_a_filing_backlog(
         urls[2]
     ].id
 
+    # A newly observed and captured story must still reach the first pass
+    # while previously captured current reports are waiting.
+    fresh = "https://example.test/just-published"
+    fresh_subscription = await feed(session)
+    await service._record(fresh_subscription, [item(url=fresh)], observed_at=now)
+
+    async def fetch_mixed(url):
+        return document(url) if url == fresh else await fetch(url)
+
+    monkeypatch.setattr(
+        IngestionService, "fetch_url_document", AsyncMock(side_effect=fetch_mixed)
+    )
+    assert (await service.capture_pending())["articles_fetched"] == 2
+    new_story = await session.scalar(
+        select(RawEvidence).where(RawEvidence.url == fresh)
+    )
+    assert new_story is not None
+    assert (await queue.next_due_evidence()).id == records[urls[0]].id
+    assert (
+        await queue.next_due_evidence(prefer_recent_publisher=True)
+    ).id == new_story.id
+
 
 async def test_current_context_counts_each_publisher_url_once_before_the_read_limit(
     workflow_session,
