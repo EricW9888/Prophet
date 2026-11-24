@@ -51,7 +51,7 @@ from investos.services.evidence_provenance import build_evidence_source_referenc
 from investos.services.graph_registry import durable_graph_model_map
 from investos.services.shadow_metrics import result_metrics
 from investos.services.source import SourceService
-from investos.services.source_passages import SourcePassageService
+from investos.services.source_passages import SourcePassageService, text_digest
 
 CONVERSATION_SOURCE_NAME = "Prophet Agent Conversation"
 SYNTHETIC_PORTFOLIO_ID = UUID("00000000-0000-0000-0000-000000000000")
@@ -730,6 +730,9 @@ class GraphService:
             return []
         reads = reads or _NeighborhoodReads(self)
         await reads.prefetch_nodes(list(roles))
+        bindings = await SourcePassageService(self.session).creation_bindings(
+            [UUID(str(nodes[key].id)) for key in roles]
+        )
         projected = []
         for key, endpoints in roles.items():
             if set(endpoints) != {"subject", "object"}:
@@ -741,6 +744,13 @@ class GraphService:
                 claim is None
                 or claim.is_deprecated
                 or not claim.claim_type.startswith("relationship:")
+            ):
+                continue
+            binding = bindings.get(("claim", str(claim.id)))
+            if binding and (
+                binding.get("status") != "bound"
+                or binding.get("assertion_hash") != text_digest(claim.statement)
+                or binding.get("source_item_id") != str(claim.source_item_id)
             ):
                 continue
             source_key, target_key = next(iter(endpoints["subject"])), next(

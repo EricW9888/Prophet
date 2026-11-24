@@ -143,6 +143,24 @@ class SourcePassageService:
         except (ValueError, TypeError, AttributeError):
             return None
 
+    async def creation_bindings(self, node_ids: list[UUID]) -> dict:
+        creations = await self.session.execute(
+            select(
+                KnowledgeMutation.node_type,
+                KnowledgeMutation.node_id,
+                KnowledgeMutation.metadata_json["source_passage"],
+            )
+            .where(
+                KnowledgeMutation.node_id.in_(node_ids),
+                KnowledgeMutation.change_type == "created",
+            )
+            .order_by(KnowledgeMutation.created_at.desc(), KnowledgeMutation.id.desc())
+        )
+        bindings = {}
+        for kind, node_id, passage in creations:
+            bindings.setdefault((kind, str(node_id)), passage)
+        return bindings
+
     async def attach(
         self, nodes: list[dict], *, items: dict[UUID, SourceItem] | None = None
     ) -> None:
@@ -151,25 +169,9 @@ class SourcePassageService:
         ]
         if not eligible:
             return
-        creations = await self.session.execute(
-            select(
-                KnowledgeMutation.node_type,
-                KnowledgeMutation.node_id,
-                KnowledgeMutation.metadata_json,
-            )
-            .where(
-                KnowledgeMutation.node_id.in_(
-                    [UUID(str(node["id"])) for node in eligible]
-                ),
-                KnowledgeMutation.change_type == "created",
-            )
-            .order_by(KnowledgeMutation.created_at.desc(), KnowledgeMutation.id.desc())
+        bindings = await self.creation_bindings(
+            [UUID(str(node["id"])) for node in eligible]
         )
-        bindings = {}
-        for kind, node_id, metadata in creations:
-            bindings.setdefault(
-                (kind, str(node_id)), (metadata or {}).get("source_passage")
-            )
         retained = dict(items or {})
         needed = {
             self._item_id(binding)

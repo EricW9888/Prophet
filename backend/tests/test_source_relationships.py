@@ -195,6 +195,36 @@ async def test_relationship_assertions_keep_both_endpoints_provenance_and_source
 
 
 @pytest.mark.asyncio
+async def test_ambiguous_quotation_preserves_claim_without_direct_projection(
+    workflow_session,
+):
+    session = workflow_session
+    token = uuid4().hex[:8]
+    person, company = f"Casey Vale {token}", f"Helix Labs {token}"
+    quote = f"{person} co-founded {company}."
+    original = f"Rumor: {quote} The source later denied this claim: {quote}"
+    evidence, item = await source_fixture(session, original)
+    counts = await ExtractionWorker(session).persist_source_relationships(
+        evidence, item, original, [relationship(person, company, quote)]
+    )
+    assert counts["created"] == 1
+    claim = (
+        await session.scalars(select(Claim).where(Claim.source_item_id == item.id))
+    ).one()
+    graph = GraphService(session)
+    detail = await graph.get_node_detail(node_type="claim", node_id=claim.id)
+    assert detail.source_passage["status"] == "unbound"
+    assert detail.citations[0].raw_evidence_id == evidence.id
+    assert not claim.promotion_eligible
+    issuer = (await session.scalars(select(Entity).where(Entity.name == company))).one()
+    view = await graph.get_neighborhood(
+        node_type="entity", node_id=issuer.id, limit=25, depth=2
+    )
+    assert f"claim:{claim.id}" in {node.key for node in view.nodes}
+    assert not any(edge.supporting_claim_id == claim.id for edge in view.edges)
+
+
+@pytest.mark.asyncio
 async def test_unsupported_quotes_endpoints_and_self_links_create_no_relationships(
     workflow_session,
 ):

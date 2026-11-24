@@ -93,7 +93,7 @@ from investos.services.quantity_evidence import (
     validate_quantities,
 )
 from investos.services.reasoning import ReasoningService
-from investos.services.research import ResearchService
+from investos.services.research import SEARCH_BLOCKED_REASONS, ResearchService
 from investos.services.retrieval import RetrievalService
 from investos.services.review import ReviewService
 from investos.services.risk import RiskService
@@ -1356,14 +1356,18 @@ class AgentService:
         if fresh_research_context:
             packet_context["fresh_research_context"] = fresh_research_context
             if not fresh_research_cached:
+                coverage_status = fresh_research_context.get("status")
+                progress_message = {
+                    "ok": "The external source check completed before reasoning.",
+                    "partial": "Some source searches were unavailable. Reasoning can use the leads that were returned.",
+                }.get(
+                    coverage_status,
+                    "The external source check returned no usable context.",
+                )
                 await self._emit_progress(
                     progress_callback,
                     "research",
-                    (
-                        "The question required an external source check, which completed before reasoning."
-                        if fresh_research_context.get("status") == "ok"
-                        else "The question required an external source check, but no usable context was returned."
-                    ),
+                    progress_message,
                     {
                         "required": bool(fresh_research_context.get("required")),
                         "status": str(fresh_research_context.get("status") or ""),
@@ -2806,12 +2810,6 @@ class AgentService:
             target = ticker or str(goal.get("goal_name") or "").strip()
 
             if target and action in {"research", "prospect"}:
-                # Seed the research
-                from investos.services.research import (
-                    SEARCH_BLOCKED_REASONS,
-                    ResearchService,
-                )
-
                 res = await ResearchService(self.session).run_ad_hoc_request(
                     query=f"Analysis of {target} focusing on {goal['goal_name']}. Rationale: {goal['rationale']}",
                     title=f"Autonomous Discovery: {target}",
@@ -6109,15 +6107,22 @@ class AgentService:
                     "tickers": [h["ticker"] for h in batch],
                 }
             )
-        status = (
-            "ok"
-            if results_by_url
-            else (
+        blocked_status = next(
+            (
+                reason
+                for reason in provider_statuses
+                if reason in SEARCH_BLOCKED_REASONS
+            ),
+            None,
+        )
+        if results_by_url:
+            status = "partial" if blocked_status else "ok"
+        else:
+            status = blocked_status or (
                 "no_relevant_results"
                 if "ok" in provider_statuses
                 else provider_statuses[0]
             )
-        )
         return {
             "required": True,
             "reason": reason,
@@ -6381,9 +6386,14 @@ class AgentService:
             label = title if not domain else f"{title} ({domain})"
             source_bits.append(label)
 
-        if status == "ok" and source_bits:
+        if status in {"ok", "partial"} and source_bits:
             note = (
-                "Fresh source check: found "
+                "Fresh source check: "
+                + (
+                    "some source searches were unavailable. Found "
+                    if status == "partial"
+                    else "found "
+                )
                 + str(len(source_bits))
                 + " candidate source"
                 + ("" if len(source_bits) == 1 else "s")
