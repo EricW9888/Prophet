@@ -17,6 +17,7 @@ from investos.models.catalog import (
 )
 from investos.models.evidence import RawEvidence, SourceItem
 from investos.models.source import Source, SourceQualitySegment
+from investos.services.source_assessment_state import documented_unavailable_assessment
 
 SOURCE_EVALUATION_SCHEMA = {
     "type": "object",
@@ -43,14 +44,6 @@ SOURCE_EVALUATION_SCHEMA = {
         "factual_reliability": {
             "type": "string",
             "enum": ["very_low", "low", "medium", "high", "very_high"],
-        },
-        "calibration": {
-            "type": "string",
-            "enum": ["under_confident", "calibrated", "over_confident"],
-        },
-        "correction_quality": {
-            "type": "string",
-            "enum": ["never_corrects", "slow_corrects", "fast_corrects"],
         },
         "noise_ratio": {
             "type": "string",
@@ -91,8 +84,6 @@ SOURCE_EVALUATION_SCHEMA = {
         "specialization_domains",
         "known_weaknesses",
         "factual_reliability",
-        "calibration",
-        "correction_quality",
         "noise_ratio",
         "trust_trajectory",
         "idea_generation_value",
@@ -183,14 +174,21 @@ class SourceLearningService:
         evidence_rows = (
             await self.session.execute(
                 select(RawEvidence, SourceItem)
-                .outerjoin(SourceItem, SourceItem.raw_evidence_id == RawEvidence.id)
-                .where(RawEvidence.source_id == source.id)
-                .order_by(desc(RawEvidence.created_at))
+                .join(SourceItem, SourceItem.raw_evidence_id == RawEvidence.id)
+                .where(
+                    RawEvidence.source_id == source.id,
+                    RawEvidence.is_processed.is_(True),
+                    SourceItem.processing_status.in_(
+                        ("processed", "processed_adjacent_context")
+                    ),
+                    SourceItem.summary.is_not(None),
+                )
+                .order_by(desc(RawEvidence.created_at), RawEvidence.id)
                 .limit(8)
             )
         ).all()
         if not evidence_rows:
-            return {"learned": False, "reason": "no_evidence"}
+            return {"learned": False, "reason": "no_extracted_evidence"}
 
         evidence_count = len(evidence_rows)
         titles = []
@@ -215,6 +213,8 @@ class SourceLearningService:
             feedback_counts=feedback_counts,
             feedback_notes=feedback_notes,
         )
+        if evaluation is None:
+            return {"learned": False, "reason": "assessment_unavailable"}
         evaluation = self._apply_feedback_adjustment(evaluation, feedback_counts)
 
         source.source_type = evaluation["source_type"]
@@ -261,30 +261,10 @@ class SourceLearningService:
         evidence_count: int,
         feedback_counts: dict[str, int] | None = None,
         feedback_notes: list[str] | None = None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | None:
         domain = self._domain(source.url)
         feedback_counts = feedback_counts or {"useful": 0, "not_useful": 0}
         feedback_notes = feedback_notes or []
-        fallback = {
-            "source_type": source.source_type or "web_research",
-            "specialization_domains": [subject_name] if subject_name else [],
-            "known_weaknesses": [],
-            "factual_reliability": "medium",
-            "calibration": "calibrated",
-            "correction_quality": "slow_corrects",
-            "noise_ratio": "moderate",
-            "trust_trajectory": "stable",
-            "idea_generation_value": "medium",
-            "timing_value": "medium",
-            "portfolio_relevance_value": "medium" if subject_name else "low",
-            "specificity": "moderate",
-            "originality": "occasional_original",
-            "quality_score": 0.6,
-            "originality_score": 0.5,
-            "timing_usefulness": 0.5,
-            "should_promote_to_trusted": False,
-            "trust_reasoning": "Source has been observed, but there is not enough evidence yet to promote it confidently.",
-        }
         try:
             return await call_llm_json(
                 system_prompt=(
@@ -318,10 +298,10 @@ class SourceLearningService:
             import logging
 
             logging.getLogger(__name__).warning(
-                "Source evaluation fell back after LLM failure: %s",
+                "Source assessment unavailable: %s",
                 compact_exception_message(exc),
             )
-            return fallback
+            return None
 
     @staticmethod
     def _feedback_signals(
@@ -414,6 +394,9 @@ class SourceLearningService:
                 select(SourceProfile).where(SourceProfile.source_id == source.id)
             )
         ).scalar_one_or_none()
+        unavailable = profile is not None and documented_unavailable_assessment(
+            profile.notes
+        )
         if profile is None:
             profile = SourceProfile(
                 source_id=source.id,
@@ -445,16 +428,16 @@ class SourceLearningService:
             trust = SourceTrustProfile(
                 source_id=source.id,
                 factual_reliability=evaluation["factual_reliability"],
-                calibration=evaluation["calibration"],
-                correction_quality=evaluation["correction_quality"],
+                calibration="unknown",
+                correction_quality="unknown",
                 noise_ratio=evaluation["noise_ratio"],
                 trust_trajectory=evaluation["trust_trajectory"],
             )
             self.session.add(trust)
         else:
             trust.factual_reliability = evaluation["factual_reliability"]
-            trust.calibration = evaluation["calibration"]
-            trust.correction_quality = evaluation["correction_quality"]
+            if unavailable:
+                trust.calibration = trust.correction_quality = "unknown"
             trust.noise_ratio = evaluation["noise_ratio"]
             trust.trust_trajectory = evaluation["trust_trajectory"]
             trust.last_evaluated_at = datetime.now(UTC)

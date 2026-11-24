@@ -33,6 +33,12 @@ from investos.schemas.source import SourceCreate, SourceUpdate
 from investos.services.evidence_processing import EvidenceProcessingService
 from investos.services.knowledge_audit import KnowledgeAuditService
 from investos.services.knowledge_time import is_legacy_synthetic_event_time
+from investos.services.source_assessment_state import (
+    assessment_note_available,
+    documented_unavailable_assessment,
+    trust_assessment_available,
+    value_assessment_available,
+)
 from investos.services.source_claim_policy import (
     source_claim_due_at,
     source_claim_priority,
@@ -103,7 +109,13 @@ class SourceService:
             (
                 await self.session.execute(
                     select(Source)
-                    .options(selectinload(Source.quality_segments))
+                    .options(
+                        selectinload(
+                            Source.quality_segments.and_(
+                                assessment_note_available(SourceQualitySegment.notes)
+                            )
+                        )
+                    )
                     .order_by(desc(Source.is_trusted), desc(Source.updated_at))
                 )
             )
@@ -130,7 +142,8 @@ class SourceService:
             for profile in (
                 await self.session.execute(
                     select(SourceTrustProfile).where(
-                        SourceTrustProfile.source_id.in_(source_ids)
+                        SourceTrustProfile.source_id.in_(source_ids),
+                        trust_assessment_available(SourceTrustProfile.source_id),
                     )
                 )
             )
@@ -142,7 +155,8 @@ class SourceService:
             for profile in (
                 await self.session.execute(
                     select(SourceValueProfile).where(
-                        SourceValueProfile.source_id.in_(source_ids)
+                        SourceValueProfile.source_id.in_(source_ids),
+                        value_assessment_available(SourceValueProfile.source_id),
                     )
                 )
             )
@@ -2305,9 +2319,9 @@ class SourceService:
             trust = SourceTrustProfile(
                 source_id=source.id,
                 factual_reliability=reliability,
-                calibration="calibrated",
-                correction_quality="slow_corrects",
-                noise_ratio="moderate",
+                calibration="unknown",
+                correction_quality="unknown",
+                noise_ratio="unknown",
                 trust_trajectory=trajectory,
             )
             self.session.add(trust)
@@ -2338,6 +2352,11 @@ class SourceService:
             )
             self.session.add(profile)
         else:
+            if documented_unavailable_assessment(profile.notes):
+                trust.calibration = trust.correction_quality = trust.noise_ratio = (
+                    "unknown"
+                )
+                profile.specialization_domains = []
             profile.total_claims_tracked = max(
                 int(profile.total_claims_tracked or 0), total_claims
             )

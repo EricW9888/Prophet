@@ -153,6 +153,32 @@ def test_running_stack_is_idempotent_and_skips_bootstrap(monkeypatch):
     assert opened == [prophet.APP_URL]
 
 
+@pytest.mark.parametrize("first_identity", [None, "b" * 32])
+def test_ready_services_wait_for_their_own_launcher_identity(
+    monkeypatch, first_identity
+):
+    instance = "a" * 32
+    identities = iter((instance, first_identity, instance, instance))
+    sleeps = []
+    monkeypatch.setattr(
+        prophet,
+        "current_probes",
+        lambda: (
+            probe(prophet.ServiceState.READY),
+            probe(prophet.ServiceState.READY, name="Frontend"),
+        ),
+    )
+    monkeypatch.setattr(
+        prophet, "runtime_identity", lambda _url: ("c" * 64, next(identities))
+    )
+    monkeypatch.setattr(prophet.time, "sleep", sleeps.append)
+
+    prophet.wait_for_services([], expected_instance=instance)
+
+    assert sleeps == [1]
+    assert next(identities, None) is None
+
+
 def test_owner_control_authenticates_shutdown_on_a_real_socket(tmp_path, monkeypatch):
     path = tmp_path / "launcher.json"
     instance = "a" * 32

@@ -320,7 +320,7 @@ class ProviderHealthStore:
             cls._write(registry)
 
     @classmethod
-    def failed(cls, key, provider, exc, *, probe_token=None):
+    def failed(cls, key, provider, exc, *, probe_token=None, revision=None):
         with cls._lock:
             registry = cls._read()
             record = registry.records.setdefault(
@@ -328,8 +328,24 @@ class ProviderHealthStore:
             )
             if probe_token is not None and record.probe_token != probe_token:
                 return
+            now = datetime.now(UTC)
+            required_delay = 0.0
+            if isinstance(exc, httpx.HTTPStatusError):
+                required_delay = retry_after_seconds(exc.response.headers, now=now) or 0
+                if exc.response.status_code in {401, 403, 429}:
+                    required_delay = max(required_delay, 300)
+            required_until = now + timedelta(seconds=required_delay)
+            if revision is not None and revision != record.revision:
+                # Calls admitted before this outage share its backoff step.
+                # A later server instruction can still extend the wait.
+                if required_until <= max(now, record.next_probe_at or now):
+                    return
+                next_probe_at = required_until
+            else:
+                record.failure_count += 1
+                delay = min(3600, 60 * 2 ** min(record.failure_count - 1, 6))
+                next_probe_at = max(required_until, now + timedelta(seconds=delay))
             record.revision += 1
-            record.failure_count += 1
             record.state = "open"
             record.probe_token = None
             record.lease_until = None
@@ -357,14 +373,7 @@ class ProviderHealthStore:
             record.failure_detail = (
                 exc.diagnostic if isinstance(exc, StructuredGenerationError) else None
             )
-            delay = min(3600, 60 * 2 ** min(record.failure_count - 1, 6))
-            if isinstance(exc, httpx.HTTPStatusError):
-                retry_after = retry_after_seconds(exc.response.headers)
-                if retry_after is not None:
-                    delay = max(delay, retry_after)
-                if exc.response.status_code in {401, 403, 429}:
-                    delay = max(delay, 300)
-            record.next_probe_at = datetime.now(UTC) + timedelta(seconds=delay)
+            record.next_probe_at = max(next_probe_at, record.next_probe_at or now)
             cls._write(registry)
 
     @classmethod
@@ -485,7 +494,7 @@ def guarded_provider_call(function):
             ):
                 ProviderHealthStore.caller_timed_out(key, provider, budget)
             else:
-                ProviderHealthStore.failed(key, provider, exc)
+                ProviderHealthStore.failed(key, provider, exc, revision=revision)
             raise
         else:
             ProviderHealthStore.succeeded(key, provider, revision)

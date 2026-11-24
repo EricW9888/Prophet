@@ -83,13 +83,13 @@ class SourceTrustProfile(Base):
     )  # very_low|low|medium|high|very_high
     calibration: Mapped[str] = mapped_column(
         String
-    )  # under_confident|calibrated|over_confident
+    )  # unknown|under_confident|calibrated|over_confident
     correction_quality: Mapped[str] = mapped_column(
         String
-    )  # never_corrects|slow_corrects|fast_corrects
+    )  # unknown|never_corrects|slow_corrects|fast_corrects
     noise_ratio: Mapped[str] = mapped_column(
         String
-    )  # very_noisy|noisy|moderate|clean|very_clean
+    )  # unknown|very_noisy|noisy|moderate|clean|very_clean
     trust_trajectory: Mapped[str] = mapped_column(
         String
     )  # improving|stable|degrading|compromised

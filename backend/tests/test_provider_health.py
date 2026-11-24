@@ -351,6 +351,60 @@ async def test_failed_probe_stays_open_and_backoff_prevents_retry_churn(monkeypa
     assert ProviderHealthStore.read().failure_count == 2
 
 
+@pytest.mark.parametrize("explicit_retry_after", [False, True])
+async def test_concurrent_failures_share_one_backoff_step(
+    monkeypatch, explicit_retry_after
+):
+    entered = {key: asyncio.Event() for key in ("first", "second")}
+    release = {key: asyncio.Event() for key in entered}
+    response = httpx.Response(
+        429,
+        headers={"Retry-After": "900"},
+        request=httpx.Request("POST", "https://example.test"),
+    )
+
+    async def generate(**kwargs):
+        turn = kwargs["user_prompt"]
+        entered[turn].set()
+        await release[turn].wait()
+        if turn == "second" and explicit_retry_after:
+            response.raise_for_status()
+        raise httpx.ReadTimeout("Synthetic stalled transport")
+
+    monkeypatch.setattr("investos.core.llm._call_nvidia_json", generate)
+    first, second = [
+        asyncio.create_task(call_llm_json("system", turn, {"type": "object"}))
+        for turn in entered
+    ]
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*(event.wait() for event in entered.values())), timeout=2
+        )
+        release["first"].set()
+        with pytest.raises(httpx.ReadTimeout):
+            await first
+        opened = ProviderHealthStore.read()
+        assert opened.failure_count == 1
+
+        release["second"].set()
+        with pytest.raises(
+            httpx.HTTPStatusError if explicit_retry_after else httpx.ReadTimeout
+        ):
+            await second
+        final = ProviderHealthStore.read()
+        assert final.failure_count == 1
+        if explicit_retry_after:
+            assert final.failure_code == "http_429"
+            assert (final.next_probe_at - datetime.now(UTC)).total_seconds() > 899
+        else:
+            assert final.next_probe_at == opened.next_probe_at
+    finally:
+        for task in (first, second):
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(first, second, return_exceptions=True)
+
+
 def test_persisted_lease_and_stale_probe_cannot_replace_new_health():
     open_health()
     make_probe_due()

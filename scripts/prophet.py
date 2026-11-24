@@ -637,7 +637,10 @@ def log_tail(path: Path, lines: int = 20) -> str:
 
 
 def wait_for_services(
-    children: Sequence[ChildProcess], timeout_seconds: int = 75
+    children: Sequence[ChildProcess],
+    timeout_seconds: int = 75,
+    *,
+    expected_instance: str | None = None,
 ) -> None:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
@@ -648,14 +651,22 @@ def wait_for_services(
             raise StartupError(
                 f"{failed.name} exited during startup.\n\n{log_tail(failed.log_path)}"
             )
-        if all(probe.state is ServiceState.READY for probe in current_probes()):
+        ready = all(probe.state is ServiceState.READY for probe in current_probes())
+        if ready and (
+            expected_instance is None
+            or all(
+                runtime_identity(url)[1] == expected_instance
+                for url in (BACKEND_HEALTH_URL, FRONTEND_BUILD_URL)
+            )
+        ):
             return
         time.sleep(1)
     states = ", ".join(
         f"{probe.name.lower()}={probe.state.value}" for probe in current_probes()
     )
+    ownership = ", launcher identity unverified" if expected_instance else ""
     raise StartupError(
-        f"Prophet did not become ready in time ({states}). "
+        f"Prophet did not become ready in time ({states}{ownership}). "
         f"Logs: {BACKEND_LOG} and {FRONTEND_LOG}"
     )
 
@@ -898,11 +909,9 @@ def start(*, development: bool, open_browser: bool) -> None:
                     },
                 )
             )
-        wait_for_services(children)
-        if len(children) == 2 and all(
-            runtime_identity(url)[1] == instance
-            for url in (BACKEND_HEALTH_URL, FRONTEND_BUILD_URL)
-        ):
+        owned_stack = len(children) == 2
+        wait_for_services(children, expected_instance=instance if owned_stack else None)
+        if owned_stack:
             control = LauncherControl(instance)
         else:
             print(

@@ -233,8 +233,8 @@ limits still apply.
 The automatic publisher worker commits its extracted records and monitor checks
 before subject analysis. The same processing receipt keeps that follow-up
 eligible across restarts, with separate claims, status, and retries. The
-subject analysis worker runs the ordinary coverage, source learning, accepted
-view and paper-experiment workflow while extraction can advance another source.
+subject analysis worker runs the ordinary coverage, accepted view and
+paper-experiment workflow while extraction can advance another source.
 Both stages share provider admission. Direct ingestion still returns its
 subject analysis synchronously when requested.
 Recently checked publisher summaries with a publication or feed update time in
@@ -393,10 +393,15 @@ The main state groups are:
 
 Source trust keeps operator intent separate from learned assessment. An explicit
 operator trust choice remains authoritative until the operator changes it.
-Prophet continues to score reliability, calibration, noise, value, and later
-claim outcomes; disagreement creates a dated review recommendation instead of a
-silent override. Sources whose trust was established by automated learning may
-be promoted or demoted as their measured record changes.
+Source outcome reviews update factual reliability from assessed claims.
+Correctness alone leaves probabilistic calibration, correction behavior, and
+noise unknown. Targeted source evaluation works from completed excerpts.
+An unavailable evaluation leaves existing profiles and trust untouched.
+Legacy grades with a recorded unavailable assessment are retained for audit
+and omitted from source views and retrieval.
+Ordinary publisher processing relies on outcome review for source quality
+instead of grading each captured article. A disagreement with an operator
+choice creates a dated review recommendation.
 
 Evidence models use event, publication, ingestion, and eligible-action times
 from `models/base.py`. These timestamps preserve what happened, when it became
@@ -699,7 +704,8 @@ Both transport retries and the durable circuit use the same parser for
 [RFC 9110 Retry-After](https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.3)
 seconds and HTTP dates. Server-requested waits are not shortened by local
 backoff caps; long waits defer through shared health instead of occupying a
-request worker.
+request worker. Failures from requests admitted before the same circuit
+transition share its backoff step. A server wait can still extend it.
 Autonomous model work
 waits for a verified configuration; deterministic maintenance can continue.
 Health identities include model request options so an observed failure is not

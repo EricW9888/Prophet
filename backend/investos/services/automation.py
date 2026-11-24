@@ -1989,6 +1989,7 @@ class AutomationCoordinator:
                             subject_name=context["subject_name"],
                             persisted_object_count=claim.persisted_object_count,
                             defer_on_provider_failure=True,
+                            assess_source=False,
                         )
                 except Exception as exc:
                     await session.rollback()
