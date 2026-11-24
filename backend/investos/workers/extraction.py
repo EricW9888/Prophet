@@ -436,10 +436,12 @@ class ExtractionWorker:
         session: AsyncSession,
         *,
         storage: LocalStorage | None = None,
+        background_subject_refresh: bool = False,
     ):
         self.session = session
         self.storage = storage or LocalStorage()
         self.edge_state = GraphEdgeStateService(session)
+        self.background_subject_refresh = background_subject_refresh
 
     async def process_evidence(self, evidence_id: UUID) -> dict[str, object] | None:
         evidence = (
@@ -1236,7 +1238,40 @@ class ExtractionWorker:
             investment_object_status="completed",
             persisted_object_count=persisted_object_count,
         )
+        queued_refresh = (
+            self.background_subject_refresh
+            and (evidence.metadata_json or {}).get("trigger") == "publisher_feed_intake"
+        )
+        subject = {
+            "subject_id": subject_id,
+            "subject_type": subject_type,
+            "subject_name": subject_name,
+        }
+        if queued_refresh:
+            processing.queue_subject_refresh(processing_state, **subject)
         await self.session.commit()
+        loop_result = (
+            {**subject, "subject_id": str(subject_id)}
+            if queued_refresh
+            else await self.refresh_extracted_subject(
+                evidence, persisted_object_count=persisted_object_count, **subject
+            )
+        )
+        loop_result["watchers_triggered"] = watcher_trigger_count
+        loop_result["processing"] = processing.summary(processing_state)
+        loop_result["relationships"] = relationship_result
+        return loop_result
+
+    async def refresh_extracted_subject(
+        self,
+        evidence: RawEvidence,
+        *,
+        subject_id: UUID,
+        subject_type: str,
+        subject_name: str,
+        persisted_object_count: int,
+        defer_on_provider_failure: bool = False,
+    ) -> dict[str, object]:
         await CoverageWorker(self.session).audit_subject_coverage(
             subject_id=subject_id,
             subject_type=subject_type,
@@ -1255,17 +1290,14 @@ class ExtractionWorker:
                 subject_name=subject_name,
                 subject_type=subject_type,
             )
-        loop_result = await OperatingLoopService(self.session).refresh_subject(
+        return await OperatingLoopService(self.session).refresh_subject(
             subject_id=subject_id,
             subject_type=subject_type,
             subject_name=subject_name,
             trigger_reason=f"new evidence ingested: {evidence.title or evidence.source_item_type}",
             raw_evidence_id=evidence.id,
+            defer_on_provider_failure=defer_on_provider_failure,
         )
-        loop_result["watchers_triggered"] = watcher_trigger_count
-        loop_result["processing"] = processing.summary(processing_state)
-        loop_result["relationships"] = relationship_result
-        return loop_result
 
     @staticmethod
     def _relationship_available_at(

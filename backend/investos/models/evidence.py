@@ -101,6 +101,12 @@ class EvidenceProcessingState(Base):
     source_text_state_json: Mapped[dict] = mapped_column(
         JSONB, default=dict, server_default="{}"
     )
+    subject_refresh_json: Mapped[dict] = mapped_column(
+        JSONB, default=dict, server_default="{}"
+    )
+    next_subject_refresh_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )

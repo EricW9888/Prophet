@@ -32,6 +32,7 @@ class OperatingLoopService:
         trigger_reason: str,
         subject_name: str | None = None,
         raw_evidence_id: UUID | None = None,
+        defer_on_provider_failure: bool = False,
     ) -> dict[str, object]:
         subject_name = subject_name or await self._subject_name(
             subject_id, subject_type
@@ -52,6 +53,9 @@ class OperatingLoopService:
         ).run_analysis(
             packet.id,
             include_critique=False,
+            **(
+                {"defer_on_provider_failure": True} if defer_on_provider_failure else {}
+            ),
         )
         current_state = await self._conclusion_state(subject_id, subject_type)
         coverage = await self._coverage_map(subject_id, subject_type)

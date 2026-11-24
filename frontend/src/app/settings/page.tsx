@@ -1238,6 +1238,7 @@ const AUTOMATION_JOB_COPY: Record<string, { label: string; description: string }
   agent_reflection: { label: "Portfolio review", description: "Looks across current evidence for blind spots, contradictions, and useful next actions." },
   shadow_refresh: { label: "Paper portfolio refresh", description: "Marks and advances active shadow-investment checkpoints without touching real positions." },
   evidence_processing: { label: "Evidence processing", description: "Extracts pending source material into dated, attributable research records." },
+  evidence_subject_refresh: { label: "Publisher subject analysis", description: "Reviews subjects after publisher evidence is extracted, including coverage, conclusions, and paper experiments." },
   strategist_cycle: { label: "Strategy review", description: "Reassesses portfolio-level risks, opportunities, and research priorities." },
   shadow_discovery: { label: "Paper idea discovery", description: "Looks for evidence-backed ideas worth testing in the shadow portfolio." },
   pattern_discovery: { label: "Pattern and cycle review", description: "Looks across independently sourced signals, portfolio relationships, the current regime, and historical rhymes to create provisional hypotheses with falsifiers and next checks." },

@@ -5,11 +5,13 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Callable
+from uuid import UUID
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import desc, select, tuple_
 
 from investos.config import settings
+from investos.core.llm import compact_exception_message
 from investos.core.provider_health import (
     LLMProviderCooldownError,
     ProviderHealthStore,
@@ -86,6 +88,7 @@ class AutomationCoordinator:
         "news_feed_changed": ("news_intake",),
         "evidence_arrived": ("evidence_processing",),
         "evidence_backlog": ("evidence_processing",),
+        "subject_refresh_ready": ("evidence_subject_refresh",),
         "evidence_ready": (
             "question_resolution",
             "agent_reflection",
@@ -100,6 +103,7 @@ class AutomationCoordinator:
         "queue_catchup": (
             "news_capture",
             "evidence_processing",
+            "evidence_subject_refresh",
             "question_resolution",
             "research_loop",
             "shadow_refresh",
@@ -108,6 +112,7 @@ class AutomationCoordinator:
     }
     LLM_DEPENDENT_JOBS = frozenset(
         {
+            "evidence_subject_refresh",
             "research_loop",
             "question_resolution",
             "relation_review",
@@ -262,6 +267,12 @@ class AutomationCoordinator:
         )
         self._register_job(
             "evidence_processing", self._run_evidence_processing, 120, True
+        )
+        self._register_job(
+            "evidence_subject_refresh",
+            self._run_evidence_subject_refresh,
+            settings.AUTOMATION_POLL_SECONDS,
+            True,
         )
         self._register_job("strategist_cycle", self._run_strategist_cycle, 3600, True)
         self._register_job(
@@ -418,6 +429,7 @@ class AutomationCoordinator:
             "market_data_refresh": self._run_market_data_refresh,
             "risk_refresh": self._run_risk_refresh,
             "evidence_processing": self._run_evidence_processing,
+            "evidence_subject_refresh": self._run_evidence_subject_refresh,
             "research_loop": self._run_research_loop,
             "question_resolution": self._run_question_resolution,
             "relation_review": self._run_relation_review,
@@ -1880,9 +1892,9 @@ class AutomationCoordinator:
                         else f"model_extraction_deferred:{health['state']}; deterministic receipts remain eligible"
                     )
                     return
-                loop_detail = await ExtractionWorker(session).process_evidence(
-                    evidence.id
-                )
+                loop_detail = await ExtractionWorker(
+                    session, background_subject_refresh=True
+                ).process_evidence(evidence.id)
                 processing = (loop_detail or {}).get("processing") or {}
                 processing_status = processing.get("overall_status") or "unknown"
                 partial = bool(loop_detail and loop_detail.get("partial"))
@@ -1910,6 +1922,8 @@ class AutomationCoordinator:
                 telemetry.provider_deferred = bool(
                     loop_detail and loop_detail.get("outcome") == "provider_deferred"
                 )
+                if processing.get("subject_refresh_status") == "pending":
+                    self.signal_ready_work("subject_refresh_ready")
                 # Coalesced arrival signals only wake one dispatch. Keep working
                 # while durable attempts advance and another attempt is eligible.
                 state = processing.get("extraction_status")
@@ -1945,6 +1959,74 @@ class AutomationCoordinator:
                     job_name="evidence_processing",
                     error=exc,
                     summary=f"Evidence processing failed: {exc}",
+                )
+
+    async def _run_evidence_subject_refresh(self) -> None:
+        name = "evidence_subject_refresh"
+        telemetry = self.telemetry[name]
+        telemetry.last_run_at = datetime.now(UTC)
+        async with async_session_maker() as session:
+            try:
+                queue = EvidenceProcessingService(session)
+                claim = await queue.claim_subject_refresh()
+                if claim is None:
+                    telemetry.last_status = "idle"
+                    telemetry.detail = "no_due_subject_refresh"
+                    return
+                result = None
+                error = None
+                deferred = False
+                try:
+                    evidence = await session.get(RawEvidence, claim.evidence_id)
+                    if evidence is not None:
+                        context = claim.context
+                        result = await ExtractionWorker(
+                            session
+                        ).refresh_extracted_subject(
+                            evidence,
+                            subject_id=UUID(context["subject_id"]),
+                            subject_type=context["subject_type"],
+                            subject_name=context["subject_name"],
+                            persisted_object_count=claim.persisted_object_count,
+                            defer_on_provider_failure=True,
+                        )
+                except Exception as exc:
+                    await session.rollback()
+                    error = compact_exception_message(exc)
+                    deferred = retryable_provider_failure(exc)
+                outcome = await queue.finish_subject_refresh(
+                    claim, error=error, provider_deferred=deferred
+                )
+                telemetry.last_status = {
+                    "completed": "ok",
+                    "deferred": "deferred",
+                    "retry_scheduled": "warning",
+                    "retry_exhausted": "error",
+                    "lease_lost": "skipped",
+                }[outcome]
+                telemetry.detail = f"evidence={claim.evidence_id} outcome={outcome}"
+                telemetry.provider_deferred = deferred
+                self._log_job_action(
+                    job_name=name,
+                    status=telemetry.last_status,
+                    summary="Publisher subject analysis "
+                    + outcome.replace("_", " ")
+                    + ".",
+                    metadata={
+                        "evidence_id": str(claim.evidence_id),
+                        "outcome": outcome,
+                        "reasoning_run_id": (result or {}).get("reasoning_run_id"),
+                        "error": error,
+                    },
+                )
+                if not deferred and await queue.has_due_subject_refresh():
+                    self.signal_ready_work("subject_refresh_ready")
+            except Exception as exc:
+                await session.rollback()
+                self._record_job_failure(
+                    job_name=name,
+                    error=exc,
+                    summary=f"Publisher subject analysis failed: {exc}",
                 )
 
     async def _run_risk_refresh(self) -> None:

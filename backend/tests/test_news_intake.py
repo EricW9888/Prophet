@@ -496,14 +496,27 @@ async def test_retained_disclosure_reaches_question_while_search_is_limited(
     for service in (
         "CoverageWorker.audit_subject_coverage",
         "SourceLearningService.learn_from_source",
-        "OperatingLoopService.refresh_subject",
         "WatcherService.evaluate_new_evidence",
     ):
         monkeypatch.setattr(
             f"investos.workers.extraction.{service}", AsyncMock(return_value={})
         )
-    await ExtractionWorker(session).process_evidence(fetched.id)
+    refresh = AsyncMock(
+        side_effect=[
+            TimeoutError("Provider temporarily unavailable"),
+            {"reasoning_run_id": "run"},
+        ]
+    )
+    monkeypatch.setattr(
+        "investos.workers.extraction.OperatingLoopService.refresh_subject", refresh
+    )
+    result = await ExtractionWorker(
+        session, background_subject_refresh=True
+    ).process_evidence(fetched.id)
     assert fetched.is_processed
+    assert result["processing"]["extraction_status"] == "completed"
+    assert result["processing"]["subject_refresh_status"] == "pending"
+    refresh.assert_not_awaited()
 
     assessment = AsyncMock(
         side_effect=[
@@ -562,6 +575,44 @@ async def test_retained_disclosure_reaches_question_while_search_is_limited(
         assert solution is None
         assert audit.detail_json["outcome"] == "unbound_source_answer"
     assert question.research_attempt_count == question.resolution_attempt_count == 0
+    refresh.assert_not_awaited()
+
+    evidence_id = fetched.id
+    coordinator.telemetry["evidence_subject_refresh"] = JobTelemetry(
+        "evidence_subject_refresh", 120
+    )
+    await coordinator._run_evidence_subject_refresh()
+    assert coordinator.telemetry["evidence_subject_refresh"].last_status == "deferred"
+    state = await session.scalar(
+        select(EvidenceProcessingState).where(
+            EvidenceProcessingState.raw_evidence_id == evidence_id
+        )
+    )
+    assert state.extraction_status == "completed"
+    assert state.subject_refresh_json["status"] == "deferred"
+    assert state.subject_refresh_json["failure_count"] == 0
+    state.next_subject_refresh_at = datetime.now(UTC)
+    await session.commit()
+
+    queue = EvidenceProcessingService(session)
+    abandoned = await queue.claim_subject_refresh()
+    assert abandoned is not None
+    assert await queue.claim_subject_refresh() is None
+    state.next_subject_refresh_at = datetime.now(UTC)
+    await session.commit()
+
+    resumed = AutomationCoordinator()
+    resumed.telemetry["evidence_subject_refresh"] = JobTelemetry(
+        "evidence_subject_refresh", 120
+    )
+    monkeypatch.setattr(resumed, "_log_job_action", lambda **kwargs: None)
+    await resumed._run_evidence_subject_refresh()
+    await resumed._run_evidence_subject_refresh()
+    assert refresh.await_count == 2
+    assert refresh.await_args.kwargs["raw_evidence_id"] == evidence_id
+    assert state.subject_refresh_json["status"] == "completed"
+    assert state.next_subject_refresh_at is None
+    assert await queue.finish_subject_refresh(abandoned) == "lease_lost"
 
 
 async def test_observation_versions_are_idempotent_and_never_backdated(
