@@ -192,8 +192,10 @@ caption tracks for YouTube video links. The receipt identifies the original
 document or video and its representation. Unreadable PDFs and unavailable
 captions remain discovery leads, with a capture outcome that describes the gap.
 Feed checks and source capture run independently. Capture takes bounded batches
-from the durable queue between feed checks, including during model outages. Its
-priority slots favor first captures, rotating across publisher hosts before taking
+from the durable queue between feed checks, including during model outages.
+Ready discoveries that match an already retained version link to its receipt
+before the worker claims download slots. Download priority favors first
+captures, rotating across publisher hosts before taking
 multiple priority entries from one host. EDGAR current reports rank before
 routine filings within that host's priority slots. An oldest-lead slot gives revisions and
 older leads a route through the queue. Retry
@@ -211,6 +213,9 @@ An Atom entry with an update time can qualify for a fetch even without a
 publication time. Its update and observation clocks remain distinct. EDGAR
 filing indexes identify the primary filing in their document table. The URL
 intake path fetches that document and retains both the index and document URLs.
+If an EDGAR index returns 404, the reader can use the SEC complete-submission
+file. It checks the accession and retains the primary text with its filename
+and complete-submission URL as provenance.
 The primary filing uses the configured upload byte budget so large prospectuses
 can reach the ordinary extraction workflow. Fetched text uses the document
 storage budget. Handwritten notes retain their own character limit. A source
