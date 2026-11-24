@@ -230,6 +230,13 @@ when there is no qualifying candidate.
 Continuations and due retries keep their existing eligibility rules. Provider
 cooldown preserves the document's retry budget. The usual provider request
 limits still apply.
+The automatic publisher worker commits its extracted records and monitor checks
+before subject analysis. The same processing receipt keeps that follow-up
+eligible across restarts, with separate claims, status, and retries. The
+subject analysis worker runs the ordinary coverage, source learning, accepted
+view and paper-experiment workflow while extraction can advance another source.
+Both stages share provider admission. Direct ingestion still returns its
+subject analysis synchronously when requested.
 Recently checked publisher summaries with a publication or feed update time in
 the current window enter the normal broad portfolio question's fresh context.
 The bounded shortlist rotates publisher hosts before filling extra slots from

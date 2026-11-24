@@ -1559,6 +1559,7 @@ export type GraphSearchResult = {
 };
 
 export type EvidenceProcessingState = {
+  subject_refresh_status?: string | null;
   source_text_coverage?: {
     status: "unknown" | "partial" | "all_text_submitted";
     document_chars?: number;

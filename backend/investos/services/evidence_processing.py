@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import case, func, or_, select, true
+from sqlalchemy import case, func, or_, select, true, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,6 +48,20 @@ COMPLETED_SOURCE_ITEM_STATUSES = {
 }
 
 
+def _claim_timeout() -> timedelta:
+    return timedelta(seconds=max(settings.LLM_TIMEOUT_SECONDS * 2, 300))
+
+
+def _retry_delay(attempts: int) -> timedelta:
+    return timedelta(
+        seconds=min(
+            max(1, settings.EVIDENCE_EXTRACTION_RETRY_MAX_SECONDS),
+            max(1, settings.EVIDENCE_EXTRACTION_RETRY_BASE_SECONDS)
+            * 2 ** max(attempts - 1, 0),
+        )
+    )
+
+
 @dataclass(frozen=True)
 class ExtractionClaim:
     claimed: bool
@@ -55,11 +69,113 @@ class ExtractionClaim:
     state: EvidenceProcessingState
 
 
+@dataclass(frozen=True)
+class SubjectRefreshClaim:
+    state_id: UUID
+    evidence_id: UUID
+    lease_until: datetime
+    persisted_object_count: int
+    context: dict[str, Any]
+
+
 class EvidenceProcessingService:
     """Own restartable processing state independently from transient job UI."""
 
     def __init__(self, session: AsyncSession):
         self.session = session
+
+    def queue_subject_refresh(
+        self,
+        state: EvidenceProcessingState,
+        *,
+        subject_id: UUID,
+        subject_type: str,
+        subject_name: str,
+    ) -> None:
+        state.subject_refresh_json = {
+            "subject_id": str(subject_id),
+            "subject_type": subject_type,
+            "subject_name": subject_name,
+            "status": "pending",
+        }
+        state.next_subject_refresh_at = datetime.now(UTC)
+
+    async def claim_subject_refresh(self) -> SubjectRefreshClaim | None:
+        state = EvidenceProcessingState
+        now = datetime.now(UTC)
+        selected = await self.session.scalar(
+            select(state)
+            .where(state.next_subject_refresh_at <= now)
+            .order_by(state.next_subject_refresh_at, state.raw_evidence_id)
+            .limit(1)
+            .with_for_update(skip_locked=True)
+        )
+        claim = None
+        if selected is not None:
+            selected.next_subject_refresh_at = now + _claim_timeout()
+            selected.subject_refresh_json = {
+                **selected.subject_refresh_json,
+                "status": "running",
+            }
+            claim = SubjectRefreshClaim(
+                selected.id,
+                selected.raw_evidence_id,
+                selected.next_subject_refresh_at,
+                selected.persisted_object_count,
+                selected.subject_refresh_json,
+            )
+        await self.session.commit()
+        return claim
+
+    async def finish_subject_refresh(
+        self,
+        claimed: SubjectRefreshClaim,
+        *,
+        error: str | None = None,
+        provider_deferred: bool = False,
+    ) -> str:
+        context = dict(claimed.context)
+        next_attempt = None
+        status = "completed"
+        context.pop("last_error", None)
+        if error is not None:
+            attempts = int(context.get("failure_count", 0)) + int(not provider_deferred)
+            context.update(last_error=error, failure_count=attempts)
+            if attempts >= max(1, settings.EVIDENCE_EXTRACTION_MAX_ATTEMPTS):
+                status = "retry_exhausted"
+            else:
+                status = "deferred" if provider_deferred else "retry_scheduled"
+                next_attempt = datetime.now(UTC) + _retry_delay(attempts)
+        state = EvidenceProcessingState
+        updated = await self.session.scalar(
+            update(state)
+            .where(
+                state.id == claimed.state_id,
+                state.next_subject_refresh_at == claimed.lease_until,
+            )
+            .values(
+                subject_refresh_json={**context, "status": status},
+                next_subject_refresh_at=next_attempt,
+                updated_at=state.updated_at,
+            )
+            .returning(state.id)
+        )
+        await self.session.commit()
+        return status if updated is not None else "lease_lost"
+
+    async def has_due_subject_refresh(self) -> bool:
+        return bool(
+            await self.session.scalar(
+                select(
+                    select(EvidenceProcessingState.id)
+                    .where(
+                        EvidenceProcessingState.next_subject_refresh_at
+                        <= datetime.now(UTC)
+                    )
+                    .exists()
+                )
+            )
+        )
 
     async def ensure_for_evidence(
         self,
@@ -126,7 +242,7 @@ class EvidenceProcessingService:
             and not force
         ):
             return ExtractionClaim(False, "retry_not_due", state)
-        stale_after = timedelta(seconds=max(settings.LLM_TIMEOUT_SECONDS * 2, 300))
+        stale_after = _claim_timeout()
         if (
             status == "running"
             and state.last_extraction_attempt_at is not None
@@ -158,7 +274,7 @@ class EvidenceProcessingService:
         """Select eligible work, optionally favoring a recent publisher first pass."""
 
         now = datetime.now(UTC)
-        stale_after = timedelta(seconds=max(settings.LLM_TIMEOUT_SECONDS * 2, 300))
+        stale_after = _claim_timeout()
         stale_before = now - stale_after
         ready_since = case(
             (
@@ -286,13 +402,8 @@ class EvidenceProcessingService:
             state.extraction_status = "retry_exhausted"
             state.next_extraction_attempt_at = None
         else:
-            delay = min(
-                max(1, settings.EVIDENCE_EXTRACTION_RETRY_MAX_SECONDS),
-                max(1, settings.EVIDENCE_EXTRACTION_RETRY_BASE_SECONDS)
-                * (2 ** max(0, attempts - 1)),
-            )
             state.extraction_status = "retry_scheduled"
-            state.next_extraction_attempt_at = now + timedelta(seconds=delay)
+            state.next_extraction_attempt_at = now + _retry_delay(attempts)
         state.investment_object_status = "pending"
         state.updated_at = now
         self._append_history(
@@ -519,6 +630,9 @@ class EvidenceProcessingService:
             next_action = "Unseen source text is queued for the next extraction window."
         return {
             "overall_status": overall,
+            "subject_refresh_status": (
+                getattr(state, "subject_refresh_json", None) or {}
+            ).get("status"),
             "source_text_coverage": source_text_coverage(
                 getattr(state, "source_text_state_json", None)
             ),

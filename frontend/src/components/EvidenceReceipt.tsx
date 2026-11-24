@@ -207,6 +207,9 @@ function ProcessingLifecycle({
         {stages.map((stage) => (
           <ProcessingStage key={stage.label} label={stage.label} status={stage.status} />
         ))}
+        {processing.subject_refresh_status ? (
+          <ProcessingStage label="Subject analysis" status={processing.subject_refresh_status} />
+        ) : null}
       </div>
 
       <div className="mt-4 border border-line p-3 text-sm" aria-label="Source text coverage">
