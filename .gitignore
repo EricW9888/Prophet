@@ -15,6 +15,7 @@ backend/data/
 .prophet-local/
 .ai/
 .claude/
+.codex/
 **/AGENTS.md
 **/CLAUDE.md
 
