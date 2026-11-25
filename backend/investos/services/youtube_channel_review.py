@@ -35,15 +35,6 @@ class YouTubeChannelReviewService:
         video_limit: int | None = None,
         auto_ingest: bool | None = None,
     ) -> dict[str, Any]:
-        readiness = self.channel_enumerator.readiness()
-        if not readiness["available"]:
-            return {
-                "status": "waiting_for_config",
-                "reason": "missing: " + ", ".join(readiness["missing"]),
-                "sources_reviewed": 0,
-                "uploads_observed": 0,
-                "uploads_ingested": 0,
-            }
         resolved_source_limit = max(
             1,
             min(
@@ -78,6 +69,26 @@ class YouTubeChannelReviewService:
             .scalars()
             .all()
         )
+        # Report the first real blocker: with no tracked channel there is
+        # nothing to review, whether or not the downloader is installed.
+        if not sources:
+            return {
+                "status": "ok",
+                "reason": "no trusted YouTube channels are tracked",
+                "sources_reviewed": 0,
+                "uploads_observed": 0,
+                "uploads_ingested": 0,
+            }
+        readiness = self.channel_enumerator.readiness()
+        if not readiness["available"]:
+            return {
+                "status": "waiting_for_config",
+                "reason": "missing: " + ", ".join(readiness["missing"]),
+                "tracked_sources": len(sources),
+                "sources_reviewed": 0,
+                "uploads_observed": 0,
+                "uploads_ingested": 0,
+            }
         totals = {
             "status": "ok",
             "sources_reviewed": 0,

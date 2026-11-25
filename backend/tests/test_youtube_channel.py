@@ -217,6 +217,39 @@ async def test_channel_preview_binds_ingestion_state_to_tracked_source():
 
 
 @pytest.mark.asyncio
+async def test_channel_review_reports_the_first_real_blocker():
+    missing_downloader = SimpleNamespace(
+        readiness=lambda: {"available": False, "missing": ["yt-dlp"]},
+        list_recent=AsyncMock(),
+    )
+
+    def review(tracked):
+        session = SimpleNamespace(
+            execute=AsyncMock(return_value=ScalarListResult(tracked))
+        )
+        return YouTubeService(
+            session, channel_enumerator=missing_downloader
+        ).review_tracked_channels(auto_ingest=False)
+
+    # No tracked channel: the downloader is not what stands in the way.
+    idle = await review([])
+    assert idle["status"] == "ok"
+    assert idle["reason"] == "no trusted YouTube channels are tracked"
+
+    channel = SimpleNamespace(
+        id=uuid4(),
+        name="Synthetic channel",
+        source_type="youtube",
+        url="https://www.youtube.com/@SyntheticChannel",
+    )
+    waiting = await review([channel])
+    assert waiting["status"] == "waiting_for_config"
+    assert waiting["reason"] == "missing: yt-dlp"
+    assert waiting["tracked_sources"] == 1
+    missing_downloader.list_recent.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_channel_review_keeps_upload_metadata_provisional():
     source = SimpleNamespace(
         id=uuid4(),
