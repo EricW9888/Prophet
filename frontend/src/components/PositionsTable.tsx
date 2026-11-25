@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import AddResearchObjectModal from "./AddResearchObjectModal";
@@ -9,9 +9,10 @@ import PortfolioWatchlist from "./PortfolioWatchlist";
 import ValuationCoverage from "./ValuationCoverage";
 import HintMarker from "./HintMarker";
 import WorkspaceState, { WorkspaceRead, WorkspaceSkeleton } from "./WorkspaceState";
-import type { PortfolioBuildPoint, PortfolioOverview } from "@/lib/api";
+import type { PortfolioBuildPoint, PortfolioOverview, Position } from "@/lib/api";
+import { buildPositionRows, latestQuoteTime, sortPositionRows, type PositionSortKey, type SortDirection } from "@/lib/positions-table";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
-import { safeFormatCurrency, safeFormatSignedCurrency, safeFormatQuantity, formatUserLabel } from "@/lib/formatting";
+import { safeFormatCurrency, safeFormatPct, safeFormatSignedCurrency, safeFormatQuantity, formatUserLabel } from "@/lib/formatting";
 import { researchHref } from "@/lib/workflows";
 
 export default function PositionsTable() {
@@ -106,40 +107,7 @@ export default function PositionsTable() {
                 className="mt-6"
               />
             ) : (
-              <div className="mt-6 max-w-full overflow-x-auto">
-                <table className="min-w-[620px] w-full text-sm text-left">
-                  <thead className="text-xs uppercase text-slate-500 dark:text-slate-400">
-                    <tr>
-                      <th className="pb-3 font-medium">Holding</th>
-                      <th className="pb-3 font-medium text-right">Shares</th>
-                      <th className="pb-3 font-medium text-right">Avg Cost</th>
-                      <th className="pb-3 font-medium text-right">Recorded quote</th>
-                      <th className="pb-3 font-medium text-right">Market Value</th>
-                      <th className="pb-3 font-medium text-right">P&L</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                    {holdings.map((pos) => (
-                      <tr key={pos.id}>
-                        <td className="py-4">
-                          <Link href={researchHref({ subject_id: pos.id, subject_type: "position", subject_name: pos.ticker ?? pos.entity_name ?? "Holding" })} aria-label={`Research ${pos.ticker ?? pos.entity_name ?? "holding"}`} className="font-semibold text-action underline decoration-dotted underline-offset-4">{pos.ticker ?? pos.security_id}</Link>
-                          {pos.entity_name ? (
-                            <div className="text-xs text-slate-500 dark:text-slate-400">{pos.entity_name}</div>
-                          ) : null}
-                          {pos.valuation ? <div className="mt-1 text-xs text-muted">{pos.valuation.status === "ready" ? `Quote ${pos.valuation.quoted_at ? new Date(pos.valuation.quoted_at).toLocaleString() : "time unavailable"}` : "Quote unavailable"} <HintMarker label={`Quote basis for ${pos.ticker ?? "holding"}`}><p>{pos.valuation.issues.join(" ") || `${formatUserLabel(pos.valuation.provider)} · ${pos.valuation.currency} · observed ${pos.valuation.observed_at ? new Date(pos.valuation.observed_at).toLocaleString() : "time unavailable"}. Mark uses recorded shares and quotes; P&L uses recorded cost basis.`}</p></HintMarker></div> : null}
-                        </td>
-                        <td className="py-4 text-right tabular-nums">{safeFormatQuantity(pos.quantity)}</td>
-                        <td className="py-4 text-right tabular-nums">{safeFormatCurrency(pos.avg_cost_basis, 2)}</td>
-                        <td className="py-4 text-right tabular-nums">{safeFormatCurrency(pos.current_price, 2)}</td>
-                        <td className="py-4 text-right tabular-nums">{safeFormatCurrency(pos.market_value, 2)}</td>
-                        <td className={`py-4 text-right tabular-nums ${pos.unrealized_pnl == null ? "text-muted" : pos.unrealized_pnl >= 0 ? "text-emerald-600" : "text-rose-500"}`}>
-                          {safeFormatSignedCurrency(pos.unrealized_pnl)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <HoldingsTable holdings={holdings} />
             )}
           </section>
 
@@ -205,6 +173,100 @@ export default function PositionsTable() {
         </section>
       </section>
     </>
+  );
+}
+
+const HOLDING_COLUMNS: ReadonlyArray<{ key: PositionSortKey; label: string; numeric: boolean }> = [
+  { key: "ticker", label: "Holding", numeric: false },
+  { key: "quantity", label: "Shares", numeric: true },
+  { key: "cost", label: "Avg cost", numeric: true },
+  { key: "price", label: "Price", numeric: true },
+  { key: "value", label: "Value", numeric: true },
+  { key: "weight", label: "% of holdings", numeric: true },
+  { key: "gain", label: "Total gain/loss", numeric: true },
+];
+
+function gainTone(value: number | null | undefined) {
+  if (value == null) return "text-muted";
+  return value >= 0 ? "text-positive" : "text-negative";
+}
+
+/** One line per holding, sortable, with one quote time for the table and a marker only on stale prices. */
+function HoldingsTable({ holdings }: { holdings: Position[] }) {
+  const [sort, setSort] = useState<{ key: PositionSortKey; direction: SortDirection }>({ key: "value", direction: "desc" });
+  const rows = useMemo(() => sortPositionRows(buildPositionRows(holdings), sort.key, sort.direction), [holdings, sort]);
+  const asOf = latestQuoteTime(holdings);
+  const staleCount = rows.filter((row) => row.stale).length;
+
+  function toggle(key: PositionSortKey) {
+    setSort((current) => current.key === key
+      ? { key, direction: current.direction === "desc" ? "asc" : "desc" }
+      : { key, direction: key === "ticker" ? "asc" : "desc" });
+  }
+
+  return (
+    <div className="mt-6">
+      <p className="text-xs text-muted">
+        {asOf ? `Prices as of ${asOf.toLocaleString()}` : "No current prices recorded"}
+        {staleCount ? ` · ${staleCount} marked * are not from today` : ""}
+      </p>
+      <div className="mt-2 max-w-full overflow-x-auto">
+        <table className="w-full min-w-[720px] text-sm">
+          <thead className="border-b border-line text-xs text-muted">
+            <tr>
+              {HOLDING_COLUMNS.map((column) => {
+                const active = sort.key === column.key;
+                return (
+                  <th
+                    key={column.key}
+                    scope="col"
+                    aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
+                    className={`py-2 font-medium ${column.numeric ? "text-right" : "sticky left-0 z-10 bg-panel pr-4 text-left"}`}
+                  >
+                    <button type="button" onClick={() => toggle(column.key)} className={`inline-flex items-center gap-1 hover:text-foreground ${active ? "text-foreground" : ""}`}>
+                      {column.label}
+                      <span aria-hidden="true">{active ? (sort.direction === "asc" ? "▲" : "▼") : ""}</span>
+                    </button>
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {rows.map(({ position: pos, gainPct, weightPct, stale }) => (
+              <tr key={pos.id} className="hover:bg-panel-muted">
+                <td className="sticky left-0 z-10 max-w-[18rem] bg-panel py-2 pr-4">
+                  <span className="flex min-w-0 items-baseline gap-2">
+                    <Link href={researchHref({ subject_id: pos.id, subject_type: "position", subject_name: pos.ticker ?? pos.entity_name ?? "Holding" })} aria-label={`Research ${pos.ticker ?? pos.entity_name ?? "holding"}`} className="font-semibold text-action hover:underline">{pos.ticker ?? pos.security_id}</Link>
+                    {pos.entity_name ? <span className="hidden truncate text-xs text-muted sm:inline" title={pos.entity_name}>{pos.entity_name}</span> : null}
+                  </span>
+                </td>
+                <td className="py-2 text-right tabular-nums">{safeFormatQuantity(pos.quantity)}</td>
+                <td className="py-2 text-right tabular-nums text-muted">{safeFormatCurrency(pos.avg_cost_basis, 2)}</td>
+                <td className="py-2 text-right tabular-nums">
+                  {safeFormatCurrency(pos.current_price, 2)}
+                  {stale ? (
+                    <span className="ml-1 inline-flex items-center align-middle">
+                      <span aria-hidden="true" className="text-amber-500">*</span>
+                      <HintMarker label={`Price note for ${pos.ticker ?? "holding"}`}>
+                        <p>{pos.valuation?.issues.join(" ") || `${pos.valuation?.status === "ready" ? "Last recorded" : "No current"} quote${pos.valuation?.quoted_at ? ` from ${new Date(pos.valuation.quoted_at).toLocaleString()}` : ""}${pos.valuation?.provider ? ` · ${formatUserLabel(pos.valuation.provider)}` : ""}.`}</p>
+                      </HintMarker>
+                    </span>
+                  ) : null}
+                </td>
+                <td className="py-2 text-right tabular-nums">{safeFormatCurrency(pos.market_value, 2)}</td>
+                <td className="py-2 text-right tabular-nums text-muted">{weightPct == null ? "—" : `${weightPct.toFixed(1)}%`}</td>
+                <td className={`py-2 text-right tabular-nums ${gainTone(pos.unrealized_pnl)}`}>
+                  {safeFormatSignedCurrency(pos.unrealized_pnl)}
+                  <span className="ml-2 text-xs">{safeFormatPct(gainPct)}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-muted">Value uses recorded shares and quotes. Gain/loss uses recorded cost basis (average cost {"×"} shares).</p>
+    </div>
   );
 }
 
