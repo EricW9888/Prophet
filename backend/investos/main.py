@@ -69,6 +69,7 @@ async def enforce_local_api_boundary(request: Request, call_next):
         if not api_request_allowed(
             method=request.method,
             client_host=client_host,
+            host_header=request.headers.get("host"),
             origin=request.headers.get("origin"),
             allowed_origins=_frontend_origins,
             allow_non_loopback=settings.API_ALLOW_NON_LOOPBACK,

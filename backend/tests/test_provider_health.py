@@ -776,7 +776,7 @@ async def test_disabled_coordinator_is_not_reported_as_enabled(monkeypatch):
     app.state.automation = AutomationCoordinator()
     app.include_router(router)
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://127.0.0.1:8000"
     ) as client:
         status = await client.get("/automation/status")
         assert status.status_code == 200

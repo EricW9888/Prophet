@@ -114,7 +114,7 @@ async def test_settings_contact_unlocks_subscription_and_stays_private(
     )
     try:
         async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
+            transport=ASGITransport(app=app), base_url="http://127.0.0.1:8000"
         ) as client:
             current = await client.get("/api/notifications/status")
             assert current.status_code == 200

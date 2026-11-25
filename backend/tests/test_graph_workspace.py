@@ -241,7 +241,7 @@ async def test_context_route_to_portfolio_root_does_not_imply_holding_exposure(
     app.include_router(router)
     app.dependency_overrides[get_session] = use_test_session
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
+        transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8000"
     ) as client:
         response = await client.get(f"/graph/nodes/entity/{subject.id}")
         response.raise_for_status()
@@ -323,7 +323,7 @@ async def test_inspector_api_preserves_hypothesis_status_and_exact_links(
     app.include_router(router)
     app.dependency_overrides[get_session] = use_test_session
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
+        transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8000"
     ) as client:
         response = await client.get(f"/graph/nodes/entity/{actor.id}")
         response.raise_for_status()
@@ -617,7 +617,7 @@ async def test_workspace_web_preserves_scope_edges_and_retained_layout():
         app.include_router(router)
         app.dependency_overrides[get_session] = use_test_session
         async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
+            transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8000"
         ) as client:
             result = await client.get("/graph/workspace")
             result.raise_for_status()

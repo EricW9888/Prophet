@@ -193,7 +193,7 @@ async def test_history_calculation_keeps_the_health_endpoint_responsive(
     try:
         assert await asyncio.to_thread(started.wait, 5)
         async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
+            transport=ASGITransport(app=app), base_url="http://127.0.0.1:8000"
         ) as client:
             response = await client.get("/health")
             assert response.status_code == 200
@@ -493,7 +493,7 @@ async def test_portfolio_history_uses_close_time_cash_flows_gaps_and_receipts(
 
     monkeypatch.setitem(app.dependency_overrides, get_session, session_override)
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://127.0.0.1:8000"
     ) as client:
         receipt = await client.get(f"/api/risk/portfolio/history/{result.receipt_id}")
         assert receipt.status_code == 200
@@ -659,7 +659,7 @@ async def test_broker_equity_reconciles_statement_dates_and_active_ledger_receip
 
     monkeypatch.setitem(app.dependency_overrides, get_session, session_override)
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://127.0.0.1:8000"
     ) as client:
 
         async def preview(day, equity, cash, holdings=""):

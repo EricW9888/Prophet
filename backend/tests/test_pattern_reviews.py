@@ -326,7 +326,7 @@ async def test_review_api_paginates_without_transferring_captured_packets(
     app.dependency_overrides[get_session] = same_session
     try:
         async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
+            transport=ASGITransport(app=app), base_url="http://127.0.0.1:8000"
         ) as client:
             response = await client.get("/api/reasoning/pattern-reviews?limit=1")
             assert response.status_code == 200

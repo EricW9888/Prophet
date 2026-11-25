@@ -112,7 +112,7 @@ async def test_review_pages_count_all_holds_without_reading_content(
         ),
     )
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://127.0.0.1:8000"
     ) as client:
         result = await client.get(
             "/integrations/gmail/identity-reviews/page",
