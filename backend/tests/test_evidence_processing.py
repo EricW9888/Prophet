@@ -477,6 +477,74 @@ async def test_next_due_evidence_skips_deferred_and_blocked_work() -> None:
                 await session.commit()
 
 
+async def test_routine_filings_wait_behind_substantive_work_but_do_not_starve(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(settings, "EXTRACTION_ROUTINE_FILING_DELAY_HOURS", 72)
+    source_id: UUID | None = None
+    evidence_ids: list[UUID] = []
+    try:
+        async with async_session_maker() as session:
+            source = Source(
+                name=f"Routine filing aging {uuid4().hex}",
+                source_type="official",
+            )
+            session.add(source)
+            await session.flush()
+            source_id = source.id
+            service = EvidenceProcessingService(session)
+
+            def filing(title: str, created_at: datetime) -> RawEvidence:
+                return RawEvidence(
+                    source_id=source.id,
+                    source_item_type="filing",
+                    title=title,
+                    raw_content_ref=f"unused/{uuid4().hex}.txt",
+                    created_at=created_at,
+                )
+
+            holdings = filing(
+                "NPORT-P - Synthetic Fund Trust (0000000001) (Filer)",
+                datetime(1999, 1, 1, tzinfo=UTC),
+            )
+            notice = filing(
+                "D - Synthetic Private Fund LP (0000000002) (Filer)",
+                datetime(1999, 1, 1, 1, tzinfo=UTC),
+            )
+            proxy = filing(
+                "DEF 14A - Synthetic Issuer Inc (0000000003) (Filer)",
+                datetime(1999, 1, 2, tzinfo=UTC),
+            )
+            session.add_all([holdings, notice, proxy])
+            await session.flush()
+            evidence_ids = [holdings.id, notice.id, proxy.id]
+            for evidence in (holdings, notice, proxy):
+                await service.ensure_for_evidence(evidence)
+            await session.commit()
+
+            # A substantive filing captured a day later goes first; "DEF 14A"
+            # is not mistaken for the routine "D" form.
+            assert (await service.next_due_evidence()).id == proxy.id
+
+            # Past the delay, the routine filings compete on age again.
+            proxy.created_at = datetime(1999, 1, 5, tzinfo=UTC)
+            await session.commit()
+            assert (await service.next_due_evidence()).id == holdings.id
+
+            monkeypatch.setattr(settings, "EXTRACTION_ROUTINE_FILING_DELAY_HOURS", 0)
+            proxy.created_at = datetime(1999, 1, 2, tzinfo=UTC)
+            await session.commit()
+            assert (await service.next_due_evidence()).id == holdings.id
+    finally:
+        if source_id is not None:
+            async with async_session_maker() as session:
+                await session.execute(
+                    delete(RawEvidence).where(RawEvidence.id.in_(evidence_ids))
+                )
+                await session.execute(delete(Source).where(Source.id == source_id))
+                await session.commit()
+
+
 async def test_operator_retry_cannot_reset_running_extraction() -> None:
     source_id: UUID | None = None
     evidence_id: UUID | None = None

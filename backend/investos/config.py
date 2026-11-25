@@ -144,6 +144,10 @@ class Settings(BaseSettings):
     NEWS_INTAKE_CAPTURE_SECONDS: int = Field(default=60, ge=10, le=86400)
     NEWS_INTAKE_FETCH_BATCH_SIZE: int = Field(default=3, ge=1, le=20)
     NEWS_INTAKE_LOOKBACK_HOURS: int = Field(default=72, ge=1, le=720)
+    # Oldest-first extraction treats a routine EDGAR filing as this much newer
+    # than it is, so substantive work captured within this window goes first.
+    # Older routine filings then compete on age again: delayed, never excluded.
+    EXTRACTION_ROUTINE_FILING_DELAY_HOURS: int = Field(default=72, ge=0, le=720)
     NEWS_FEED_URLS: list[str] = [
         "https://www.cnbc.com/id/100003114/device/rss/rss.html",
         "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain",
