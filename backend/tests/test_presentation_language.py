@@ -51,7 +51,7 @@ async def test_language_preference_persists_through_existing_api(tmp_path):
     app = FastAPI()
     app.include_router(integrations_router)
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
+        transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8000"
     ) as client:
         assert (await client.get("/integrations/settings")).json()[
             "presentation_language"

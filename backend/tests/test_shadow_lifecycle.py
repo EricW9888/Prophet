@@ -811,7 +811,7 @@ async def test_dashboard_and_shadow_api_report_the_same_population(
 
     app.dependency_overrides[get_session] = database
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://127.0.0.1:8000"
     ) as client:
         summary = await client.get("/dashboard/summary")
         lifecycle = await client.get("/shadow/lifecycle")

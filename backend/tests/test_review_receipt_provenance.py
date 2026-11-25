@@ -70,7 +70,7 @@ async def test_ingestion_review_retains_original_without_posting(
 
     app.dependency_overrides[get_session] = session_dependency
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://127.0.0.1:8000"
     ) as client:
         queued = await client.get(f"/api/review/queue/{review.id}")
         assert queued.status_code == 200

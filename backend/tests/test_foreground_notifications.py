@@ -115,7 +115,7 @@ async def test_event_pages_preserve_same_timestamp_order_exclude_tests_and_valid
     cursor = service._event_cursor(stamp - timedelta(seconds=1), UUID(int=0))
     seen = []
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://127.0.0.1:8000"
     ) as client:
         for _ in range(3):
             response = await client.get(

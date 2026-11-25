@@ -279,7 +279,7 @@ async def test_directory_api_paginates_and_keeps_research_controls_reversible(
     app.dependency_overrides[get_session] = dependency
     try:
         async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
+            transport=ASGITransport(app=app), base_url="http://127.0.0.1:8000"
         ) as client:
             first = await client.get("/api/opportunities/listings")
             assert first.status_code == 200 and len(first.json()["items"]) == 20
@@ -349,7 +349,7 @@ async def test_scope_change_uses_existing_settings_and_wakes_acquisition(
     coordinator = MagicMock()
     monkeypatch.setattr(app.state, "automation", coordinator, raising=False)
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://127.0.0.1:8000"
     ) as client:
         response = await client.put(
             "/api/integrations/settings",
