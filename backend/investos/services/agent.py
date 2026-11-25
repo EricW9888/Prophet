@@ -3065,6 +3065,15 @@ class AgentService:
         grouped: dict[str, dict] = {}
         artifact_counts: dict[str, int] = {}
         autonomous_sessions: dict[str, str | None] = {}
+        # Hundreds of conversations share a few subjects; resolve each once.
+        subject_names: dict[tuple[UUID, str], str] = {}
+
+        async def subject_name(subject_id: UUID, subject_type: str) -> str:
+            key = (subject_id, subject_type)
+            if key not in subject_names:
+                subject_names[key] = await self._subject_name(subject_id, subject_type)
+            return subject_names[key]
+
         for evidence in evidence_rows:
             metadata = evidence.metadata_json or {}
             raw_session_id = metadata.get("session_id")
@@ -3109,7 +3118,7 @@ class AgentService:
                 "subject_type": subject_type_value,
                 "subject_name": (
                     self._conversation_scope_label(metadata)
-                    or await self._subject_name(subject_uuid, subject_type_value)
+                    or await subject_name(subject_uuid, subject_type_value)
                     if subject_uuid is not None and subject_type_value
                     else None
                 ),
