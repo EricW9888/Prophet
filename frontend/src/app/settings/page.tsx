@@ -25,12 +25,12 @@ import {
   safeFormatCurrency,
   formatRegimeLabel
 } from "@/lib/formatting";
-import { ArrowRight, Clock, Database, Landmark, Zap, Search, Shield, Trash2, CheckCircle2, AlertCircle, Terminal } from "lucide-react";
+import { ArrowRight, Clock, Database, Landmark, Zap, Search, Shield, SlidersHorizontal, Trash2, CheckCircle2, AlertCircle, Terminal } from "lucide-react";
 import LiveLogConsole from "@/components/LiveLogConsole";
 import MailboxIdentityReviews from "@/components/MailboxIdentityReviews";
 import { automationJobPresentation } from "@/lib/automation";
 
-type SettingsTab = "overview" | "data" | "research" | "system";
+type SettingsTab = "general" | "data" | "research" | "status" | "system";
 type GmailTestResult = {
   matched_messages: number;
 };
@@ -46,7 +46,7 @@ type GmailSyncResult = {
 };
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("overview");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const [settings, setSettings] = useState<IntegrationSettings | null>(null);
   const [setup, setSetup] = useState<SetupStatus | null>(null);
   const [automation, setAutomation] = useState<AutomationStatus | null>(null);
@@ -268,13 +268,14 @@ export default function SettingsPage() {
           className="mb-8"
           eyebrow="Configuration"
           title="Settings"
-          description="Manage portfolio inputs, data connections, research providers, model access, automation, and system state."
+          description="Language, notifications, data connections, research providers, and model access. Live system status has its own tab."
           actions={settings && (
             <div className="flex w-full items-start gap-2 md:w-auto">
-            <div className="grid min-w-0 flex-1 grid-cols-2 border-b border-slate-200 sm:flex dark:border-slate-800">
-              <TabButton active={activeTab === "overview"} onClick={() => setActiveTab("overview")} label="Overview" icon={<CheckCircle2 className="w-4 h-4" />} />
-              <TabButton active={activeTab === "data"} onClick={() => setActiveTab("data")} label="Data Connections" icon={<Database className="w-4 h-4" />} />
+            <div className="grid min-w-0 flex-1 grid-cols-3 border-b border-line sm:flex">
+              <TabButton active={activeTab === "general"} onClick={() => setActiveTab("general")} label="General" icon={<SlidersHorizontal className="w-4 h-4" />} />
+              <TabButton active={activeTab === "data"} onClick={() => setActiveTab("data")} label="Data" icon={<Database className="w-4 h-4" />} />
               <TabButton active={activeTab === "research"} onClick={() => setActiveTab("research")} label="Research" icon={<Search className="w-4 h-4" />} />
+              <TabButton active={activeTab === "status"} onClick={() => setActiveTab("status")} label="Status" icon={<CheckCircle2 className="w-4 h-4" />} />
               <TabButton active={activeTab === "system"} onClick={() => setActiveTab("system")} label="System" icon={<Shield className="w-4 h-4" />} />
             </div>
             <button
@@ -289,12 +290,18 @@ export default function SettingsPage() {
           )}
         />
 
-        <DesktopAppSettings />
-        <div className="mb-5"><RunningBuilds /></div>
         {settings ? (
         <div className="space-y-6 animate-in fade-in duration-300">
-          <LanguageSettings value={settings.presentation_language ?? "en"} onChange={language => updateSettings(current => ({ ...current, presentation_language: language }))} />
-          {activeTab === "overview" && (
+          {activeTab === "general" && (
+            <div className="max-w-4xl space-y-6">
+              <LanguageSettings value={settings.presentation_language ?? "en"} onChange={language => updateSettings(current => ({ ...current, presentation_language: language }))} />
+              <DesktopAppSettings />
+              <PushNotificationSettings />
+            </div>
+          )}
+
+          {activeTab === "status" && <RunningBuilds />}
+          {activeTab === "status" && (
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.72fr)]">
               <section className="space-y-5">
                 <Card title="System Readiness" icon={<Zap className="h-5 w-5 text-slate-500" />}>
@@ -967,7 +974,6 @@ export default function SettingsPage() {
 
           {activeTab === "system" && (
             <div className="max-w-4xl space-y-6">
-              <PushNotificationSettings />
               <section className="rounded-lg border border-red-200 bg-white p-6 dark:border-red-900/40 dark:bg-slate-950">
                 <div className="flex items-center gap-3 mb-8">
                   <div className="rounded-md border border-red-200 p-2 dark:border-red-900/40">
