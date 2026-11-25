@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
+import os
+import tempfile
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -67,6 +71,8 @@ from investos.services.work_outcomes import evidence_work_outcome
 from investos.services.youtube import YouTubeService
 from investos.workers.extraction import ExtractionWorker
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class JobTelemetry:
@@ -82,6 +88,9 @@ class JobTelemetry:
 
 
 class AutomationCoordinator:
+    # Spacing between overdue jobs that catch up after a restart, so they do
+    # not all start in the same instant.
+    OVERDUE_STAGGER_SECONDS = 5
     SIGNAL_JOBS = {
         "universe_scope_changed": ("listing_directory",),
         "universe_directory_changed": ("opportunity_discovery",),
@@ -145,6 +154,87 @@ class AutomationCoordinator:
         self._active_jobs: set[str] = set()
         self._last_model_attempt_at: dict[str, datetime] = {}
         self._recent_publisher_turn = False
+        # Interval schedules restart from "now" on every process start, so a job
+        # whose interval exceeds typical uptime would never run. The last
+        # completed run is kept on disk and each schedule resumes from it.
+        self._completed_runs: dict[str, datetime] = {}
+        self._overdue_jobs_scheduled = 0
+
+    @staticmethod
+    def _schedule_state_path() -> Path:
+        return Path(settings.STORAGE_DIR) / "_system" / "automation_schedule.json"
+
+    def _load_completed_runs(self) -> dict[str, datetime]:
+        path = self._schedule_state_path()
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError):
+            logger.warning(
+                "Automation schedule state unreadable; jobs start as overdue."
+            )
+            return {}
+        completed: dict[str, datetime] = {}
+        for name, value in (raw.get("completed_runs") or {}).items():
+            try:
+                stamp = datetime.fromisoformat(str(value))
+            except ValueError:
+                continue
+            completed[str(name)] = stamp if stamp.tzinfo else stamp.replace(tzinfo=UTC)
+        return completed
+
+    def _record_completed_run(self, name: str, finished_at: datetime) -> None:
+        self._completed_runs[name] = finished_at
+        path = self._schedule_state_path()
+        payload = {
+            "completed_runs": {
+                job: stamp.isoformat()
+                for job, stamp in sorted(self._completed_runs.items())
+            }
+        }
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            descriptor, temporary = tempfile.mkstemp(
+                dir=path.parent, prefix=".automation-schedule-"
+            )
+            try:
+                with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                    json.dump(payload, handle)
+                os.replace(temporary, path)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+        except OSError:
+            logger.warning("Automation schedule state could not be saved for %s.", name)
+
+    def _first_run_time(self, name: str, interval_seconds: int) -> datetime:
+        """Resume an interval from its last completed run instead of from now."""
+        now = datetime.now(UTC)
+        last = self._completed_runs.get(name)
+        if last is not None:
+            due = last + timedelta(seconds=interval_seconds)
+            if due > now:
+                return due
+        # Never completed, or overdue: catch up shortly after startup, staggered
+        # so overdue jobs do not all begin in the same instant.
+        self._overdue_jobs_scheduled += 1
+        return now + timedelta(
+            seconds=max(0, int(settings.AUTOMATION_STARTUP_CATCHUP_DELAY_SECONDS or 0))
+            + self.OVERDUE_STAGGER_SECONDS * self._overdue_jobs_scheduled
+        )
+
+    def _add_interval_job(
+        self, name: str, func: Callable[[], object], interval_seconds: int
+    ) -> None:
+        self.scheduler.add_job(
+            self._scheduled_job(name, func),
+            "interval",
+            seconds=interval_seconds,
+            id=name,
+            replace_existing=True,
+            next_run_time=self._first_run_time(name, interval_seconds),
+        )
 
     @property
     def enabled(self):
@@ -222,6 +312,8 @@ class AutomationCoordinator:
     def start(self) -> None:
         if not settings.AUTOMATION_ENABLED:
             return
+        self._completed_runs = self._load_completed_runs()
+        self._overdue_jobs_scheduled = 0
         self._register_job(
             "provider_health_probe", self._run_provider_health_probe, 30, True
         )
@@ -537,6 +629,8 @@ class AutomationCoordinator:
             result = func()
             if hasattr(result, "__await__"):
                 await result
+            if telemetry is not None and telemetry.last_status in {"ok", "warning"}:
+                self._record_completed_run(name, datetime.now(UTC))
         finally:
             self._active_jobs.discard(name)
             self._expedite_pending_job(name)
@@ -555,13 +649,7 @@ class AutomationCoordinator:
             last_status="disabled" if not enabled else "idle",
         )
         if enabled:
-            self.scheduler.add_job(
-                self._scheduled_job(name, func),
-                "interval",
-                seconds=interval_seconds,
-                id=name,
-                replace_existing=True,
-            )
+            self._add_interval_job(name, func, interval_seconds)
 
     def _schedule_startup_run(
         self,
@@ -691,13 +779,7 @@ class AutomationCoordinator:
             if existing is None or current_interval != interval_seconds:
                 if existing is not None:
                     self.scheduler.remove_job(name)
-                self.scheduler.add_job(
-                    self._scheduled_job(name, func),
-                    "interval",
-                    seconds=interval_seconds,
-                    id=name,
-                    replace_existing=True,
-                )
+                self._add_interval_job(name, func, interval_seconds)
                 if telemetry.last_status == "disabled":
                     telemetry.last_status = "idle"
                     telemetry.detail = None
