@@ -233,6 +233,11 @@ discovered and captured within two feed polls. Both stay eligible for priority
 within the news lookback through capture delays or model outages. Other newly
 discovered and captured publisher documents can take spare priority turns.
 Oldest-first turns continue to advance the full queue and eligible retries.
+In those turns a routine EDGAR filing counts as
+`EXTRACTION_ROUTINE_FILING_DELAY_HOURS` (default 72) newer than it is. Routine
+forms are fund administration, structured-note terms, asset-backed servicing
+data, and exempt-offering notices. Substantive work captured within that window
+goes first; older routine filings then compete on age, so none is excluded.
 Continuations and due retries keep their existing eligibility rules. Provider
 cooldown preserves the document's retry budget. The usual provider request
 limits still apply.

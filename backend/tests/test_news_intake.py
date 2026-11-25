@@ -1012,6 +1012,9 @@ async def test_issuer_current_report_keeps_priority_during_a_filing_backlog(
     monkeypatch.setattr(settings, "NEWS_FEED_URLS", [])
     monkeypatch.setattr(settings, "NEWS_INTAKE_POLL_SECONDS", 300)
     monkeypatch.setattr(settings, "NEWS_INTAKE_FETCH_BATCH_SIZE", 2)
+    # This covers priority turns. Routine-filing aging in oldest-first turns has
+    # its own test in test_evidence_processing.py.
+    monkeypatch.setattr(settings, "EXTRACTION_ROUTINE_FILING_DELAY_HOURS", 0)
     subscription = PublisherFeed(
         url="https://www.sec.gov/synthetic-test-feed.xml", name="Synthetic EDGAR feed"
     )

@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import case, func, or_, select, true, update
+from sqlalchemy import Interval, case, func, literal, or_, select, true, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +17,10 @@ from investos.models.evidence import (
     ResearchDiscoveryObservation,
     SourceItem,
 )
-from investos.services.edgar_intake import is_edgar_current_report
+from investos.services.edgar_intake import (
+    is_edgar_current_report,
+    is_edgar_routine_filing,
+)
 from investos.services.source_text import source_text_coverage
 
 MEDIA_EVIDENCE_TYPES = {
@@ -290,8 +293,22 @@ class EvidenceProcessingService:
                 EvidenceProcessingState.updated_at,
             ),
         )
+        ready_key = func.coalesce(ready_since, RawEvidence.created_at)
+        routine_delay = timedelta(hours=settings.EXTRACTION_ROUTINE_FILING_DELAY_HOURS)
+        if routine_delay:
+            # Priority aging: routine filings wait behind substantive work for a
+            # bounded time, then compete on age again, so none starve.
+            ready_key = ready_key + case(
+                (
+                    is_edgar_routine_filing(
+                        RawEvidence.source_item_type, RawEvidence.title
+                    ),
+                    literal(routine_delay, Interval()),
+                ),
+                else_=literal(timedelta(0), Interval()),
+            )
         order = (
-            func.coalesce(ready_since, RawEvidence.created_at),
+            ready_key,
             RawEvidence.created_at.asc(),
             RawEvidence.id,
         )
