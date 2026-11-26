@@ -173,7 +173,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
               {profile.market_setup_signals?.length ? (
                 <div className="border-t border-slate-200 px-6 py-6 dark:border-slate-800">
                   <div className="mb-4 flex items-start gap-3">
-                    <Activity className="mt-0.5 h-5 w-5 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+                    <Activity className="mt-0.5 h-5 w-5 text-caution" aria-hidden="true" />
                     <div>
                       <h2 className="text-sm font-bold uppercase text-muted">Market Setup & Expectations</h2>
                       <p className="mt-1 text-sm text-muted">
@@ -350,7 +350,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                 <span className="text-xs text-slate-500 block mb-1">Missing Evidence Classes</span>
                 <div className="flex flex-wrap gap-2">
                   {profile.missing_evidence.map((item) => (
-                    <span key={item.id} className="inline-flex items-center px-2 py-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-400 text-xs font-medium border border-amber-200 dark:border-amber-800/50">
+                    <span key={item.id} className="inline-flex items-center px-2 py-1 rounded bg-amber-100 dark:bg-amber-900/30 text-caution text-xs font-medium border border-amber-200 dark:border-amber-800/50">
                       {item.class_name}
                     </span>
                   ))}

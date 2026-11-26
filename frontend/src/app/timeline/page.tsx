@@ -575,7 +575,7 @@ export default function TimelinePage() {
                           </div>
                           {outcomeLabel(item.outcome_status) ? (
                             <div className="border-l-2 border-amber-300 pl-3 dark:border-amber-700">
-                              <div className="font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-300">Learning loop</div>
+                              <div className="font-semibold uppercase tracking-wider text-caution">Learning loop</div>
                               <p className="mt-1 font-medium text-foreground">{outcomeLabel(item.outcome_status)}</p>
                               {item.outcome_assessed_at ? (
                                 <p className="mt-1 text-slate-400">Assessed {formatDateTime(item.outcome_assessed_at)}</p>
@@ -690,7 +690,7 @@ export default function TimelinePage() {
                         <p className="mt-1 line-clamp-1 text-xs text-muted">{change.reason}</p>
                       ) : null}
                       {change.deprecated_reason ? (
-                        <p className="mt-1 line-clamp-1 text-xs text-amber-700 dark:text-amber-300">{change.deprecated_reason}</p>
+                        <p className="mt-1 line-clamp-1 text-xs text-caution">{change.deprecated_reason}</p>
                       ) : null}
                       {change.actor ? (
                         <p className="mt-1 text-xs uppercase tracking-wider text-slate-400">{change.actor.replaceAll("_", " ")}</p>

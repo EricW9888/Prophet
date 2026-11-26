@@ -31,7 +31,7 @@ export default function WorkspaceWorkIndicator() {
     </summary>
     <section aria-label="Workspace activity" className="fixed inset-x-3 top-14 z-[80] max-h-[75dvh] overflow-y-auto border border-line-strong bg-panel p-4 shadow-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-[calc(100%+0.5rem)] sm:w-96">
       <div className="flex items-center justify-between gap-3"><h2 className="text-sm font-semibold">Activity</h2><button type="button" className="workspace-control" disabled={work.refreshing} onClick={() => void work.refresh()} aria-label="Refresh activity"><RefreshCw className={`h-3.5 w-3.5 ${work.refreshing ? "motion-safe:animate-spin" : ""}`} /></button></div>
-      {work.jobsError || work.automationError ? <p role="status" className="mt-3 text-sm text-amber-700 dark:text-amber-400">Activity could not be refreshed. Previously loaded items may be out of date.</p> : null}
+      {work.jobsError || work.automationError ? <p role="status" className="mt-3 text-sm text-caution">Activity could not be refreshed. Previously loaded items may be out of date.</p> : null}
       <h3 className="mt-4 text-xs font-semibold text-muted">Your chats{work.jobs.length ? ` · ${work.jobs.length}${work.jobs.length === 30 ? "+" : ""}` : ""}</h3>
       {work.jobs.length ? <ul className="mt-2 divide-y divide-line">{work.jobs.map((job) => {
         const activity = chatActivity(job);

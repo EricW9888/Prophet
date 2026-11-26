@@ -62,7 +62,7 @@ function SourceTranslation({ evidenceId, language }: { evidenceId: string; langu
       <a href={currentView?.original_url ?? "#original-source-text"} onClick={event => { event.preventDefault(); if (!originalBusy) void readOriginal(); }} aria-disabled={originalBusy} className="rounded border border-line px-3 py-2 text-sm">{t("original")}</a>
       <Link href="/settings" className="text-sm underline">{t("Settings")}</Link>
     </div>
-    {originalError ? <p role="status" className="mt-3 text-sm text-amber-700 dark:text-amber-300">{t("failed")}</p> : null}
+    {originalError ? <p role="status" className="mt-3 text-sm text-caution">{t("failed")}</p> : null}
     {original ? <details id="original-source-text" open className="mt-5 border-t border-line pt-4"><summary className="cursor-pointer font-semibold">{t("original")}</summary><p className="mt-2 break-all text-xs text-muted">{original.source_hash}</p><pre className="mt-3 whitespace-pre-wrap break-words font-sans text-sm">{original.text}</pre></details> : null}
   </section>;
 }
