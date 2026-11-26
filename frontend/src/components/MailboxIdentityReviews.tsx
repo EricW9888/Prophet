@@ -39,13 +39,43 @@ export default function MailboxIdentityReviews() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [identical, setIdentical] = useState<number | null>(null);
+  const [confirmingIdentical, setConfirmingIdentical] = useState(false);
   const selectedRef = useRef<string | null>(null);
   const pageGeneration = useRef(0);
   const { read, status } = useWorkspaceReads<"page" | "detail">();
 
+  async function loadIdentical() {
+    try {
+      const result = await apiFetch<{ count: number }>("/integrations/gmail/identity-reviews/identical");
+      setIdentical(result.count);
+    } catch {
+      setIdentical(null);
+    }
+  }
+
+  async function confirmIdentical() {
+    setWorking(true);
+    setActionError(null);
+    setNotice(null);
+    try {
+      const result = await apiFetch<{ linked: number; skipped: number }>("/integrations/gmail/identity-reviews/identical", { method: "POST" });
+      setNotice(`Linked ${result.linked} exact ${result.linked === 1 ? "copy" : "copies"} to ${result.linked === 1 ? "its" : "their"} preserved receipt${result.skipped ? `; ${result.skipped} could not be linked and stay for comparison` : ""}. No trades were posted.`);
+      setConfirmingIdentical(false);
+      await load(page?.query ?? "", 0);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Unable to link the exact copies.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
   async function load(search = page?.query ?? "", offset = 0) {
     const generation = ++pageGeneration.current;
     setLoading(true);
+    // The exact-copy check reads every pending original on the server; run it
+    // when the list is (re)loaded from the start, not on every page turn.
+    if (offset === 0) void loadIdentical();
     await read<Page>("page", `/integrations/gmail/identity-reviews/page?${new URLSearchParams({ limit: "25", offset: String(offset), query: search })}`, (result) => {
       setPage(result);
       setSelected(null);
@@ -93,6 +123,23 @@ export default function MailboxIdentityReviews() {
     <button type="button" disabled={loading || working} onClick={() => void load()} className="workspace-control">{loading ? "Loading reviews…" : page ? "Refresh identity reviews" : "Load identity reviews"}</button>
     {status.page?.error && <p role="alert" className="text-sm text-rose-400">{status.page.error}{page && " Showing the previous results."}</p>}
     {notice && <p role="status" className="text-sm text-muted">{notice}</p>}
+    {page && identical ? (
+      <div className="space-y-2 border border-line bg-panel-muted p-4 text-sm">
+        <p>
+          <span className="font-semibold">{identical} of {page.total}</span> pending receipts are exact copies of the one preserved receipt they matched:
+          same sender, subject, sent time and text. Linking them records the same decision as Confirm same receipt for each, and posts no trade.
+        </p>
+        {confirmingIdentical ? (
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={working} onClick={() => void confirmIdentical()} className="workspace-control">Link all {identical} exact copies</button>
+            <button type="button" disabled={working} onClick={() => setConfirmingIdentical(false)} className="workspace-control">Cancel</button>
+          </div>
+        ) : (
+          <button type="button" disabled={working} onClick={() => setConfirmingIdentical(true)} className="workspace-control">Review and link {identical} exact copies</button>
+        )}
+        <p className="text-xs text-muted">The rest match only partly (for example a reused mailbox ID) and stay below for individual comparison.</p>
+      </div>
+    ) : null}
     {page && <>
       <form className="flex flex-wrap items-end gap-2" onSubmit={(event) => { event.preventDefault(); void load(query); }}>
         <label className="min-w-0 flex-1 text-sm">Search receipt titles<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} maxLength={200} disabled={working} className="mt-1 block w-full border border-line bg-background px-3 py-2" /></label>

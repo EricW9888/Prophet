@@ -34,6 +34,7 @@ test("receipt pages expose the full count and fetch original bodies only for the
   const mutations: string[] = [];
   globalThis.fetch = async (input, options) => {
     const url = String(input);
+    if (url.endsWith("/identity-reviews/identical")) return response({ count: 0 });
     requested.push(url);
     if (options?.method === "POST") mutations.push(url);
     if (url.includes("/page?")) {
@@ -96,4 +97,32 @@ test("a rejected identity decision retains the exact receipt and comparison", as
   assert.match(container.textContent!, /Retained incoming body 1/);
   assert.match(container.textContent!, /Preserved candidate body 1/);
   assert.deepEqual(decisions, [{ decision: "create_distinct", existing_evidence_id: null }]);
+});
+
+test("exact copies are offered as one explicit confirmation that posts nothing", async () => {
+  const posts: string[] = [];
+  let total = 26;
+  globalThis.fetch = async (input, options) => {
+    const url = String(input);
+    if (url.endsWith("/identity-reviews/identical")) {
+      if (options?.method === "POST") {
+        posts.push(url);
+        total = 6;
+        return response({ linked: 20, skipped: 0 });
+      }
+      return response({ count: total === 26 ? 20 : 0 });
+    }
+    if (url.includes("/page?")) return response({ items: Array.from({ length: Math.min(total, 25) }, (_, i) => summary(i + 1)), total, offset: 0, limit: 25, query: "" });
+    return response(detail(1, false));
+  };
+  await act(async () => root.render(<MailboxIdentityReviews />));
+  await click(button("Load identity reviews"));
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  assert.match(container.textContent!, /20 of 26 pending receipts are exact copies/);
+  await click(button("Review and link 20 exact copies"));
+  assert.deepEqual(posts, []);
+  await click(button("Link all 20 exact copies"));
+  assert.equal(posts.length, 1);
+  assert.match(container.textContent!, /Linked 20 exact copies to their preserved receipt\. No trades were posted\./);
+  assert.doesNotMatch(container.textContent!, /exact copies of the one preserved receipt/);
 });

@@ -120,6 +120,21 @@ async def list_mailbox_identity_reviews(session: AsyncSession = Depends(get_sess
     return await GmailMailboxService(session).identities.reviews()
 
 
+@router.get("/gmail/identity-reviews/identical")
+async def identical_mailbox_identity_reviews(
+    session: AsyncSession = Depends(get_session),
+):
+    pairs = await GmailMailboxService(session).identities.identical_reviews()
+    return {"count": len(pairs)}
+
+
+@router.post("/gmail/identity-reviews/identical")
+async def confirm_identical_mailbox_identity_reviews(
+    session: AsyncSession = Depends(get_session),
+):
+    return await GmailMailboxService(session).identities.confirm_identical()
+
+
 @router.get("/gmail/identity-reviews/page", response_model=MailboxIdentityReviewPage)
 async def mailbox_identity_review_page(
     limit: int = Query(25, ge=1, le=100),
