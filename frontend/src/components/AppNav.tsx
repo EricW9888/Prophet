@@ -1,23 +1,15 @@
 "use client";
 
 import {
-  Activity,
   BookOpenText,
   BriefcaseBusiness,
-  ChevronDown,
   ClipboardCheck,
   FlaskConical,
-  History,
-  Lightbulb,
   Menu,
-  Network,
+  MessageSquare,
   Radar,
   RefreshCw,
-  Scale,
-  Search,
   Settings,
-  ShieldAlert,
-  TableProperties,
   X,
 } from "lucide-react";
 import Link, { useLinkStatus } from "next/link";
@@ -25,7 +17,9 @@ import WorkspaceWorkIndicator from "@/components/WorkspaceWorkIndicator";
 import ActivityIndicator from "@/components/ActivityIndicator";
 import { useTranslation } from "react-i18next";
 import { usePathname } from "next/navigation";
-import { type ComponentType, type SVGProps, useEffect, useRef, useState } from "react";
+import { type ComponentType, type SVGProps, useEffect, useState } from "react";
+
+import { locate, NAV_SECTIONS, type SectionKey, SETTINGS_HREF } from "@/lib/navigation";
 
 type NavIcon = ComponentType<SVGProps<SVGSVGElement>>;
 export type NavKey =
@@ -44,86 +38,31 @@ export type NavKey =
   | "decisions"
   | "settings";
 
-type NavItem = {
-  href: string;
-  label: string;
-  key: NavKey;
-  icon: NavIcon;
+const SECTION_ICONS: Record<SectionKey, NavIcon> = {
+  portfolio: BriefcaseBusiness,
+  chat: MessageSquare,
+  research: BookOpenText,
+  monitor: Radar,
+  review: ClipboardCheck,
+  simulate: FlaskConical,
 };
 
-const primaryItems: readonly NavItem[] = [
-  { href: "/", label: "Portfolio", key: "portfolio", icon: BriefcaseBusiness },
-  { href: "/chat", label: "Research", key: "research", icon: Search },
-  { href: "/timeline", label: "Monitor", key: "timeline", icon: Radar },
-  { href: "/graph", label: "Knowledge", key: "knowledge", icon: Network },
-  { href: "/verification", label: "Review", key: "review", icon: ClipboardCheck },
-  { href: "/shadow", label: "Simulate", key: "experiments", icon: FlaskConical },
-] as const;
-
-const secondaryGroups: ReadonlyArray<{ label: string; items: readonly NavItem[] }> = [
-  {
-    label: "Portfolio records",
-    items: [
-      { href: "/positions", label: "Positions", key: "positions", icon: TableProperties },
-      { href: "/history", label: "History", key: "history", icon: History },
-      { href: "/risk", label: "Risk", key: "risk", icon: ShieldAlert },
-      { href: "/decisions", label: "Decisions", key: "decisions", icon: Scale },
-    ],
-  },
-  {
-    label: "Research library",
-    items: [
-      { href: "/sources", label: "Sources", key: "sources", icon: BookOpenText },
-      { href: "/opportunities", label: "Ideas", key: "opportunities", icon: Lightbulb },
-    ],
-  },
-  {
-    label: "System",
-    items: [
-      { href: "/activity", label: "Activity", key: "activity", icon: Activity },
-    ],
-  },
-] as const;
-
-const settingsItem: NavItem = {
-  href: "/settings",
-  label: "Settings",
-  key: "settings",
-  icon: Settings,
-} as const;
-
-const allItems = [
-  ...primaryItems,
-  ...secondaryGroups.flatMap((group) => group.items),
-  settingsItem,
-];
-
-function routeMatches(href: string, pathname: string) {
-  if (href === "/") {
-    return pathname === "/";
-  }
-  if (href === "/sources") {
-    return pathname === href || pathname.startsWith("/sources/");
-  }
-  return pathname === href;
-}
+/** Fallback only: the URL decides the section; pages still pass their old key. */
+const LEGACY_SECTION: Partial<Record<NavKey, SectionKey>> = {
+  portfolio: "portfolio", history: "portfolio", risk: "portfolio", positions: "portfolio", decisions: "portfolio",
+  research: "chat", knowledge: "research", sources: "research", opportunities: "research",
+  timeline: "monitor", activity: "monitor", review: "review", experiments: "simulate",
+};
 
 function NavigationIcon({ icon: Icon }: { icon: NavIcon }) {
   const { pending } = useLinkStatus();
   return pending ? <><ActivityIndicator state="working" /><span className="sr-only">Loading destination</span></> : <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />;
 }
 
-function NavLink({
-  href,
-  label,
-  icon: Icon,
-  selected,
-  compact = false,
-  onNavigate,
-}: {
+function NavLink({ href, label, icon, selected, compact = false, onNavigate }: {
   href: string;
   label: string;
-  icon: NavIcon;
+  icon?: NavIcon;
   selected: boolean;
   compact?: boolean;
   onNavigate?: () => void;
@@ -133,14 +72,12 @@ function NavLink({
       href={href}
       onClick={onNavigate}
       aria-current={selected ? "page" : undefined}
-      className={`flex min-w-0 items-center gap-2 rounded px-3 py-2 text-sm font-medium transition-colors ${
-        selected
-          ? "bg-panel-muted text-action-strong"
-          : "text-muted hover:bg-panel-muted hover:text-foreground"
+      className={`flex min-w-0 items-center gap-2 px-3 py-2 text-sm font-medium transition-colors ${
+        selected ? "bg-panel-muted text-action-strong" : "text-muted hover:bg-panel-muted hover:text-foreground"
       } ${compact ? "justify-center px-2" : ""}`}
       title={compact ? label : undefined}
     >
-      <NavigationIcon icon={Icon} />
+      {icon ? <NavigationIcon icon={icon} /> : null}
       <span className={compact ? "sr-only" : "truncate"}>{label}</span>
     </Link>
   );
@@ -150,116 +87,39 @@ export default function AppNav({ active }: { active?: NavKey }) {
   const { t, i18n } = useTranslation();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
-  const moreRef = useRef<HTMLDivElement>(null);
-  const activeKey = allItems.find((item) => routeMatches(item.href, pathname))?.key ?? active;
-  const secondaryActive = secondaryGroups.some((group) =>
-    group.items.some((item) => item.key === activeKey),
-  );
+  const located = locate(pathname);
+  const sectionKey = located.section?.key ?? (active ? LEGACY_SECTION[active] : undefined);
+  const section = NAV_SECTIONS.find((item) => item.key === sectionKey) ?? null;
+  const settingsSelected = pathname === SETTINGS_HREF;
 
   useEffect(() => {
-    function onPointerDown(event: MouseEvent) {
-      if (moreRef.current && !moreRef.current.contains(event.target as Node)) {
-        setMoreOpen(false);
-      }
-    }
-
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setMobileOpen(false);
-        setMoreOpen(false);
-      }
+      if (event.key === "Escape") setMobileOpen(false);
     }
-
-    document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
+    return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
   return (
     <header className="sticky inset-x-0 top-0 z-50 w-full border-b border-line bg-panel">
       <nav lang={i18n.language} aria-label="Primary" className="workspace-frame">
         <div className="flex min-w-0 items-center gap-3 py-2">
-          <Link
-            href="/"
-            className="mr-auto shrink-0 text-base font-semibold text-foreground transition-colors hover:text-action xl:mr-3"
-          >
+          <Link href="/" className="mr-auto shrink-0 text-base font-semibold text-foreground transition-colors hover:text-action xl:mr-3">
             Prophet
           </Link>
 
           <div className="hidden min-w-0 flex-1 items-center gap-1 xl:flex">
-            {primaryItems.map((item) => (
+            {NAV_SECTIONS.map((item) => (
               <NavLink
                 key={item.key}
-                href={item.href}
+                href={item.pages[0].href}
                 label={t(item.label)}
-                icon={item.icon}
-                selected={activeKey === item.key}
+                icon={SECTION_ICONS[item.key]}
+                selected={sectionKey === item.key}
               />
             ))}
-
-            <div ref={moreRef} className="relative">
-              <button
-                type="button"
-                onClick={() => setMoreOpen((current) => !current)}
-                className={`flex items-center gap-2 rounded px-3 py-2 text-sm font-medium transition-colors ${
-                  secondaryActive
-                    ? "bg-panel-muted text-action-strong"
-                    : "text-muted hover:bg-panel-muted hover:text-foreground"
-                }`}
-                aria-expanded={moreOpen}
-                aria-controls="prophet-more-navigation"
-                aria-haspopup="true"
-              >
-                {t("More")}
-                <ChevronDown
-                  className={`h-4 w-4 transition-transform ${moreOpen ? "rotate-180" : ""}`}
-                  aria-hidden="true"
-                />
-              </button>
-
-              {moreOpen ? (
-                <div
-                  id="prophet-more-navigation"
-                  className="absolute right-0 top-[calc(100%+0.5rem)] w-72 rounded-lg border border-line bg-panel p-2 shadow-xl shadow-slate-950/10 dark:shadow-black/30"
-                >
-                  {secondaryGroups.map((group, index) => (
-                    <div
-                      key={t(group.label)}
-                      className={index === 0 ? "" : "mt-2 border-t border-line pt-2"}
-                    >
-                      <p className="px-3 pb-1 pt-1 text-xs font-semibold uppercase text-muted">
-                        {t(group.label)}
-                      </p>
-                      <div className="grid grid-cols-2 gap-1">
-                        {group.items.map((item) => (
-                          <NavLink
-                            key={item.key}
-                            href={item.href}
-                            label={t(item.label)}
-                            icon={item.icon}
-                            selected={activeKey === item.key}
-                            onNavigate={() => setMoreOpen(false)}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-
             <div className="ml-auto border-l border-line pl-2">
-              <NavLink
-                href={settingsItem.href}
-                label={t(settingsItem.label)}
-                icon={settingsItem.icon}
-                selected={activeKey === settingsItem.key}
-                compact
-              />
+              <NavLink href={SETTINGS_HREF} label={t("Settings")} icon={Settings} selected={settingsSelected} compact />
             </div>
           </div>
 
@@ -268,7 +128,7 @@ export default function AppNav({ active }: { active?: NavKey }) {
           <button
             type="button"
             onClick={() => window.location.reload()}
-            className="hidden h-9 w-9 shrink-0 items-center justify-center rounded border border-line text-muted transition-colors hover:border-line-strong hover:bg-panel-muted hover:text-foreground sm:inline-flex xl:hidden"
+            className="hidden h-9 w-9 shrink-0 items-center justify-center border border-line text-muted transition-colors hover:border-line-strong hover:bg-panel-muted hover:text-foreground sm:inline-flex xl:hidden"
             aria-label="Refresh current view"
             title="Refresh"
           >
@@ -278,7 +138,7 @@ export default function AppNav({ active }: { active?: NavKey }) {
           <button
             type="button"
             onClick={() => setMobileOpen((current) => !current)}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded border border-line text-muted transition-colors hover:border-line-strong hover:bg-panel-muted hover:text-foreground xl:hidden"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center border border-line text-muted transition-colors hover:border-line-strong hover:bg-panel-muted hover:text-foreground xl:hidden"
             aria-label={mobileOpen ? "Close navigation" : "Open navigation"}
             aria-expanded={mobileOpen}
             aria-controls="prophet-mobile-navigation"
@@ -287,54 +147,53 @@ export default function AppNav({ active }: { active?: NavKey }) {
           </button>
         </div>
 
+        {section && section.pages.length > 1 ? (
+          <div aria-label={t(section.label)} role="navigation" className="-mb-px flex min-w-0 gap-1 overflow-x-auto pb-1">
+            {section.pages.map((page) => (
+              <NavLink
+                key={page.href}
+                href={page.href}
+                label={t(page.label)}
+                selected={located.page?.href === page.href}
+              />
+            ))}
+          </div>
+        ) : null}
+
         {mobileOpen ? (
           <div id="prophet-mobile-navigation" className="border-t border-line py-3 xl:hidden">
-            <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
-              {primaryItems.map((item) => (
-                <NavLink
-                  key={item.key}
-                  href={item.href}
-                  label={t(item.label)}
-                  icon={item.icon}
-                  selected={activeKey === item.key}
-                  onNavigate={() => setMobileOpen(false)}
-                />
-              ))}
-            </div>
-            <div className="mt-3 grid gap-3 border-t border-line pt-3 sm:grid-cols-3">
-              {secondaryGroups.map((group) => (
-                <div key={t(group.label)}>
-                  <p className="px-3 pb-1 text-xs font-semibold uppercase text-muted">
-                    {t(group.label)}
-                  </p>
-                  <div className="space-y-1">
-                    {group.items.map((item) => (
-                      <NavLink
-                        key={item.key}
-                        href={item.href}
-                        label={t(item.label)}
-                        icon={item.icon}
-                        selected={activeKey === item.key}
-                        onNavigate={() => setMobileOpen(false)}
-                      />
-                    ))}
-                  </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {NAV_SECTIONS.map((item) => (
+                <div key={item.key}>
+                  <NavLink
+                    href={item.pages[0].href}
+                    label={t(item.label)}
+                    icon={SECTION_ICONS[item.key]}
+                    selected={sectionKey === item.key}
+                    onNavigate={() => setMobileOpen(false)}
+                  />
+                  {item.pages.length > 1 ? (
+                    <div className="ml-6 space-y-1 border-l border-line pl-2">
+                      {item.pages.map((page) => (
+                        <NavLink
+                          key={page.href}
+                          href={page.href}
+                          label={t(page.label)}
+                          selected={located.page?.href === page.href}
+                          onNavigate={() => setMobileOpen(false)}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
             <div className="mt-3 border-t border-line pt-3">
               <button type="button" onClick={() => window.location.reload()} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-muted hover:bg-panel-muted hover:text-foreground sm:hidden"><RefreshCw className="h-4 w-4" aria-hidden="true" />Refresh current view</button>
-              <NavLink
-                href={settingsItem.href}
-                label={t(settingsItem.label)}
-                icon={settingsItem.icon}
-                selected={activeKey === settingsItem.key}
-                onNavigate={() => setMobileOpen(false)}
-              />
+              <NavLink href={SETTINGS_HREF} label={t("Settings")} icon={Settings} selected={settingsSelected} onNavigate={() => setMobileOpen(false)} />
             </div>
           </div>
         ) : null}
-
       </nav>
     </header>
   );
