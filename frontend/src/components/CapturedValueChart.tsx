@@ -99,7 +99,8 @@ export default function CapturedValueChart({ label, points, events = noEvents, e
   const min = values.length ? Math.min(...values) : 0;
   const max = values.length ? Math.max(...values) : 0;
   const pad = (max - min || Math.max(Math.abs(max) * 0.02, 1)) * 0.12;
-  const bottom = min - pad;
+  const yAxis = niceAxis(min - pad, max + pad);
+  const bottom = yAxis.domain[0];
   const timeZone = calendarDates ? "UTC" : undefined;
   const detailedDate = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: calendarDates ? undefined : "short", timeZone });
   const eventDate = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -145,7 +146,7 @@ export default function CapturedValueChart({ label, points, events = noEvents, e
             <XAxis dataKey="time" type="number" scale="linear" domain={[start, end]} ticks={times} tickFormatter={(time) => axisDate.format(time)}
               interval="preserveStartEnd" minTickGap={20} padding={{ left: 22, right: 22 }} allowDataOverflow
               tick={{ fill: "var(--color-muted)", fontSize: 12 }} tickLine={false} axisLine={false} />
-            <YAxis width="auto" domain={[bottom, max + pad]} tickCount={4} allowDataOverflow
+            <YAxis width="auto" domain={yAxis.domain} ticks={yAxis.ticks} allowDataOverflow
               tickFormatter={(value) => safeFormatCurrency(value, max - min < 4 ? 2 : 0)}
               tick={{ fill: "var(--color-muted)", fontSize: 12 }} tickLine={false} axisLine={false} />
             <Line dataKey="value" type="linear" stroke="var(--color-action)" strokeWidth={2} connectNulls={false}
@@ -181,4 +182,19 @@ export default function CapturedValueChart({ label, points, events = noEvents, e
       {visibleMarkers.length === 0 && <p className="mt-2 text-muted">No events match these filters. Change the selected types or search.</p>}
     </details>}
   </div>;
+}
+
+/** Round axis ticks (1, 2, 2.5 or 5 times a power of ten) covering [low, high]. */
+export function niceAxis(low: number, high: number, count = 4): { domain: [number, number]; ticks: number[] } {
+  const range = high - low || Math.max(Math.abs(high) * 0.02, 1);
+  const rough = range / Math.max(count - 1, 1);
+  const magnitude = 10 ** Math.floor(Math.log10(rough));
+  const normalized = rough / magnitude;
+  const step = (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 2.5 ? 2.5 : normalized <= 5 ? 5 : 10) * magnitude;
+  const start = Math.floor(low / step) * step;
+  let end = Math.ceil(high / step) * step;
+  if (end <= start) end = start + step;
+  const ticks: number[] = [];
+  for (let value = start; value <= end + step / 2; value += step) ticks.push(Number(value.toFixed(10)));
+  return { domain: [start, end], ticks };
 }

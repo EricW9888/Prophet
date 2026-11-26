@@ -15,21 +15,16 @@ export default function Home() {
       <main className="workspace-frame space-y-6 py-6">
         <PageHeader
           title="Portfolio"
-          description="Review what needs attention, then inspect your holdings and tracked positions."
-          actions={<nav aria-label="Portfolio sections" className="flex flex-wrap gap-2">
-            <a href="#investment-attention" className="workspace-control">Attention</a>
-            <a href="#portfolio-history" className="workspace-control">History</a>
-            <a href="#portfolio-holdings" className="workspace-control">Holdings</a>
-          </nav>}
+          description="Your account, how it has moved, and what you hold. Items that need a decision are counted here and handled in Review."
         />
-        <DashboardOverview history={<>
-          <BrokerEquityPanel />
-          <PortfolioHistoryPanel />
-          <DeferredDisclosure title="Recorded valuation history" className="border border-line bg-panel p-4">
-            <CapturedHoldingsPanel />
-          </DeferredDisclosure>
-        </>}>
+        <DashboardOverview history={<PortfolioHistoryPanel />}>
           <PositionsTable />
+          <DeferredDisclosure title="Broker statements and recorded valuation history" className="mt-6 border border-line bg-panel p-4">
+            <div className="space-y-4">
+              <BrokerEquityPanel />
+              <CapturedHoldingsPanel />
+            </div>
+          </DeferredDisclosure>
         </DashboardOverview>
       </main>
     </div>

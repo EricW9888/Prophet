@@ -12,8 +12,6 @@ import { WorkspaceRead, WorkspaceSkeleton } from "@/components/WorkspaceState";
 import ShadowLifecycleSummary from "@/components/ShadowLifecycleSummary";
 import ProviderWorkSummary from "@/components/ProviderWorkSummary";
 import QuestionBacklog from "@/components/QuestionBacklog";
-import ReviewItemActions from "@/components/ReviewItemActions";
-import PortfolioDataReviewNotice from "@/components/PortfolioDataReviewNotice";
 import ValuationCoverage from "@/components/ValuationCoverage";
 import DeferredDisclosure from "@/components/DeferredDisclosure";
 import {
@@ -84,7 +82,6 @@ function SectionTitle({
 export default function DashboardOverview({ children, history }: { children?: ReactNode; history?: ReactNode }) {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const { read, status } = useWorkspaceReads<"summary">();
-  const [showAllQueueItems, setShowAllQueueItems] = useState(false);
   const [expandedPanels, setExpandedPanels] = useState({
     performance: false,
     trajectory: false,
@@ -105,7 +102,6 @@ export default function DashboardOverview({ children, history }: { children?: Re
   const automationHealthy = automationLabel === "Operational";
 
   const reviewItems = summary?.review_queue ?? [];
-  const visibleReviewItems = showAllQueueItems ? reviewItems.slice(0, 8) : reviewItems.slice(0, 3);
   const latestResearchTitle =
     cleanResearchTitle(summary?.research_activity.latest_item_title) ||
     cleanResearchTitle(summary?.portfolio_monitor?.recent_research_items?.[0]?.title) ||
@@ -115,7 +111,7 @@ export default function DashboardOverview({ children, history }: { children?: Re
   const scannerItems = reviewItems.slice(0, 5);
 
   const metrics = (
-      <section aria-label="Portfolio summary" className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-3 lg:grid-cols-4">
+      <section aria-label="Portfolio summary" className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-3 lg:grid-cols-3">
           <HeroMetric
             label="Estimated account value"
             value={summary ? safeFormatCurrency(summary.total_value, 2) : undefined}
@@ -128,15 +124,10 @@ export default function DashboardOverview({ children, history }: { children?: Re
             href="/verification?domain=portfolio_data"
           />
           <HeroMetric
-            label="Open questions"
-            value={summary ? String(summary.open_questions_count ?? 0) : undefined}
-            detail="Unresolved research questions"
-          />
-          <HeroMetric
-            label="Investment attention"
-            value={summary ? String(summary.review_queue_total ?? summary.review_queue?.length ?? 0) : undefined}
-            detail={summary?.review_queue?.[0]?.item_label ?? "No investment reviews currently queued"}
-            href="/verification?domain=investment"
+            label="Needs your review"
+            value={summary ? String((summary.review_queue_total ?? summary.review_queue?.length ?? 0) + (summary.portfolio_data_review_total ?? 0)) : undefined}
+            detail={summary ? `${summary.review_queue_total ?? summary.review_queue?.length ?? 0} investment items · ${summary.portfolio_data_review_total ?? 0} portfolio records` : undefined}
+            href="/verification"
           />
       </section>
   );
@@ -149,88 +140,11 @@ export default function DashboardOverview({ children, history }: { children?: Re
       </>}>
         {metrics}
         {summary && <>
-          <PortfolioDataReviewNotice count={summary.portfolio_data_review_total ?? 0} />
           <ValuationCoverage coverage={summary.valuation_coverage} />
         </>}
       </WorkspaceRead>
 
       <div key="dashboard-body" className="space-y-6">
-        <section id="investment-attention" tabIndex={-1} className="scroll-mt-20">
-        <Panel>
-          <SectionTitle
-            title="Investment attention"
-            subtitle="Questions, evidence and accepted views"
-            action={
-              <Link
-                href="/verification?domain=investment"
-                className="text-xs font-medium text-muted hover:text-foreground dark:hover:text-white"
-              >
-                View All
-              </Link>
-            }
-          />
-
-          <div className="space-y-3">
-            {!summary ? (
-              status.summary?.error ? <p className="text-sm text-muted">Investment attention is unavailable.</p> : <WorkspaceSkeleton />
-            ) : reviewItems.length === 0 ? (
-              <div className="py-8 text-center text-sm italic text-muted ">
-                No investment reviews are currently queued. This does not establish complete coverage or an absence of risk. Monitor remains available for recent evidence.
-              </div>
-            ) : (
-              visibleReviewItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="group relative border-b border-line py-3 last:border-b-0 "
-                >
-                  <div className="flex items-start justify-between mb-1.5">
-                    <div className="text-sm font-bold leading-tight text-foreground ">
-                      {item.item_label}
-                    </div>
-                    <div className="rounded bg-panel-muted px-1.5 py-0.5 text-xs font-medium text-muted ">
-                      {formatUserLabel(item.item_type)}
-                    </div>
-                  </div>
-                  <div className="mb-2 text-sm leading-relaxed text-muted line-clamp-2 ">
-                    {item.why_now_summary || item.trigger_reason}
-                  </div>
-                  <div className="mb-2 border-l-2 border-line pl-2.5 text-sm text-muted line-clamp-2 ">
-                    Next: {item.next_action || "Review the latest evidence and decide whether to escalate."}
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    <span className="rounded border border-line bg-panel-muted px-1.5 py-0.5 text-xs font-bold uppercase tracking-tighter text-muted ">
-                      {item.item_type === "position" ? "holding" : "logic"}
-                    </span>
-                    {item.signal_tags?.slice(0, 2).map((tag) => (
-                      <span
-                        key={`${item.id}-${tag}`}
-                        className="rounded bg-panel-muted px-1.5 py-0.5 text-xs font-medium text-muted "
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                    {item.priority_score > 60 && (
-                      <span className="text-xs font-bold text-negative uppercase tracking-tighter bg-panel-muted px-1.5 py-0.5 rounded">
-                        high priority
-                      </span>
-                    )}
-                  </div>
-                  <ReviewItemActions item={item} />
-                </div>
-              ))
-            )}
-            {reviewItems.length > 3 ? (
-              <button
-                type="button"
-                onClick={() => setShowAllQueueItems((current) => !current)}
-                className="pt-1 text-xs font-medium text-muted hover:text-foreground dark:hover:text-white"
-              >
-                {showAllQueueItems ? "Show less" : `Show ${Math.min(reviewItems.length - 3, 5)} more`}
-              </button>
-            ) : null}
-          </div>
-        </Panel>
-        </section>
 
         {history ? <div id="portfolio-history" tabIndex={-1} className="scroll-mt-20 space-y-4">{history}</div> : null}
         {children ? <div id="portfolio-holdings" tabIndex={-1} className="scroll-mt-20">{children}</div> : null}

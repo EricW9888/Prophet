@@ -237,3 +237,11 @@ test("broker equity preserves a gap and requires a fresh preview before saving e
     globalThis.FormData = originalFormData;
   }
 });
+
+test("value axis uses round ticks that cover the data", async () => {
+  const { niceAxis } = await import("../src/components/CapturedValueChart");
+  const axis = niceAxis(4474, 10323);
+  assert.deepEqual(axis.ticks, [4000, 6000, 8000, 10000, 12000]);
+  assert.ok(axis.domain[0] <= 4474 && axis.domain[1] >= 10323);
+  assert.deepEqual(niceAxis(99.2, 100.4).ticks, [99, 99.5, 100, 100.5]);
+});
