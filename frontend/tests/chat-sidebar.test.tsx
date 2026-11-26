@@ -26,3 +26,15 @@ test("search matches title or subject, newest first, empty groups dropped", () =
   assert.deepEqual(groupConversations(chats, "nvda", now).map((g) => g.items.map((c) => c.title)), [["Old NVIDIA question"]]);
   assert.deepEqual(groupConversations(chats, "nothing", now), []);
 });
+
+test("archived chats leave the date groups and are listed last, still searchable", () => {
+  const chats = [
+    { ...chat("Archived today", new Date(2026, 10, 26, 11)), archived: true },
+    chat("Morning check", new Date(2026, 10, 26, 9)),
+    { ...chat("Old archived", new Date(2026, 9, 1), "NVDA"), archived: true },
+  ];
+  const groups = groupConversations(chats, "", now);
+  assert.deepEqual(groups.map((g) => g.label), ["Today", "Archived"]);
+  assert.deepEqual(groups[1].items.map((c) => c.title), ["Archived today", "Old archived"]);
+  assert.deepEqual(groupConversations(chats, "nvda", now).map((g) => g.label), ["Archived"]);
+});

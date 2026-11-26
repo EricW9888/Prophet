@@ -1970,6 +1970,7 @@ export type AgentConversationSummary = {
   latest_message_preview?: string | null;
   artifact_count?: number;
   autonomous_reason?: string | null;
+  archived?: boolean;
   updated_at: string;
 };
 

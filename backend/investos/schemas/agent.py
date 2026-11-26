@@ -206,6 +206,7 @@ class AgentConversationSummaryResponse(BaseModel):
     latest_message_preview: str | None = None
     artifact_count: int = 0
     autonomous_reason: str | None = None
+    archived: bool = False
     updated_at: datetime
 
 
@@ -217,4 +218,11 @@ class AgentConversationListResponse(BaseModel):
 
 
 class AgentConversationUpdateRequest(BaseModel):
-    title: str = Field(min_length=1, max_length=120)
+    title: str | None = Field(default=None, min_length=1, max_length=120)
+    archived: bool | None = None
+
+    @model_validator(mode="after")
+    def requires_a_change(self):
+        if self.title is None and self.archived is None:
+            raise ValueError("title_or_archived_required")
+        return self

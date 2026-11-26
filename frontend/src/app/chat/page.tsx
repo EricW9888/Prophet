@@ -5,7 +5,7 @@ import QuantityEvidence from "@/components/QuantityEvidence";
 import WorkspaceDivider, { useWorkspacePane } from "@/components/WorkspaceDivider";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowUp, Check, Maximize2, PanelLeftOpen, Pencil, Square, X } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowUp, Check, Maximize2, PanelLeftOpen, Pencil, Square, X } from "lucide-react";
 import ChatTurnStatus from "@/components/ChatTurnStatus";
 import ActivityIndicator from "@/components/ActivityIndicator";
 import WorkspaceState, { WorkspaceRead, WorkspaceSkeleton } from "@/components/WorkspaceState";
@@ -38,7 +38,7 @@ import { formatModelUsedLabel, formatUserLabel } from "@/lib/formatting";
 import { readResearchEntry, researchTurnContext, type ResearchSubject } from "@/lib/workflows";
 import { ACTIVE_JOB_STORAGE_KEY, COMPLETED_JOB_NOTICE_KEY, clearActiveJobReference, clearCompletedJobNotice } from "@/lib/job-notifications";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
-import { groupConversations } from "@/lib/chat-sidebar";
+import { ARCHIVED_GROUP, groupConversations } from "@/lib/chat-sidebar";
 
 const ALLOW_ACTIONS_STORAGE_KEY = "prophet:allow-agent-actions";
 const RESEARCH_SIDEBAR_WIDTH = 320;
@@ -1234,6 +1234,21 @@ function ChatWorkspace() {
     }
   }
 
+  async function setArchived(sessionId: string, archived: boolean) {
+    setError(null);
+    try {
+      const updated = await apiFetch<AgentConversationSummary>(`/agent/conversations/${sessionId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ archived }),
+      });
+      setConversations((current) =>
+        current.map((conversation) => (conversation.session_id === sessionId ? { ...conversation, ...updated } : conversation)),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : archived ? "Unable to archive this chat." : "Unable to restore this chat.");
+    }
+  }
+
   const activeConversation = conversations.find((item) => item.session_id === activeSessionId) ?? null;
   const linkedReport = autonomousReviews.find((item) => item.session_id === activeSessionId) ?? null;
   const fileContextActive = attachments.length > 0 || usingSessionFiles || Boolean(activeJob?.request_attachments?.length);
@@ -1330,10 +1345,9 @@ function ChatWorkspace() {
             ) : groupConversations(conversations, chatQuery).length === 0 ? (
               <p className="p-2 text-sm text-muted">No chats match this search.</p>
             ) : (
-              groupConversations(conversations, chatQuery).map((group) => (
-              <section key={group.label} aria-label={group.label} className="space-y-2">
-              <h3 className="px-1 pt-2 text-xs font-medium text-muted">{group.label}</h3>
-              {group.items.map((conversation) => {
+              groupConversations(conversations, chatQuery).map((group) => {
+              const archivedGroup = group.label === ARCHIVED_GROUP;
+              const list = group.items.map((conversation) => {
                 const isActive = activeSessionId === conversation.session_id;
                 const isRenaming = renamingSessionId === conversation.session_id;
                 return (
@@ -1426,13 +1440,32 @@ function ChatWorkspace() {
                           <Pencil className="h-4 w-4" />
                           <span className="sr-only">Rename chat</span>
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => void setArchived(conversation.session_id, !conversation.archived)}
+                          className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center text-muted opacity-100 transition hover:bg-panel-muted hover:text-foreground lg:opacity-0 lg:focus-visible:opacity-100 lg:group-hover:opacity-100"
+                          title={conversation.archived ? "Restore chat" : "Archive chat"}
+                        >
+                          {conversation.archived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
+                          <span className="sr-only">{conversation.archived ? "Restore chat" : "Archive chat"}</span>
+                        </button>
                       </div>
                     )}
                   </div>
                 );
-              })}
-              </section>
-              ))
+              });
+              return archivedGroup ? (
+                <details key={group.label} className="pt-2" open={Boolean(chatQuery.trim())}>
+                  <summary className="cursor-pointer px-1 text-xs font-medium text-muted">{group.label} ({group.items.length})</summary>
+                  <div className="mt-2 space-y-2">{list}</div>
+                </details>
+              ) : (
+                <section key={group.label} aria-label={group.label} className="space-y-2">
+                  <h3 className="px-1 pt-2 text-xs font-medium text-muted">{group.label}</h3>
+                  {list}
+                </section>
+              );
+              })
             )}
             </WorkspaceRead>
           </div>
