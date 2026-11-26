@@ -1,5 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Prophet">
-  <rect width="512" height="512" rx="96" fill="#0f172a"/>
-  <path d="M154 384V128h112c72 0 120 42 120 108s-48 108-120 108h-62" fill="none" stroke="#f8fafc" stroke-width="44" stroke-linecap="square" stroke-linejoin="round"/>
-  <circle cx="365" cy="365" r="35" fill="#38bdf8"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="24 22 112 112" role="img" aria-label="Prophet">
+  <style>
+    path, polygon { fill: #0a0a0a; }
+    @media (prefers-color-scheme: dark) { path, polygon { fill: #f2f2f2; } }
+  </style>
+  <polygon points="80 42.5 90.0763 69.9237 117.5 80 90.0763 90.0763 80 117.5 69.9237 90.0763 42.5 80 69.9237 69.9237 80 42.5"/>
+  <path d="M123.81,46.82l-5.73,4.01c5.31,7.55,8.42,16.75,8.42,26.66,0,25.65-20.86,46.5-46.5,46.5s-46.5-20.85-46.5-46.5c0-18.62,11-34.72,26.85-42.14l-2.96-6.34c-18.23,8.53-30.89,27.05-30.89,48.48,0,29.5,24,53.5,53.5,53.5s53.5-24,53.5-53.5C133.5,66.09,129.91,55.51,123.81,46.82Z"/>
 </svg>

@@ -15,6 +15,7 @@ import {
 import Link, { useLinkStatus } from "next/link";
 import WorkspaceWorkIndicator from "@/components/WorkspaceWorkIndicator";
 import ActivityIndicator from "@/components/ActivityIndicator";
+import ProphetMark from "@/components/ProphetMark";
 import { useTranslation } from "react-i18next";
 import { usePathname } from "next/navigation";
 import { type ComponentType, type SVGProps, useEffect, useState } from "react";
@@ -104,7 +105,8 @@ export default function AppNav({ active }: { active?: NavKey }) {
     <header className="sticky inset-x-0 top-0 z-50 w-full border-b border-line bg-panel">
       <nav lang={i18n.language} aria-label="Primary" className="workspace-frame">
         <div className="flex min-w-0 items-center gap-3 py-2">
-          <Link href="/" className="mr-auto shrink-0 text-base font-semibold text-foreground transition-colors hover:text-action xl:mr-3">
+          <Link href="/" className="mr-auto inline-flex shrink-0 items-center gap-2 text-base font-semibold text-foreground transition-colors hover:text-action xl:mr-3">
+            <ProphetMark className="h-6 w-6" />
             Prophet
           </Link>
 
