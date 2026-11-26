@@ -13,6 +13,7 @@ from investos.core.dates import parse_explicit_calendar_datetime
 from investos.core.llm import call_llm_json, compact_exception_message
 from investos.core.prompting import compact_text
 from investos.core.storage import LocalStorage
+from investos.services.claim_record_identity import source_already_claimed
 from investos.models.catalog import SourceClaimRecord
 from investos.models.entity import Entity, Security
 from investos.models.evidence import RawEvidence, SourceItem

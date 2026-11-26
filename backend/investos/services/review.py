@@ -27,6 +27,7 @@ from investos.schemas.review import (
     ReviewQueueItemResponse,
     ReviewQueuePageResponse,
 )
+from investos.services.claim_record_identity import representative_claim_record
 from investos.services.artifact_hygiene import (
     is_artifact_question_text,
     is_artifact_subject_name,

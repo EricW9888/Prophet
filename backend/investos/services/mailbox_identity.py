@@ -325,6 +325,83 @@ class MailboxIdentityService:
         )
         return [await self._serialize_review(evidence) for evidence in evidence_rows]
 
+    async def identical_candidate(self, evidence: RawEvidence) -> UUID | None:
+        """The one preserved receipt this pending receipt copies exactly, if any.
+
+        "Exactly" is the legacy matcher's own content test (sender, subject
+        and text body hash) plus the same sender, subject and sent time.
+        Anything less (a reused mailbox ID, several candidates, an unreadable
+        original) returns None and stays an individual comparison.
+        """
+        review = (evidence.metadata_json or {}).get("identity_review") or {}
+        candidate_ids = review.get("candidate_evidence_ids") or []
+        if review.get("status") != "pending" or len(candidate_ids) != 1:
+            return None
+        try:
+            candidate = await self.session.get(RawEvidence, UUID(str(candidate_ids[0])))
+        except (TypeError, ValueError):
+            return None
+        if (
+            candidate is None
+            or ((candidate.metadata_json or {}).get("identity_review") or {}).get(
+                "status"
+            )
+            == "pending"
+            or (candidate.title, candidate.author, candidate.public_time)
+            != (evidence.title, evidence.author, evidence.public_time)
+        ):
+            return None
+        try:
+            raw = await self.mailbox.ingestion.storage.get_object(
+                evidence.raw_content_ref
+            )
+            message = email.message_from_bytes(raw)
+        except Exception:
+            return None
+        sender = self.mailbox._decode_header(message.get("From", ""))
+        subject = self.mailbox._decode_header(message.get("Subject", ""))
+        text_hash = hashlib.sha256(
+            f"From: {sender}\nSubject: {subject}\n\n{self.mailbox._extract_text_body(message)}".encode()
+        ).hexdigest()
+        return candidate.id if candidate.content_hash == text_hash else None
+
+    async def identical_reviews(self) -> list[tuple[UUID, UUID]]:
+        """Pending receipts paired with the preserved receipt each copies exactly."""
+        pending = (
+            await self.session.scalars(
+                select(RawEvidence)
+                .where(self._pending_review())
+                .order_by(RawEvidence.ingest_time.asc())
+            )
+        ).all()
+        pairs = []
+        for evidence in pending:
+            candidate_id = await self.identical_candidate(evidence)
+            if candidate_id is not None:
+                pairs.append((evidence.id, candidate_id))
+        return pairs
+
+    async def confirm_identical(self) -> dict:
+        """Link every exact copy to its preserved receipt, one recorded decision each.
+
+        The owner chooses this in one step; each receipt is re-checked here and
+        reconciled exactly as "Confirm same receipt" would. Linking never
+        posts a trade.
+        """
+        linked = skipped = 0
+        for evidence_id, candidate_id in await self.identical_reviews():
+            try:
+                await self.reconcile(
+                    evidence_id,
+                    decision="link_existing",
+                    existing_evidence_id=candidate_id,
+                )
+                linked += 1
+            except ValueError:
+                await self.session.rollback()
+                skipped += 1
+        return dict(linked=linked, skipped=skipped)
+
     @staticmethod
     def _pending_review():
         return (
