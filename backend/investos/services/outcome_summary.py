@@ -18,6 +18,7 @@ from investos.models.knowledge import Claim
 from investos.models.market_setup import MarketSetupSignal
 from investos.models.shadow import ShadowExperiment
 from investos.models.source import Source
+from investos.services.claim_record_identity import representative_claim_record
 
 SETUP_HELD = "validated"
 SETUP_FAILED = "invalidated"
@@ -64,9 +65,10 @@ class OutcomeSummaryService:
         claim_counts: dict[str, int] = {}
         for assessment, count in (
             await self.session.execute(
-                select(SourceClaimRecord.assessment, func.count()).group_by(
-                    SourceClaimRecord.assessment
-                )
+                select(SourceClaimRecord.assessment, func.count())
+                .join(Claim, Claim.id == SourceClaimRecord.claim_id)
+                .where(representative_claim_record())
+                .group_by(SourceClaimRecord.assessment)
             )
         ).all():
             key = assessment or "pending"
@@ -75,6 +77,8 @@ class OutcomeSummaryService:
             await self.session.execute(
                 select(func.count())
                 .select_from(SourceClaimRecord)
+                .join(Claim, Claim.id == SourceClaimRecord.claim_id)
+                .where(representative_claim_record())
                 .where(
                     or_(
                         SourceClaimRecord.assessment.is_(None),
@@ -91,6 +95,7 @@ class OutcomeSummaryService:
                 .join(Source, Source.id == SourceClaimRecord.source_id, isouter=True)
                 .where(SourceClaimRecord.assessment.is_not(None))
                 .where(SourceClaimRecord.assessment != "pending")
+                .where(representative_claim_record())
                 .order_by(SourceClaimRecord.assessment_time.desc().nulls_last())
                 .limit(recent_limit)
             )

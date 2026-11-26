@@ -26,6 +26,7 @@ from investos.services.artifact_hygiene import (
     is_unusable_subject,
     normalize_subject_name,
 )
+from investos.services.claim_record_identity import source_already_claimed
 from investos.services.corroboration import source_authority
 from investos.services.evidence_processing import EvidenceProcessingService
 from investos.services.evidence_relevance import (
@@ -1050,17 +1051,23 @@ class ExtractionWorker:
                 payload=payload,
             )
 
-            self.session.add(
-                SourceClaimRecord(
-                    source_id=source_item.source_id,
-                    claim_id=claim.id,
-                    claim_time=claim.public_time or claim.ingest_time,
-                    assessment="pending",
-                    ticker=(
-                        object_subject_name if object_subject_type == "entity" else None
-                    ),
+            if not await source_already_claimed(
+                self.session, source_item.source_id, claim.statement
+            ):
+                self.session.add(
+                    SourceClaimRecord(
+                        source_id=source_item.source_id,
+                        claim_id=claim.id,
+                        claim_time=claim.public_time or claim.ingest_time,
+                        assessment="pending",
+                        ticker=(
+                            object_subject_name
+                            if object_subject_type == "entity"
+                            else None
+                        ),
+                    )
                 )
-            )
+                await self.session.flush()
 
         relationship_result = await self.persist_source_relationships(
             evidence,
@@ -1565,14 +1572,18 @@ class ExtractionWorker:
                         ).group(0),
                     },
                 )
-            self.session.add(
-                SourceClaimRecord(
-                    source_id=source_item.source_id,
-                    claim_id=claim.id,
-                    claim_time=claim.public_time or claim.ingest_time,
-                    assessment="pending",
+            if not await source_already_claimed(
+                self.session, source_item.source_id, claim.statement
+            ):
+                self.session.add(
+                    SourceClaimRecord(
+                        source_id=source_item.source_id,
+                        claim_id=claim.id,
+                        claim_time=claim.public_time or claim.ingest_time,
+                        assessment="pending",
+                    )
                 )
-            )
+                await self.session.flush()
             result["created"] += 1
         return result
 
