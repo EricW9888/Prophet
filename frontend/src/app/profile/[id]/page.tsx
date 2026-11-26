@@ -8,6 +8,7 @@ import AppNav from "@/components/AppNav";
 import { apiFetch, ProfileDetail } from "@/lib/api";
 import { researchHref } from "@/lib/workflows";
 import WorkspaceState from "@/components/WorkspaceState";
+import { readableName } from "@/lib/readable-name";
 
 function compactDate(value?: string | null) {
   if (!value) return "date unavailable";
@@ -140,7 +141,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                       <article key={metric.id} className="grid gap-3 py-4 first:pt-0 md:grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)]">
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="font-semibold text-slate-950 dark:text-white">{metric.metric_name}</h3>
+                            <h3 className="font-semibold text-foreground">{readableName(metric.metric_name)}</h3>
                             <span className="rounded bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
                               {metric.metric_family.replaceAll("_", " ")}
                             </span>

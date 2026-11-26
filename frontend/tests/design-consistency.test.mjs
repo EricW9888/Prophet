@@ -13,7 +13,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "src");
-const BASELINE = { rawPalette: 2526, uppercase: 222 };
+const BASELINE = { rawPalette: 2525, uppercase: 222 };
 
 const RAW_PALETTE = /\b(?:text|bg|border|divide|ring|from|to|via|fill|stroke|outline|accent|placeholder)-(?:slate|sky|red|rose|emerald|amber|blue|gray|green|zinc|neutral|indigo|yellow|orange|teal|cyan|violet|purple|pink|lime|stone|fuchsia)-\d{2,3}\b/g;
 // `first-letter:uppercase` is how sentence case is applied, so it does not count.
