@@ -27,12 +27,12 @@ from investos.schemas.review import (
     ReviewQueueItemResponse,
     ReviewQueuePageResponse,
 )
-from investos.services.claim_record_identity import representative_claim_record
 from investos.services.artifact_hygiene import (
     is_artifact_question_text,
     is_artifact_subject_name,
 )
 from investos.services.canonical_state import CanonicalStateService
+from investos.services.claim_record_identity import representative_claim_record
 from investos.services.ownership_signals import OwnershipSignalService
 from investos.services.question_lifecycle import (
     ACTIVE_QUESTION_STATUSES,
