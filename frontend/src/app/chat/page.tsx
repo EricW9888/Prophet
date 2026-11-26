@@ -463,7 +463,7 @@ function LiveWatchers() {
               </p>
             ) : null}
             {w.evaluation_status === "deferred" ? (
-              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400" title={w.evaluation_error ?? undefined}>
+              <p className="mt-1 text-xs text-caution" title={w.evaluation_error ?? undefined}>
                 Evidence check deferred · retry scheduled
               </p>
             ) : null}

@@ -524,12 +524,12 @@ export default function SettingsPage() {
                       {gmailSyncResult.transactions_created ?? 0} transactions
                     </div>
                     {(gmailSyncResult.remaining_messages ?? 0) > 0 ? (
-                      <div className="mt-2 text-sm text-amber-700 dark:text-amber-300">
+                      <div className="mt-2 text-sm text-caution">
                         {gmailSyncResult.remaining_messages} receipts still awaiting scan
                       </div>
                     ) : null}
                     {(gmailSyncResult.deferred_messages ?? 0) > 0 ? (
-                      <p className="text-sm text-amber-700 dark:text-amber-300">
+                      <p className="text-sm text-caution">
                         {gmailSyncResult.deferred_messages} messages await a model retry; not marked imported
                       </p>
                     ) : null}
@@ -1114,7 +1114,7 @@ function PlaidConnectionControl({
     return <p className="text-sm text-slate-500">Enable broker sync, save, then connect an account.</p>;
   }
   if (!credentialsReady) {
-    return <p className="text-sm text-amber-700 dark:text-amber-300">Save a Plaid client ID and secret before opening Plaid Link.</p>;
+    return <p className="text-sm text-caution">Save a Plaid client ID and secret before opening Plaid Link.</p>;
   }
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -1283,7 +1283,7 @@ function automationStatusView(job: AutomationJob) {
   const presentation = automationJobPresentation(job);
   const colors = {
     ok: { bg: "bg-emerald-50/70 dark:bg-emerald-950/20", border: "border-emerald-100 dark:border-emerald-900/40", text: "text-emerald-600 dark:text-emerald-300" },
-    warn: { bg: "bg-amber-50/70 dark:bg-amber-950/20", border: "border-amber-100 dark:border-amber-900/40", text: "text-amber-700 dark:text-amber-300" },
+    warn: { bg: "bg-amber-50/70 dark:bg-amber-950/20", border: "border-amber-100 dark:border-amber-900/40", text: "text-caution" },
     error: { bg: "bg-red-50/70 dark:bg-red-950/20", border: "border-red-100 dark:border-red-900/40", text: "text-red-600 dark:text-red-300" },
     idle: { bg: "bg-slate-50 dark:bg-slate-900", border: "border-slate-100 dark:border-slate-800", text: "text-muted" },
   };
@@ -1382,7 +1382,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function SecretStatus({ saved, pending }: { saved: boolean; pending: boolean }) {
-  const tone = pending ? "text-amber-600 dark:text-amber-300" : saved ? "text-emerald-600 dark:text-emerald-300" : "text-muted";
+  const tone = pending ? "text-caution" : saved ? "text-emerald-600 dark:text-emerald-300" : "text-muted";
   const label = pending ? "New credential pending save" : saved ? "Saved credential will be kept" : "Missing credential";
   return (
     <p className={`text-xs font-medium ${tone}`}>

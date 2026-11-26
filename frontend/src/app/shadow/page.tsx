@@ -291,7 +291,7 @@ export default function ShadowPage() {
     <div className="min-h-screen bg-background font-sans text-foreground">
       <AppNav active="experiments" />
 
-      <main className="workspace-frame grid grid-cols-1 items-start gap-6 py-8 xl:grid-cols-[minmax(360px,0.72fr)_minmax(0,1.28fr)]">
+      <main className="workspace-frame grid grid-cols-1 items-start gap-6 py-8 xl:grid-cols-[minmax(0,1.28fr)_minmax(360px,0.72fr)]">
         {error ? (
           <FloatingNotice tone="error" message={error} onDismiss={() => setError(null)} />
         ) : null}
@@ -310,167 +310,8 @@ export default function ShadowPage() {
             description={"Unavailable: " + (["lifecycle", "families", "automation", "linked"] as const).filter(key => status[key]?.error).join(", ")}
             actionLabel="Retry" onAction={() => void loadState()} />
         ) : null}
-        <div className="xl:col-span-2"><ShadowLifecycleSummary counts={counts} /></div>
+        <div className="xl:col-span-2"><ShadowLifecycleSummary counts={counts} reviewLink={false} /></div>
         <ShadowLabProcess />
-
-        <section className="self-start space-y-6 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto xl:pr-1">
-
-          <form onSubmit={createExperiment} className="space-y-5 rounded-lg border border-line bg-panel p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-sm font-semibold text-foreground">Launch a new experiment</h2>
-                <p className="mt-2 text-sm text-muted">
-                  Describe how the paper portfolio should behave, then define the mechanism, comparison policy and observation window.
-                </p>
-              </div>
-              {!autoRun ? (
-                <div>
-                  <p className="text-xs font-medium text-muted">Starting book</p>
-                  <div className="mt-2 grid grid-cols-2 rounded-md border border-slate-300 p-1 dark:border-slate-700" role="group" aria-label="Paper account starting book">
-                    <button
-                      type="button"
-                      onClick={() => setAccountBasis("clone_portfolio")}
-                      className={`rounded px-3 py-2 text-sm font-medium ${accountBasis === "clone_portfolio" ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950" : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"}`}
-                    >
-                      Clone live book
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAccountBasis("cash_only")}
-                      className={`rounded px-3 py-2 text-sm font-medium ${accountBasis === "cash_only" ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950" : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"}`}
-                    >
-                      Cash only
-                    </button>
-                  </div>
-                  {accountBasis === "cash_only" ? (
-                    <label className="mt-3 block text-xs font-medium text-muted">
-                      Starting paper cash
-                      <input
-                        value={startingCash}
-                        onChange={(event) => setStartingCash(event.target.value)}
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        className="mt-2 block w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-slate-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-                      />
-                    </label>
-                  ) : null}
-                  <p className="mt-2 text-xs text-muted">
-                    {accountBasis === "clone_portfolio"
-                      ? "Starts with a deterministic copy of current tracked positions and buying power."
-                      : "Starts empty with the paper cash entered above; the live portfolio remains only a research reference."}
-                  </p>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <p className="text-xs font-medium text-muted">Account mode</p>
-                <div className="mt-2 grid grid-cols-2 rounded-md border border-slate-300 p-1 dark:border-slate-700" role="group" aria-label="Paper account mode">
-                  <button
-                    type="button"
-                    onClick={() => setAutoRun(true)}
-                    className={`rounded px-3 py-2 text-sm font-medium ${autoRun ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950" : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"}`}
-                  >
-                    Autonomous
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAutoRun(false)}
-                    className={`rounded px-3 py-2 text-sm font-medium ${!autoRun ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950" : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"}`}
-                  >
-                    Manual
-                  </button>
-                </div>
-                <p className="mt-2 text-xs text-muted">
-                  {autoRun
-                    ? "Prophet proposes bounded target weights; the paper broker alone validates and fills orders."
-                    : "You submit simulated orders through a ticket. No model action and no real-broker routing."}
-                </p>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-muted">Experiment name</label>
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="mt-2 block w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:ring-white/10"
-                />
-              </div>
-
-              {autoRun ? <div className="space-y-3 text-xs">
-                <label className="block">Hypothesis family
-                  <select value={familyId} onChange={event => {
-                    const id = event.target.value; setFamilyId(id);
-                    const identity = families.find(row => row.id === id)?.identity;
-                    if (identity) { setMechanism(identity.mechanism ?? ""); setCounterfactual(identity.counterfactual ?? ""); setHorizonDays(String((identity.horizon_seconds ?? 604800) / 86400)); }
-                  }} className="mt-2 w-full rounded border border-slate-300 bg-transparent p-2 dark:border-slate-700">
-                    <option value="">Define a new family</option>
-                    {families.filter(row => row.identity.identity_status === "structured" && row.identity.subjects?.length === 1 && row.identity.subjects[0] === "portfolio").map(row => <option key={row.id} value={row.id}>{row.description}</option>)}
-                  </select>
-                </label>
-                <label className="block">Underlying mechanism<input required value={mechanism} readOnly={Boolean(familyId)} onChange={event => setMechanism(event.target.value)} className="mt-1 w-full rounded border border-slate-300 bg-transparent p-2 dark:border-slate-700" /></label>
-                <label className="block">Counterfactual to test<input required value={counterfactual} readOnly={Boolean(familyId)} onChange={event => setCounterfactual(event.target.value)} className="mt-1 w-full rounded border border-slate-300 bg-transparent p-2 dark:border-slate-700" /></label>
-                <label className="block">Observation horizon in days<input type="number" min="0.0000115741" max="1825" step="any" required value={horizonDays} readOnly={Boolean(familyId)} onChange={event => setHorizonDays(event.target.value)} className="mt-1 w-full rounded border border-slate-300 bg-transparent p-2 dark:border-slate-700" /></label>
-                <p className="text-slate-500">Reuse the family when only the wording changes. Different mechanisms, counterfactuals or horizons create separate tests.</p>
-              </div> : null}
-              <div>
-                <label className="block text-xs font-medium text-muted">{autoRun ? "Policy prompt" : "Account note"}</label>
-                <textarea
-                  value={operatorPrompt}
-                  onChange={(e) => setOperatorPrompt(e.target.value)}
-                  rows={4}
-                  placeholder={autoRun ? "Example: Act more defensively if the thesis is thin, keep 20% cash, and test exiting non-conviction positions." : "Optional note describing what this manual paper account is testing."}
-                  className="mt-2 block min-h-[140px] w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:ring-white/10"
-                />
-              </div>
-            </div>
-
-            <button disabled={saving || (autoRun && (!operatorPrompt.trim() || !mechanism.trim() || !counterfactual.trim() || !(Number(horizonDays) > 0 && Number(horizonDays) <= 1825))) || (!autoRun && accountBasis === "cash_only" && !(Number(startingCash) > 0))} className="w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-300">
-              {saving ? "Creating..." : autoRun ? "Start shadow run" : "Open paper account"}
-            </button>
-          </form>
-
-          <details className="rounded-lg border border-line bg-panel p-5">
-            <summary className="list-none cursor-pointer">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h2 className="text-sm font-semibold text-foreground">Automation</h2>
-                  <p className="mt-2 text-sm text-muted">
-                    Shadow refresh and agent reflection keep parallel experiments moving even when you are not on this page.
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button onClick={() => void loadState()} className="text-xs font-medium text-slate-600 hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">
-                    Refresh
-                  </button>
-                </div>
-              </div>
-            </summary>
-            <div className="mt-4 divide-y divide-line">
-              {automation?.jobs.map((job) => (
-                <div key={job.name} className="py-4 first:pt-0 last:pb-0">
-                  <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                    <div className="min-w-0">
-                      <p className="font-medium">{job.name}</p>
-                      <p className="text-sm text-muted">{job.detail ?? "No detail yet."}</p>
-                    </div>
-                    <button
-                      onClick={() => void triggerAutomation(job.name)}
-                      disabled={runningJob !== null}
-                      className="shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-slate-700"
-                    >
-                      Run now
-                    </button>
-                  </div>
-                  <p className="mt-2 text-xs font-mono text-slate-400">
-                    status={job.last_status} interval={job.interval_seconds ?? 0}s last={job.last_run_at ?? "never"}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </details>
-        </section>
 
         <section className="min-w-0 space-y-4 overflow-hidden">
           <div className="flex min-h-9 items-center justify-between border-b border-slate-200 pb-3 dark:border-slate-800">
@@ -505,7 +346,7 @@ export default function ShadowPage() {
             <WorkspaceState
               kind="empty"
               title="No shadow experiments yet"
-              description="Define a policy above to compare a simulated portfolio path with the live book."
+              description="Use Launch a new experiment to compare a simulated portfolio path with the live book."
             />
           ) : (
             experiments.map((experiment) => (
@@ -976,6 +817,169 @@ export default function ShadowPage() {
             ))
           )}
         </section>
+        <section className="self-start space-y-6 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto xl:pr-1">
+
+          {/* Runs lead the page; the launch form opens on demand, or by itself when there are no runs. */}
+          <DeferredDisclosure key={loadedOnce && experiments.length === 0 ? "empty" : "runs"} initiallyOpen={loadedOnce && experiments.length === 0}
+            className="rounded-lg border border-line bg-panel p-5" contentClassName="mt-4"
+            title={<h2 className="inline text-sm font-semibold text-foreground">Launch a new experiment</h2>}>
+          <form onSubmit={createExperiment} className="space-y-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm text-muted">
+                  Describe how the paper portfolio should behave, then define the mechanism, comparison policy and observation window.
+                </p>
+              </div>
+              {!autoRun ? (
+                <div>
+                  <p className="text-xs font-medium text-muted">Starting book</p>
+                  <div className="mt-2 grid grid-cols-2 rounded-md border border-slate-300 p-1 dark:border-slate-700" role="group" aria-label="Paper account starting book">
+                    <button
+                      type="button"
+                      onClick={() => setAccountBasis("clone_portfolio")}
+                      className={`rounded px-3 py-2 text-sm font-medium ${accountBasis === "clone_portfolio" ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950" : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"}`}
+                    >
+                      Clone live book
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAccountBasis("cash_only")}
+                      className={`rounded px-3 py-2 text-sm font-medium ${accountBasis === "cash_only" ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950" : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"}`}
+                    >
+                      Cash only
+                    </button>
+                  </div>
+                  {accountBasis === "cash_only" ? (
+                    <label className="mt-3 block text-xs font-medium text-muted">
+                      Starting paper cash
+                      <input
+                        value={startingCash}
+                        onChange={(event) => setStartingCash(event.target.value)}
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        className="mt-2 block w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-slate-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                      />
+                    </label>
+                  ) : null}
+                  <p className="mt-2 text-xs text-muted">
+                    {accountBasis === "clone_portfolio"
+                      ? "Starts with a deterministic copy of current tracked positions and buying power."
+                      : "Starts empty with the paper cash entered above; the live portfolio remains only a research reference."}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs font-medium text-muted">Account mode</p>
+                <div className="mt-2 grid grid-cols-2 rounded-md border border-slate-300 p-1 dark:border-slate-700" role="group" aria-label="Paper account mode">
+                  <button
+                    type="button"
+                    onClick={() => setAutoRun(true)}
+                    className={`rounded px-3 py-2 text-sm font-medium ${autoRun ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950" : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"}`}
+                  >
+                    Autonomous
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAutoRun(false)}
+                    className={`rounded px-3 py-2 text-sm font-medium ${!autoRun ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950" : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"}`}
+                  >
+                    Manual
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-muted">
+                  {autoRun
+                    ? "Prophet proposes bounded target weights; the paper broker alone validates and fills orders."
+                    : "You submit simulated orders through a ticket. No model action and no real-broker routing."}
+                </p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted">Experiment name</label>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="mt-2 block w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:ring-white/10"
+                />
+              </div>
+
+              {autoRun ? <div className="space-y-3 text-xs">
+                <label className="block">Hypothesis family
+                  <select value={familyId} onChange={event => {
+                    const id = event.target.value; setFamilyId(id);
+                    const identity = families.find(row => row.id === id)?.identity;
+                    if (identity) { setMechanism(identity.mechanism ?? ""); setCounterfactual(identity.counterfactual ?? ""); setHorizonDays(String((identity.horizon_seconds ?? 604800) / 86400)); }
+                  }} className="mt-2 w-full rounded border border-slate-300 bg-transparent p-2 dark:border-slate-700">
+                    <option value="">Define a new family</option>
+                    {families.filter(row => row.identity.identity_status === "structured" && row.identity.subjects?.length === 1 && row.identity.subjects[0] === "portfolio").map(row => <option key={row.id} value={row.id}>{row.description}</option>)}
+                  </select>
+                </label>
+                <label className="block">Underlying mechanism<input required value={mechanism} readOnly={Boolean(familyId)} onChange={event => setMechanism(event.target.value)} className="mt-1 w-full rounded border border-slate-300 bg-transparent p-2 dark:border-slate-700" /></label>
+                <label className="block">Counterfactual to test<input required value={counterfactual} readOnly={Boolean(familyId)} onChange={event => setCounterfactual(event.target.value)} className="mt-1 w-full rounded border border-slate-300 bg-transparent p-2 dark:border-slate-700" /></label>
+                <label className="block">Observation horizon in days<input type="number" min="0.0000115741" max="1825" step="any" required value={horizonDays} readOnly={Boolean(familyId)} onChange={event => setHorizonDays(event.target.value)} className="mt-1 w-full rounded border border-slate-300 bg-transparent p-2 dark:border-slate-700" /></label>
+                <p className="text-slate-500">Reuse the family when only the wording changes. Different mechanisms, counterfactuals or horizons create separate tests.</p>
+              </div> : null}
+              <div>
+                <label className="block text-xs font-medium text-muted">{autoRun ? "Policy prompt" : "Account note"}</label>
+                <textarea
+                  value={operatorPrompt}
+                  onChange={(e) => setOperatorPrompt(e.target.value)}
+                  rows={4}
+                  placeholder={autoRun ? "Example: Act more defensively if the thesis is thin, keep 20% cash, and test exiting non-conviction positions." : "Optional note describing what this manual paper account is testing."}
+                  className="mt-2 block min-h-[140px] w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:ring-white/10"
+                />
+              </div>
+            </div>
+
+            <button disabled={saving || (autoRun && (!operatorPrompt.trim() || !mechanism.trim() || !counterfactual.trim() || !(Number(horizonDays) > 0 && Number(horizonDays) <= 1825))) || (!autoRun && accountBasis === "cash_only" && !(Number(startingCash) > 0))} className="w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-300">
+              {saving ? "Creating..." : autoRun ? "Start shadow run" : "Open paper account"}
+            </button>
+          </form>
+          </DeferredDisclosure>
+
+          <details className="rounded-lg border border-line bg-panel p-5">
+            <summary className="list-none cursor-pointer">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">Automation</h2>
+                  <p className="mt-2 text-sm text-muted">
+                    Shadow refresh and agent reflection keep parallel experiments moving even when you are not on this page.
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => void loadState()} className="text-xs font-medium text-slate-600 hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">
+                    Refresh
+                  </button>
+                </div>
+              </div>
+            </summary>
+            <div className="mt-4 divide-y divide-line">
+              {automation?.jobs.map((job) => (
+                <div key={job.name} className="py-4 first:pt-0 last:pb-0">
+                  <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                    <div className="min-w-0">
+                      <p className="font-medium">{job.name}</p>
+                      <p className="text-sm text-muted">{job.detail ?? "No detail yet."}</p>
+                    </div>
+                    <button
+                      onClick={() => void triggerAutomation(job.name)}
+                      disabled={runningJob !== null}
+                      className="shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-slate-700"
+                    >
+                      Run now
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs font-mono text-slate-400">
+                    status={job.last_status} interval={job.interval_seconds ?? 0}s last={job.last_run_at ?? "never"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </details>
+        </section>
+
       </main>
     </div>
   );
@@ -1242,7 +1246,7 @@ function PaperBrokerLedger({
                     </p>
                   ) : null}
                   {order.rejection_reason ? <p className="mt-1 text-red-600 dark:text-red-300">{order.rejection_reason.replaceAll("_", " ")}</p> : null}
-                  {adjustments.map((adjustment, index) => <p key={`${order.id}-adjustment-${index}`} className="mt-1 text-amber-700 dark:text-amber-300">{adjustment}</p>)}
+                  {adjustments.map((adjustment, index) => <p key={`${order.id}-adjustment-${index}`} className="mt-1 text-caution">{adjustment}</p>)}
                   <p className="mt-2 text-muted">{order.rationale}</p>
                 </div>
                 <div className="text-left text-xs text-slate-500 md:text-right dark:text-slate-400">
@@ -1451,7 +1455,7 @@ function ExperimentJourney({ experiment }: { experiment: ShadowExperiment }) {
   return (
     <section className="mt-5 border-y border-slate-200 py-4 dark:border-slate-800">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs font-semibold text-muted">Current experiment stage</p>
+        <p className="text-xs font-semibold text-muted">Current experiment stage<span className="font-normal text-foreground sm:hidden">: {labels[activeIndex]}</span></p>
         <p className="text-xs text-muted">{statusDetail}</p>
       </div>
       <ol className="mt-4 grid grid-cols-5 gap-1" aria-label="Experiment progress">
@@ -1462,7 +1466,7 @@ function ExperimentJourney({ experiment }: { experiment: ShadowExperiment }) {
             <li key={label} className="min-w-0">
               <div className={`h-1.5 w-full ${reached ? "bg-sky-500" : "bg-slate-200 dark:bg-slate-800"}`} />
               <p
-                className={`mt-2 text-xs leading-4 sm:text-xs ${
+                className={`mt-2 hidden text-xs leading-4 [overflow-wrap:normal] sm:block ${
                   current
                     ? "font-semibold text-action-strong"
                     : reached
@@ -1496,7 +1500,7 @@ function ExperimentOutcomeSummary({ experiment }: { experiment: ShadowExperiment
       ) : null}
       {expected?.summary ? (
         <div className="border-l-2 border-amber-400 pl-3">
-          <p className="text-xs font-medium text-amber-700 dark:text-amber-300">Expected outcome</p>
+          <p className="text-xs font-medium text-caution">Expected outcome</p>
           <p className="mt-2 text-sm leading-6 text-foreground">{expected.summary}</p>
           {expected.expected_alpha_vs_baseline != null ? (
             <p className="mt-2 text-xs text-muted">

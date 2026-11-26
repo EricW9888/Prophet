@@ -17,6 +17,7 @@
   --focus: #38bdf8;
   --positive: #047857;
   --negative: #be123c;
+  --caution: #b45309;
   --workspace-gutter: clamp(0.75rem, 2vw, 2rem);
 }
 
@@ -33,6 +34,7 @@
   --color-focus: var(--focus);
   --color-positive: var(--positive);
   --color-negative: var(--negative);
+  --color-caution: var(--caution);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --text-xs: 0.8125rem;
@@ -139,6 +141,7 @@
     --focus: #38bdf8;
     --positive: #34d399;
     --negative: #fb7185;
+    --caution: #fcd34d;
   }
 }
 

@@ -349,7 +349,7 @@ function PerformanceAttributionPanel({
               Window {new Date(attribution.period_start).toLocaleDateString()} through {new Date(attribution.as_of).toLocaleDateString()}. {attribution.method}
             </p>
             {attribution.unavailable_tickers.length > 0 ? (
-              <p className="mt-1 text-amber-700 dark:text-amber-400">
+              <p className="mt-1 text-caution">
                 Excluded pending complete price or corporate-action history: {attribution.unavailable_tickers.join(", ")}.
               </p>
             ) : null}

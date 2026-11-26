@@ -33,13 +33,13 @@ export default function ProviderWorkSummary({ usage, operations }: { usage: Dash
       {health.last_admission_timeout_at ? <p className="mt-1">Latest at {new Date(health.last_admission_timeout_at).toLocaleString()}.</p> : null}
     </details> : null}
     {health?.caller_timeout_count ? <details className="mt-2"><summary className="cursor-pointer">Requests that reached shorter time limits</summary><p className="mt-2">{health.caller_timeout_count} recorded across retained history. These requests failed at their own time limit; their errors remain in Activity.</p>{health.last_caller_timeout_at ? <p className="mt-1">Latest: {new Date(health.last_caller_timeout_at).toLocaleString()}{health.last_caller_timeout_seconds != null ? ` · ${health.last_caller_timeout_seconds}s request limit` : ""}.</p> : null}</details> : null}
-    {health?.failure_code ? <p className="mt-1 text-amber-700 dark:text-amber-300">{health.failure_code.replaceAll("_", " ")}. Model-dependent jobs wait; ingestion, market data, paper maintenance and recovery continue.</p> : null}
+    {health?.failure_code ? <p className="mt-1 text-caution">{health.failure_code.replaceAll("_", " ")}. Model-dependent jobs wait; ingestion, market data, paper maintenance and recovery continue.</p> : null}
     {health?.failure_detail && <details className="mt-2 text-slate-500"><summary className="cursor-pointer">Structured response diagnostic</summary><p className="mt-2">{health.failure_detail.kind?.replaceAll("_", " ")}{health.failure_detail.finish_reason ? ` · finish: ${health.failure_detail.finish_reason}` : ""}{health.failure_detail.content_chars != null ? ` · content: ${health.failure_detail.content_chars} characters` : ""}{health.failure_detail.completion_tokens != null ? ` · generated: ${health.failure_detail.completion_tokens} tokens` : ""}{health.failure_detail.max_tokens != null ? ` · limit: ${health.failure_detail.max_tokens} tokens` : ""}.</p></details>}
     {health?.next_probe_at ? <p className="mt-1">Next shared probe after {new Date(health.next_probe_at).toLocaleString()}.</p> : null}
     {health?.state === "unobserved" ? <p className="mt-1 text-slate-500">Structured generation has not been verified for this configuration.</p> : null}
     {health?.state === "waiting_for_config" ? <Link href="/settings" className="mt-2 inline-block underline">Configure the model provider</Link> : null}
     {canProbe ? <button onClick={() => void probe()} disabled={busy} className="mt-3 rounded border border-slate-300 px-3 py-2 dark:border-slate-700">{busy ? "Probing…" : "Run shared provider probe"}</button> : null}
     <p className="mt-2 text-slate-500">The probe requests a small structured response from the configured provider and uses its existing account and rate limits.</p>
-    {error ? <p role="status" className="mt-2 text-amber-700 dark:text-amber-300">{error} Last displayed data may be stale.</p> : null}
+    {error ? <p role="status" className="mt-2 text-caution">{error} Last displayed data may be stale.</p> : null}
   </details>;
 }

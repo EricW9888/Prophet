@@ -226,7 +226,7 @@ export default function HistoryPage() {
                       Correct fill
                     </button>
                     {txn.superseded_by_id ? (
-                      <span className="text-xs font-semibold text-amber-600 dark:text-amber-300">
+                      <span className="text-xs font-semibold text-caution">
                         Superseded
                       </span>
                     ) : null}

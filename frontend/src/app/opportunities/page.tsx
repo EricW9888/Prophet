@@ -779,7 +779,7 @@ export default function OpportunitiesPage() {
 function ListSection({ title, items, tone }: { title: string; items: string[]; tone: "neutral" | "warning" }) {
   return (
     <section>
-      <h3 className={`text-xs font-semibold uppercase ${tone === "warning" ? "text-amber-600 dark:text-amber-400" : "text-slate-400"}`}>{title}</h3>
+      <h3 className={`text-xs font-semibold uppercase ${tone === "warning" ? "text-caution" : "text-slate-400"}`}>{title}</h3>
       {items.length ? <ul className="mt-3 space-y-2 text-sm text-foreground">{items.map((item, index) => <li key={`${item}-${index}`} className="flex min-w-0 gap-2">{tone === "warning" ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" /> : <CircleDot className="mt-1 h-3 w-3 shrink-0 text-slate-400" />}<span className="min-w-0 break-words">{item}</span></li>)}</ul> : <p className="mt-3 text-sm text-slate-400">None recorded.</p>}
     </section>
   );
@@ -864,7 +864,7 @@ function OutcomeSection({
         Uses stored adjusted closes from {displayValue(observation.market_data_provider)}. The baseline is the first shared close after capture; the outcome is the first shared close on or after the fixed due date. Current-day and future-dated prices are ineligible.
       </p>
       {observation.last_error ? (
-        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+        <p className="mt-2 text-xs text-caution">
           Data status: {displayValue(observation.last_error)}
         </p>
       ) : null}

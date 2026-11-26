@@ -14,6 +14,6 @@ export default function LanguageSettings({ value, onChange }: { value: Presentat
     </select>
     <p className="mt-3 text-sm text-muted">{t("coverage")}</p>
     <p className="mt-2 text-sm text-muted">{t("generation")}</p>
-    {error ? <p role="status" className="mt-2 text-sm text-amber-700 dark:text-amber-300">{t("unavailable")}</p> : null}
+    {error ? <p role="status" className="mt-2 text-sm text-caution">{t("unavailable")}</p> : null}
   </section>;
 }

@@ -893,7 +893,7 @@ export default function GraphPage() {
       <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900 dark:bg-amber-950/25">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <div className="text-xs uppercase tracking-wider text-amber-500 dark:text-amber-300">
+            <div className="text-xs uppercase tracking-wider text-caution">
               Analysis
             </div>
             {graphAskTargetLabel ? (
@@ -1354,7 +1354,7 @@ export default function GraphPage() {
               <div className="mt-5 space-y-3">
                 <GraphConnectionSelect edges={displayedEdges} selected={activeEdge} nodes={nodeByKey} edgeKey={graphEdgeIdentity} onSelect={selectGraphEdge} />
                 <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900 dark:bg-amber-950/20">
-                  <div className="text-xs uppercase tracking-wider text-amber-500 dark:text-amber-300">
+                  <div className="text-xs uppercase tracking-wider text-caution">
                     {activeEdge.portfolio_peer_basis ? "Research context" : activeEdge.relationship_type.replaceAll("_", " ")}
                   </div>
                   <div className="mt-2 text-sm font-semibold text-foreground">
@@ -1568,7 +1568,7 @@ export default function GraphPage() {
                         </span>
                       ) : null}
                     </div>
-                      {selectedDetail.properties?.portfolio_mechanism_status ? <p className="mb-2 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                      {selectedDetail.properties?.portfolio_mechanism_status ? <p className="mb-2 text-xs font-semibold text-caution">
                         {selectedDetail.properties.portfolio_mechanism_status === "unverified_hypothesis" ? "Economic hypothesis · unverified" : "Economic effect not established"}
                       </p> : null}
 	                    <p className="text-sm leading-relaxed text-teal-950 dark:text-teal-100">
@@ -1718,7 +1718,7 @@ export default function GraphPage() {
                     <div className="rounded-lg border border-dashed border-amber-200 p-3 dark:border-amber-900">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <div className="text-xs font-bold uppercase tracking-wider text-amber-500 dark:text-amber-300">
+                          <div className="text-xs font-bold uppercase tracking-wider text-caution">
                             Internal provenance
                           </div>
                           <div className="mt-0.5 text-xs text-muted">
