@@ -1,0 +1,13 @@
+/**
+ * The Prophet mark (owner's artwork, public/brand/prophet-mark-*.svg), drawn in
+ * the current text color so it follows the light and dark themes. Decorative
+ * next to the "Prophet" wordmark text, so it is hidden from assistive tech.
+ */
+export default function ProphetMark({ className = "h-6 w-6" }: { className?: string }) {
+  return (
+    <svg viewBox="24 22 112 112" className={className} fill="currentColor" aria-hidden="true" focusable="false">
+      <polygon points="80 42.5 90.0763 69.9237 117.5 80 90.0763 90.0763 80 117.5 69.9237 90.0763 42.5 80 69.9237 69.9237 80 42.5" />
+      <path d="M123.81,46.82l-5.73,4.01c5.31,7.55,8.42,16.75,8.42,26.66,0,25.65-20.86,46.5-46.5,46.5s-46.5-20.85-46.5-46.5c0-18.62,11-34.72,26.85-42.14l-2.96-6.34c-18.23,8.53-30.89,27.05-30.89,48.48,0,29.5,24,53.5,53.5,53.5s53.5-24,53.5-53.5C133.5,66.09,129.91,55.51,123.81,46.82Z" />
+    </svg>
+  );
+}
