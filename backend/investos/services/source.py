@@ -558,7 +558,9 @@ class SourceService:
         record.assessment = clean_assessment
         record.notes = notes.strip() if notes else None
         record.assessment_evidence = assessment_evidence or None
-        record.horizon_days = horizon_days
+        if horizon_days is not None:
+            # Omitted means keep the claim's horizon; a verdict does not change it.
+            record.horizon_days = horizon_days
         record.assessment_time = (
             None if clean_assessment == "pending" else datetime.now(UTC)
         )

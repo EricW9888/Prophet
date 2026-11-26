@@ -47,6 +47,11 @@ type GmailSyncResult = {
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+  // Deep link to a tab, for example /settings?tab=data from a review item.
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    if (tab === "general" || tab === "data" || tab === "research" || tab === "status" || tab === "system") setActiveTab(tab);
+  }, []);
   const [settings, setSettings] = useState<IntegrationSettings | null>(null);
   const [setup, setSetup] = useState<SetupStatus | null>(null);
   const [automation, setAutomation] = useState<AutomationStatus | null>(null);
