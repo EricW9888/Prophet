@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import AppNav from "@/components/AppNav";
+import OutcomeScoreboard from "@/components/OutcomeScoreboard";
 import PageHeader from "@/components/PageHeader";
 import { API_BASE, apiFetch, DecisionJournal, Position } from "@/lib/api";
 
@@ -135,6 +136,7 @@ export default function DecisionsPage() {
           title="Operating memory"
           description="Review what Prophet concluded, what changed, how simulations and later outcomes differed, and what the system learned."
         />
+        <div className="xl:col-span-2"><OutcomeScoreboard /></div>
         <section className="space-y-6">
           <section className="rounded-lg border border-line bg-panel p-6  space-y-4">
             <div className="flex items-start justify-between gap-4">
