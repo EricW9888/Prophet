@@ -9,7 +9,7 @@ import PortfolioWatchlist from "./PortfolioWatchlist";
 import ValuationCoverage from "./ValuationCoverage";
 import HintMarker from "./HintMarker";
 import WorkspaceState, { WorkspaceRead, WorkspaceSkeleton } from "./WorkspaceState";
-import type { PortfolioBuildPoint, PortfolioOverview, Position } from "@/lib/api";
+import type { PortfolioOverview, Position } from "@/lib/api";
 import { buildPositionRows, latestQuoteTime, sortPositionRows, type PositionSortKey, type SortDirection } from "@/lib/positions-table";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
 import { safeFormatCurrency, safeFormatPct, safeFormatSignedCurrency, safeFormatQuantity, formatUserLabel } from "@/lib/formatting";
@@ -19,7 +19,6 @@ export default function PositionsTable() {
   const [overview, setOverview] = useState<PortfolioOverview | null>(null);
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [isResearchModalOpen, setIsResearchModalOpen] = useState(false);
-  const [showBuildHistory, setShowBuildHistory] = useState(false);
   const [showRecentChanges, setShowRecentChanges] = useState(false);
 
   const { read, status } = useWorkspaceReads<"ledger">();
@@ -122,23 +121,7 @@ export default function PositionsTable() {
           </section>
         </div>
 
-        <section className="grid gap-6 2xl:grid-cols-[1fr_0.8fr]">
-          <CollapsiblePanel
-            eyebrow="Portfolio build"
-            title="Transaction-based history"
-            summary={
-              overview?.build_series?.length
-                ? `${overview.build_series[overview.build_series.length - 1]?.transaction_count ?? 0} recorded transactions across ${(overview?.build_series ?? []).length} portfolio snapshots.`
-                : "No transaction history yet."
-            }
-            open={showBuildHistory}
-            onToggle={() => setShowBuildHistory((current) => !current)}
-          >
-            <div className="mt-5">
-              <PortfolioBuildChart points={overview?.build_series ?? []} />
-            </div>
-          </CollapsiblePanel>
-
+        <section className="grid gap-6">
           <CollapsiblePanel
             eyebrow="Recent book changes"
             title={`${(overview?.recent_transactions ?? []).length} recent transactions`}
@@ -338,45 +321,4 @@ function SidebarList({
   );
 }
 
-function PortfolioBuildChart({ points }: { points: PortfolioBuildPoint[] }) {
-  if (points.length === 0) {
-    return <p className="text-sm text-slate-500 dark:text-slate-400">No transaction history yet.</p>;
-  }
 
-  const maxNet = Math.max(...points.map((point) => point.net_capital_deployed), 1);
-  const width = 640;
-  const height = 220;
-  const padding = 24;
-  const chartWidth = width - padding * 2;
-  const chartHeight = height - padding * 2;
-  const path = points
-    .map((point, index) => {
-      const x = padding + (index / Math.max(points.length - 1, 1)) * chartWidth;
-      const y = height - padding - (point.net_capital_deployed / maxNet) * chartHeight;
-      return `${index === 0 ? "M" : "L"} ${x} ${y}`;
-    })
-    .join(" ");
-  const latest = points[points.length - 1];
-
-  return (
-    <div className="space-y-4">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900">
-        <path d={path} fill="none" stroke="currentColor" strokeWidth="3" className="text-sky-600 dark:text-sky-400" />
-      </svg>
-      <div className="grid gap-4 md:grid-cols-3">
-        <Metric label="Net capital deployed" value={safeFormatCurrency(latest.net_capital_deployed, 2)} />
-        <Metric label="Gross traded notional" value={safeFormatCurrency(latest.gross_trade_notional, 2)} />
-        <Metric label="Recorded transactions" value={`${latest.transaction_count}`} />
-      </div>
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
-      <p className="text-xs uppercase tracking-wider text-slate-400">{label}</p>
-      <p className="mt-1 text-xl font-semibold tracking-tight">{value}</p>
-    </div>
-  );
-}

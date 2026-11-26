@@ -74,20 +74,38 @@ function PlotInteraction({ observations, markers, selected, bottom, readout, obs
   </g>;
 }
 
-export default function CapturedValueChart({ label, points, events = noEvents, eventsLabel = "Actions and decisions", calendarDates = false, collapseEvents = false }: {
-  label: string; points: ValuePoint[]; events?: ChartEvent[]; eventsLabel?: string; calendarDates?: boolean; collapseEvents?: boolean;
+export type ReferenceSeries = { label: string; points: { at: string; value: number }[] };
+
+/** The reference value in effect at each time: the latest reference point at or before it. */
+export function stepReference(times: number[], reference: ReferenceSeries | undefined): (number | null)[] {
+  const steps = (reference?.points ?? [])
+    .map((point) => ({ time: Date.parse(point.at), value: point.value }))
+    .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.value))
+    .sort((a, b) => a.time - b.time);
+  return times.map((time) => {
+    let current: number | null = null;
+    for (const step of steps) { if (step.time <= time) current = step.value; else break; }
+    return current;
+  });
+}
+
+export default function CapturedValueChart({ label, points, events = noEvents, eventsLabel = "Actions and decisions", calendarDates = false, collapseEvents = false, reference }: {
+  label: string; points: ValuePoint[]; events?: ChartEvent[]; eventsLabel?: string; calendarDates?: boolean; collapseEvents?: boolean; reference?: ReferenceSeries;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [readout, setReadout] = useState<HTMLDivElement | null>(null);
   const [hiddenKinds, setHiddenKinds] = useState<Set<ChartEvent["kind"]>>(new Set());
   const [eventSearch, setEventSearch] = useState("");
-  const { marks, markers, observations, times, values } = useMemo(() => {
-    const marks = dated(points).map((point) => ({ ...point, value: Number.isFinite(point.value) ? point.value : null }));
+  const { marks, markers, observations, times, values, referenceRange } = useMemo(() => {
+    const valueMarks = dated(points).map((point) => ({ ...point, value: Number.isFinite(point.value) ? point.value : null }));
+    const referenceValues = stepReference(valueMarks.map((mark) => mark.time), reference);
+    const marks = valueMarks.map((mark, index) => ({ ...mark, reference: referenceValues[index] }));
     const markers = dated(events);
     const observations = [...marks, ...markers].sort((a, b) => a.time - b.time);
     return { marks, markers, observations, times: [...new Set(observations.map((item) => item.time))],
-      values: marks.flatMap((mark) => mark.value == null ? [] : [mark.value]) };
-  }, [points, events]);
+      values: marks.flatMap((mark) => mark.value == null ? [] : [mark.value]),
+      referenceRange: referenceValues.filter((value): value is number => value != null) };
+  }, [points, events, reference]);
   const query = eventSearch.trim().toLocaleLowerCase();
   const visibleMarkers = markers.filter((event) => !hiddenKinds.has(event.kind)
     && `${event.label} ${event.detail ?? ""}`.toLocaleLowerCase().includes(query));
@@ -96,8 +114,9 @@ export default function CapturedValueChart({ label, points, events = noEvents, e
   const selected = selection.find((item) => item.id === selectedId) ?? marks.at(-1) ?? observations.at(-1);
   if (!selected) return <p className="text-sm text-muted">No dated observations yet.</p>;
   const [start, end] = [times[0], times.at(-1)!];
-  const min = values.length ? Math.min(...values) : 0;
-  const max = values.length ? Math.max(...values) : 0;
+  const scaled = [...values, ...referenceRange];
+  const min = scaled.length ? Math.min(...scaled) : 0;
+  const max = scaled.length ? Math.max(...scaled) : 0;
   const pad = (max - min || Math.max(Math.abs(max) * 0.02, 1)) * 0.12;
   const yAxis = niceAxis(min - pad, max + pad);
   const bottom = yAxis.domain[0];
@@ -149,6 +168,8 @@ export default function CapturedValueChart({ label, points, events = noEvents, e
             <YAxis width="auto" domain={yAxis.domain} ticks={yAxis.ticks} allowDataOverflow
               tickFormatter={(value) => safeFormatCurrency(value, max - min < 4 ? 2 : 0)}
               tick={{ fill: "var(--color-muted)", fontSize: 12 }} tickLine={false} axisLine={false} />
+            {reference && referenceRange.length > 0 && <Line dataKey="reference" type="stepAfter" stroke="var(--color-muted)" strokeWidth={1.5}
+              strokeDasharray="5 4" dot={false} activeDot={false} connectNulls isAnimationActive={false} />}
             <Line dataKey="value" type="linear" stroke="var(--color-action)" strokeWidth={2} connectNulls={false}
               dot={{ r: 2.5, fill: "var(--color-action)", strokeWidth: 0 }} activeDot={false} isAnimationActive={false} />
             {marks.filter((mark) => mark.value == null).map((mark) => <ReferenceDot key={mark.id} x={mark.time} y={bottom} r={3}
@@ -157,6 +178,10 @@ export default function CapturedValueChart({ label, points, events = noEvents, e
           </LineChart>
         </ResponsiveContainer>
       </div>
+      {reference && referenceRange.length > 0 && <p className="flex flex-wrap items-center gap-x-4 gap-y-1 px-2 pb-1 pt-2 text-xs text-muted">
+        <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block h-0.5 w-4 bg-action" />{label}</span>
+        <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block w-4 border-t border-dashed border-muted" />{reference.label}</span>
+      </p>}
     </div> : <p className="text-sm text-muted">No complete values to plot.</p>}
     {!values.length && timelineControl && <label className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
       <span>Inspect timeline</span>{timelineControl}

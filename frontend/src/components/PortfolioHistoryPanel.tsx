@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { differenceInCalendarDays, subMonths } from "date-fns";
-import { API_BASE, type PortfolioHistory } from "@/lib/api";
+import { API_BASE, apiFetch, type PortfolioBuildPoint, type PortfolioHistory, type PortfolioOverview } from "@/lib/api";
 import { safeFormatSignedCurrency } from "@/lib/formatting";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
 import { PORTFOLIO_HISTORY_REQUEST_TIMEOUT_MS } from "@/lib/request-timeouts";
@@ -18,6 +18,15 @@ export default function PortfolioHistoryPanel() {
   const today = new Date();
   const days = months === null ? 7 : differenceInCalendarDays(today, subMonths(today, months));
   const [metric, setMetric] = useState<"value" | "gain">("value");
+  // Money put in: buys minus sells at cost after each transaction, drawn under holdings value.
+  const [moneyIn, setMoneyIn] = useState<PortfolioBuildPoint[]>([]);
+  useEffect(() => {
+    let active = true;
+    apiFetch<PortfolioOverview>("/portfolio/overview?refresh=false")
+      .then((overview) => { if (active) setMoneyIn(overview.build_series ?? []); })
+      .catch(() => { if (active) setMoneyIn([]); });
+    return () => { active = false; };
+  }, []);
   const [{ history, warning: refreshWarning }, setDisplay] = useState<{ history: PortfolioHistory | null; warning: string }>({ history: null, warning: "" });
   const { read, status } = useWorkspaceReads<"history">();
   const lastAutomaticRefresh = useRef<string | null>(null);
@@ -72,6 +81,7 @@ export default function PortfolioHistoryPanel() {
       </div>
       {history.reasons.length > 0 && <p className="text-sm text-amber-400">{history.reasons.join(" ")}</p>}
       <CapturedValueChart label={metric === "value" ? "Holdings value" : "Holdings gain and loss"} eventsLabel="Portfolio activity" collapseEvents
+        reference={metric === "value" && moneyIn.length ? { label: "Money put in (buys minus sells, at cost)", points: moneyIn.map((point) => ({ at: point.as_of, value: point.net_capital_deployed })) } : undefined}
         points={history.points.map((point) => ({
           id: point.at, at: point.at, value: metric === "value" ? point.value : point.gain,
           detail: [
