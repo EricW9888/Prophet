@@ -365,25 +365,6 @@ export default function TimelinePage() {
     }
   }
 
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case "event":
-        return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-blue-200 dark:border-blue-800";
-      case "fact":
-        return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800";
-      case "claim":
-        return "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border-amber-200 dark:border-amber-800";
-      default:
-        return "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300";
-    }
-  };
-
-  const getSignalTone = (score: number) => {
-    if (score >= 0.85) return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300";
-    if (score >= 0.6) return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-300";
-    return "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300";
-  };
-
   const describeWhyItMatters = (item: TimelineItem) => {
     const parts = [
       item.importance ? `${item.importance} importance` : null,
@@ -394,13 +375,6 @@ export default function TimelinePage() {
         : null,
     ].filter(Boolean);
     return parts.join(" · ") || "recent connected knowledge";
-  };
-
-  const temporalTone = (status: string) => {
-    if (status === "current") return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200";
-    if (status === "scheduled") return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-200";
-    if (status === "outcome_due") return "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200";
-    return "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300";
   };
 
   const outcomeLabel = (status?: string | null) => {
@@ -480,7 +454,7 @@ export default function TimelinePage() {
 
           <section className="border-y border-slate-200 py-3 dark:border-slate-800">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex w-full rounded border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-950 sm:w-auto">
+              <div className="flex w-full shrink-0 rounded border border-line bg-panel-muted p-1 sm:w-auto">
                 {([
                   ["attention", "Needs attention"],
                   ["history", "History & outcomes"],
@@ -490,7 +464,7 @@ export default function TimelinePage() {
                     key={mode}
                     type="button"
                     onClick={() => setFeedMode(mode)}
-                    className={`min-w-0 flex-1 rounded px-3 py-2 text-xs font-semibold sm:flex-none ${
+                    className={`flex-1 whitespace-nowrap rounded px-3 py-2 text-xs font-semibold sm:flex-none ${
                       feedMode === mode
                         ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950"
                         : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
@@ -500,7 +474,7 @@ export default function TimelinePage() {
                   </button>
                 ))}
               </div>
-              <p className="text-xs leading-relaxed text-muted sm:max-w-md sm:text-right">
+              <p className="min-w-0 text-xs leading-relaxed text-muted sm:max-w-md sm:text-right">
                 Old evidence is retained for outcome learning and historical comparison, but ingestion time is never presented as when it happened.
               </p>
             </div>
@@ -508,7 +482,7 @@ export default function TimelinePage() {
 
           {error ? <WorkspaceState kind="error" title="The requested action could not complete" description={error} compact /> : null}
           {feedError && feedLoaded ? <WorkspaceState kind="degraded" title="Some Monitor information is unavailable" description={`${feedError} The last successfully loaded feed remains visible below.`} actionLabel="Retry refresh" onAction={() => void loadTimeline()} compact /> : null}
-          <section className="relative border-l border-line ml-3 md:ml-4 space-y-8 py-4">
+          <section className="relative ml-3 space-y-4 border-l border-line py-4 md:ml-4">
             {loading ? (
               <div className="ml-6"><WorkspaceSkeleton label="Loading Monitor" rows={4} /></div>
             ) : feedError && !feedLoaded ? (
@@ -522,88 +496,83 @@ export default function TimelinePage() {
                     : "No evidence has been processed yet."}
               </div>
             ) : (
-              visibleItems.map((item) => (
-                <div key={item.id} className="relative pl-8 md:pl-10 group">
-                  <div className="absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full ring-4 ring-slate-50 dark:ring-[#0a0a0a] bg-sky-500 group-hover:bg-sky-400 transition-colors" />
-                  <div className="flex flex-col gap-2">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <span className={`px-2 py-0.5 text-xs font-semibold uppercase tracking-wider rounded-md border ${getTypeColor(item.item_type)}`}>
-                        {item.item_type}
-                      </span>
-                      <time className="text-xs text-slate-400 font-medium font-mono">
-                        {item.display_time_label} {item.display_time_label === "claim reference date" ? formatCalendarDate(item.display_time) : formatDateTime(item.display_time || item.created_at)}
-                      </time>
-                      {item.display_time !== item.created_at ? (
-                        <span className="text-xs text-slate-400">
-                          recorded {formatDateTime(item.created_at)}
-                        </span>
+              visibleItems.map((item) => {
+                const when = item.display_time_label === "claim reference date"
+                  ? formatCalendarDate(item.display_time)
+                  : formatDateTime(item.display_time || item.created_at);
+                const sources = item.sources ?? [];
+                const primary = sources[0];
+                const status = item.temporal_status === "outcome_due" && item.outcome_status !== "pending"
+                  ? "past target"
+                  : item.temporal_status.replaceAll("_", " ");
+                const outcome = outcomeLabel(item.outcome_status);
+                return (
+                  <article key={item.id} className={`relative ml-6 border bg-panel p-4 md:ml-8 ${
+                    selectedNodeKey === `${item.item_type}:${item.id}` ? "border-action" : "border-line"
+                  }`}>
+                    <span aria-hidden="true" className="absolute -left-[29px] top-5 h-2.5 w-2.5 rounded-full bg-action md:-left-[37px]" />
+                    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                      <span className="font-semibold text-foreground first-letter:uppercase">{item.item_type}</span>
+                      {item.subject_name ? <span>about <span className="text-action">{item.subject_name}</span></span> : null}
+                      <span aria-hidden="true">·</span>
+                      <time title={`${item.display_time_label}; recorded ${formatDateTime(item.created_at)}`}>{item.display_time_label} {when}</time>
+                      {primary || item.source_name ? <><span aria-hidden="true">·</span><span>{primary?.source_name ?? item.source_name}</span></> : null}
+                      {item.temporal_status !== "current" ? (
+                        <span className={`border px-1.5 py-0.5 first-letter:uppercase ${item.temporal_status === "outcome_due" ? "border-caution text-caution" : "border-line"}`}>{status}</span>
                       ) : null}
-                      {item.subject_name ? (
-                        <span className="text-xs text-slate-400">about {item.subject_name}</span>
-                      ) : null}
-                      <span className={`rounded border px-2 py-0.5 text-xs font-semibold uppercase tracking-wider ${temporalTone(item.temporal_status)}`}>
-                        {item.temporal_status === "outcome_due" && item.outcome_status !== "pending" ? "past target" : item.temporal_status.replaceAll("_", " ")}
-                      </span>
+                    </p>
+                    <p className="mt-2 font-medium leading-relaxed text-foreground">{item.text}</p>
+                    <p className="mt-1 text-xs text-muted">{describeWhyItMatters(item)}</p>
+                    {outcome ? <p className="mt-2 text-sm text-caution">{outcome}</p> : null}
+                    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+                      {primary ? (
+                        <SourceProvenanceLinks
+                          evidenceId={primary.raw_evidence_id}
+                          sourceName={primary.source_name}
+                          sourceType={primary.source_type}
+                          url={primary.url}
+                          urlKind={primary.url_kind}
+                          compact
+                          showUnavailable
+                        />
+                      ) : !item.source_name ? <span className="text-xs text-muted">No source receipt attached</span> : null}
+                      <button type="button" onClick={() => void openNode(item.item_type, item.id)} className="text-xs font-medium text-action hover:underline">
+                        Inspect connections
+                      </button>
                     </div>
-                    <article
-                      className={`w-full rounded-lg border bg-white text-left transition-colors dark:border-slate-800 dark:bg-slate-950 ${
-                        selectedNodeKey === `${item.item_type}:${item.id}` ? "border-sky-400 dark:border-sky-600" : "border-slate-200"
-                      }`}
-                    >
-                      <div className="p-5">
-                        <div className="mb-3 flex flex-wrap items-center gap-2">
-                          <span className={`rounded-none border px-2.5 py-1 text-xs font-semibold uppercase tracking-wider ${getSignalTone(item.signal_score)}`}>
-                            {scoreLabel(item)} {item.signal_score.toFixed(2)}
-                          </span>
-                          <span className="text-xs text-muted">
-                            {describeWhyItMatters(item)}
-                          </span>
-                          {item.subject_name ? (
-                            <span className="text-xs font-medium text-action">
-                              {item.subject_name}
-                            </span>
-                          ) : null}
+                    <DeferredDisclosure className="mt-3 border-t border-line pt-2" title={<span className="text-xs text-muted">Details</span>}>
+                      <dl className="grid gap-3 text-xs sm:grid-cols-2">
+                        <div>
+                          <dt className="font-semibold text-muted">Time context</dt>
+                          <dd className="mt-1 leading-relaxed text-muted">{item.temporal_explanation}</dd>
+                          {item.display_time !== item.created_at ? <dd className="mt-1 text-muted">Recorded {formatDateTime(item.created_at)}</dd> : null}
+                          {item.item_type === "claim" && item.valid_until ? <dd className="mt-1 text-muted">Target date: {formatCalendarDate(item.valid_until)}</dd> : null}
                         </div>
-                        <p className="font-medium leading-relaxed text-foreground">{item.text}</p>
-                        <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 text-xs dark:border-slate-800/60 sm:grid-cols-2">
+                        <div>
+                          <dt className="font-semibold text-muted first-letter:uppercase">{scoreLabel(item)}</dt>
+                          <dd className="mt-1 tabular-nums text-foreground">{item.signal_score.toFixed(2)}</dd>
+                        </div>
+                        {outcome ? (
                           <div>
-                            <div className="font-semibold uppercase tracking-wider text-slate-400">Time context</div>
-                            <p className="mt-1 leading-relaxed text-muted">{item.temporal_explanation}</p>
-                            {item.item_type === "claim" && item.valid_until ? (
-                              <p className="mt-1 text-muted">Target date: {formatCalendarDate(item.valid_until)}</p>
+                            <dt className="font-semibold text-muted">Outcome</dt>
+                            <dd className="mt-1 text-foreground">{outcome}</dd>
+                            {item.outcome_assessed_at ? (
+                              <dd className="mt-1 text-muted">Assessed {formatDateTime(item.outcome_assessed_at)}</dd>
+                            ) : item.outcome_next_review_at || item.outcome_due_at ? (
+                              <dd className="mt-1 text-muted">
+                                {item.outcome_status === "retry_scheduled" ? "Recheck from" : item.outcome_status === "scheduled" ? "Review available from" : "Review eligible since"} {formatDateTime(item.outcome_next_review_at ?? item.outcome_due_at)}
+                              </dd>
                             ) : null}
+                            {item.outcome_notes ? <dd className="mt-1 leading-relaxed text-muted">{item.outcome_notes}</dd> : null}
                           </div>
-                          {outcomeLabel(item.outcome_status) ? (
-                            <div className="border-l-2 border-amber-300 pl-3 dark:border-amber-700">
-                              <div className="font-semibold uppercase tracking-wider text-caution">Learning loop</div>
-                              <p className="mt-1 font-medium text-foreground">{outcomeLabel(item.outcome_status)}</p>
-                              {item.outcome_assessed_at ? (
-                                <p className="mt-1 text-slate-400">Assessed {formatDateTime(item.outcome_assessed_at)}</p>
-                              ) : item.outcome_next_review_at || item.outcome_due_at ? (
-                                <p className="mt-1 text-slate-400">
-                                  {item.outcome_status === "retry_scheduled" ? "Recheck from" : item.outcome_status === "scheduled" ? "Review available from" : "Review eligible since"} {formatDateTime(item.outcome_next_review_at ?? item.outcome_due_at)}
-                                </p>
-                              ) : null}
-                              {item.outcome_notes ? (
-                                <p className="mt-2 leading-relaxed text-muted">
-                                  {item.outcome_notes}
-                                </p>
-                              ) : null}
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-3 border-t border-slate-100 px-5 py-3 dark:border-slate-800/60 sm:flex-row sm:items-end sm:justify-between">
-                        <div className="min-w-0 space-y-2">
-                          {(item.sources ?? []).length > 0 ? (
-                            (item.sources ?? []).slice(0, 3).map((source) => (
-                              <div key={source.raw_evidence_id} className="min-w-0">
-                                <div className="mb-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted">
-                                  <span className="truncate font-medium text-foreground">{source.source_name}</span>
-                                  <span className="rounded border border-slate-200 px-1.5 py-0.5 uppercase tracking-wider dark:border-slate-700">
-                                    {source.origin_label ?? source.source_type.replaceAll("_", " ")}
-                                  </span>
-                                </div>
+                        ) : null}
+                        {sources.length ? (
+                          <div className="sm:col-span-2">
+                            <dt className="font-semibold text-muted">Sources</dt>
+                            {sources.slice(0, 3).map((source) => (
+                              <dd key={source.raw_evidence_id} className="mt-2 min-w-0">
+                                <span className="font-medium text-foreground">{source.source_name}</span>
+                                <span className="text-muted"> · {source.origin_label ?? source.source_type.replaceAll("_", " ")}</span>
                                 <SourceProvenanceLinks
                                   evidenceId={source.raw_evidence_id}
                                   sourceName={source.source_name}
@@ -613,26 +582,15 @@ export default function TimelinePage() {
                                   compact
                                   showUnavailable
                                 />
-                              </div>
-                            ))
-                          ) : item.source_name ? (
-                            <span className="text-xs text-muted">Source: {item.source_name}</span>
-                          ) : (
-                            <span className="text-xs text-slate-400">No source receipt attached</span>
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => void openNode(item.item_type, item.id)}
-                          className="shrink-0 rounded border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:border-sky-400 hover:text-sky-700 dark:border-slate-700 dark:text-slate-200 dark:hover:border-sky-600 dark:hover:text-sky-300"
-                        >
-                          Inspect connections
-                        </button>
-                      </div>
-                    </article>
-                  </div>
-                </div>
-              ))
+                              </dd>
+                            ))}
+                          </div>
+                        ) : null}
+                      </dl>
+                    </DeferredDisclosure>
+                  </article>
+                );
+              })
             )}
           </section>
         </section>
