@@ -8,7 +8,11 @@ export type PositionRow = {
   costBasis: number | null;
   gainPct: number | null;
   weightPct: number | null;
-  /** True when the quote is missing or not from the same calendar day as `now`. */
+  /**
+   * True when the quote is missing, or older than the table's newest quote by a
+   * calendar day: a price that lags the others. Overnight, when every quote is
+   * from the last close, nothing is marked; the table's "as of" time says it.
+   */
   stale: boolean;
 };
 
@@ -25,6 +29,7 @@ function sameLocalDay(a: Date, b: Date): boolean {
  * `weightPct` is a share of holdings value; recorded cash is not in the denominator.
  */
 export function buildPositionRows(holdings: Position[], now: Date = new Date()): PositionRow[] {
+  const reference = latestQuoteTime(holdings) ?? now;
   const total = holdings.reduce((sum, item) => sum + (finite(item.market_value) ?? 0), 0);
   return holdings.map((position) => {
     const quantity = finite(position.quantity);
@@ -39,7 +44,7 @@ export function buildPositionRows(holdings: Position[], now: Date = new Date()):
       costBasis,
       gainPct: gain != null && costBasis ? (gain / Math.abs(costBasis)) * 100 : null,
       weightPct: value != null && total > 0 ? (value / total) * 100 : null,
-      stale: !ready || (quotedAt != null && !Number.isNaN(quotedAt.getTime()) && !sameLocalDay(quotedAt, now)),
+      stale: !ready || (quotedAt != null && !Number.isNaN(quotedAt.getTime()) && !sameLocalDay(quotedAt, reference)),
     };
   });
 }

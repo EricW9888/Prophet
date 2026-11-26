@@ -191,7 +191,7 @@ function HoldingsTable({ holdings }: { holdings: Position[] }) {
     <div className="mt-6">
       <p className="text-xs text-muted">
         {asOf ? `Prices as of ${asOf.toLocaleString()}` : "No current prices recorded"}
-        {staleCount ? ` · ${staleCount} marked * are not from today` : ""}
+        {staleCount ? ` · ${staleCount} marked * are older than the rest or missing` : ""}
       </p>
       <div className="mt-2 max-w-full overflow-x-auto">
         <table className="w-full min-w-[720px] text-sm">
