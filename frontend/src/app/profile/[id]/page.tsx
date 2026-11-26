@@ -55,7 +55,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
       case "bearish":
         return "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800/50";
       default:
-        return "text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700";
+        return "text-muted bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700";
     }
   };
 
@@ -81,7 +81,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
     <div className="min-h-screen bg-background text-foreground font-sans pb-20">
       <AppNav active="research" />
 
-      <header className="workspace-frame pt-8 pb-5 border-b border-slate-200 dark:border-slate-800">
+      <header className="workspace-frame pt-8 pb-5 border-b border-line">
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
           <div className="space-y-2">
             <div className="flex items-center gap-3">
@@ -89,7 +89,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                 {profile.subject_type} PROFILE
               </span>
             </div>
-            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-slate-900 dark:text-white">{profile.subject_name}</h1>
+            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-foreground">{profile.subject_name}</h1>
             <div className="flex flex-wrap gap-3 pt-2 text-sm">
               <Link href={researchHref(profile, `Review the current view on ${profile.subject_name}. What changed, what evidence contradicts it, and what should I check next?`)} className="rounded border border-line px-3 py-2 text-action">Research this subject</Link>
               <Link href={`/verification?${new URLSearchParams({ subject_id: profile.subject_id, subject_type: profile.subject_type, subject_name: profile.subject_name })}#manual-challenge`} className="rounded border border-line px-3 py-2 text-action">Prepare a challenge</Link>
@@ -102,10 +102,10 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
               <span className="text-xl font-bold uppercase tracking-tight leading-none">{profile.current_stance ?? "no_view"}</span>
               <span className="text-xs font-medium mt-2 opacity-80">Confidence: {profile.confidence_band ?? "unknown"}</span>
             </div>
-            <div className="flex flex-col p-3 bg-white dark:bg-[#111] border border-slate-200 dark:border-slate-800 rounded-lg min-w-[140px]">
+            <div className="flex flex-col p-3 bg-white dark:bg-[#111] border border-line rounded-lg min-w-[140px]">
               <span className="text-xs uppercase font-bold tracking-wider text-slate-500 mb-1">Coverage Score</span>
               <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white leading-none">{profile.coverage_score == null ? "Not assessed" : profile.coverage_score.toFixed(1)}</span>
+                <span className="text-2xl font-bold tracking-tight text-foreground leading-none">{profile.coverage_score == null ? "Not assessed" : profile.coverage_score.toFixed(1)}</span>
                 {profile.coverage_score != null && <span className="text-sm text-slate-400">/ 100</span>}
               </div>
             </div>
@@ -115,9 +115,9 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
 
       <main className="workspace-frame py-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-8">
-          <section className="bg-white dark:bg-[#111] border border-slate-200 dark:border-slate-800 rounded-lg p-6">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-4">Core Conclusion State</h2>
-            <p className="text-lg md:text-xl font-medium text-slate-900 dark:text-slate-100 leading-snug">
+          <section className="bg-white dark:bg-[#111] border border-line rounded-lg p-6">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-muted mb-4">Core Conclusion State</h2>
+            <p className="text-lg md:text-xl font-medium text-foreground leading-snug">
               {profile.current_thesis_summary ?? profile.executive_summary ?? "No current conclusion state yet."}
             </p>
           </section>
@@ -127,15 +127,15 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
               {profile.fundamental_metrics?.length ? (
                 <div className="px-6 py-6">
                   <div className="mb-4 flex items-start gap-3">
-                    <Gauge className="mt-0.5 h-5 w-5 text-sky-600 dark:text-sky-400" aria-hidden="true" />
+                    <Gauge className="mt-0.5 h-5 w-5 text-action" aria-hidden="true" />
                     <div>
-                      <h2 className="text-sm font-bold uppercase text-slate-600 dark:text-slate-300">Fundamentals & Valuation</h2>
-                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                      <h2 className="text-sm font-bold uppercase text-muted">Fundamentals & Valuation</h2>
+                      <p className="mt-1 text-sm text-muted">
                         Source-dated measurements tied to this profile. Stale and contradictory values remain visible for review.
                       </p>
                     </div>
                   </div>
-                  <div className="divide-y divide-slate-200 dark:divide-slate-800">
+                  <div className="divide-y divide-line">
                     {profile.fundamental_metrics.map((metric) => (
                       <article key={metric.id} className="grid gap-3 py-4 first:pt-0 md:grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)]">
                         <div>
@@ -145,14 +145,14 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                               {metric.metric_family.replaceAll("_", " ")}
                             </span>
                           </div>
-                          <p className="mt-2 text-lg font-semibold text-slate-900 dark:text-slate-100">{metricDisplay(metric)}</p>
+                          <p className="mt-2 text-lg font-semibold text-foreground">{metricDisplay(metric)}</p>
                           <p className="mt-1 text-xs text-slate-500">
                             {[metric.ticker, metric.period_label, compactDate(metric.as_of ?? metric.public_time)].filter(Boolean).join(" · ")}
                           </p>
                         </div>
-                        <div className="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+                        <div className="text-sm leading-relaxed text-foreground">
                           <p>{metric.investment_relevance ?? "Investment relevance has not been recorded yet."}</p>
-                          {metric.next_test ? <p className="mt-2 text-slate-500 dark:text-slate-400">Next check: {metric.next_test}</p> : null}
+                          {metric.next_test ? <p className="mt-2 text-muted">Next check: {metric.next_test}</p> : null}
                           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                             <span>{metric.freshness_status?.replaceAll("_", " ") ?? "freshness unscored"}</span>
                             <span aria-hidden="true">·</span>
@@ -175,13 +175,13 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                   <div className="mb-4 flex items-start gap-3">
                     <Activity className="mt-0.5 h-5 w-5 text-amber-600 dark:text-amber-400" aria-hidden="true" />
                     <div>
-                      <h2 className="text-sm font-bold uppercase text-slate-600 dark:text-slate-300">Market Setup & Expectations</h2>
-                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                      <h2 className="text-sm font-bold uppercase text-muted">Market Setup & Expectations</h2>
+                      <p className="mt-1 text-sm text-muted">
                         What investors appeared to expect, what occurred, and the evidence still needed to score the signal.
                       </p>
                     </div>
                   </div>
-                  <div className="divide-y divide-slate-200 dark:divide-slate-800">
+                  <div className="divide-y divide-line">
                     {profile.market_setup_signals.map((signal) => (
                       <article key={signal.id} className="py-4 first:pt-0">
                         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -196,14 +196,14 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                           </span>
                         </div>
                         <div className="mt-3 grid gap-3 text-sm leading-relaxed md:grid-cols-2">
-                          <p className="text-slate-800 dark:text-slate-200">{signal.setup_context ?? "Setup context was not recorded."}</p>
-                          <p className="text-slate-600 dark:text-slate-400">
+                          <p className="text-foreground">{signal.setup_context ?? "Setup context was not recorded."}</p>
+                          <p className="text-muted">
                             {signal.actual_context ?? signal.price_reaction ?? signal.investment_relevance ?? "The later result has not been scored yet."}
                           </p>
                         </div>
                         {signal.outcome_status === "unscored" && signal.outcome_assessment_attempt ? (
                           <div className="mt-3 border-l-2 border-amber-300 pl-3 text-xs text-slate-600 dark:border-amber-700 dark:text-slate-400">
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-medium text-slate-800 dark:text-slate-200">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-medium text-foreground">
                               <span className="inline-flex items-center gap-1">
                                 <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
                                 Outcome review deferred
@@ -215,7 +215,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                                   : ""}
                               </span>
                               {signal.outcome_assessment_attempt.research_followup?.started ? (
-                                <span className="inline-flex items-center gap-1 text-sky-700 dark:text-sky-300">
+                                <span className="inline-flex items-center gap-1 text-action-strong">
                                   <SearchCheck className="h-3.5 w-3.5" aria-hidden="true" />
                                   Follow-up research started
                                 </span>
@@ -228,7 +228,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                             </p>
                           </div>
                         ) : null}
-                        {signal.next_test ? <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Next check: {signal.next_test}</p> : null}
+                        {signal.next_test ? <p className="mt-2 text-sm text-muted">Next check: {signal.next_test}</p> : null}
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                           <span>{signal.source_name ?? signal.source_type ?? "source unavailable"}</span>
                           {signal.url ? (
@@ -246,20 +246,20 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
           ) : null}
 
           {profile.historical_analogy_lenses.length ? (
-            <section className="bg-white dark:bg-[#111] border border-slate-200 dark:border-slate-800 rounded-lg p-6">
+            <section className="bg-white dark:bg-[#111] border border-line rounded-lg p-6">
               <div className="flex items-start justify-between gap-4 mb-5">
                 <div>
-                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Historical Rhyme</h2>
-                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Historical Rhyme</h2>
+                  <p className="mt-1 text-sm text-muted">
                     Causal analogies to test against current evidence, not predictions.
                   </p>
                 </div>
               </div>
               <div className="space-y-4">
                 {profile.historical_analogy_lenses.map((lens) => (
-                  <article key={`${lens.name}-${lens.period ?? "period"}`} className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
+                  <article key={`${lens.name}-${lens.period ?? "period"}`} className="rounded-lg border border-line p-4">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-base font-bold text-slate-900 dark:text-white">{lens.name}</h3>
+                      <h3 className="text-base font-bold text-foreground">{lens.name}</h3>
                       {lens.period ? (
                         <span className="rounded-none bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500 dark:bg-slate-900 dark:text-slate-400">
                           {lens.period}
@@ -267,38 +267,38 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                       ) : null}
                     </div>
                     {lens.what_rhymes ? (
-                      <p className="mt-3 text-sm leading-relaxed text-slate-800 dark:text-slate-200">{lens.what_rhymes}</p>
+                      <p className="mt-3 text-sm leading-relaxed text-foreground">{lens.what_rhymes}</p>
                     ) : null}
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                       {lens.dominant_channel_test ? (
                         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
-                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Channel To Test</p>
-                          <p className="mt-1 text-sm text-slate-800 dark:text-slate-200">{lens.dominant_channel_test}</p>
+                          <p className="text-xs font-bold uppercase tracking-wider text-muted">Channel To Test</p>
+                          <p className="mt-1 text-sm text-foreground">{lens.dominant_channel_test}</p>
                         </div>
                       ) : null}
                       {lens.where_analogy_breaks ? (
                         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
-                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Break Condition</p>
-                          <p className="mt-1 text-sm text-slate-800 dark:text-slate-200">{lens.where_analogy_breaks}</p>
+                          <p className="text-xs font-bold uppercase tracking-wider text-muted">Break Condition</p>
+                          <p className="mt-1 text-sm text-foreground">{lens.where_analogy_breaks}</p>
                         </div>
                       ) : null}
                       {lens.portfolio_transmission ? (
                         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
-                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Portfolio Route</p>
-                          <p className="mt-1 text-sm text-slate-800 dark:text-slate-200">{lens.portfolio_transmission}</p>
+                          <p className="text-xs font-bold uppercase tracking-wider text-muted">Portfolio Route</p>
+                          <p className="mt-1 text-sm text-foreground">{lens.portfolio_transmission}</p>
                         </div>
                       ) : null}
                       {lens.best_next_check ? (
                         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
-                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Best Next Check</p>
-                          <p className="mt-1 text-sm text-slate-800 dark:text-slate-200">{lens.best_next_check}</p>
+                          <p className="text-xs font-bold uppercase tracking-wider text-muted">Best Next Check</p>
+                          <p className="mt-1 text-sm text-foreground">{lens.best_next_check}</p>
                         </div>
                       ) : null}
                     </div>
                     {lens.investor_questions.length ? (
                       <ul className="mt-4 space-y-2">
                         {lens.investor_questions.slice(0, 3).map((question) => (
-                          <li key={question} className="text-sm text-slate-700 dark:text-slate-300">
+                          <li key={question} className="text-sm text-foreground">
                             <span className="mr-2 text-slate-400">•</span>
                             {question}
                           </li>
@@ -319,22 +319,22 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                   <span className="flex-shrink-0 w-5 h-5 rounded-full bg-red-100 dark:bg-red-900/50 flex items-center justify-center mt-0.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-red-600 dark:bg-red-400"></span>
                   </span>
-                  <span className="text-slate-800 dark:text-slate-200">{item}</span>
+                  <span className="text-foreground">{item}</span>
                 </li>
               )) : <li className="text-sm text-slate-500">No falsifiers recorded yet.</li>}
             </ul>
           </section>
 
-          <section className="border border-slate-200 dark:border-slate-800 rounded-lg p-6 bg-white dark:bg-[#111]">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-4">Recent Evidence</h2>
+          <section className="border border-line rounded-lg p-6 bg-white dark:bg-[#111]">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-muted mb-4">Recent Evidence</h2>
             <div className="space-y-3">
               {profile.recent_evidence.map((item) => (
-                <div key={item.id} className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
+                <div key={item.id} className="rounded-lg border border-line p-4">
                   <div className="flex items-center justify-between gap-4">
                     <span className="text-xs uppercase tracking-wider text-slate-400">{item.node_type}</span>
                     <span className="text-xs font-mono text-slate-400">{item.tier ?? "unknown"}</span>
                   </div>
-                  <p className="mt-2 text-sm text-slate-800 dark:text-slate-200">{item.text}</p>
+                  <p className="mt-2 text-sm text-foreground">{item.text}</p>
                   {item.source_evidence_id ? <Link href={`/sources/evidence/${item.source_evidence_id}`} className="mt-3 inline-block text-xs text-action hover:underline">Inspect original receipt and source dates</Link> : <p className="mt-3 text-xs text-muted">No original receipt is linked to this node.</p>}
                 </div>
               ))}
@@ -343,8 +343,8 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
         </div>
 
         <div className="space-y-6">
-          <section className="bg-white dark:bg-[#111] border border-slate-200 dark:border-slate-800 rounded-lg p-6">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-5 border-b border-slate-100 dark:border-slate-800 pb-2">Coverage Audit</h3>
+          <section className="bg-white dark:bg-[#111] border border-line rounded-lg p-6">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-muted mb-5 border-b border-slate-100 dark:border-slate-800 pb-2">Coverage Audit</h3>
             <div className="space-y-4">
               <div>
                 <span className="text-xs text-slate-500 block mb-1">Missing Evidence Classes</span>
@@ -362,7 +362,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                   {profile.unresolved_questions.map((item) => (
                     <div key={item.id}>
                       <p className="text-sm text-slate-800 dark:text-slate-300">{item.question_text}</p>
-                      <div className="mt-1 text-xs text-sky-600 dark:text-sky-400 font-mono">
+                      <div className="mt-1 text-xs text-action font-mono">
                         Status: {item.status.replaceAll("_", " ")} · Urgency: {item.urgency}
                       </div>
                       <div className="mt-1 text-xs text-slate-500">
@@ -376,8 +376,8 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
             </div>
           </section>
 
-          <section className="bg-white dark:bg-[#111] border border-slate-200 dark:border-slate-800 rounded-lg p-6">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-4 border-b border-slate-100 dark:border-slate-800 pb-2">Narrative Split</h3>
+          <section className="bg-white dark:bg-[#111] border border-line rounded-lg p-6">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-muted mb-4 border-b border-slate-100 dark:border-slate-800 pb-2">Narrative Split</h3>
             <div className="space-y-4 text-sm">
               <div>
                 <p className="text-xs uppercase tracking-wider text-slate-400 mb-1">Bull Case</p>
@@ -388,7 +388,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                 <p>{profile.bear_case ?? "Not set yet."}</p>
               </div>
             </div>
-            <Link href={researchHref(profile, `Challenge the bull and bear cases for ${profile.subject_name}. Which original evidence would change the current view?`)} className="mt-6 block w-full py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-center text-slate-900 dark:text-white rounded-lg text-sm font-medium transition-colors border border-slate-200 dark:border-slate-700">
+            <Link href={researchHref(profile, `Challenge the bull and bear cases for ${profile.subject_name}. Which original evidence would change the current view?`)} className="mt-6 block w-full py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-center text-foreground rounded-lg text-sm font-medium transition-colors border border-slate-200 dark:border-slate-700">
               Investigate the opposing case
             </Link>
           </section>

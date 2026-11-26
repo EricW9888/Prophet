@@ -96,7 +96,7 @@ function EvidenceItem({ item, index }: { item: Record<string, unknown>; index: n
   return (
     <li className="min-w-0 border-l-2 border-slate-200 pl-3 dark:border-slate-700">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <p className="min-w-0 break-words text-sm font-medium text-slate-900 dark:text-slate-100">{title}</p>
+        <p className="min-w-0 break-words text-sm font-medium text-foreground">{title}</p>
         {url ? (
           <a
             href={url}
@@ -408,7 +408,7 @@ export default function OpportunitiesPage() {
           ].map(([label, value]) => (
             <div key={label} className="bg-panel-muted px-4 py-4">
               <p className="text-xs font-semibold uppercase text-slate-400">{label}</p>
-              <p className="mt-1 break-words text-sm font-semibold text-slate-900 dark:text-slate-100">{value}</p>
+              <p className="mt-1 break-words text-sm font-semibold text-foreground">{value}</p>
             </div>
           ))}
         </section>
@@ -503,7 +503,7 @@ export default function OpportunitiesPage() {
                         </span>
                         {candidate.signal_stage ? <span className="text-xs text-slate-400">{displayValue(candidate.signal_stage)}</span> : null}
                       </div>
-                      <p className="mt-3 line-clamp-2 break-words text-xs leading-5 text-slate-500 dark:text-slate-400">{candidate.why_now}</p>
+                      <p className="mt-3 line-clamp-2 break-words text-xs leading-5 text-muted">{candidate.why_now}</p>
                     </button>
                   ))
                 )}
@@ -536,19 +536,19 @@ export default function OpportunitiesPage() {
                   <div className="grid gap-6 lg:grid-cols-2">
                     <section className="min-w-0">
                       <h3 className="text-xs font-semibold uppercase text-slate-400">Why now</h3>
-                      <p className="mt-2 break-words text-sm leading-6 text-slate-700 dark:text-slate-200">{selected.why_now}</p>
+                      <p className="mt-2 break-words text-sm leading-6 text-foreground">{selected.why_now}</p>
                     </section>
                     <section className="min-w-0">
                       <h3 className="text-xs font-semibold uppercase text-slate-400">Investable thesis</h3>
-                      <p className="mt-2 break-words text-sm leading-6 text-slate-700 dark:text-slate-200">{selected.investable_thesis}</p>
+                      <p className="mt-2 break-words text-sm leading-6 text-foreground">{selected.investable_thesis}</p>
                     </section>
                     <section className="min-w-0">
                       <h3 className="text-xs font-semibold uppercase text-slate-400">Portfolio transmission</h3>
-                      <p className="mt-2 break-words text-sm leading-6 text-slate-700 dark:text-slate-200">{selected.portfolio_transmission}</p>
+                      <p className="mt-2 break-words text-sm leading-6 text-foreground">{selected.portfolio_transmission}</p>
                     </section>
                     <section className="min-w-0">
                       <h3 className="text-xs font-semibold uppercase text-slate-400">Expected edge</h3>
-                      <p className="mt-2 break-words text-sm leading-6 text-slate-700 dark:text-slate-200">{selected.expected_edge}</p>
+                      <p className="mt-2 break-words text-sm leading-6 text-foreground">{selected.expected_edge}</p>
                     </section>
                   </div>
 
@@ -627,7 +627,7 @@ export default function OpportunitiesPage() {
                 <p className="mt-2 text-xs leading-5 text-slate-500">
                   Preview eligible active equities and ETFs from durable Prophet state, then import one source at a time. Imports are additive and never remove, re-enable, or reprioritize existing members.
                 </p>
-                <div className="mt-4 divide-y divide-slate-200 dark:divide-slate-800">
+                <div className="mt-4 divide-y divide-line">
                   {importPreview?.source_summaries.map((source) => (
                     <div key={source.source_type} className="py-3 first:pt-0 last:pb-0">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -659,7 +659,7 @@ export default function OpportunitiesPage() {
                             .map((candidate) => (
                               <div key={`${source.source_type}-${candidate.security_id}`} className="flex items-baseline justify-between gap-3 py-1.5">
                                 <p className="min-w-0 truncate">
-                                  <span className="font-semibold text-slate-800 dark:text-slate-200">{candidate.ticker}</span>
+                                  <span className="font-semibold text-foreground">{candidate.ticker}</span>
                                   <span className="ml-2 text-slate-500">{candidate.entity_name}</span>
                                 </p>
                                 <span className="shrink-0 text-slate-400">
@@ -714,7 +714,7 @@ export default function OpportunitiesPage() {
                 <div className="min-w-0"><h2 className="text-lg font-semibold">Investable universe</h2><p className="mt-1 break-words text-sm text-slate-500">This list is the explicit boundary of discovery coverage.</p></div>
                 <span className="text-xs text-slate-400">{dueCount} due</span>
               </div>
-              <div className="divide-y divide-slate-200 dark:divide-slate-800">
+              <div className="divide-y divide-line">
                 {universe.map((member) => (
                   <div key={member.id} className="grid gap-4 py-4 sm:grid-cols-[minmax(0,1fr)_160px_auto] sm:items-center">
                     <div className="min-w-0">
@@ -743,7 +743,7 @@ export default function OpportunitiesPage() {
               <h2 className="text-lg font-semibold">Run history</h2>
               <p className="mt-1 text-sm text-slate-500">Point-in-time coverage, provider attempts, skips, failures, and the exact limits used.</p>
             </div>
-            <div className="divide-y divide-slate-200 dark:divide-slate-800">
+            <div className="divide-y divide-line">
               {runs.map((run) => {
                 const expanded = expandedRun === run.id;
                 return (
@@ -780,7 +780,7 @@ function ListSection({ title, items, tone }: { title: string; items: string[]; t
   return (
     <section>
       <h3 className={`text-xs font-semibold uppercase ${tone === "warning" ? "text-amber-600 dark:text-amber-400" : "text-slate-400"}`}>{title}</h3>
-      {items.length ? <ul className="mt-3 space-y-2 text-sm text-slate-700 dark:text-slate-200">{items.map((item, index) => <li key={`${item}-${index}`} className="flex min-w-0 gap-2">{tone === "warning" ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" /> : <CircleDot className="mt-1 h-3 w-3 shrink-0 text-slate-400" />}<span className="min-w-0 break-words">{item}</span></li>)}</ul> : <p className="mt-3 text-sm text-slate-400">None recorded.</p>}
+      {items.length ? <ul className="mt-3 space-y-2 text-sm text-foreground">{items.map((item, index) => <li key={`${item}-${index}`} className="flex min-w-0 gap-2">{tone === "warning" ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" /> : <CircleDot className="mt-1 h-3 w-3 shrink-0 text-slate-400" />}<span className="min-w-0 break-words">{item}</span></li>)}</ul> : <p className="mt-3 text-sm text-slate-400">None recorded.</p>}
     </section>
   );
 }
@@ -826,7 +826,7 @@ function OutcomeSection({
       ? "text-emerald-700 dark:text-emerald-300"
       : observation.result_label === "challenged"
         ? "text-red-700 dark:text-red-300"
-        : "text-slate-600 dark:text-slate-300";
+        : "text-muted";
 
   return (
     <section className="border-b border-slate-200 pb-6 dark:border-slate-800">
@@ -871,7 +871,7 @@ function OutcomeSection({
       {observations.length > 1 ? (
         <div className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
           <p className="text-xs font-semibold uppercase text-slate-400">Prior frozen observations</p>
-          <div className="mt-2 divide-y divide-slate-200 dark:divide-slate-800">
+          <div className="mt-2 divide-y divide-line">
             {observations.slice(1).map((item) => (
               <div key={item.id} className="grid gap-1 py-2 text-xs sm:grid-cols-[1fr_auto_auto] sm:items-center sm:gap-4">
                 <span className="text-slate-500">Captured {formatDate(item.captured_at)}</span>

@@ -64,7 +64,7 @@ export default function ReconcilePanel({ id, initiallyOpen = false }: ReconcileP
           </div>
           <div>
           <h2 className="text-sm font-semibold">Compare a broker statement</h2>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          <p className="mt-1 text-xs text-muted">
             Paste current holdings or a USD cash balance to check the recorded ledger. You can review the differences before adding them to the queue.
           </p>
           </div>
@@ -94,7 +94,7 @@ export default function ReconcilePanel({ id, initiallyOpen = false }: ReconcileP
               <ClipboardCheck className="h-4 w-4" />
               {busy === "compare" ? "Comparing…" : "Compare statement"}
             </button>
-            <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+            <label className="flex items-center gap-2 text-xs text-muted">
               <input type="checkbox" checked={listedOnly} disabled={Boolean(busy)} onChange={(e) => { setListedOnly(e.target.checked); invalidateResult(); }} />
               Compare only listed holdings
             </label>
@@ -154,7 +154,7 @@ export default function ReconcilePanel({ id, initiallyOpen = false }: ReconcileP
                       {result.discrepancies.map((d) => (
                         <tr key={d.ticker} className="border-t border-slate-100 dark:border-slate-800">
                           <td className="px-3 py-2 font-medium">{d.ticker}</td>
-                          <td className="px-3 py-2 text-slate-500 dark:text-slate-400">{KIND_LABEL[d.kind] ?? d.kind}</td>
+                          <td className="px-3 py-2 text-muted">{KIND_LABEL[d.kind] ?? d.kind}</td>
                           <td className="px-3 py-2 text-right tabular-nums">{d.book_quantity}</td>
                           <td className="px-3 py-2 text-right tabular-nums">{d.broker_quantity}</td>
                           <td className={`px-3 py-2 text-right tabular-nums ${d.delta < 0 ? "text-red-500" : "text-emerald-600"}`}>

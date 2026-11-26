@@ -318,14 +318,14 @@ export default function ShadowPage() {
           <form onSubmit={createExperiment} className="space-y-5 rounded-lg border border-line bg-panel p-5">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Launch a new experiment</h2>
-                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                <h2 className="text-sm font-semibold text-foreground">Launch a new experiment</h2>
+                <p className="mt-2 text-sm text-muted">
                   Describe how the paper portfolio should behave, then define the mechanism, comparison policy and observation window.
                 </p>
               </div>
               {!autoRun ? (
                 <div>
-                  <p className="text-xs font-medium text-slate-600 dark:text-slate-300">Starting book</p>
+                  <p className="text-xs font-medium text-muted">Starting book</p>
                   <div className="mt-2 grid grid-cols-2 rounded-md border border-slate-300 p-1 dark:border-slate-700" role="group" aria-label="Paper account starting book">
                     <button
                       type="button"
@@ -343,7 +343,7 @@ export default function ShadowPage() {
                     </button>
                   </div>
                   {accountBasis === "cash_only" ? (
-                    <label className="mt-3 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                    <label className="mt-3 block text-xs font-medium text-muted">
                       Starting paper cash
                       <input
                         value={startingCash}
@@ -355,7 +355,7 @@ export default function ShadowPage() {
                       />
                     </label>
                   ) : null}
-                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  <p className="mt-2 text-xs text-muted">
                     {accountBasis === "clone_portfolio"
                       ? "Starts with a deterministic copy of current tracked positions and buying power."
                       : "Starts empty with the paper cash entered above; the live portfolio remains only a research reference."}
@@ -366,7 +366,7 @@ export default function ShadowPage() {
 
             <div className="space-y-4">
               <div>
-                <p className="text-xs font-medium text-slate-600 dark:text-slate-300">Account mode</p>
+                <p className="text-xs font-medium text-muted">Account mode</p>
                 <div className="mt-2 grid grid-cols-2 rounded-md border border-slate-300 p-1 dark:border-slate-700" role="group" aria-label="Paper account mode">
                   <button
                     type="button"
@@ -383,14 +383,14 @@ export default function ShadowPage() {
                     Manual
                   </button>
                 </div>
-                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                <p className="mt-2 text-xs text-muted">
                   {autoRun
                     ? "Prophet proposes bounded target weights; the paper broker alone validates and fills orders."
                     : "You submit simulated orders through a ticket. No model action and no real-broker routing."}
                 </p>
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-600 dark:text-slate-300">Experiment name</label>
+                <label className="block text-xs font-medium text-muted">Experiment name</label>
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -415,7 +415,7 @@ export default function ShadowPage() {
                 <p className="text-slate-500">Reuse the family when only the wording changes. Different mechanisms, counterfactuals or horizons create separate tests.</p>
               </div> : null}
               <div>
-                <label className="block text-xs font-medium text-slate-600 dark:text-slate-300">{autoRun ? "Policy prompt" : "Account note"}</label>
+                <label className="block text-xs font-medium text-muted">{autoRun ? "Policy prompt" : "Account note"}</label>
                 <textarea
                   value={operatorPrompt}
                   onChange={(e) => setOperatorPrompt(e.target.value)}
@@ -435,8 +435,8 @@ export default function ShadowPage() {
             <summary className="list-none cursor-pointer">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Automation</h2>
-                  <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                  <h2 className="text-sm font-semibold text-foreground">Automation</h2>
+                  <p className="mt-2 text-sm text-muted">
                     Shadow refresh and agent reflection keep parallel experiments moving even when you are not on this page.
                   </p>
                 </div>
@@ -447,13 +447,13 @@ export default function ShadowPage() {
                 </div>
               </div>
             </summary>
-            <div className="mt-4 divide-y divide-slate-200 dark:divide-slate-800">
+            <div className="mt-4 divide-y divide-line">
               {automation?.jobs.map((job) => (
                 <div key={job.name} className="py-4 first:pt-0 last:pb-0">
                   <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                     <div className="min-w-0">
                       <p className="font-medium">{job.name}</p>
-                      <p className="text-sm text-slate-500 dark:text-slate-400">{job.detail ?? "No detail yet."}</p>
+                      <p className="text-sm text-muted">{job.detail ?? "No detail yet."}</p>
                     </div>
                     <button
                       onClick={() => void triggerAutomation(job.name)}
@@ -474,8 +474,8 @@ export default function ShadowPage() {
 
         <section className="min-w-0 space-y-4 overflow-hidden">
           <div className="flex min-h-9 items-center justify-between border-b border-slate-200 pb-3 dark:border-slate-800">
-            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Experiment runs</h2>
-            <span className="text-xs text-slate-500 dark:text-slate-400">{experiments.length} total</span>
+            <h2 className="text-sm font-semibold text-foreground">Experiment runs</h2>
+            <span className="text-xs text-muted">{experiments.length} total</span>
           </div>
           {loadedOnce && loadError ? (
             <WorkspaceState
@@ -521,7 +521,7 @@ export default function ShadowPage() {
                     <button
                       onClick={() => void rerunExperiment(experiment.id)}
                       disabled={runningJob !== null}
-                      className="rounded-lg border border-slate-300 dark:border-slate-700 px-4 py-2 text-sm disabled:opacity-50"
+                      className="rounded-lg border border-line-strong px-4 py-2 text-sm disabled:opacity-50"
                     >
                       {runningJob === `experiment:${experiment.id}` ? "Queueing..." : ["queued", "running", "pending"].includes(experiment.run_status) ? "Check active run" : "Start new run"}
                     </button>
@@ -572,7 +572,7 @@ export default function ShadowPage() {
                     <summary className="cursor-pointer text-xs font-bold uppercase tracking-wider text-slate-500">
                       Operator guidance
                     </summary>
-                    <p className="mt-3 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">
+                    <p className="mt-3 whitespace-pre-wrap text-sm text-muted">
                       {experiment.operator_prompt}
                     </p>
                   </details>
@@ -624,7 +624,7 @@ export default function ShadowPage() {
                     <div className="flex items-start justify-between gap-3">
                       <p className="text-xs uppercase tracking-wider text-slate-400">Experiment report</p>
                     </div>
-                    <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+                    <p className="mt-3 text-sm text-muted">
                       {experiment.report.policy_assessment}
                     </p>
                     {experiment.report.key_lesson ? (
@@ -639,7 +639,7 @@ export default function ShadowPage() {
                             <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                               Learning state
                             </p>
-                            <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">
+                            <p className="mt-1 text-sm font-medium text-foreground">
                               {experiment.lesson.title}
                             </p>
                           </div>
@@ -650,7 +650,7 @@ export default function ShadowPage() {
                             {experiment.lesson.maturity_status}
                           </span>
                         </div>
-                        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+                        <p className="mt-3 text-sm text-muted">
                           {experiment.lesson.summary}
                         </p>
                         <dl className="mt-4 grid grid-cols-2 gap-x-5 gap-y-3 text-sm sm:grid-cols-4">
@@ -692,17 +692,17 @@ export default function ShadowPage() {
                     Run details
                   </summary>
                   {loadingDetailIds.has(experiment.id) ? (
-                    <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
+                    <p className="mt-4 text-sm text-muted">
                       Loading the full checkpoint, order, and decision history...
                     </p>
                   ) : null}
                   {experiment.report?.learning_summary ? (
                     <div className="mt-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
                       <p className="text-xs uppercase tracking-wider text-slate-400">How the system should learn from this</p>
-                      <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+                      <p className="mt-3 text-sm text-muted">
                         {experiment.report.learning_summary.why_this_matters}
                       </p>
-                      <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                      <p className="mt-2 text-sm text-muted">
                         Baseline: {experiment.report.learning_summary.baseline_description}
                       </p>
                     </div>
@@ -719,14 +719,14 @@ export default function ShadowPage() {
                             <p className="font-medium text-slate-800 dark:text-slate-100">
                               {item.ticker} {item.entity_name ? `· ${item.entity_name}` : ""}
                             </p>
-                            <p className="mt-1 text-slate-500 dark:text-slate-400">
+                            <p className="mt-1 text-muted">
                               stance {item.stance ?? "n/a"} · confidence {item.confidence_band ?? "n/a"} · action {item.action ?? "n/a"}
                             </p>
                             {item.thesis_summary ? (
-                              <p className="mt-2 text-slate-600 dark:text-slate-300">{item.thesis_summary}</p>
+                              <p className="mt-2 text-muted">{item.thesis_summary}</p>
                             ) : null}
                             {item.rationale ? (
-                              <p className="mt-2 text-slate-500 dark:text-slate-400">{item.rationale}</p>
+                              <p className="mt-2 text-muted">{item.rationale}</p>
                             ) : null}
                           </div>
                         ))}
@@ -739,7 +739,7 @@ export default function ShadowPage() {
                       <div className="flex items-start justify-between gap-3">
                         <p className="text-xs uppercase tracking-wider text-slate-400">Run state</p>
                       </div>
-                      <div className="mt-3 space-y-2 text-slate-600 dark:text-slate-300">
+                      <div className="mt-3 space-y-2 text-muted">
                         <p>
                           progress:{" "}
                           {experiment.run_details.progress?.step_count == null
@@ -770,13 +770,13 @@ export default function ShadowPage() {
                         <p className="text-xs uppercase tracking-wider text-slate-400">What the run concluded</p>
                       </div>
                       {experiment.run_status === "completed" && experiment.result ? (
-                        <p className="mt-3 text-slate-600 dark:text-slate-300">{experiment.result.reasoning}</p>
+                        <p className="mt-3 text-muted">{experiment.result.reasoning}</p>
                       ) : experiment.execution_mode === "manual" ? (
-                        <p className="mt-3 text-slate-500 dark:text-slate-400">
+                        <p className="mt-3 text-muted">
                           This account has no autonomous conclusion. Its durable order and fill ledger is the record of what was actually simulated.
                         </p>
                       ) : (
-                        <p className="mt-3 text-slate-500 dark:text-slate-400">
+                        <p className="mt-3 text-muted">
                           The run is still gathering checkpoints. Prophet will only lock in a final comparison and lesson once the planned live observation window completes.
                         </p>
                       )}
@@ -791,7 +791,7 @@ export default function ShadowPage() {
                           <p className="text-xs uppercase tracking-wider text-slate-400">
                             Evidence wake-ups
                           </p>
-                          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                          <p className="mt-2 text-sm text-muted">
                             New source-backed evidence can wake an active experiment. Pending items remain queued until a provider-backed checkpoint evaluates them.
                           </p>
                         </div>
@@ -802,7 +802,7 @@ export default function ShadowPage() {
                           {experiment.run_details.pending_evidence_events?.length ?? 0} pending
                         </span>
                       </div>
-                      <div className="mt-4 divide-y divide-slate-200 dark:divide-slate-800">
+                      <div className="mt-4 divide-y divide-line">
                         {[
                           ...(experiment.run_details.pending_evidence_events ?? []).map((event) => ({
                             ...event,
@@ -822,7 +822,7 @@ export default function ShadowPage() {
                                 {event.state}
                               </span>
                             </div>
-                            <p className="mt-1 text-slate-500 dark:text-slate-400">
+                            <p className="mt-1 text-muted">
                               {event.state === "consumed" && event.consumed_at
                                 ? `evaluated ${formatDate(event.consumed_at)}${event.checkpoint_index ? ` at checkpoint ${event.checkpoint_index}` : ""}`
                                 : event.queued_at
@@ -850,7 +850,7 @@ export default function ShadowPage() {
                               Checkpoint {checkpoint.step_index}
                               {checkpoint.captured_at ? ` · ${formatDate(checkpoint.captured_at)}` : ""}
                             </p>
-                            <p className="mt-2 text-slate-600 dark:text-slate-300">
+                            <p className="mt-2 text-muted">
                               {checkpoint.summary}
                             </p>
                           </div>
@@ -872,29 +872,29 @@ export default function ShadowPage() {
                               {entry.observed_at ? ` · ${formatDate(entry.observed_at)}` : ""}
                             </p>
                             {entry.checkpoint_objective ? (
-                              <p className="mt-2 text-slate-700 dark:text-slate-200">{entry.checkpoint_objective}</p>
+                              <p className="mt-2 text-foreground">{entry.checkpoint_objective}</p>
                             ) : null}
                             {entry.portfolio_view ? (
-                              <p className="mt-2 text-slate-500 dark:text-slate-400">{entry.portfolio_view}</p>
+                              <p className="mt-2 text-muted">{entry.portfolio_view}</p>
                             ) : null}
                             {entry.planned_posture ? (
-                              <p className="mt-2 text-slate-500 dark:text-slate-400">posture: {entry.planned_posture}</p>
+                              <p className="mt-2 text-muted">posture: {entry.planned_posture}</p>
                             ) : null}
                             {entry.prior_realization ? (
-                              <p className="mt-2 text-slate-500 dark:text-slate-400">{entry.prior_realization}</p>
+                              <p className="mt-2 text-muted">{entry.prior_realization}</p>
                             ) : null}
                             {entry.research_goal ? (
-                              <p className="mt-2 text-slate-600 dark:text-slate-300">
+                              <p className="mt-2 text-muted">
                                 research goal: {entry.research_goal}
                               </p>
                             ) : null}
                             {entry.shadow_research?.title ? (
-                              <p className="mt-2 text-slate-500 dark:text-slate-400">
+                              <p className="mt-2 text-muted">
                                 research run: {entry.shadow_research.title} · {entry.shadow_research.reason}
                               </p>
                             ) : null}
                             {entry.baseline_comparison ? (
-                              <p className="mt-2 text-slate-500 dark:text-slate-400">
+                              <p className="mt-2 text-muted">
                                 baseline check: shadow {formatPct(entry.baseline_comparison.shadow_return)} · real {formatPct(entry.baseline_comparison.real_portfolio_return)} · alpha {formatPct(entry.baseline_comparison.alpha)}
                               </p>
                             ) : null}
@@ -908,16 +908,16 @@ export default function ShadowPage() {
                                       {decision.action ? ` · ${decision.action.toUpperCase()}` : ""}
                                     </p>
                                     {decision.observed_signal ? (
-                                      <p className="mt-1 text-slate-500 dark:text-slate-400">signal: {decision.observed_signal}</p>
+                                      <p className="mt-1 text-muted">signal: {decision.observed_signal}</p>
                                     ) : null}
                                     {decision.expected_outcome ? (
-                                      <p className="mt-1 text-slate-600 dark:text-slate-300">expected: {decision.expected_outcome}</p>
+                                      <p className="mt-1 text-muted">expected: {decision.expected_outcome}</p>
                                     ) : null}
                                     {decision.risk_guardrail ? (
-                                      <p className="mt-1 text-slate-500 dark:text-slate-400">guardrail: {decision.risk_guardrail}</p>
+                                      <p className="mt-1 text-muted">guardrail: {decision.risk_guardrail}</p>
                                     ) : null}
                                     {decision.rationale ? (
-                                      <p className="mt-1 text-slate-500 dark:text-slate-400">{decision.rationale}</p>
+                                      <p className="mt-1 text-muted">{decision.rationale}</p>
                                     ) : null}
                                   </div>
                                 ))}
@@ -947,28 +947,28 @@ export default function ShadowPage() {
                           <div key={`${experiment.id}-${entry.ticker}-${index}`} className="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="font-medium">{entry.ticker}</span>
-                              {entry.entity_name ? <span className="text-slate-500 dark:text-slate-400">{entry.entity_name}</span> : null}
-                              <span className="text-slate-500 dark:text-slate-400">{entry.action.toUpperCase()}</span>
-                              <span className="text-slate-500 dark:text-slate-400">
+                              {entry.entity_name ? <span className="text-muted">{entry.entity_name}</span> : null}
+                              <span className="text-muted">{entry.action.toUpperCase()}</span>
+                              <span className="text-muted">
                                 {entry.quantity.toFixed(2)} @ {formatCurrency(entry.price)}
                               </span>
                             </div>
-                            <p className="mt-2 text-slate-600 dark:text-slate-300">{entry.rationale}</p>
-                            <p className="mt-2 text-slate-500 dark:text-slate-400">
+                            <p className="mt-2 text-muted">{entry.rationale}</p>
+                            <p className="mt-2 text-muted">
                               stance {entry.stance ?? "n/a"} · confidence {entry.confidence_band ?? "n/a"}
                               {entry.actual_weight_pct != null ? ` · actual weight ${entry.actual_weight_pct.toFixed(2)}%` : ""}
                             </p>
                             {entry.thesis_summary ? (
-                              <p className="mt-2 text-slate-500 dark:text-slate-400">{entry.thesis_summary}</p>
+                              <p className="mt-2 text-muted">{entry.thesis_summary}</p>
                             ) : null}
-                            <p className="mt-2 text-slate-500 dark:text-slate-400">
+                            <p className="mt-2 text-muted">
                               buying power after trade: {formatCurrency(entry.post_trade_buying_power)}
                             </p>
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">No detailed run log stored yet.</p>
+                      <p className="mt-3 text-sm text-muted">No detailed run log stored yet.</p>
                     )}
                   </div>
                 </details>
@@ -1044,7 +1044,7 @@ function PaperBrokerLedger({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Paper broker ledger</p>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{isManual ? "Only simulated fills change this account." : "Prophet proposes orders. Only simulated fills change this account."}</p>
+          <p className="mt-1 text-sm text-muted">{isManual ? "Only simulated fills change this account." : "Prophet proposes orders. Only simulated fills change this account."}</p>
         </div>
         <span className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
           {account?.provider?.replaceAll("_", " ") ?? "local simulator"} · {fills.length} fill{fills.length === 1 ? "" : "s"}
@@ -1054,7 +1054,7 @@ function PaperBrokerLedger({
       {isManual ? (
         <form onSubmit={submitOrder} className="mt-4 border-y border-slate-200 py-4 dark:border-slate-800">
           <div className="flex flex-wrap items-end gap-3">
-            <label className="min-w-[120px] flex-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+            <label className="min-w-[120px] flex-1 text-xs font-medium text-muted">
               Ticker
               <input
                 value={ticker}
@@ -1064,7 +1064,7 @@ function PaperBrokerLedger({
                 className="mt-2 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm uppercase text-slate-900 focus:border-slate-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-white"
               />
             </label>
-            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            <div className="text-xs font-medium text-muted">
               Side
               <div className="mt-2 flex rounded-md border border-slate-300 p-1 dark:border-slate-700" role="group" aria-label="Paper order side">
                 {(["buy", "sell"] as const).map((value) => (
@@ -1072,14 +1072,14 @@ function PaperBrokerLedger({
                     key={value}
                     type="button"
                     onClick={() => setSide(value)}
-                    className={`rounded px-3 py-1.5 text-sm font-medium ${side === value ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950" : "text-slate-500 dark:text-slate-400"}`}
+                    className={`rounded px-3 py-1.5 text-sm font-medium ${side === value ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950" : "text-muted"}`}
                   >
                     {value === "buy" ? "Buy" : "Sell"}
                   </button>
                 ))}
               </div>
             </div>
-            <label className="min-w-[140px] flex-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+            <label className="min-w-[140px] flex-1 text-xs font-medium text-muted">
               Quantity
               <input
                 value={quantity}
@@ -1099,7 +1099,7 @@ function PaperBrokerLedger({
               {submittingOrder ? "Submitting..." : "Submit paper order"}
             </button>
           </div>
-          <label className="mt-3 block text-xs font-medium text-slate-500 dark:text-slate-400">
+          <label className="mt-3 block text-xs font-medium text-muted">
             Rationale
             <input
               value={rationale}
@@ -1109,7 +1109,7 @@ function PaperBrokerLedger({
               className="mt-2 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-white"
             />
           </label>
-          <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+          <p className="mt-3 text-xs text-muted">
             Market/day simulation only. The broker rejects untracked tickers, oversells, insufficient buying power, and buys above the configured per-order equity cap. Outside regular hours, valid orders wait without changing positions.
           </p>
           {orderError ? <p role="alert" className="mt-2 text-sm text-red-500">{orderError}</p> : null}
@@ -1140,12 +1140,12 @@ function PaperBrokerLedger({
                 <th className="py-2 pl-4 text-right font-medium">Unrealized P&amp;L</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+            <tbody className="divide-y divide-line">
               {paperPositions.map(position => (
                 <tr key={position.security_id}>
                   <td className="py-3 pr-4">
-                    <p className="font-medium text-slate-900 dark:text-slate-100">{position.ticker}</p>
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    <p className="font-medium text-foreground">{position.ticker}</p>
+                    <p className="mt-1 text-xs text-muted">
                       {position.weight_pct.toFixed(2)}% of paper equity
                       {position.marked_at ? ` · marked ${formatDate(position.marked_at)}` : ""}
                     </p>
@@ -1163,7 +1163,7 @@ function PaperBrokerLedger({
           </table>
         </div>
       ) : isManual ? (
-        <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">This paper account does not hold any positions yet.</p>
+        <p className="mt-4 text-sm text-muted">This paper account does not hold any positions yet.</p>
       ) : null}
 
       {accountEvents.length ? (
@@ -1172,22 +1172,22 @@ function PaperBrokerLedger({
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">
               Account events
             </p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-xs text-muted">
               Settled portfolio events applied once to this paper account
             </p>
           </div>
-          <div className="mt-2 divide-y divide-slate-200 dark:divide-slate-800">
+          <div className="mt-2 divide-y divide-line">
             {accountEvents.map(event => (
               <div key={event.id} className="grid gap-2 py-3 text-sm md:grid-cols-[minmax(0,1fr)_auto] md:gap-6">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">{event.ticker}</span>
-                    <span className="capitalize text-slate-700 dark:text-slate-200">{event.event_type}</span>
+                    <span className="font-semibold text-foreground">{event.ticker}</span>
+                    <span className="capitalize text-foreground">{event.event_type}</span>
                     <AccountEventStatus status={event.status} />
                   </div>
-                  <p className="mt-1 text-slate-600 dark:text-slate-300">{event.detail}</p>
+                  <p className="mt-1 text-muted">{event.detail}</p>
                   <p
-                    className="mt-1 text-xs text-slate-500 dark:text-slate-400"
+                    className="mt-1 text-xs text-muted"
                     title="Derivation records whether the amount came directly from broker provenance or was reconstructed from the settled transaction ledger."
                   >
                     {event.derivation.replaceAll("_", " ")}
@@ -1208,7 +1208,7 @@ function PaperBrokerLedger({
       ) : null}
 
       {orders.length ? (
-        <div className="mt-3 divide-y divide-slate-200 dark:divide-slate-800">
+        <div className="mt-3 divide-y divide-line">
           {orders.map(order => {
             const fill = fills.find(item => item.order_id === order.id);
             const intent = order.source_decision_json ?? {};
@@ -1218,7 +1218,7 @@ function PaperBrokerLedger({
               <div key={order.id} className="grid gap-2 py-4 text-sm md:grid-cols-[minmax(0,1fr)_auto] md:gap-6">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">{order.ticker}</span>
+                    <span className="font-semibold text-foreground">{order.ticker}</span>
                     <span>{order.side.toUpperCase()} {order.requested_quantity.toFixed(4)}</span>
                     <OrderStatus status={order.status} reason={order.rejection_reason} />
                     {order.status === "accepted" ? (
@@ -1232,18 +1232,18 @@ function PaperBrokerLedger({
                       </button>
                     ) : null}
                   </div>
-                  <p className="mt-1 text-slate-500 dark:text-slate-400">
+                  <p className="mt-1 text-muted">
                     submitted {formatDate(order.submitted_at)} · {order.order_type} / {order.time_in_force}
                     {targetWeight == null ? "" : ` · target ${targetWeight.toFixed(2)}%`}
                   </p>
                   {fill ? (
-                    <p className="mt-1 text-slate-700 dark:text-slate-200">
+                    <p className="mt-1 text-foreground">
                       filled {fill.quantity.toFixed(4)} @ {formatCurrency(fill.price)} · notional {formatCurrency(fill.gross_notional)} · slippage {fill.slippage_bps.toFixed(1)} bps
                     </p>
                   ) : null}
                   {order.rejection_reason ? <p className="mt-1 text-red-600 dark:text-red-300">{order.rejection_reason.replaceAll("_", " ")}</p> : null}
                   {adjustments.map((adjustment, index) => <p key={`${order.id}-adjustment-${index}`} className="mt-1 text-amber-700 dark:text-amber-300">{adjustment}</p>)}
-                  <p className="mt-2 text-slate-600 dark:text-slate-300">{order.rationale}</p>
+                  <p className="mt-2 text-muted">{order.rationale}</p>
                 </div>
                 <div className="text-left text-xs text-slate-500 md:text-right dark:text-slate-400">
                   <p>reference {formatCurrency(order.reference_price)}</p>
@@ -1255,7 +1255,7 @@ function PaperBrokerLedger({
           })}
         </div>
       ) : (
-        <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">No paper orders have been submitted for this run.</p>
+        <p className="mt-4 text-sm text-muted">No paper orders have been submitted for this run.</p>
       )}
     </section>
   );
@@ -1370,14 +1370,14 @@ function OpportunitySummary({
       </div>
       {evidenceSnapshot.length ? (
         <details className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
-          <summary className="cursor-pointer text-xs font-medium text-slate-600 dark:text-slate-300">
+          <summary className="cursor-pointer text-xs font-medium text-muted">
             Point-in-time evidence ({evidenceSnapshot.length})
             {profile.captured_at ? ` · captured ${formatDate(profile.captured_at)}` : ""}
           </summary>
-          <div className="mt-3 space-y-2 text-xs text-slate-500 dark:text-slate-400">
+          <div className="mt-3 space-y-2 text-xs text-muted">
             {evidenceSnapshot.map((item) => (
               <div key={item.ref} className="min-w-0 border-l-2 border-slate-200 pl-3 dark:border-slate-700">
-                <p className="font-medium text-slate-700 dark:text-slate-200">
+                <p className="font-medium text-foreground">
                   {[item.ticker, item.kind?.replaceAll("_", " "), item.source].filter(Boolean).join(" · ") || item.ref}
                 </p>
                 <div className="mt-1 leading-relaxed [overflow-wrap:anywhere]">
@@ -1451,8 +1451,8 @@ function ExperimentJourney({ experiment }: { experiment: ShadowExperiment }) {
   return (
     <section className="mt-5 border-y border-slate-200 py-4 dark:border-slate-800">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">Current experiment stage</p>
-        <p className="text-xs text-slate-500 dark:text-slate-400">{statusDetail}</p>
+        <p className="text-xs font-semibold text-muted">Current experiment stage</p>
+        <p className="text-xs text-muted">{statusDetail}</p>
       </div>
       <ol className="mt-4 grid grid-cols-5 gap-1" aria-label="Experiment progress">
         {labels.map((label, index) => {
@@ -1464,9 +1464,9 @@ function ExperimentJourney({ experiment }: { experiment: ShadowExperiment }) {
               <p
                 className={`mt-2 text-xs leading-4 sm:text-xs ${
                   current
-                    ? "font-semibold text-sky-700 dark:text-sky-300"
+                    ? "font-semibold text-action-strong"
                     : reached
-                      ? "text-slate-700 dark:text-slate-200"
+                      ? "text-foreground"
                       : "text-slate-400 dark:text-slate-600"
                 }`}
               >
@@ -1490,16 +1490,16 @@ function ExperimentOutcomeSummary({ experiment }: { experiment: ShadowExperiment
     <section className="mt-4 grid gap-4 border-t border-slate-200 pt-4 dark:border-slate-800 lg:grid-cols-3">
       {objective ? (
         <div className="border-l-2 border-slate-300 pl-3 dark:border-slate-700">
-          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Objective</p>
-          <p className="mt-2 text-sm leading-6 text-slate-700 dark:text-slate-200">{objective}</p>
+          <p className="text-xs font-medium text-muted">Objective</p>
+          <p className="mt-2 text-sm leading-6 text-foreground">{objective}</p>
         </div>
       ) : null}
       {expected?.summary ? (
         <div className="border-l-2 border-amber-400 pl-3">
           <p className="text-xs font-medium text-amber-700 dark:text-amber-300">Expected outcome</p>
-          <p className="mt-2 text-sm leading-6 text-slate-700 dark:text-slate-200">{expected.summary}</p>
+          <p className="mt-2 text-sm leading-6 text-foreground">{expected.summary}</p>
           {expected.expected_alpha_vs_baseline != null ? (
-            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            <p className="mt-2 text-xs text-muted">
               Expected edge {formatPct(expected.expected_alpha_vs_baseline)}
             </p>
           ) : null}
@@ -1508,9 +1508,9 @@ function ExperimentOutcomeSummary({ experiment }: { experiment: ShadowExperiment
       {actual?.summary ? (
         <div className="border-l-2 border-emerald-500 pl-3">
           <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Observed outcome</p>
-          <p className="mt-2 text-sm leading-6 text-slate-700 dark:text-slate-200">{actual.summary}</p>
+          <p className="mt-2 text-sm leading-6 text-foreground">{actual.summary}</p>
           {actual.alpha_vs_real_portfolio != null ? (
-            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            <p className="mt-2 text-xs text-muted">
               Observed edge {formatPct(actual.alpha_vs_real_portfolio)}
             </p>
           ) : null}
@@ -1523,8 +1523,8 @@ function ExperimentOutcomeSummary({ experiment }: { experiment: ShadowExperiment
 function CompactList({ title, items }: { title: string; items: string[] }) {
   return (
     <div className="min-w-0 border-l-2 border-slate-200 pl-3 [overflow-wrap:anywhere] dark:border-slate-700">
-      <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{title}</p>
-      <ul className="mt-2 space-y-1 text-slate-600 dark:text-slate-300">
+      <p className="text-xs font-medium text-muted">{title}</p>
+      <ul className="mt-2 space-y-1 text-muted">
         {items.slice(0, 4).map((item) => (
           <li key={item}>• {item}</li>
         ))}
@@ -1536,7 +1536,7 @@ function CompactList({ title, items }: { title: string; items: string[] }) {
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="border-l-2 border-slate-200 py-1 pl-3 dark:border-slate-700">
-      <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
+      <p className="text-xs text-muted">{label}</p>
       <p className="mt-1 text-xl font-semibold">{value}</p>
     </div>
   );
@@ -1598,14 +1598,14 @@ function ShadowComparisonChart({ experiment }: { experiment: ShadowExperiment })
         <Metric label="Observed max drawdown" value={experiment.result.max_drawdown == null ? "Unavailable" : formatPct(experiment.result.max_drawdown)} />
         <Metric label="Sharpe per observed interval" value={experiment.result.sharpe_ratio == null ? "Unavailable" : experiment.result.sharpe_ratio.toFixed(2)} />
       </div>
-      <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+      <p className="mt-3 text-xs text-muted">
         {experiment.result.performance_metrics_json?.observation_count ?? 0} captured equity observations.
         Drawdown covers observed checkpoints; declines between them may be missed.
         Sharpe uses simple returns against zero-return paper cash and is not annualized.
         {experiment.result.performance_metrics_json?.cadence_seconds != null && ` Observed interval: ${(experiment.result.performance_metrics_json.cadence_seconds / 3600).toFixed(1)} hours.`}
       </p>
       {experiment.result.performance_metrics_json?.first_observed_at && experiment.result.performance_metrics_json?.last_observed_at && (
-        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+        <p className="mt-1 text-xs text-muted">
           Measured window: {formatDate(experiment.result.performance_metrics_json.first_observed_at)} to {formatDate(experiment.result.performance_metrics_json.last_observed_at)}.
         </p>
       )}

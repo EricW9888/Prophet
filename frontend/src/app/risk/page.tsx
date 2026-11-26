@@ -168,24 +168,24 @@ export default function RiskPage() {
                   <ExposureList title="Sector exposures" items={summary.sector_exposures} />
                   <ExposureList title="Asset classes" items={summary.asset_class_exposures} />
                 </div>
-                <div className="mt-4 rounded-lg border border-slate-200 dark:border-slate-800 p-4">
+                <div className="mt-4 rounded-lg border border-line p-4">
                   <p className="text-xs uppercase tracking-wider text-slate-400">Concentration stats</p>
-                  <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">
+                  <p className="mt-2 text-sm text-foreground">
                     {summary.top_sector ? "Top known sector " + summary.top_sector + " · " + summary.top_sector_weight_pct.toFixed(1) + "%" : "No classified sector exposure"}
                   </p>
-                  <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">
+                  <p className="mt-1 text-sm text-foreground">
                     HHI {summary.concentration_hhi.toFixed(0)}
                   </p>
                 </div>
               </Panel>
 
               <Panel title="Benchmark trend + scenarios" eyebrow="Price rule and hypothetical shocks">
-                <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
+                <div className="rounded-lg border border-line p-4">
                   <p className="text-xs uppercase tracking-wider text-slate-400">Current regime</p>
                   <p className="mt-2 text-lg font-semibold tracking-tight">
                     {summary.current_regime?.regime_type ?? "Not computed"}
                   </p>
-                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  <p className="mt-1 text-sm text-muted">
                     {summary.current_regime
                       ? `${summary.current_regime.signal_source} · This label does not measure crash probability.`
                       : "Refresh the risk snapshot to infer regime state from the benchmark."}
@@ -193,14 +193,14 @@ export default function RiskPage() {
                 </div>
                 <div className="mt-4 space-y-3">
                   {summary.scenarios.map((scenario) => (
-                    <div key={scenario.name} className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
+                    <div key={scenario.name} className="rounded-lg border border-line p-4">
                       <div className="flex items-center justify-between gap-4">
                         <p className="font-medium">{scenario.name.replace("AUTO: ", "")}</p>
                         <span className={`text-sm ${scenario.total_portfolio_impact < 0 ? "text-red-500" : "text-emerald-500"}`}>
                           {formatCurrency(scenario.total_portfolio_impact)}
                         </span>
                       </div>
-                      <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{scenario.scenario_description}</p>
+                      <p className="mt-2 text-sm text-muted">{scenario.scenario_description}</p>
                     </div>
                   ))}
                 </div>
@@ -213,7 +213,7 @@ export default function RiskPage() {
         <section className="grid grid-cols-1 xl:grid-cols-[0.9fr_1.1fr] gap-6">
           <Panel title="Benchmark Catalog" eyebrow="Managed comparison set">
             <div className="mb-4 flex items-start justify-between gap-4">
-              <p className="text-sm text-slate-500 dark:text-slate-400">
+              <p className="text-sm text-muted">
                 Add or reuse the comparison baselines you want the system to reason against.
               </p>
             </div>
@@ -238,26 +238,26 @@ export default function RiskPage() {
               {!status.benchmarks?.ready ? (
                 <p className="text-sm text-muted">{status.benchmarks?.error ? "Benchmark list could not be loaded." : "Loading benchmark list…"}</p>
               ) : benchmarks.length === 0 ? (
-                <p className="text-sm text-slate-500 dark:text-slate-400">No benchmarks saved yet.</p>
+                <p className="text-sm text-muted">No benchmarks saved yet.</p>
               ) : (
                 benchmarks.map((benchmark) => (
-                  <div key={benchmark.id} className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
+                  <div key={benchmark.id} className="rounded-lg border border-line p-4">
                     <div className="flex items-center justify-between gap-4">
                       <p className="font-medium">{benchmark.name}</p>
                       <span className="text-xs uppercase tracking-wider text-slate-400">{benchmark.benchmark_type}</span>
                     </div>
-                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                    <p className="mt-1 text-sm text-muted">
                       {benchmark.ticker ?? "custom"} · {new Date(benchmark.created_at).toLocaleDateString()}
                     </p>
                     {benchmark.description ? (
-                      <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">{benchmark.description}</p>
+                      <p className="mt-2 text-sm text-foreground">{benchmark.description}</p>
                     ) : null}
                   </div>
                 ))
               )}
             </div>
-            <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
-              Select the active benchmark in <Link href="/settings" className="text-sky-600 dark:text-sky-400">Settings</Link>.
+            <p className="mt-4 text-sm text-muted">
+              Select the active benchmark in <Link href="/settings" className="text-action">Settings</Link>.
             </p>
           </Panel>
         </section>
@@ -289,9 +289,9 @@ function PerformanceAttributionPanel({
     <section className="border-y border-slate-200 py-6 dark:border-slate-800">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Measured performance</p>
+          <p className="text-sm font-medium text-muted">Measured performance</p>
           <h2 className="mt-1 text-xl font-semibold">What moved the invested book</h2>
-          <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
+          <p className="mt-1 max-w-3xl text-sm text-muted">
             Dated price changes reconciled with settled buys, sells, dividends, and splits. This is separate from the open-position cost-basis figure above.
           </p>
         </div>
@@ -344,7 +344,7 @@ function PerformanceAttributionPanel({
             </div>
           </div>
 
-          <div className="mt-5 text-xs leading-5 text-slate-500 dark:text-slate-400">
+          <div className="mt-5 text-xs leading-5 text-muted">
             <p>
               Window {new Date(attribution.period_start).toLocaleDateString()} through {new Date(attribution.as_of).toLocaleDateString()}. {attribution.method}
             </p>
@@ -414,7 +414,7 @@ function Panel({
 }) {
   return (
     <section className="rounded-lg border border-line bg-panel p-6">
-      <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{eyebrow}</p>
+      <p className="text-sm font-medium text-muted">{eyebrow}</p>
       <h2 className="mt-1 text-xl font-semibold tracking-tight">{title}</h2>
       <div className="mt-4">{children}</div>
     </section>
@@ -424,24 +424,24 @@ function Panel({
 function MetricCard({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
     <div className="rounded-lg border border-line bg-panel p-5">
-      <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{label}</p>
+      <p className="text-sm font-medium text-muted">{label}</p>
       <p className="mt-2 text-3xl font-semibold tracking-tight">{value}</p>
-      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{detail}</p>
+      <p className="mt-1 text-sm text-muted">{detail}</p>
     </div>
   );
 }
 
 function ExposureList({ title, items }: { title: string; items: RiskSummary["sector_exposures"] }) {
   return (
-    <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
+    <div className="rounded-lg border border-line p-4">
       <p className="text-xs uppercase tracking-wider text-slate-400">{title}</p>
       <div className="mt-3 space-y-2">
         {items.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">No exposure data yet.</p>
+          <p className="text-sm text-muted">No exposure data yet.</p>
         ) : (
           items.map((item) => (
             <div key={item.label} className="flex items-center justify-between gap-4 text-sm">
-              <span className="text-slate-700 dark:text-slate-300">{item.label}</span>
+              <span className="text-foreground">{item.label}</span>
               <span className="font-medium">{item.weight_pct.toFixed(1)}%</span>
             </div>
           ))
@@ -465,4 +465,4 @@ function formatCurrency(value: number) {
 }
 
 const inputClass =
-  "w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3";
+  "w-full rounded-lg border border-line-strong bg-white dark:bg-slate-900 px-4 py-3";

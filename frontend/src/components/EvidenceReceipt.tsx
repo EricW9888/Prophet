@@ -87,7 +87,7 @@ function Receipt({ evidenceId }: { evidenceId: string }) {
                 <h1 className="text-2xl font-black tracking-tight sm:text-3xl">
                   {receipt.title || "Untitled evidence receipt"}
                 </h1>
-                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                <p className="mt-2 text-sm text-muted">
                   Evidence ID {receipt.id}
                 </p>
               </div>
@@ -122,7 +122,7 @@ function Receipt({ evidenceId }: { evidenceId: string }) {
 
           <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="rounded-lg border border-line bg-panel p-6">
-              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-muted">
                 Extracted receipt text
               </h2>
               <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50 p-4 text-sm leading-relaxed text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
@@ -131,7 +131,7 @@ function Receipt({ evidenceId }: { evidenceId: string }) {
             </div>
 
             <div className="rounded-lg border border-line bg-panel p-6">
-              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-muted">
                 Provenance metadata
               </h2>
               <div className="mt-4 space-y-2">
@@ -183,10 +183,10 @@ function ProcessingLifecycle({
     <section className="rounded-lg border border-line bg-panel p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-muted">
             Evidence processing
           </h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
             The source transcript remains stored independently from model extraction. A provider failure pauses only the failed stage; it does not download or transcribe the source again.
           </p>
         </div>
@@ -278,7 +278,7 @@ function ReceiptMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
       <div className="text-xs font-bold uppercase tracking-widest text-slate-400">{label}</div>
-      <div className="mt-1 truncate text-sm font-bold text-slate-900 dark:text-slate-100">{value}</div>
+      <div className="mt-1 truncate text-sm font-bold text-foreground">{value}</div>
     </div>
   );
 }
@@ -288,7 +288,7 @@ function MetadataRow({ label, value }: { label: string; value?: string | null })
   return (
     <div className="rounded-lg border border-slate-100 px-3 py-2 text-sm dark:border-slate-800">
       <div className="text-xs font-bold uppercase tracking-widest text-slate-400">{label}</div>
-      <div className="mt-1 break-words text-slate-700 dark:text-slate-300">{value}</div>
+      <div className="mt-1 break-words text-foreground">{value}</div>
     </div>
   );
 }

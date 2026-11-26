@@ -232,11 +232,11 @@ function VerificationWorkspace() {
           <section className="rounded-lg border border-line bg-panel p-6">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                <p className="mt-1 text-sm text-muted">
                   Investment reviews cover evidence and views. Portfolio data reviews cover receipts, posting holds and reconciliation. Priority is ordered within the selected view.
                 </p>
               </div>
-              <button disabled={loading || loadingMore} onClick={() => void refreshQueue()} className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm disabled:opacity-50">
+              <button disabled={loading || loadingMore} onClick={() => void refreshQueue()} className="rounded-lg border border-line-strong px-3 py-2 text-sm disabled:opacity-50">
                 Refresh queue
               </button>
             </div>
@@ -252,7 +252,7 @@ function VerificationWorkspace() {
                 />
               ) : (
                 queue.slice(0, visibleQueueCount).map((item) => (
-                  <div key={item.id} className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
+                  <div key={item.id} className="rounded-lg border border-line p-4">
                     <div className="flex items-center justify-between gap-4">
                       <div>
                         <p className="font-medium">{item.item_label}</p>
@@ -290,7 +290,7 @@ function VerificationWorkspace() {
                     </button>
                     {expandedSignals[item.id] ? (
                       <div className="mt-3 space-y-3 border-t border-slate-200 pt-3 dark:border-slate-800">
-                        <p className="break-words text-sm leading-6 text-slate-700 dark:text-slate-200">
+                        <p className="break-words text-sm leading-6 text-foreground">
                           {item.why_now_summary}
                         </p>
                         <div className="flex flex-wrap gap-2 text-xs text-slate-400">
@@ -326,7 +326,7 @@ function VerificationWorkspace() {
             />
           ) : (
             <form id="manual-challenge" onSubmit={runVerification} className="scroll-mt-24 rounded-lg border border-line bg-panel p-6  space-y-4">
-              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Manual challenge</h2>
+              <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Manual challenge</h2>
               <p className="text-sm text-muted">{selectedSubjectId ? `Subject: ${selectedSubjectName || selectedSubjectType}. Review the question before running verification.` : "Choose the subject you want to verify."}</p>
               <label htmlFor="challenge-subject" className="block text-xs text-muted">Subject</label>
               <select id="challenge-subject" disabled={running} value={selectedId} onChange={(e) => handleProfileChange(e.target.value)} className={inputClass}>
@@ -354,37 +354,37 @@ function VerificationWorkspace() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <h2 className="text-xl font-semibold tracking-tight">{result.subject_type}</h2>
-                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{new Date(result.verified_at).toLocaleString()}</p>
+                  <p className="mt-1 text-sm text-muted">{new Date(result.verified_at).toLocaleString()}</p>
                 </div>
                 <span className={`text-xs uppercase tracking-wider ${result.conclusion_changed ? "text-amber-500" : "text-emerald-500"}`}>
                   {result.conclusion_changed ? "conclusion changed" : "stance held"}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-4 text-sm">
-                <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
-                  <p className="text-slate-500 dark:text-slate-400">Prior stance</p>
+                <div className="rounded-lg border border-line p-4">
+                  <p className="text-muted">Prior stance</p>
                   <p className="mt-1 font-medium">{result.prior_stance}</p>
                 </div>
-                <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
-                  <p className="text-slate-500 dark:text-slate-400">Verified stance</p>
+                <div className="rounded-lg border border-line p-4">
+                  <p className="text-muted">Verified stance</p>
                   <p className="mt-1 font-medium">{result.verified_stance} · {result.confidence_band}</p>
                 </div>
               </div>
-              <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-4">
-                <p className="text-sm text-slate-500 dark:text-slate-400">Coverage status</p>
+              <div className="rounded-lg border border-line p-4">
+                <p className="text-sm text-muted">Coverage status</p>
                 <p className="mt-1 font-medium">{result.contradiction_coverage_status}</p>
                 {result.missing_classes_found.length ? (
-                  <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Missing: {result.missing_classes_found.join(", ")}</p>
+                  <p className="mt-2 text-sm text-muted">Missing: {result.missing_classes_found.join(", ")}</p>
                 ) : null}
               </div>
               <div>
-                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Reasoning</h3>
-                <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">{result.change_reasoning}</p>
+                <h3 className="text-sm font-bold uppercase tracking-wider text-muted">Reasoning</h3>
+                <p className="mt-2 text-sm text-foreground">{result.change_reasoning}</p>
               </div>
               {result.what_would_falsify.length ? (
                 <div>
-                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Falsifiers</h3>
-                  <ul className="mt-2 space-y-2 text-sm text-slate-700 dark:text-slate-300">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-muted">Falsifiers</h3>
+                  <ul className="mt-2 space-y-2 text-sm text-foreground">
                     {result.what_would_falsify.map((item) => (
                       <li key={item}>{item}</li>
                     ))}
@@ -402,4 +402,4 @@ function VerificationWorkspace() {
 }
 
 const inputClass =
-  "w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3";
+  "w-full rounded-lg border border-line-strong bg-white dark:bg-slate-900 px-4 py-3";

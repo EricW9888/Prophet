@@ -29,7 +29,7 @@ export default function ShadowRunHistory({ experiment, experiments, loadDetails,
   return (
     <details className="mt-4 rounded border border-slate-200 p-3 text-xs dark:border-slate-800" onToggle={event => { if (event.currentTarget.open) void loadDetails(experiment.id); }}>
       <summary className="cursor-pointer font-medium">Run history and family reconciliation</summary>
-      <button type="button" onClick={() => void loadDetails(experiment.id)} className="mt-3 text-sky-700 dark:text-sky-300">Refresh run history</button>
+      <button type="button" onClick={() => void loadDetails(experiment.id)} className="mt-3 text-action-strong">Refresh run history</button>
       <p className="mt-3">Current work: {experiment.lifecycle_state}. Planned end: {new Date(experiment.end_point).toLocaleString()}.</p>
       {experiment.run_details.observation_window?.final_captured_at ? <p className="mt-2 text-slate-500">
         Valuation captured {new Date(experiment.run_details.observation_window.final_captured_at).toLocaleString()} · {Math.round((experiment.run_details.observation_window.late_by_seconds ?? 0) / 60)} minutes beyond the planned end.
@@ -58,7 +58,7 @@ export default function ShadowRunHistory({ experiment, experiments, loadDetails,
             <input value={reason} maxLength={500} onChange={event => setReason(event.target.value)} className="mt-1 w-full rounded border border-slate-300 bg-transparent p-2 dark:border-slate-700" />
           </label>
           <button type="button" disabled={busy || !retained || !reason.trim()} onClick={() => void reconcile()} className="rounded border border-slate-300 px-3 py-2 disabled:opacity-50 dark:border-slate-700">{busy ? "Recording…" : "Record equivalence and stop duplicates"}</button>
-          {message ? <p role="status" className="text-slate-600 dark:text-slate-300">{message}</p> : null}
+          {message ? <p role="status" className="text-muted">{message}</p> : null}
         </div>
       ) : null}
     </details>

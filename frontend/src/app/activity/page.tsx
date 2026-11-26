@@ -282,23 +282,23 @@ export default function ActivityPage() {
                           <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
                             {item.displaySource}
                           </span>
-                          <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          <span className="text-sm font-semibold text-foreground">
                             {item.displayTitle}
                           </span>
                           <span className={`rounded-none border px-2.5 py-1 text-xs font-semibold uppercase tracking-wider ${actionAccent(item.status)}`}>
                             {item.displayStatus}
                           </span>
                         </div>
-                        <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{item.displaySummary}</p>
+                        <p className="mt-2 text-sm leading-relaxed text-muted">{item.displaySummary}</p>
                         {typeof item.metadata?.automation_trigger === "string" && item.metadata.automation_trigger.startsWith("signal:") ? (
                           <p className="mt-2 text-xs text-muted">Prompted by {formatUserLabel(item.metadata.automation_trigger.slice(7)).toLowerCase()}</p>
                         ) : null}
                         {Object.keys(item.metadata || {}).length > 0 ? (
                           <details className="mt-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
-                            <summary className="cursor-pointer text-xs font-medium text-slate-500 dark:text-slate-400">
+                            <summary className="cursor-pointer text-xs font-medium text-muted">
                               View metadata
                             </summary>
-                            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs leading-relaxed text-muted">
                               {JSON.stringify(item.metadata, null, 2)}
                             </pre>
                           </details>

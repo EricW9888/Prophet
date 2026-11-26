@@ -414,7 +414,7 @@ function LiveWatchers() {
   };
 
   return (
-    <section className="shrink-0 border-b border-slate-200 dark:border-slate-800">
+    <section className="shrink-0 border-b border-line">
       <h2 className="px-4 py-3 text-xs font-medium text-muted">
         <span>
           Live watches <span className="tabular-nums">({watchers.length})</span>
@@ -429,7 +429,7 @@ function LiveWatchers() {
         {visibleWatchers.map((w) => (
           <div key={w.id} className="rounded-lg border border-sky-200 bg-sky-50/30 p-3 text-xs dark:border-sky-900/30 dark:bg-sky-900/10">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-sky-600 dark:text-sky-400">{w.ticker}</span>
+              <span className="font-bold text-action">{w.ticker}</span>
               <div className="flex items-center gap-1.5">
                 <span className="text-xs uppercase text-slate-400 font-bold">
                   {w.condition_type.replaceAll("_", " ")}
@@ -447,7 +447,7 @@ function LiveWatchers() {
             </div>
             <p className="mt-1 font-medium">{w.objective}</p>
             {w.adjustment_plan ? (
-              <p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
+              <p className="mt-1 line-clamp-2 text-xs text-muted">
                 If it fires: {w.adjustment_plan}
               </p>
             ) : null}
@@ -504,7 +504,7 @@ function RunningChats({
 
   return (
     <div className="shrink-0 border-b border-slate-200 p-4 dark:border-slate-800">
-      <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+      <p className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
         Active chats ({jobs.length})
       </p>
       <div className="space-y-2">
@@ -517,7 +517,7 @@ function RunningChats({
                 </span>
                 <span className="text-xs text-slate-400">{formatTimestamp(job.updated_at)}</span>
               </div>
-              <p className="mt-1 line-clamp-2 font-medium text-slate-700 dark:text-slate-200">{job.request_message}</p>
+              <p className="mt-1 line-clamp-2 font-medium text-foreground">{job.request_message}</p>
             </button>
             <button
               type="button"
@@ -1294,7 +1294,7 @@ function ChatWorkspace() {
           </div> : null}
           {researchView === "Chats" ? <>
           <div className="border-b border-slate-200 p-4 dark:border-slate-800">
-            <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <p className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
               Saved chats
             </p>
             <button
@@ -1410,10 +1410,10 @@ function ChatWorkspace() {
                             </span>
                           </div>
                           {conversation.subject_name ? (
-                            <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{conversation.subject_name}</p>
+                            <p className="mt-1 truncate text-xs text-muted">{conversation.subject_name}</p>
                           ) : null}
                           {conversation.latest_message_preview ? (
-                            <p className="mt-2 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
+                            <p className="mt-2 line-clamp-2 text-xs text-muted">
                               {stripInternalReasoningBlock(conversation.latest_message_preview)}
                             </p>
                           ) : null}
@@ -1507,7 +1507,7 @@ function ChatWorkspace() {
                     ) : null}
                   </div>
                 )}
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                <p className="mt-1 text-sm text-muted">
                   {linkedReport
                     ? "Saved background review. Open the report to start a separate follow-up."
                     : fileContextActive
@@ -1588,12 +1588,12 @@ function ChatWorkspace() {
             messages.length === 0 && !historyError && !isTyping && !turnStopped ? (
               <div className="mx-auto mt-16 max-w-2xl text-center">
                 <div className="inline-flex h-16 w-16 items-center justify-center rounded-lg bg-sky-100 dark:bg-sky-900/30">
-                  <svg className="h-8 w-8 text-sky-600 dark:text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="h-8 w-8 text-action" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
                 </div>
-                <h2 className="mt-6 text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">What would you like to investigate?</h2>
-                <p className="mt-4 text-base text-slate-500 dark:text-slate-400">
+                <h2 className="mt-6 text-2xl font-semibold tracking-tight text-foreground">What would you like to investigate?</h2>
+                <p className="mt-4 text-base text-muted">
                   Ask a question, attach evidence, or open a saved conversation. You can investigate a development, test a thesis, or review what changed.
                 </p>
                 <div className="mt-8 flex flex-wrap justify-center gap-3">
@@ -1672,14 +1672,14 @@ function ChatWorkspace() {
                             </div>
                             {m.meta.actions && m.meta.actions.length > 0 ? (
                               <details className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
-                                <summary className="cursor-pointer text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                <summary className="cursor-pointer text-xs font-medium uppercase tracking-wider text-muted">
                                   Agent actions · {m.meta.actions.length}
                                 </summary>
                                 <div className="mt-3 space-y-2">
                                 {m.meta.actions.map((action, actionIndex) => (
                                   <div key={`${action.action_type}-${actionIndex}`} className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800">
                                     <p className="font-medium">{action.action_type.replaceAll("_", " ")}</p>
-                                    <p className="mt-1 text-slate-500 dark:text-slate-400">{action.summary}</p>
+                                    <p className="mt-1 text-muted">{action.summary}</p>
                                   </div>
                                 ))}
                                 </div>
@@ -1687,14 +1687,14 @@ function ChatWorkspace() {
                             ) : null}
                             {m.meta.subagents && Object.keys(m.meta.subagents).length > 0 ? (
                               <details className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
-                                <summary className="cursor-pointer text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                <summary className="cursor-pointer text-xs font-medium uppercase tracking-wider text-muted">
                                   Independent analysis lenses · {Object.keys(m.meta.subagents).length}
                                 </summary>
                                 <div className="mt-3 space-y-2">
                                 {Object.entries(m.meta.subagents).map(([label, insight]) => (
                                   <div key={label} className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800">
                                     <p className="font-medium">{label.replaceAll("_", " ")}</p>
-                                    <p className="mt-1 text-slate-500 dark:text-slate-400">{insight}</p>
+                                    <p className="mt-1 text-muted">{insight}</p>
                                   </div>
                                 ))}
                                 </div>
@@ -1990,16 +1990,16 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
             </span>
           </div>
           {researchPlan.objective ? (
-            <p className="mt-2 text-slate-600 dark:text-slate-300">{researchPlan.objective}</p>
+            <p className="mt-2 text-muted">{researchPlan.objective}</p>
           ) : null}
           {researchPlan.informationNeeds.length > 0 ? (
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-500 dark:text-slate-400">
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-muted">
               {researchPlan.informationNeeds.map((item) => (
                 <li key={item}>{item}</li>
               ))}
             </ul>
           ) : null}
-          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          <p className="mt-2 text-xs text-muted">
             {researchPlan.externalRequired ? "External check required" : "Stored context may be sufficient"}
             {researchPlan.portfolioRole
               ? ` · portfolio ${formatUserLabel(researchPlan.portfolioRole)}`
@@ -2010,11 +2010,11 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
       {trace.evidence_packet ? (
         <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
           <p className="font-medium">Evidence packet</p>
-          <p className="mt-1 text-slate-500 dark:text-slate-400">
+          <p className="mt-1 text-muted">
             direct {trace.evidence_packet.direct_evidence_count} · connected {trace.evidence_packet.connected_evidence_count} · historical {trace.evidence_packet.historical_evidence_count} · contradiction {trace.evidence_packet.contradiction_evidence_count}
           </p>
           {trace.evidence_packet.gap_flags.length > 0 ? (
-            <p className="mt-1 text-slate-500 dark:text-slate-400">gaps: {trace.evidence_packet.gap_flags.join(", ")}</p>
+            <p className="mt-1 text-muted">gaps: {trace.evidence_packet.gap_flags.join(", ")}</p>
           ) : null}
           <EvidenceSourceList sources={trace.evidence_packet.sources ?? []} />
         </div>
@@ -2028,12 +2028,12 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
               : "border-amber-300 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/20"
           }`}
         >
-          <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted">
             Question scope · {formatUserLabel(answerability.status)}
           </p>
           {answerability.reason ? <p className="mt-2">{answerability.reason}</p> : null}
           {answerability.missingInformation.length > 0 ? (
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-600 dark:text-slate-300">
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-muted">
               {answerability.missingInformation.map((item) => (
                 <li key={item}>{item}</li>
               ))}
@@ -2043,7 +2043,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
       ) : null}
       <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
         <p className="font-medium">Readable summary</p>
-        <div className="mt-2 space-y-3 text-sm text-slate-600 dark:text-slate-300">
+        <div className="mt-2 space-y-3 text-sm text-muted">
           {thesisSummary ? <p>{thesisSummary}</p> : null}
           {reasoningText ? (
             <p className="rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-900/40">{reasoningText}</p>
@@ -2062,7 +2062,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
           </div>
           {strengthen.length > 0 ? (
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted">
                 What would strengthen this view
               </p>
               <ul className="mt-2 list-disc space-y-1 pl-5">
@@ -2074,7 +2074,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
           ) : null}
           {gapFlags.length > 0 ? (
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted">
                 What looks thin or missing
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
@@ -2091,7 +2091,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
           ) : null}
           {falsify.length > 0 ? (
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted">
                 What would change the conclusion
               </p>
               <ul className="mt-2 list-disc space-y-1 pl-5">
@@ -2103,7 +2103,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
           ) : null}
           {retrievalLayers.length > 0 ? (
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted">
                 Retrieval path
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
@@ -2120,7 +2120,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
           ) : null}
           {contradictions.length > 0 ? (
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted">
                 Active contradictions
               </p>
               <ul className="mt-2 list-disc space-y-1 pl-5">
@@ -2132,7 +2132,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
           ) : null}
           {alternativeHypotheses.length > 0 ? (
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted">
                 Alternative explanations
               </p>
               <div className="mt-2 space-y-2">
@@ -2140,7 +2140,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
                   <div key={`${item.hypothesis}-${index}`} className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
                     <p>{item.hypothesis}</p>
                     {item.decisiveTest ? (
-                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Test: {item.decisiveTest}</p>
+                      <p className="mt-1 text-xs text-muted">Test: {item.decisiveTest}</p>
                     ) : null}
                   </div>
                 ))}
@@ -2149,7 +2149,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
           ) : null}
         </div>
         <DeferredDisclosure title="Structured analysis record" className="mt-3 border border-dashed border-line px-3 py-2">
-          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          <p className="mt-2 text-xs text-muted">
             Auditable evidence, assumptions, alternatives, scope checks, and actions. This is not a private token-by-token thought stream.
           </p>
           <RecordFields value={trace.structured_output_json} raw />
@@ -2158,9 +2158,9 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
       {trace.critique ? (
         <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
           <p className="font-medium">Critique</p>
-          <p className="mt-1 text-slate-500 dark:text-slate-400">{trace.critique.critique_text}</p>
+          <p className="mt-1 text-muted">{trace.critique.critique_text}</p>
           {trace.critique.issues_found.length > 0 ? (
-            <p className="mt-1 text-slate-500 dark:text-slate-400">issues: {trace.critique.issues_found.join(" | ")}</p>
+            <p className="mt-1 text-muted">issues: {trace.critique.issues_found.join(" | ")}</p>
           ) : null}
         </div>
       ) : (
@@ -2189,7 +2189,7 @@ function EvidenceSourceList({
 
   return (
     <details className="mt-3 border-t border-slate-200 pt-3 dark:border-slate-800" open={!compact}>
-      <summary className="cursor-pointer text-xs font-medium text-slate-600 dark:text-slate-300">
+      <summary className="cursor-pointer text-xs font-medium text-muted">
         {sources.length} attributable source {sources.length === 1 ? "record" : "records"}
       </summary>
       <div className="mt-3 max-h-80 divide-y divide-slate-200 overflow-y-auto pr-1 dark:divide-slate-800">
@@ -2201,13 +2201,13 @@ function EvidenceSourceList({
                 {source.origin_label ?? source.source_type.replaceAll("_", " ")}
               </span>
               {source.evidence_roles.map((role) => (
-                <span key={role} className="text-xs font-medium uppercase tracking-wider text-sky-600 dark:text-sky-400">
+                <span key={role} className="text-xs font-medium uppercase tracking-wider text-action">
                   {role}
                 </span>
               ))}
             </div>
             {source.title ? (
-              <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300">{source.title}</p>
+              <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted">{source.title}</p>
             ) : null}
             <div className="mt-2">
               <SourceProvenanceLinks
@@ -2249,7 +2249,7 @@ function ActualProcessSummary({
 
   return (
     <details className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-3 text-sm dark:border-slate-800 dark:bg-slate-950/40">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-medium uppercase tracking-wider text-muted">
         <span>{fileAnswer ? "File evidence" : "Answer audit"}</span>
         {displayedConfidence ? (
           <span className="rounded-none border border-slate-200 px-2 py-1 text-xs dark:border-slate-700">
@@ -2259,7 +2259,7 @@ function ActualProcessSummary({
       </summary>
       <div className="mt-3 space-y-3">
       <p className="text-xs text-muted">{fileAnswer ? "Based on the supplied files and provisional visual readings." : "Check the original evidence and its dates before relying on this answer."}</p>
-      <div className="space-y-1 text-slate-500 dark:text-slate-400">
+      <div className="space-y-1 text-muted">
         {message.meta.process_mode ? (
           <p>analysis path: {formatUserLabel(message.meta.process_mode)}</p>
         ) : null}
@@ -2291,20 +2291,20 @@ function ActualProcessSummary({
       {summary.researchPlan ? (
         <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <p className="text-xs font-medium uppercase tracking-wider text-muted">
               Research scope
             </p>
-            <span className="text-xs text-slate-500 dark:text-slate-400">
+            <span className="text-xs text-muted">
               {formatUserLabel(summary.researchPlan.mode)}
             </span>
           </div>
           {summary.researchPlan.objective ? (
-            <p className="mt-2 text-slate-700 dark:text-slate-200">
+            <p className="mt-2 text-foreground">
               {summary.researchPlan.objective}
             </p>
           ) : null}
           {summary.researchPlan.informationNeeds.length > 0 ? (
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-600 dark:text-slate-300">
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-muted">
               {summary.researchPlan.informationNeeds.slice(0, 4).map((item) => (
                 <li key={item}>{item}</li>
               ))}
@@ -2314,11 +2314,11 @@ function ActualProcessSummary({
       ) : null}
       {summary.answerability ? (
         <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-          <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted">
             Scope verdict · {formatUserLabel(summary.answerability.status)}
           </p>
           {summary.answerability.reason ? (
-            <p className="mt-2 text-slate-700 dark:text-slate-200">
+            <p className="mt-2 text-foreground">
               {summary.answerability.reason}
             </p>
           ) : null}
@@ -2327,13 +2327,13 @@ function ActualProcessSummary({
       <CorroborationPanel summary={summary} />
       {historicalLens ? (
         <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-          <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted">
             Historical rhyme
           </p>
           <p className="mt-2 font-medium text-slate-800 dark:text-slate-100">
             {[historicalLens.name, historicalLens.period].filter(Boolean).join(" · ")}
           </p>
-          <div className="mt-2 space-y-2 text-slate-600 dark:text-slate-300">
+          <div className="mt-2 space-y-2 text-muted">
             {historicalLens.lens_use_policy ? <p>Use policy: {historicalLens.lens_use_policy}</p> : null}
             {historicalLens.current_application_prompt ? (
               <p>Application prompt: {historicalLens.current_application_prompt}</p>
@@ -2366,12 +2366,12 @@ function ActualProcessSummary({
         <div className="mt-3 grid gap-3 md:grid-cols-3">
           {displayedThesis ? (
             <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-              <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted">
                 Current read
               </p>
-              <p className="mt-2 text-slate-700 dark:text-slate-200">{displayedThesis}</p>
+              <p className="mt-2 text-foreground">{displayedThesis}</p>
               {(displayedStance || displayedConfidence) ? (
-                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                <p className="mt-2 text-xs text-muted">
                   {[displayedStance ? `stance ${formatUserLabel(displayedStance)}` : null, displayedConfidence ? `confidence ${formatUserLabel(displayedConfidence)}` : null]
                     .filter(Boolean)
                     .join(" · ")}
@@ -2381,10 +2381,10 @@ function ActualProcessSummary({
           ) : null}
           {summary.gapFlags.length > 0 ? (
             <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-              <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted">
                 Missing or thin
               </p>
-              <ul className="mt-2 space-y-1 text-slate-700 dark:text-slate-200">
+              <ul className="mt-2 space-y-1 text-foreground">
                 {summary.gapFlags.slice(0, 3).map((item) => (
                   <li key={item}>• {formatUserLabel(item)}</li>
                 ))}
@@ -2393,10 +2393,10 @@ function ActualProcessSummary({
           ) : null}
           {nextBestStep ? (
             <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-              <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted">
                 Best next check
               </p>
-              <p className="mt-2 text-slate-700 dark:text-slate-200">{nextBestStep}</p>
+              <p className="mt-2 text-foreground">{nextBestStep}</p>
             </div>
           ) : null}
         </div>
