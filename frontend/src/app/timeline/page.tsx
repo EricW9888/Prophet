@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
 import AppNav from "@/components/AppNav";
+import DeferredDisclosure from "@/components/DeferredDisclosure";
 import PageHeader from "@/components/PageHeader";
 import WorkspaceState, { WorkspaceSkeleton } from "@/components/WorkspaceState";
 import { loadMonitorSnapshot } from "@/lib/monitor";
@@ -637,7 +638,8 @@ export default function TimelinePage() {
         </section>
 
         <aside className="space-y-6 xl:sticky xl:top-24 self-start xl:max-h-[calc(100vh-7rem)] xl:overflow-y-auto xl:pr-1">
-          <section className="rounded-lg border border-line bg-panel p-6">
+          <DeferredDisclosure title="Knowledge change log" className="border border-line bg-panel p-4">
+          <section>
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Knowledge Changes</h2>
@@ -704,6 +706,7 @@ export default function TimelinePage() {
               </div>
             )}
           </section>
+          </DeferredDisclosure>
 
           <section className="rounded-lg border border-line bg-panel p-6">
             <div className="flex items-center justify-between gap-3">
@@ -881,6 +884,7 @@ export default function TimelinePage() {
             ) : null}
           </section>
 
+          <DeferredDisclosure title="Add a note or URL" className="border border-line bg-panel p-4" contentClassName="mt-3 space-y-6">
           <section className="rounded-lg border border-line bg-panel p-6">
             <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-4">Add Research Note</h2>
             <form onSubmit={handleNoteSubmit} className="space-y-4">
@@ -943,6 +947,7 @@ export default function TimelinePage() {
             <p className="text-sm text-slate-500 dark:text-slate-400">Every note is persisted as raw evidence first, then parsed into claims, facts, and events with provenance preserved.</p>
             <Link href="/sources" className="mt-3 inline-block text-sm text-sky-600 dark:text-sky-400">Manage trusted sources</Link>
           </section>
+          </DeferredDisclosure>
         </aside>
       </main>
     </div>

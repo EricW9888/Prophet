@@ -51,7 +51,8 @@ function statusLabel(item: AgentActionLogItem) {
   const normalized = item.status.toLowerCase();
   if (normalized === "empty_result") return "No usable result";
   if (normalized === "processed_with_errors") return "Partial success";
-  if (normalized === "ok" && item.source === "automation") return "Routine";
+  // "Routine" is reserved for the refreshes the routine filter hides (price, risk, backup).
+  if (normalized === "ok" && item.source === "automation") return "Completed";
   if (normalized === "blocked") return "Blocked";
   if (normalized.includes("error") || normalized.includes("failed")) return "Error";
   return formatUserLabel(item.status);
