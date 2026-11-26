@@ -27,6 +27,7 @@ from investos.schemas.review import (
     ReviewQueueItemResponse,
     ReviewQueuePageResponse,
 )
+from investos.services.claim_record_identity import representative_claim_record
 from investos.services.artifact_hygiene import (
     is_artifact_question_text,
     is_artifact_subject_name,
@@ -467,6 +468,7 @@ class ReviewService:
                 .join(Source, SourceClaimRecord.source_id == Source.id)
                 .where(
                     SourceClaimRecord.assessment == "pending",
+                    representative_claim_record(),
                     Claim.is_deprecated.is_(False),
                     (SourceClaimRecord.next_assessment_at.is_(None))
                     | (SourceClaimRecord.next_assessment_at <= now),

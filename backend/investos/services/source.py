@@ -30,6 +30,7 @@ from investos.models.lesson import Lesson
 from investos.models.portfolio import Position
 from investos.models.source import Source, SourceQualitySegment
 from investos.schemas.source import SourceCreate, SourceUpdate
+from investos.services.claim_record_identity import representative_claim_record
 from investos.services.evidence_processing import EvidenceProcessingService
 from investos.services.knowledge_audit import KnowledgeAuditService
 from investos.services.knowledge_time import is_legacy_synthetic_event_time
@@ -780,6 +781,7 @@ class SourceService:
                         SourceClaimRecord.next_assessment_at.is_(None),
                         SourceClaimRecord.next_assessment_at <= now,
                     ),
+                    representative_claim_record(),
                 )
                 .order_by(
                     SourceClaimRecord.claim_time.asc(),
@@ -795,6 +797,7 @@ class SourceService:
                     SourceClaimRecord.assessment == "pending",
                     SourceClaimRecord.assessment_attempt_count > 0,
                     SourceClaimRecord.next_assessment_at <= now,
+                    representative_claim_record(),
                 )
                 .order_by(
                     SourceClaimRecord.next_assessment_at.asc(),
@@ -1142,12 +1145,15 @@ class SourceService:
             (
                 await self.session.execute(
                     select(SourceClaimRecord)
+                    .join(Claim, Claim.id == SourceClaimRecord.claim_id)
                     .where(
                         SourceClaimRecord.source_id == source_id,
                         SourceClaimRecord.assessment.in_(
                             SCORED_SOURCE_CLAIM_ASSESSMENTS
                         ),
                         SourceClaimRecord.assessment_time.is_not(None),
+                        # A statement repeated by this source counts once.
+                        representative_claim_record(),
                     )
                     .order_by(SourceClaimRecord.claim_time.asc())
                 )
