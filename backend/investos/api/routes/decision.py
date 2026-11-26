@@ -9,6 +9,7 @@ from investos.schemas.decision import (
     DecisionReviewResponse,
 )
 from investos.services.decision import DecisionService
+from investos.services.outcome_summary import OutcomeSummaryService
 
 router = APIRouter(prefix="/decisions", tags=["decisions"])
 
@@ -16,6 +17,12 @@ router = APIRouter(prefix="/decisions", tags=["decisions"])
 @router.get("", response_model=list[DecisionJournalResponse])
 async def list_decisions(session: AsyncSession = Depends(get_session)):
     return await DecisionService(session).list_decisions()
+
+
+@router.get("/outcomes")
+async def outcome_summary(session: AsyncSession = Depends(get_session)):
+    """What the learning loop has scored so far: counts, rates, latest results."""
+    return await OutcomeSummaryService(session).summary()
 
 
 @router.post("", response_model=DecisionJournalResponse)
