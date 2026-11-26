@@ -267,6 +267,13 @@ def test_backend_uses_the_loopback_socket_peer_not_forwarded_client_headers():
     assert command[command.index("--host") + 1] == "127.0.0.1"
 
 
+def test_backend_keeps_idle_connections_longer_than_the_proxy():
+    command = prophet.backend_command()
+
+    # Longer than Node's 5-second idle keep-alive, so the proxy closes first.
+    assert int(command[command.index("--timeout-keep-alive") + 1]) > 5
+
+
 def test_frontend_environment_receives_only_its_remote_access_setting():
     result = prophet.frontend_process_environment(
         {

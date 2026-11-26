@@ -198,6 +198,9 @@ def backend_python_path() -> Path:
     )
 
 
+BACKEND_KEEP_ALIVE_SECONDS = 75
+
+
 def backend_command() -> list[str]:
     # Next.js owns the trusted proxy boundary. FastAPI is loopback-only and must
     # use the socket peer rather than reinterpret forwarded client headers.
@@ -210,6 +213,11 @@ def backend_command() -> list[str]:
         "127.0.0.1",
         "--port",
         str(BACKEND_PORT),
+        # Keep idle connections open longer than the Next.js proxy keeps them, so the
+        # proxy closes first. With uvicorn's 5-second default the two can close at once
+        # and a reused socket fails with ECONNRESET, which the browser sees as a 500.
+        "--timeout-keep-alive",
+        str(BACKEND_KEEP_ALIVE_SECONDS),
         "--no-proxy-headers",
     ]
 
