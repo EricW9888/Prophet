@@ -38,6 +38,7 @@ import { formatModelUsedLabel, formatUserLabel } from "@/lib/formatting";
 import { readResearchEntry, researchTurnContext, type ResearchSubject } from "@/lib/workflows";
 import { ACTIVE_JOB_STORAGE_KEY, COMPLETED_JOB_NOTICE_KEY, clearActiveJobReference, clearCompletedJobNotice } from "@/lib/job-notifications";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
+import { groupConversations } from "@/lib/chat-sidebar";
 
 const ALLOW_ACTIONS_STORAGE_KEY = "prophet:allow-agent-actions";
 const RESEARCH_SIDEBAR_WIDTH = 320;
@@ -553,6 +554,7 @@ function ChatWorkspace() {
   const [conversations, setConversations] = useState<AgentConversationSummary[]>([]);
   const { read: readConversations, status: conversationReads } = useWorkspaceReads<"list">();
   const [autonomousReviews, setAutonomousReviews] = useState<AgentConversationSummary[]>([]);
+  const [chatQuery, setChatQuery] = useState("");
   const [researchView, setResearchView] = useState<(typeof RESEARCH_VIEWS)[number]>("Chats");
   const [openReport, setOpenReport] = useState<AgentConversationSummary | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -1319,19 +1321,26 @@ function ChatWorkspace() {
           />
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
             <WorkspaceRead name="saved chats" state={conversationReads.list} retry={() => void loadConversations()}>
+            {conversations.length > 0 ? (
+              <input type="search" value={chatQuery} onChange={(event) => setChatQuery(event.target.value)}
+                aria-label="Search chats" placeholder="Search chats" className="workspace-control w-full" />
+            ) : null}
             {conversations.length === 0 ? (
               <p className="border border-dashed border-line p-4 text-sm text-muted">No saved chats yet.</p>
+            ) : groupConversations(conversations, chatQuery).length === 0 ? (
+              <p className="p-2 text-sm text-muted">No chats match this search.</p>
             ) : (
-              conversations.map((conversation) => {
+              groupConversations(conversations, chatQuery).map((group) => (
+              <section key={group.label} aria-label={group.label} className="space-y-2">
+              <h3 className="px-1 pt-2 text-xs font-medium text-muted">{group.label}</h3>
+              {group.items.map((conversation) => {
                 const isActive = activeSessionId === conversation.session_id;
                 const isRenaming = renamingSessionId === conversation.session_id;
                 return (
                   <div
                     key={conversation.session_id}
-                    className={`group w-full rounded-lg border px-3 py-3 transition ${
-                      isActive
-                        ? "border-sky-300 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/30"
-                        : "border-line bg-panel "
+                    className={`group w-full border px-3 py-2 transition ${
+                      isActive ? "border-action bg-panel-muted" : "border-transparent hover:bg-panel-muted"
                     }`}
                   >
                     {isRenaming ? (
@@ -1403,25 +1412,10 @@ function ChatWorkspace() {
                           }}
                           className="min-w-0 flex-1 text-left"
                         >
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="truncate text-sm font-medium">{conversation.title}</p>
-                            <span className="shrink-0 text-xs uppercase tracking-wide text-slate-400">
-                              {formatTimestamp(conversation.updated_at)}
-                            </span>
-                          </div>
-                          {conversation.subject_name ? (
-                            <p className="mt-1 truncate text-xs text-muted">{conversation.subject_name}</p>
-                          ) : null}
-                          {conversation.latest_message_preview ? (
-                            <p className="mt-2 line-clamp-2 text-xs text-muted">
-                              {stripInternalReasoningBlock(conversation.latest_message_preview)}
-                            </p>
-                          ) : null}
-                          {conversation.artifact_count ? (
-                            <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                              {conversation.artifact_count} system {conversation.artifact_count === 1 ? "note" : "notes"} hidden
-                            </p>
-                          ) : null}
+                          <p className="line-clamp-2 text-sm font-medium" title={conversation.title}>{conversation.title}</p>
+                          <p className="mt-1 truncate text-xs text-muted">
+                            {[formatTimestamp(conversation.updated_at), conversation.subject_name].filter(Boolean).join(" · ")}
+                          </p>
                         </button>
                         <button
                           type="button"
@@ -1436,7 +1430,9 @@ function ChatWorkspace() {
                     )}
                   </div>
                 );
-              })
+              })}
+              </section>
+              ))
             )}
             </WorkspaceRead>
           </div>
