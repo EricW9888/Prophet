@@ -245,3 +245,14 @@ test("value axis uses round ticks that cover the data", async () => {
   assert.ok(axis.domain[0] <= 4474 && axis.domain[1] >= 10323);
   assert.deepEqual(niceAxis(99.2, 100.4).ticks, [99, 99.5, 100, 100.5]);
 });
+
+test("money put in steps to the latest amount at or before each chart time", async () => {
+  const { stepReference } = await import("../src/components/CapturedValueChart");
+  const times = [Date.parse("2026-11-01T00:00:00Z"), Date.parse("2026-11-03T00:00:00Z"), Date.parse("2026-11-05T00:00:00Z")];
+  const reference = { label: "Money put in", points: [
+    { at: "2026-11-04T00:00:00Z", value: 300 },
+    { at: "2026-11-02T00:00:00Z", value: 100 },
+  ] };
+  assert.deepEqual(stepReference(times, reference), [null, 100, 300]);
+  assert.deepEqual(stepReference(times, undefined), [null, null, null]);
+});
