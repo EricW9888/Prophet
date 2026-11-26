@@ -33,7 +33,7 @@ test("derives gain percent and portfolio share from ledger fields", () => {
   assert.equal(rows[1].weightPct, 75);
 });
 
-test("marks only missing or earlier-day quotes as stale", () => {
+test("marks only missing quotes and quotes that lag the newest one", () => {
   const rows = buildPositionRows([
     holding("FRESH"),
     holding("OLD", { valuation: { status: "ready", issues: [], quoted_at: "2026-11-20T15:00:00Z", observed_at: null, provider: null, currency: "USD" } }),
@@ -61,4 +61,10 @@ test("sorts by any column and keeps missing values last in both directions", () 
   assert.deepEqual(sortPositionRows(rows, "value", "desc").map((row) => row.position.ticker), ["HIGH", "MID", "LOW", "NULL"]);
   assert.deepEqual(sortPositionRows(rows, "value", "asc").map((row) => row.position.ticker), ["LOW", "MID", "HIGH", "NULL"]);
   assert.deepEqual(sortPositionRows(rows, "ticker", "asc").map((row) => row.position.ticker), ["HIGH", "LOW", "MID", "NULL"]);
+});
+
+test("overnight, when every quote is from the last close, nothing is marked", () => {
+  const nextMorning = new Date("2026-11-26T13:00:00Z");
+  const rows = buildPositionRows([holding("A"), holding("B")], nextMorning);
+  assert.deepEqual(rows.map((row) => row.stale), [false, false]);
 });
