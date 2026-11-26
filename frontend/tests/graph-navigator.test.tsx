@@ -13,7 +13,7 @@ test("node navigation pages complete labels and chooses the exact matching ident
     await act(async()=>root.render(<GraphNodeNavigator nodes={nodes} onSelect={node=>{selected=node.key;}}/>));
     await act(async()=>container.querySelector("button")!.click());
     assert.equal(container.querySelectorAll("li").length,20);
-    const next=[...container.querySelectorAll("button")].find(button=>button.textContent==="Next nodes")!;
+    const next=[...container.querySelectorAll("button")].find(button=>button.textContent==="Next")!;
     await act(async()=>next.click());
     assert.equal(container.querySelectorAll("li").length,15);
     assert.ok(container.textContent!.includes(nodes[34].label));

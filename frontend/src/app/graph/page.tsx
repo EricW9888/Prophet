@@ -946,11 +946,11 @@ export default function GraphPage() {
             <div className="flex min-w-0 flex-wrap items-center gap-3">
               <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Knowledge</h1>
               <HintMarker label="How to use the knowledge graph">Scroll or pinch to zoom, drag the background to pan, and select a node or connection to inspect it. Search or browse the node list for full names and center a node’s connections. The library searches stored knowledge; choosing a record opens its focused neighborhood. Overview labels prioritize subjects and your selection; hidden labels do not remove records.</HintMarker>
-              <div className="inline-flex gap-1">
-                <button type="button" className="workspace-control" aria-pressed={!showMap} onClick={() => {setShowMap(false); if (graphMode === "focused") void loadGraph("all", showSystemNodes);}}>Browse knowledge</button>
-                <button type="button" className="workspace-control" aria-pressed={showMap} onClick={() => setShowMap(true)}>Map connections</button>
+              <div role="group" aria-label="View" className="inline-flex items-center gap-1"><span className="text-xs text-muted">View</span>
+                <button type="button" className="workspace-control" aria-pressed={!showMap} onClick={() => {setShowMap(false); if (graphMode === "focused") void loadGraph("all", showSystemNodes);}}>List</button>
+                <button type="button" className="workspace-control" aria-pressed={showMap} onClick={() => setShowMap(true)}>Map</button>
               </div>
-              <div className="inline-flex gap-1">
+              <div role="group" aria-label="Scope" className="inline-flex items-center gap-1"><span className="text-xs text-muted">Scope</span>
                 <button
                   type="button"
                   onClick={() => void loadGraph("portfolio", showSystemNodes)}
@@ -958,7 +958,7 @@ export default function GraphPage() {
                   className="workspace-control"
                   aria-pressed={graphMode === "portfolio"}
                 >
-                  Holdings lens
+                  Your holdings
                 </button>
                 <button
                   type="button"
@@ -967,7 +967,7 @@ export default function GraphPage() {
                   className="workspace-control"
                   aria-pressed={graphMode === "all"}
                 >
-                  Research map
+                  Everything
                 </button>
               </div>
             </div>
@@ -1085,38 +1085,23 @@ export default function GraphPage() {
               </div>}
             </div>
 
-            {!activeGraph && !showMap ? (error ? <WorkspaceState kind="error" title="Knowledge unavailable" description={error} /> : <WorkspaceSkeleton label="Loading knowledge" rows={4} />) : null}
-            <GraphNodeNavigator key={showMap ? "map" : "library"} library={!showMap}
-              search={!showMap ? {value:knowledgeQuery,onChange:setKnowledgeQuery,remote:knowledgeQuery.trim().length >= 2,status:knowledgeSearching ? "Searching all stored knowledge…" : knowledgeSearchError ?? (!activeGraph ? (loading ? "Loading stored knowledge…" : "The loaded view is unavailable. Search is still available.") : undefined)} : undefined}
-              nodes={!showMap && knowledgeQuery.trim().length >= 2 ? knowledgeResults.map(item => ({key:`${item.node_type}:${item.node_id}`,id:item.node_id,node_type:item.node_type,label:item.label,layer:item.layer,subtitle:item.subtitle,is_root:false,is_autonomous:false})) : graphView?.browseNodes ?? []} onSelect={(node) => {
-              const positioned = displayedNodes.find(current => current.key === node.key);
-              if (showMap && positioned) jumpToNode(positioned);
-              else void openGraph(node.node_type, node.id).then(() => setShowMap(true));
-            }} />
-            {showMap && (graphView?.unconnectedCount ?? 0) > 0 ? <label className="mt-3 flex items-center gap-2 text-sm text-muted">
-              <input type="checkbox" checked={showUnconnectedNodes} onChange={event => setShowUnconnectedNodes(event.target.checked)} />
-              Show {graphView?.unconnectedCount} records without connections in this view
-              <HintMarker label="Records without visible connections">These records remain in Browse and search. Selecting one opens its own neighborhood. A missing connection in this bounded view does not prove that the record has no stored relationships.</HintMarker>
-            </label> : null}
-            <details className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
-              <summary className="cursor-pointer text-xs font-semibold text-slate-600 dark:text-slate-300">
-                Filters{activeNodeTypes.length > 0 ? ` · ${activeNodeTypes.length} active` : ""}
-              </summary>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
+            <div role="group" aria-label="Filter records by type" className="mt-3 flex flex-wrap items-start gap-x-3 gap-y-2">
+              <span className="text-xs font-medium text-muted">Show</span>
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setActiveNodeTypes([])}
                   className={[
                     "rounded-none border px-3 py-1 text-xs font-semibold transition-colors",
                     activeNodeTypes.length === 0
-                      ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-300"
-                      : "border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:text-slate-300",
+                      ? "border-action text-action-strong"
+                      : "border-line text-muted hover:border-line-strong",
                   ].join(" ")}
                 >
                   All types
                 </button>
                 {availableNodeTypes.map(({ type, count }) => {
-                  const active = activeNodeTypes.length === 0 || activeNodeTypes.includes(type);
+                  const active = activeNodeTypes.includes(type);
                   return (
                     <button
                       key={type}
@@ -1125,8 +1110,8 @@ export default function GraphPage() {
                       className={[
                         "inline-flex items-center gap-1.5 rounded-none border px-3 py-1 text-xs font-semibold transition-colors",
                         active
-                          ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-300"
-                          : "border-slate-200 text-slate-500 hover:border-slate-300 dark:border-slate-800 dark:text-slate-400",
+                          ? "border-action text-action-strong"
+                          : "border-line text-muted hover:border-line-strong",
                       ].join(" ")}
                     >
                       <span
@@ -1138,7 +1123,7 @@ export default function GraphPage() {
                   );
                 })}
               </div>
-              <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+              <div className="flex w-full flex-wrap items-center gap-3 text-xs text-muted">
                 <label className="inline-flex items-center gap-2 rounded-none border border-line bg-panel px-3 py-1.5">
                   <input
                     type="checkbox"
@@ -1158,7 +1143,20 @@ export default function GraphPage() {
                   The research map includes stored subjects beyond your holdings. The holdings lens narrows the starting subjects; neither view limits what Prophet researches.
                 </span>
               </div>
-            </details>
+            </div>
+            {!activeGraph && !showMap ? (error ? <WorkspaceState kind="error" title="Knowledge unavailable" description={error} /> : <WorkspaceSkeleton label="Loading knowledge" rows={4} />) : null}
+            <GraphNodeNavigator key={showMap ? "map" : "library"} library={!showMap}
+              search={!showMap ? {value:knowledgeQuery,onChange:setKnowledgeQuery,remote:knowledgeQuery.trim().length >= 2,status:knowledgeSearching ? "Searching all stored knowledge…" : knowledgeSearchError ?? (!activeGraph ? (loading ? "Loading stored knowledge…" : "The loaded view is unavailable. Search is still available.") : undefined)} : undefined}
+              nodes={!showMap && knowledgeQuery.trim().length >= 2 ? knowledgeResults.map(item => ({key:`${item.node_type}:${item.node_id}`,id:item.node_id,node_type:item.node_type,label:item.label,layer:item.layer,subtitle:item.subtitle,is_root:false,is_autonomous:false})) : graphView?.browseNodes ?? []} onSelect={(node) => {
+              const positioned = displayedNodes.find(current => current.key === node.key);
+              if (showMap && positioned) jumpToNode(positioned);
+              else void openGraph(node.node_type, node.id).then(() => setShowMap(true));
+            }} />
+            {showMap && (graphView?.unconnectedCount ?? 0) > 0 ? <label className="mt-3 flex items-center gap-2 text-sm text-muted">
+              <input type="checkbox" checked={showUnconnectedNodes} onChange={event => setShowUnconnectedNodes(event.target.checked)} />
+              Show {graphView?.unconnectedCount} records without connections in this view
+              <HintMarker label="Records without visible connections">These records remain in Browse and search. Selecting one opens its own neighborhood. A missing connection in this bounded view does not prove that the record has no stored relationships.</HintMarker>
+            </label> : null}
 
             {graphStats ? (
               <details className="mt-4 border-t border-slate-200 pt-4 dark:border-slate-800">
