@@ -220,8 +220,9 @@ function HoldingsTable({ holdings }: { holdings: Position[] }) {
               <tr key={pos.id} className="hover:bg-panel-muted">
                 <td className="sticky left-0 z-10 max-w-[18rem] bg-panel py-2 pr-4">
                   <span className="flex min-w-0 items-baseline gap-2">
-                    <Link href={researchHref({ subject_id: pos.id, subject_type: "position", subject_name: pos.ticker ?? pos.entity_name ?? "Holding" })} aria-label={`Research ${pos.ticker ?? pos.entity_name ?? "holding"}`} className="font-semibold text-action hover:underline">{pos.ticker ?? pos.security_id}</Link>
+                    <Link href={`/graph?node_type=position&node_id=${encodeURIComponent(pos.id)}`} aria-label={`What Prophet knows about ${pos.ticker ?? pos.entity_name ?? "this holding"}`} className="font-semibold text-action hover:underline">{pos.ticker ?? pos.security_id}</Link>
                     {pos.entity_name ? <span className="hidden truncate text-xs text-muted sm:inline" title={pos.entity_name}>{pos.entity_name}</span> : null}
+                    <Link href={researchHref({ subject_id: pos.id, subject_type: "position", subject_name: pos.ticker ?? pos.entity_name ?? "Holding" })} aria-label={`Ask Prophet about ${pos.ticker ?? pos.entity_name ?? "this holding"}`} className="ml-auto shrink-0 text-xs text-muted hover:text-action">Ask</Link>
                   </span>
                 </td>
                 <td className="py-2 text-right tabular-nums">{safeFormatQuantity(pos.quantity)}</td>

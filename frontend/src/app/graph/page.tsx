@@ -553,7 +553,17 @@ export default function GraphPage() {
 
   useEffect(() => {
     const inventory = new AbortController();
-    void loadGraph("all", false);
+    // Deep link from other screens (for example a holding in Positions): open that
+    // subject's neighborhood directly instead of the full list.
+    const params = new URLSearchParams(window.location.search);
+    const linkedType = params.get("node_type");
+    const linkedId = params.get("node_id");
+    if (linkedType && linkedId && /^[a-z_]+$/.test(linkedType)) {
+      setShowMap(true);
+      void loadGraph("focused", false, { nodeType: linkedType, nodeId: linkedId });
+    } else {
+      void loadGraph("all", false);
+    }
     void loadInventory(inventory.signal);
     return () => {
       graphRequestRef.current?.abort();
