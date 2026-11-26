@@ -76,11 +76,11 @@ export default function PositionsTable() {
           <section className="min-w-0 rounded-lg border border-line bg-panel p-4 sm:p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Live holdings</p>
+                <p className="text-sm font-medium text-muted">Live holdings</p>
                 <h2 className="mt-1 text-2xl font-semibold tracking-tight">
                   {`${holdings.length} active holdings`}
                 </h2>
-                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                <p className="mt-2 text-sm text-muted">
                   Review your holdings and use them to see where new research changes your exposure.
                 </p>
               </div>
@@ -131,7 +131,7 @@ export default function PositionsTable() {
           >
             <div className="mt-4 space-y-3">
               {(overview?.recent_transactions ?? []).length === 0 ? (
-                <p className="text-sm text-slate-500 dark:text-slate-400">No transactions yet.</p>
+                <p className="text-sm text-muted">No transactions yet.</p>
               ) : (
                 overview?.recent_transactions.map((txn) => (
                   <div key={txn.id} className="rounded-lg border border-slate-200 p-4 text-sm dark:border-slate-800">
@@ -141,12 +141,12 @@ export default function PositionsTable() {
                         {new Date(txn.executed_at).toLocaleDateString()}
                       </span>
                     </div>
-                    <p className="mt-1 text-slate-700 dark:text-slate-300">
+                    <p className="mt-1 text-foreground">
                       {(txn.quantity || 0).toFixed(2)} shares
                       {txn.price != null ? ` @ ${safeFormatCurrency(txn.price, 2)}` : ""}
                     </p>
                     {txn.notes ? (
-                      <p className="mt-2 text-slate-500 dark:text-slate-400">{txn.notes}</p>
+                      <p className="mt-2 text-muted">{txn.notes}</p>
                     ) : null}
                   </div>
                 ))
@@ -272,9 +272,9 @@ function CollapsiblePanel({
     <section className="rounded-lg border border-line bg-panel p-6">
       <button type="button" onClick={onToggle} className="flex w-full items-start justify-between gap-4 text-left">
         <div>
-          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{eyebrow}</p>
+          <p className="text-sm font-medium text-muted">{eyebrow}</p>
           <h3 className="mt-1 text-xl font-semibold tracking-tight">{title}</h3>
-          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{summary}</p>
+          <p className="mt-2 text-sm text-muted">{summary}</p>
         </div>
         <span className="rounded-none border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300">
           {open ? "Hide" : "Expand"}
@@ -298,17 +298,17 @@ function SidebarList({
 }) {
   return (
     <section className="rounded-lg border border-line bg-panel p-6">
-      <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{title}</p>
-      <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{description}</p>
+      <p className="text-sm font-medium text-muted">{title}</p>
+      <p className="mt-2 text-sm text-muted">{description}</p>
       <div className="mt-4 space-y-3">
         {items.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">{emptyState}</p>
+          <p className="text-sm text-muted">{emptyState}</p>
         ) : (
           items.map((item) => (
             <div key={item.id} className="rounded-lg border border-slate-200 px-4 py-3 dark:border-slate-800">
               <Link href={researchHref({ subject_id: item.id, subject_type: "position", subject_name: item.ticker ?? item.entity_name ?? "Tracked name" })} aria-label={`Research ${item.ticker ?? item.entity_name ?? "tracked name"}`} className="font-medium text-action underline decoration-dotted underline-offset-4">{item.ticker ?? item.security_id}</Link>
               {item.entity_name ? (
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{item.entity_name}</p>
+                <p className="mt-1 text-sm text-muted">{item.entity_name}</p>
               ) : null}
               {item.conviction != null ? (
                 <p className="mt-1 text-xs uppercase tracking-wider text-slate-400">conviction {item.conviction}/5</p>

@@ -17,7 +17,7 @@ export default function FloatingSaveBar({ isDirty, onSave, onDiscard, saving }: 
       <div className="flex flex-col gap-3 rounded-lg border border-sky-100 bg-white/95 px-4 py-3 shadow-lg backdrop-blur-xl sm:flex-row sm:items-center sm:gap-4 dark:border-sky-900/50 dark:bg-slate-950/95">
         <div className="flex items-center gap-3 sm:border-r sm:border-slate-100 sm:pr-4 dark:sm:border-slate-800">
           <div className="h-2 w-2 animate-pulse rounded-full bg-sky-500" />
-          <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
+          <p className="text-sm font-medium text-foreground">
             Unsaved changes
           </p>
         </div>

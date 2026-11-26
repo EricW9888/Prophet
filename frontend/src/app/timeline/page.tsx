@@ -175,7 +175,7 @@ function KnowledgeCount({
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/50">
       <div className="text-xs font-bold uppercase tracking-widest text-slate-400">{label}</div>
-      <div className="mt-1 text-lg font-bold tabular-nums text-slate-900 dark:text-slate-100">{active.toLocaleString()}</div>
+      <div className="mt-1 text-lg font-bold tabular-nums text-foreground">{active.toLocaleString()}</div>
       <div className="text-xs text-slate-400">{deprecated.toLocaleString()} archived</div>
     </div>
   );
@@ -229,7 +229,7 @@ function VisibleNodeProperties({ node }: { node: GraphNodeDetail }) {
 
   return (
     <section className="space-y-3">
-      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Operating context</h4>
+      <h4 className="text-xs font-bold uppercase tracking-wider text-muted">Operating context</h4>
       <div className="grid grid-cols-1 gap-2">
         {node.relevance != null ? (
           <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 dark:border-sky-800/60 dark:bg-sky-950/20">
@@ -238,7 +238,7 @@ function VisibleNodeProperties({ node }: { node: GraphNodeDetail }) {
               <div className="h-2 flex-1 overflow-hidden rounded-none bg-slate-200 dark:bg-slate-800">
                 <div className="h-full bg-sky-500" style={{ width: `${Math.round((node.relevance || 0) * 100)}%` }} />
               </div>
-              <span className="text-xs font-mono font-bold text-sky-600 dark:text-sky-400">
+              <span className="text-xs font-mono font-bold text-action">
                 {Math.round((node.relevance || 0) * 100)}%
               </span>
             </div>
@@ -247,7 +247,7 @@ function VisibleNodeProperties({ node }: { node: GraphNodeDetail }) {
         {visibleProperties.map(([key, value]) => (
           <div key={key} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-900">
             <div className="text-xs uppercase tracking-wider text-slate-400">{key.replaceAll("_", " ")}</div>
-            <div className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+            <div className="mt-1 text-sm text-foreground">
               {formatPropertyValue(key, value)}
             </div>
           </div>
@@ -500,7 +500,7 @@ export default function TimelinePage() {
                   </button>
                 ))}
               </div>
-              <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400 sm:max-w-md sm:text-right">
+              <p className="text-xs leading-relaxed text-muted sm:max-w-md sm:text-right">
                 Old evidence is retained for outcome learning and historical comparison, but ingestion time is never presented as when it happened.
               </p>
             </div>
@@ -508,7 +508,7 @@ export default function TimelinePage() {
 
           {error ? <WorkspaceState kind="error" title="The requested action could not complete" description={error} compact /> : null}
           {feedError && feedLoaded ? <WorkspaceState kind="degraded" title="Some Monitor information is unavailable" description={`${feedError} The last successfully loaded feed remains visible below.`} actionLabel="Retry refresh" onAction={() => void loadTimeline()} compact /> : null}
-          <section className="relative border-l border-slate-200 dark:border-slate-800 ml-3 md:ml-4 space-y-8 py-4">
+          <section className="relative border-l border-line ml-3 md:ml-4 space-y-8 py-4">
             {loading ? (
               <div className="ml-6"><WorkspaceSkeleton label="Loading Monitor" rows={4} /></div>
             ) : feedError && !feedLoaded ? (
@@ -555,28 +555,28 @@ export default function TimelinePage() {
                           <span className={`rounded-none border px-2.5 py-1 text-xs font-semibold uppercase tracking-wider ${getSignalTone(item.signal_score)}`}>
                             {scoreLabel(item)} {item.signal_score.toFixed(2)}
                           </span>
-                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                          <span className="text-xs text-muted">
                             {describeWhyItMatters(item)}
                           </span>
                           {item.subject_name ? (
-                            <span className="text-xs font-medium text-sky-600 dark:text-sky-400">
+                            <span className="text-xs font-medium text-action">
                               {item.subject_name}
                             </span>
                           ) : null}
                         </div>
-                        <p className="font-medium leading-relaxed text-slate-800 dark:text-slate-200">{item.text}</p>
+                        <p className="font-medium leading-relaxed text-foreground">{item.text}</p>
                         <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 text-xs dark:border-slate-800/60 sm:grid-cols-2">
                           <div>
                             <div className="font-semibold uppercase tracking-wider text-slate-400">Time context</div>
-                            <p className="mt-1 leading-relaxed text-slate-600 dark:text-slate-300">{item.temporal_explanation}</p>
+                            <p className="mt-1 leading-relaxed text-muted">{item.temporal_explanation}</p>
                             {item.item_type === "claim" && item.valid_until ? (
-                              <p className="mt-1 text-slate-500 dark:text-slate-400">Target date: {formatCalendarDate(item.valid_until)}</p>
+                              <p className="mt-1 text-muted">Target date: {formatCalendarDate(item.valid_until)}</p>
                             ) : null}
                           </div>
                           {outcomeLabel(item.outcome_status) ? (
                             <div className="border-l-2 border-amber-300 pl-3 dark:border-amber-700">
                               <div className="font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-300">Learning loop</div>
-                              <p className="mt-1 font-medium text-slate-700 dark:text-slate-200">{outcomeLabel(item.outcome_status)}</p>
+                              <p className="mt-1 font-medium text-foreground">{outcomeLabel(item.outcome_status)}</p>
                               {item.outcome_assessed_at ? (
                                 <p className="mt-1 text-slate-400">Assessed {formatDateTime(item.outcome_assessed_at)}</p>
                               ) : item.outcome_next_review_at || item.outcome_due_at ? (
@@ -585,7 +585,7 @@ export default function TimelinePage() {
                                 </p>
                               ) : null}
                               {item.outcome_notes ? (
-                                <p className="mt-2 leading-relaxed text-slate-600 dark:text-slate-300">
+                                <p className="mt-2 leading-relaxed text-muted">
                                   {item.outcome_notes}
                                 </p>
                               ) : null}
@@ -598,8 +598,8 @@ export default function TimelinePage() {
                           {(item.sources ?? []).length > 0 ? (
                             (item.sources ?? []).slice(0, 3).map((source) => (
                               <div key={source.raw_evidence_id} className="min-w-0">
-                                <div className="mb-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                                  <span className="truncate font-medium text-slate-700 dark:text-slate-200">{source.source_name}</span>
+                                <div className="mb-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted">
+                                  <span className="truncate font-medium text-foreground">{source.source_name}</span>
                                   <span className="rounded border border-slate-200 px-1.5 py-0.5 uppercase tracking-wider dark:border-slate-700">
                                     {source.origin_label ?? source.source_type.replaceAll("_", " ")}
                                   </span>
@@ -616,7 +616,7 @@ export default function TimelinePage() {
                               </div>
                             ))
                           ) : item.source_name ? (
-                            <span className="text-xs text-slate-500 dark:text-slate-400">Source: {item.source_name}</span>
+                            <span className="text-xs text-muted">Source: {item.source_name}</span>
                           ) : (
                             <span className="text-xs text-slate-400">No source receipt attached</span>
                           )}
@@ -642,8 +642,8 @@ export default function TimelinePage() {
           <section>
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Knowledge Changes</h2>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Audit events when available; older rows are marked as derived.</p>
+                <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Knowledge Changes</h2>
+                <p className="mt-1 text-sm text-muted">Audit events when available; older rows are marked as derived.</p>
               </div>
               {knowledgeChanges ? (
                 <span className="rounded-none border border-slate-200 px-2.5 py-1 text-xs font-bold uppercase tracking-widest text-slate-500 dark:border-slate-800 dark:text-slate-400">
@@ -685,9 +685,9 @@ export default function TimelinePage() {
                         </span>
                         <span className="ml-auto text-xs text-slate-400">{formatDateTime(change.changed_at)}</span>
                       </div>
-                      <p className="line-clamp-2 text-xs leading-relaxed text-slate-700 dark:text-slate-200">{change.text}</p>
+                      <p className="line-clamp-2 text-xs leading-relaxed text-foreground">{change.text}</p>
                       {change.reason ? (
-                        <p className="mt-1 line-clamp-1 text-xs text-slate-500 dark:text-slate-400">{change.reason}</p>
+                        <p className="mt-1 line-clamp-1 text-xs text-muted">{change.reason}</p>
                       ) : null}
                       {change.deprecated_reason ? (
                         <p className="mt-1 line-clamp-1 text-xs text-amber-700 dark:text-amber-300">{change.deprecated_reason}</p>
@@ -711,8 +711,8 @@ export default function TimelinePage() {
           <section className="rounded-lg border border-line bg-panel p-6">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Information Node</h2>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Inspect how one fact, claim, event, or subject links to the rest of the system.</p>
+                <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Information Node</h2>
+                <p className="mt-1 text-sm text-muted">Inspect how one fact, claim, event, or subject links to the rest of the system.</p>
               </div>
               {selectedNode ? (
                 <button
@@ -748,12 +748,12 @@ export default function TimelinePage() {
                       {selectedNode.node_type}
                     </span>
                     {selectedNode.tier ? (
-                      <span className="text-xs text-sky-600 dark:text-sky-400">{selectedNode.tier}</span>
+                      <span className="text-xs text-action">{selectedNode.tier}</span>
                     ) : null}
                   </div>
-                  <h3 className="mt-3 text-lg font-semibold text-slate-900 dark:text-slate-100">{selectedNode.label}</h3>
+                  <h3 className="mt-3 text-lg font-semibold text-foreground">{selectedNode.label}</h3>
                   {selectedNode.body ? (
-                    <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{selectedNode.body}</p>
+                    <p className="mt-2 text-sm leading-relaxed text-muted">{selectedNode.body}</p>
                   ) : null}
                   {selectedNode.created_at ? (
                     <p className="mt-3 text-xs font-mono text-slate-400">recorded {formatDateTime(selectedNode.created_at)}</p>
@@ -765,12 +765,12 @@ export default function TimelinePage() {
 
                 <section className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Connected web</h4>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-muted">Connected web</h4>
                     <span className="text-xs text-slate-400">{connectedWeb.length} visible links</span>
                   </div>
                   <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
                     {connectedWeb.length === 0 ? (
-                      <p className="text-sm text-slate-500 dark:text-slate-400">No connected nodes have been recorded for this node yet.</p>
+                      <p className="text-sm text-muted">No connected nodes have been recorded for this node yet.</p>
                     ) : (
                       <div className="space-y-4">
                         <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/50">
@@ -845,7 +845,7 @@ export default function TimelinePage() {
                 </section>
 
                 <section className="space-y-3">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Source citations</h4>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted">Source citations</h4>
                   {selectedNode.citations.length === 0 ? (
                     <div className="rounded-lg border border-slate-200 p-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
                       No source citation is attached to this node yet.
@@ -856,15 +856,15 @@ export default function TimelinePage() {
                         <div key={citation.raw_evidence_id} className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
                           <div className="flex items-center justify-between gap-3">
                             <div>
-                              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{citation.source_name}</div>
+                              <div className="text-sm font-semibold text-foreground">{citation.source_name}</div>
                               <div className="text-xs text-slate-400">{citation.source_type}</div>
                             </div>
                             <div className="text-xs font-mono text-slate-400">{formatDateTime(citation.created_at)}</div>
                           </div>
                           {citation.title ? (
-                            <p className="mt-3 text-sm text-slate-700 dark:text-slate-200">{citation.title}</p>
+                            <p className="mt-3 text-sm text-foreground">{citation.title}</p>
                           ) : null}
-                          <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">
+                          <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted">
                             {citation.author ? <span>Author: {citation.author}</span> : null}
                             <SourceProvenanceLinks
                               evidenceId={citation.raw_evidence_id}
@@ -886,16 +886,16 @@ export default function TimelinePage() {
 
           <DeferredDisclosure title="Add a note or URL" className="border border-line bg-panel p-4" contentClassName="mt-3 space-y-6">
           <section className="rounded-lg border border-line bg-panel p-6">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-4">Add Research Note</h2>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-muted mb-4">Add Research Note</h2>
             <form onSubmit={handleNoteSubmit} className="space-y-4">
-              <select value={selectedSourceId} onChange={(e) => setSelectedSourceId(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900">
+              <select value={selectedSourceId} onChange={(e) => setSelectedSourceId(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-line-strong bg-white dark:bg-slate-900">
                 <option value="">Manual Research Inbox</option>
                 {sources.map((source) => (
                   <option key={source.id} value={source.id}>{source.name} ({source.source_type})</option>
                 ))}
               </select>
-              <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900" />
-              <textarea value={content} onChange={(e) => setContent(e.target.value)} rows={10} placeholder="Paste notes, article text, or transcript excerpts here." className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900" />
+              <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" className="w-full px-3 py-2 rounded-lg border border-line-strong bg-white dark:bg-slate-900" />
+              <textarea value={content} onChange={(e) => setContent(e.target.value)} rows={10} placeholder="Paste notes, article text, or transcript excerpts here." className="w-full px-3 py-2 rounded-lg border border-line-strong bg-white dark:bg-slate-900" />
               <button disabled={saving || !content.trim()} className="w-full rounded-lg bg-sky-600 px-4 py-2 text-white disabled:opacity-50">
                 {saving ? "Processing..." : "Store and Extract"}
               </button>
@@ -903,7 +903,7 @@ export default function TimelinePage() {
           </section>
 
           <section className="rounded-lg border border-line bg-panel p-6">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-4">Ingest URL</h2>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-muted mb-4">Ingest URL</h2>
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
@@ -934,8 +934,8 @@ export default function TimelinePage() {
               }}
               className="space-y-4"
             >
-              <input value={urlTitle} onChange={(e) => setUrlTitle(e.target.value)} placeholder="Optional title override" className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900" />
-              <input value={urlValue} onChange={(e) => setUrlValue(e.target.value)} placeholder="https://example.com/article" className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900" />
+              <input value={urlTitle} onChange={(e) => setUrlTitle(e.target.value)} placeholder="Optional title override" className="w-full px-3 py-2 rounded-lg border border-line-strong bg-white dark:bg-slate-900" />
+              <input value={urlValue} onChange={(e) => setUrlValue(e.target.value)} placeholder="https://example.com/article" className="w-full px-3 py-2 rounded-lg border border-line-strong bg-white dark:bg-slate-900" />
               <button disabled={saving || !urlValue.trim()} className="w-full rounded-lg border border-sky-300 bg-sky-50 px-4 py-2 text-sky-700 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300 disabled:opacity-50">
                 {saving ? "Fetching..." : "Fetch, Store, and Extract"}
               </button>
@@ -943,9 +943,9 @@ export default function TimelinePage() {
           </section>
 
           <section className="rounded-lg border border-line bg-panel p-6">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">Research Discipline</h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Every note is persisted as raw evidence first, then parsed into claims, facts, and events with provenance preserved.</p>
-            <Link href="/sources" className="mt-3 inline-block text-sm text-sky-600 dark:text-sky-400">Manage trusted sources</Link>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-muted mb-3">Research Discipline</h2>
+            <p className="text-sm text-muted">Every note is persisted as raw evidence first, then parsed into claims, facts, and events with provenance preserved.</p>
+            <Link href="/sources" className="mt-3 inline-block text-sm text-action">Manage trusted sources</Link>
           </section>
           </DeferredDisclosure>
         </aside>

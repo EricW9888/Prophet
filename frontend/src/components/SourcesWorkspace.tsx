@@ -691,7 +691,7 @@ function AddDisclosurePanel({
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Add Disclosure Signal</h2>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Add Disclosure Signal</h2>
             <HintMarker label="Disclosure signal">
               <p>
                 A source-dated ownership, insider, political, institutional, or regulatory disclosure that can affect market setup. Prophet stores the filing date and the event date separately so late disclosures do not look timely.
@@ -767,11 +767,11 @@ function SourceSection({
     <section className="space-y-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{title}</h2>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>
+          <h2 className="text-sm font-bold uppercase tracking-wider text-muted">{title}</h2>
+          <p className="mt-1 text-sm text-muted">{subtitle}</p>
         </div>
         {sources.length > visibleSources.length ? (
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <p className="text-xs text-muted">
             Showing {visibleSources.length} of {sources.length}
           </p>
         ) : null}
@@ -802,15 +802,15 @@ function SourceSection({
                     <OriginPill kind={origin.origin_kind}>{origin.origin_label}</OriginPill>
                   </div>
                   {source.description ? (
-                    <p className="mt-2 line-clamp-2 text-sm text-slate-600 dark:text-slate-300">{source.description}</p>
+                    <p className="mt-2 line-clamp-2 text-sm text-muted">{source.description}</p>
                   ) : null}
                   {origin.origin_detail ? (
-                    <p className="mt-2 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
+                    <p className="mt-2 line-clamp-2 text-xs text-muted">
                       Origin: {origin.origin_detail}
                     </p>
                   ) : null}
                   {source.url ? (
-                    <a href={source.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex max-w-full items-center gap-1 truncate text-sm text-sky-600 dark:text-sky-400">
+                    <a href={source.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex max-w-full items-center gap-1 truncate text-sm text-action">
                       <span className="truncate">{source.url}</span>
                       <ExternalLink className="h-3.5 w-3.5 shrink-0" />
                     </a>
@@ -870,11 +870,11 @@ function SourceSection({
                       <span>{source.claim_queue.pending} pending</span>
                       {source.claim_queue.deferred > 0 ? <span>{source.claim_queue.deferred} waiting for retry</span> : null}
                     </div>
-                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                    <p className="mt-2 text-xs text-muted">
                       Pending claims are tested against later evidence. Inconclusive reviews wait for new evidence instead of being repeatedly rescored.
                     </p>
                     {source.claim_queue.last_assessment_at ? (
-                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      <p className="mt-1 text-xs text-muted">
                         Last completed assessment {formatDate(source.claim_queue.last_assessment_at)}
                       </p>
                     ) : null}
@@ -894,10 +894,10 @@ function DiscoveryObservationPanel({ discoveries }: { discoveries: ResearchDisco
   return (
     <section className="space-y-3">
       <div>
-        <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-muted">
           Recent Research Discovery
         </h2>
-        <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
+        <p className="mt-1 max-w-3xl text-sm text-muted">
           Dated search observations are retained for provenance and pattern review. Snippets remain provisional and cannot corroborate a view until Prophet fetches attributable source content.
         </p>
       </div>
@@ -918,7 +918,7 @@ function DiscoveryObservationPanel({ discoveries }: { discoveries: ResearchDisco
                     href={item.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="truncate text-sm font-semibold text-sky-700 dark:text-sky-300"
+                    className="truncate text-sm font-semibold text-action-strong"
                   >
                     {item.result_title}
                   </a>
@@ -937,17 +937,17 @@ function DiscoveryObservationPanel({ discoveries }: { discoveries: ResearchDisco
                   <StatusPill>{item.content_kind.replaceAll("_", " ")}</StatusPill>
                 </div>
                 {item.snippet ? (
-                  <p className="mt-2 line-clamp-2 text-sm text-slate-600 dark:text-slate-300">
+                  <p className="mt-2 line-clamp-2 text-sm text-muted">
                     {item.snippet}
                   </p>
                 ) : null}
-                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                <p className="mt-2 text-xs text-muted">
                   Query: {item.effective_query}
                   {item.subject_name ? ` · ${item.subject_name}` : ""}
                 </p>
               </div>
               <time
-                className="text-xs text-slate-500 dark:text-slate-400"
+                className="text-xs text-muted"
                 dateTime={item.observed_at}
               >
                 {formatDate(item.observed_at)}
@@ -993,7 +993,7 @@ function SourceMetric({ title, children }: { title: string; children: React.Reac
   return (
     <div className="rounded-lg border border-slate-100 bg-white/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/60">
       <div className="text-xs font-bold uppercase tracking-widest text-slate-400">{title}</div>
-      <div className="mt-2 space-y-1 text-sm text-slate-600 dark:text-slate-300">{children}</div>
+      <div className="mt-2 space-y-1 text-sm text-muted">{children}</div>
     </div>
   );
 }
@@ -1012,13 +1012,13 @@ function SubjectAliasPanel({
     <section className="space-y-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Subject Aliases</h2>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Subject Aliases</h2>
+          <p className="mt-1 text-sm text-muted">
             Inspect the shorthand, synonyms, and pattern labels Prophet uses when resolving context.
           </p>
         </div>
         {aliases.length > visibleAliases.length ? (
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <p className="text-xs text-muted">
             Showing {visibleAliases.length} of {aliases.length}
           </p>
         ) : null}
@@ -1040,10 +1040,10 @@ function SubjectAliasPanel({
                     </StatusPill>
                     <StatusPill>{Math.round(alias.confidence * 100)}%</StatusPill>
                   </div>
-                  <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">
+                  <p className="mt-2 text-sm text-foreground">
                     {alias.subject_name}
                   </p>
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  <p className="mt-1 text-xs text-muted">
                     {alias.subject_type.replaceAll("_", " ")} · updated {formatDate(alias.updated_at)}
                   </p>
                 </div>
@@ -1075,7 +1075,7 @@ function SubjectAliasPanel({
                 </button>
               </div>
               {alias.reason ? (
-                <p className="mt-3 line-clamp-2 text-sm text-slate-600 dark:text-slate-300">{alias.reason}</p>
+                <p className="mt-3 line-clamp-2 text-sm text-muted">{alias.reason}</p>
               ) : null}
               {alias.normalized_alias !== alias.alias.toLowerCase() ? (
                 <p className="mt-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 font-mono text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
@@ -1104,8 +1104,8 @@ function RecentEvidence({
   return (
     <section className="space-y-3">
       <div>
-        <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Recent Evidence to Train On</h2>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Recent Evidence to Train On</h2>
+        <p className="mt-1 text-sm text-muted">
           Mark what helped and what wasted attention. These flags remain visible here and are attached to the original evidence.
         </p>
       </div>
@@ -1137,11 +1137,11 @@ function RecentEvidence({
                     </StatusPill>
                   ) : null}
                 </div>
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                <p className="mt-1 text-xs text-muted">
                   {item.source_item_type.replaceAll("_", " ")} · {formatDate(item.created_at)}
                 </p>
                 {origin.origin_detail ? (
-                  <p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
+                  <p className="mt-1 line-clamp-2 text-xs text-muted">
                     {origin.origin_detail}
                   </p>
                 ) : null}
@@ -1204,7 +1204,7 @@ function AddSourcePanel({
 }) {
   return (
     <form onSubmit={onSubmit} className="rounded-lg border border-line bg-panel p-4">
-      <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Add Trusted Source</h2>
+      <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Add Trusted Source</h2>
       <div className="mt-4 space-y-3">
         <select value={form.source_type} onChange={(e) => setForm((current) => ({ ...current, source_type: e.target.value }))} className={inputClass}>
           <option value="analyst">Analyst / investor</option>
@@ -1282,14 +1282,14 @@ function MediaCapabilityPanel({
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Video Ingestion</h2>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Video Ingestion</h2>
             <HintMarker label="Video ingestion">
               <p>
                 Prophet tracks channels separately from evidence. It reads captions first, then deepens only when a material gap calls for an available audio or verification pass. Unavailable visual coverage remains explicit.
               </p>
             </HintMarker>
           </div>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          <p className="mt-1 text-sm text-muted">
             No-transcript extraction: {capabilities?.can_extract_without_transcript ? "available" : "not configured"}
           </p>
         </div>
@@ -1299,7 +1299,7 @@ function MediaCapabilityPanel({
       </div>
       <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-900/60">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <label className="min-w-0 flex-1 space-y-1 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <label className="min-w-0 flex-1 space-y-1 text-xs font-semibold uppercase tracking-wider text-muted">
             Tracked channel
             <select
               value={channelSourceId}
@@ -1325,7 +1325,7 @@ function MediaCapabilityPanel({
         </div>
         {channelPreview ? (
           <div className="mt-3 space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
               <span>{channelPreview.channel_name || channelPreview.source_name}</span>
               <span>{channelPreview.videos.length} recent uploads</span>
             </div>
@@ -1337,7 +1337,7 @@ function MediaCapabilityPanel({
               <div key={video.video_id} className="flex flex-col gap-2 rounded-lg border border-line bg-panel px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                   <p className="line-clamp-2 text-sm font-medium text-slate-800 dark:text-slate-100">{video.title}</p>
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  <p className="mt-1 text-xs text-muted">
                     {video.published_at ? formatDate(video.published_at) : "Publication date unavailable"}
                     {video.duration_seconds ? ` · ${formatVideoDuration(video.duration_seconds)}` : ""}
                     {video.view_count !== null && video.view_count !== undefined ? ` · ${video.view_count.toLocaleString()} views` : ""}
@@ -1356,7 +1356,7 @@ function MediaCapabilityPanel({
             ))}
           </div>
         ) : (
-          <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
+          <p className="mt-2 text-xs leading-5 text-muted">
             Review is metadata-only. Prophet does not download or ingest a channel until you choose a video.
           </p>
         )}
@@ -1416,7 +1416,7 @@ function MediaCapabilityPanel({
         {mediaJob ? (
           <div className="flex items-start justify-between gap-3 rounded-lg border border-sky-100 bg-white px-3 py-2 text-xs dark:border-sky-950 dark:bg-slate-950">
             <div className="min-w-0">
-              <p className="font-medium text-slate-700 dark:text-slate-200">{latestEvent?.message || "Video ingestion queued."}</p>
+              <p className="font-medium text-foreground">{latestEvent?.message || "Video ingestion queued."}</p>
               {mediaJob.result?.ok ? (
                 <div className="mt-1 space-y-1">
                   <p className="text-emerald-700 dark:text-emerald-300">
@@ -1425,13 +1425,13 @@ function MediaCapabilityPanel({
                       : `Saved ${mediaJob.result.transcript_length?.toLocaleString() ?? 0} transcript characters via ${mediaJob.result.ingest_mode?.replaceAll("_", " ")}.`}
                   </p>
                   {investigationPasses.length > 0 ? (
-                    <p className="text-slate-500 dark:text-slate-400">
+                    <p className="text-muted">
                       {completedPassCount} investigation {completedPassCount === 1 ? "pass" : "passes"} completed
                       {unresolvedPassCount > 0 ? `; ${unresolvedPassCount} unavailable or failed` : ""}.
                     </p>
                   ) : null}
                   {mediaJob.result.processing ? (
-                    <p className="text-slate-500 dark:text-slate-400">
+                    <p className="text-muted">
                       Evidence processing: {mediaJob.result.processing.overall_status.replaceAll("_", " ")}.
                       {mediaJob.result.processing.next_action ? ` ${mediaJob.result.processing.next_action}` : ""}
                     </p>
@@ -1456,7 +1456,7 @@ function MediaCapabilityPanel({
                   <span className="font-medium">{item.label}</span>
                   <StatusPill tone={item.status === "available" ? "good" : "neutral"}>{item.status.replaceAll("_", " ")}</StatusPill>
                 </div>
-                <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{item.detail}</p>
+                <p className="mt-1 text-xs leading-5 text-muted">{item.detail}</p>
               </div>
             ))}
           </div>
@@ -1474,7 +1474,7 @@ function MediaCapabilityPanel({
           </button>
         </>
       ) : (
-        <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">Loading media ingestion status...</p>
+        <p className="mt-4 text-sm text-muted">Loading media ingestion status...</p>
       )}
     </section>
   );
@@ -1499,8 +1499,8 @@ function AddNotePanel({
     <form onSubmit={onSubmit} className="rounded-lg border border-sky-200 bg-white p-4 dark:border-sky-900 dark:bg-slate-950">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Add Note</h2>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Save tests, assumptions, or observations as evidence.</p>
+          <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Add Note</h2>
+          <p className="mt-1 text-sm text-muted">Save tests, assumptions, or observations as evidence.</p>
         </div>
         <button type="button" onClick={onCagrTest} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-sky-200 text-sky-600 dark:border-sky-900 dark:text-sky-300" title="Prefill CAGR test note">
           <BookmarkPlus className="h-4 w-4" />
@@ -1542,10 +1542,10 @@ function AddNotePanel({
 function FlaggedPanel({ feedback, onClear }: { feedback: SourceFeedbackRecord[]; onClear: (evidenceId: string) => Promise<void> }) {
   return (
     <section className="rounded-lg border border-line bg-panel p-4">
-      <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Flagged Later</h2>
+      <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Flagged Later</h2>
       <div className="mt-3 space-y-2">
         {feedback.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">No useful/noisy flags yet.</p>
+          <p className="text-sm text-muted">No useful/noisy flags yet.</p>
         ) : (
           feedback.slice(0, 8).map((item) => {
             const origin = normalizeSourceOrigin(item);
@@ -1554,13 +1554,13 @@ function FlaggedPanel({ feedback, onClear }: { feedback: SourceFeedbackRecord[];
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate font-medium">{item.title || "Untitled evidence"}</p>
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{item.source_name} · {origin.origin_label} · {formatDate(item.flagged_at || item.created_at)}</p>
+                  <p className="mt-1 text-xs text-muted">{item.source_name} · {origin.origin_label} · {formatDate(item.flagged_at || item.created_at)}</p>
                 </div>
                 <StatusPill tone={item.rating === "useful" ? "good" : "bad"}>
                   {item.rating === "useful" ? "useful" : "not useful"}
                 </StatusPill>
               </div>
-              {item.note ? <p className="mt-2 text-slate-600 dark:text-slate-300">{item.note}</p> : null}
+              {item.note ? <p className="mt-2 text-muted">{item.note}</p> : null}
               {item.lesson_title ? (
                 <p className="mt-2 rounded-lg bg-sky-50 px-2.5 py-2 text-xs text-sky-700 dark:bg-sky-950/30 dark:text-sky-300">
                   Preference lesson: {item.lesson_title}
@@ -1582,17 +1582,17 @@ function FlaggedPanel({ feedback, onClear }: { feedback: SourceFeedbackRecord[];
 function NotesPanel({ notes }: { notes: SourceEvidenceSummary[] }) {
   return (
     <section className="rounded-lg border border-line bg-panel p-4">
-      <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Recent Notes</h2>
+      <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Recent Notes</h2>
       <div className="mt-3 space-y-2">
         {notes.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">No notes saved yet.</p>
+          <p className="text-sm text-muted">No notes saved yet.</p>
         ) : (
           notes.slice(0, 6).map((note) => {
             const origin = normalizeSourceOrigin(note);
             return (
             <div key={note.id} className="rounded-lg border border-slate-100 px-3 py-3 text-sm dark:border-slate-800">
               <p className="font-medium">{note.title || "Untitled note"}</p>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{note.source_name} · {origin.origin_label} · {formatDate(note.created_at)}</p>
+              <p className="mt-1 text-xs text-muted">{note.source_name} · {origin.origin_label} · {formatDate(note.created_at)}</p>
             </div>
             );
           })

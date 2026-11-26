@@ -215,7 +215,7 @@ export default function PushNotificationSettings() {
             <h2 className="text-base font-semibold text-slate-950 dark:text-slate-100">
               Device notifications
             </h2>
-            <p className="mt-1 max-w-2xl text-sm text-slate-600 dark:text-slate-400">
+            <p className="mt-1 max-w-2xl text-sm text-muted">
               Get an optional browser or desktop notification when a watch or reminder changes. The lock screen shows a generic alert; details stay in Prophet.
             </p>
           </div>
@@ -251,7 +251,7 @@ export default function PushNotificationSettings() {
       </div>
 
       {!supported && (
-        <div className="mt-4 flex items-start gap-3 border-l-2 border-amber-400 pl-3 text-sm text-slate-600 dark:text-slate-300">
+        <div className="mt-4 flex items-start gap-3 border-l-2 border-amber-400 pl-3 text-sm text-muted">
           <Smartphone className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
             Notifications are unavailable in this browser context. On iPhone or iPad, add
@@ -262,7 +262,7 @@ export default function PushNotificationSettings() {
       )}
 
       {permission === "denied" && (
-        <p className="mt-4 border-l-2 border-amber-400 pl-3 text-sm text-slate-600 dark:text-slate-300">
+        <p className="mt-4 border-l-2 border-amber-400 pl-3 text-sm text-muted">
           Re-enable Prophet in the device or browser notification settings before
           trying again.
         </p>

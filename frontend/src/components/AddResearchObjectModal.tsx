@@ -74,8 +74,8 @@ export default function AddResearchObjectModal({
       <div className="w-full max-w-2xl overflow-hidden rounded-lg border border-line bg-panel shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-6 py-4 dark:border-slate-800 dark:bg-slate-800/50">
           <div>
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Track Name</h3>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            <h3 className="text-lg font-semibold text-foreground">Track Name</h3>
+            <p className="mt-1 text-sm text-muted">
               Start tracking a watchlist or considering name. Advanced thesis fields are optional.
             </p>
           </div>
@@ -108,7 +108,7 @@ export default function AddResearchObjectModal({
           </div>
 
           <details className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
-            <summary className="cursor-pointer text-sm font-medium text-slate-700 dark:text-slate-300">
+            <summary className="cursor-pointer text-sm font-medium text-foreground">
               Optional thesis detail
             </summary>
             <div className="mt-4 space-y-4">
@@ -156,7 +156,7 @@ export default function AddResearchObjectModal({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block space-y-1">
-      <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{label}</span>
+      <span className="text-sm font-medium text-foreground">{label}</span>
       {children}
     </label>
   );

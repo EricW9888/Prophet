@@ -183,7 +183,7 @@ export default function HistoryPage() {
                           {txn.action}
                         </span>
                       </div>
-                      <div className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">
+                      <div className="mt-1 truncate text-xs text-muted">
                         {txn.entity_name || "Portfolio transaction"}
                       </div>
                     </div>
@@ -192,13 +192,13 @@ export default function HistoryPage() {
                     </span>
                   </div>
                   <div className="mt-3 flex items-end justify-between gap-3">
-                    <div className="text-sm text-slate-600 dark:text-slate-300">
+                    <div className="text-sm text-muted">
                       <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Fill</div>
                       {formatQuantity(txn.quantity)} @ {formatPrice(txn.price)}
                     </div>
                     <div className="min-w-0 text-right">
                       <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Source</div>
-                      <div className="truncate text-xs font-bold text-slate-700 dark:text-slate-300">
+                      <div className="truncate text-xs font-bold text-foreground">
                         {txn.source_label || "Manual/API"}
                         {txn.source_confidence != null ? ` · ${Math.round(txn.source_confidence * 100)}%` : ""}
                       </div>
@@ -234,7 +234,7 @@ export default function HistoryPage() {
                   {correctingTxnId === txn.id && correctionForm ? (
                     <div className="mt-3 rounded-lg border border-sky-100 bg-sky-50/40 p-3 dark:border-sky-950 dark:bg-sky-950/20">
                       <div className="mb-2 flex items-center justify-between gap-2">
-                        <div className="text-xs font-bold uppercase tracking-widest text-sky-700 dark:text-sky-300">
+                        <div className="text-xs font-bold uppercase tracking-widest text-action-strong">
                           Save corrected transaction
                         </div>
                         <button
@@ -325,7 +325,7 @@ export default function HistoryPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Correction history</div>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              <p className="mt-1 text-sm text-muted">
                 Superseded fills stay visible here with their replacement row and reason.
               </p>
             </div>
@@ -338,10 +338,10 @@ export default function HistoryPage() {
               <div key={`${item.original.id}:${item.replacement?.id ?? "missing"}`} className="rounded-lg border border-slate-100 px-4 py-3 dark:border-slate-800">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="text-sm font-black uppercase text-slate-900 dark:text-slate-100">
+                    <div className="text-sm font-black uppercase text-foreground">
                       {item.original.ticker || item.replacement?.ticker || "CASH"}
                     </div>
-                    <div className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">
+                    <div className="mt-0.5 truncate text-xs text-muted">
                       {(item.original.entity_name || item.replacement?.entity_name || "Portfolio transaction")} · {formatLedgerDate(item.corrected_at || item.replacement?.executed_at || item.original.executed_at)}
                     </div>
                   </div>
@@ -430,14 +430,14 @@ export default function HistoryPage() {
           <div className="rounded-lg border border-dashed border-line bg-panel p-20 text-center">
             <History className="w-12 h-12 text-slate-300 mx-auto mb-4" />
             <h3 className="text-lg font-bold">No portfolio ledger entries yet</h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+            <p className="text-sm text-muted mt-2">
               Once positions are opened or closed, they will appear here in one running ledger.
             </p>
           </div>
         ) : (
           <div className="overflow-hidden rounded-lg border border-line bg-panel">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800/50 px-5 py-3">
-              <div className="text-sm text-slate-500 dark:text-slate-400">
+              <div className="text-sm text-muted">
                 Mixed ledger sorted by latest activity. Active rows stay highlighted in-place.
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -483,7 +483,7 @@ export default function HistoryPage() {
                     <tr key={`${kind}:${pos.id}`} className={`group transition-colors ${kind === "live" ? "bg-sky-50/30 dark:bg-sky-950/10 hover:bg-sky-50/50 dark:hover:bg-sky-950/20" : "hover:bg-slate-50/50 dark:hover:bg-slate-950/30"}`}>
                       <td className="px-5 py-3">
                         <div className="flex flex-col">
-                          <span className="text-sm font-bold tracking-tight text-slate-900 dark:text-slate-100">{pos.ticker || "UNKNOWN"}</span>
+                          <span className="text-sm font-bold tracking-tight text-foreground">{pos.ticker || "UNKNOWN"}</span>
                           <span className="text-xs text-slate-500 uppercase tracking-tighter mt-0.5">{pos.entity_name}</span>
                         </div>
                       </td>
@@ -492,15 +492,15 @@ export default function HistoryPage() {
                           {statusLabel}
                         </span>
                       </td>
-                      <td className="px-5 py-3 text-right font-mono text-xs text-slate-600 dark:text-slate-400">
+                      <td className="px-5 py-3 text-right font-mono text-xs text-muted">
                         {Math.abs(pos.quantity).toLocaleString(undefined, { maximumFractionDigits: 3 })}
                       </td>
-                      <td className="px-5 py-3 text-right font-mono text-xs text-slate-600 dark:text-slate-400">
+                      <td className="px-5 py-3 text-right font-mono text-xs text-muted">
                         ${pos.avg_cost_basis.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       </td>
                       <td className="px-5 py-3 text-right">
                         <div className="flex flex-col items-end gap-1.5">
-                          <div className="text-sm font-bold font-mono text-slate-900 dark:text-slate-100">
+                          <div className="text-sm font-bold font-mono text-foreground">
                             {valueLabel == null ? "Unavailable" : `$${valueLabel.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                           </div>
                           <div className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-none text-xs font-bold font-mono transition-transform group-hover:scale-105 ${
@@ -534,10 +534,10 @@ function CorrectionTxnMini({ label, txn }: { label: string; txn: Transaction }) 
   return (
     <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950">
       <div className="text-xs font-bold uppercase tracking-widest text-slate-400">{label}</div>
-      <div className="mt-1 truncate text-xs font-bold text-slate-800 dark:text-slate-200">
+      <div className="mt-1 truncate text-xs font-bold text-foreground">
         {txn.action.toUpperCase()} {formatQuantity(txn.quantity)}
       </div>
-      <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+      <div className="mt-0.5 text-xs text-muted">
         {formatPrice(txn.price)} · {formatLedgerDate(txn.executed_at)}
       </div>
     </div>

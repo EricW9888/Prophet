@@ -308,15 +308,15 @@ export default function SettingsPage() {
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium">Configuration Progress</span>
-                      <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">{Math.round((setup?.completion_ratio ?? 0) * 100)}%</span>
+                      <span className="text-sm font-semibold text-foreground">{Math.round((setup?.completion_ratio ?? 0) * 100)}%</span>
                     </div>
                     <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-none overflow-hidden">
                       <div className="h-full bg-slate-900 transition-all duration-1000 dark:bg-slate-100" style={{ width: `${(setup?.completion_ratio ?? 0) * 100}%` }} />
                     </div>
                     <p className="text-xs text-slate-500">
-                      Next step: <span className="font-bold text-slate-700 dark:text-slate-300">{setup?.next_recommended_step ?? "All core setup steps are complete"}</span>
+                      Next step: <span className="font-bold text-foreground">{setup?.next_recommended_step ?? "All core setup steps are complete"}</span>
                     </p>
-                    <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                    <p className="text-xs leading-relaxed text-muted">
                       Readiness covers data, credentials, safety gates, and automation prerequisites. Local evidence can still work while a live provider is incomplete.
                     </p>
                   </div>
@@ -337,7 +337,7 @@ export default function SettingsPage() {
                             )}
                             <div className="min-w-0">
                               <p className="text-sm font-bold">{step.label}</p>
-                              <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{step.description}</p>
+                              <p className="mt-1 text-xs leading-relaxed text-muted">{step.description}</p>
                             </div>
                           </div>
                           <span className={`shrink-0 rounded px-2 py-1 text-xs font-medium ${tone.badge}`} title={`Raw status: ${step.status}`}>
@@ -350,7 +350,7 @@ export default function SettingsPage() {
                           </p>
                         ) : null}
                         {step.hint ? (
-                          <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                          <p className="mt-2 text-xs leading-relaxed text-muted">
                             {step.hint}
                           </p>
                         ) : null}
@@ -389,15 +389,15 @@ export default function SettingsPage() {
                 </Card>
 
                 <Card title="Automation Status">
-                  <div className="divide-y divide-slate-200 dark:divide-slate-800">
+                  <div className="divide-y divide-line">
                     {automation?.jobs.map(job => {
                       const statusView = automationStatusView(job);
                       return (
                       <div key={job.name} className="py-3 first:pt-0 last:pb-0">
                         <div className="flex items-start justify-between gap-4">
                           <div className="min-w-0">
-                            <span className="text-xs font-bold text-slate-900 dark:text-slate-100">{formatJobName(job.name)}</span>
-                            <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                            <span className="text-xs font-bold text-foreground">{formatJobName(job.name)}</span>
+                            <p className="mt-1 text-xs leading-relaxed text-muted">
                               {automationJobDescription(job.name)} {statusView.meaning}
                             </p>
                           </div>
@@ -431,7 +431,7 @@ export default function SettingsPage() {
               <section className="rounded-lg border border-line bg-panel p-6">
                 <div className="flex items-center gap-3 mb-8">
                   <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
-                    <Database className="h-6 w-6 text-slate-600 dark:text-slate-300" />
+                    <Database className="h-6 w-6 text-muted" />
                   </div>
                   <div>
                     <h2 className="text-xl font-semibold">Gmail Data Ingestion</h2>
@@ -442,7 +442,7 @@ export default function SettingsPage() {
                 <div className="mb-8 flex items-center justify-between border-y border-slate-200 py-3 dark:border-slate-800">
                   <div className="flex items-center gap-3">
                     <div className={`h-2.5 w-2.5 rounded-full ${settings.gmail.enabled ? "bg-emerald-500" : "bg-slate-400"}`} />
-                    <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Service status: {settings.gmail.enabled ? "Active" : "Disabled"}</span>
+                    <span className="text-sm font-medium text-muted">Service status: {settings.gmail.enabled ? "Active" : "Disabled"}</span>
                   </div>
                   <button
                     onClick={() => updateSettings(c => ({ ...c, gmail: { ...c.gmail, enabled: !c.gmail.enabled }}))}
@@ -513,7 +513,7 @@ export default function SettingsPage() {
                 {gmailSyncResult ? (
                   <div className="mt-5 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-300">
                     <div className="font-semibold">Latest Gmail operation</div>
-                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    <div className="mt-1 text-xs text-muted">
                       {gmailSyncResult.status ? `${gmailSyncResult.status} · ` : ""}
                       processed {gmailSyncResult.processed_messages ?? 0} messages · created{" "}
                       {gmailSyncResult.transactions_created ?? 0} transactions
@@ -539,7 +539,7 @@ export default function SettingsPage() {
                       </a>
                     ) : null}
                     {gmailSyncResult.detail ? (
-                      <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                      <div className="mt-2 text-xs text-muted">
                         {gmailSyncResult.detail}
                       </div>
                     ) : null}
@@ -552,7 +552,7 @@ export default function SettingsPage() {
                 <div className="mb-6 flex items-start justify-between gap-4">
                   <div className="flex items-center gap-3">
                     <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
-                      <Landmark className="h-6 w-6 text-slate-600 dark:text-slate-300" />
+                      <Landmark className="h-6 w-6 text-muted" />
                     </div>
                     <div>
                       <h2 className="text-xl font-semibold">Paper Broker</h2>
@@ -659,7 +659,7 @@ export default function SettingsPage() {
                 <div className="mb-6 flex items-start justify-between gap-4">
                   <div className="flex items-center gap-3">
                     <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
-                      <Landmark className="h-6 w-6 text-slate-600 dark:text-slate-300" />
+                      <Landmark className="h-6 w-6 text-muted" />
                     </div>
                     <div>
                       <h2 className="text-xl font-semibold">Brokerage Reconciliation</h2>
@@ -737,7 +737,7 @@ export default function SettingsPage() {
               <section className="rounded-lg border border-line bg-panel p-6">
                 <div className="flex items-center gap-3 mb-8">
                   <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
-                    <Shield className="h-6 w-6 text-slate-600 dark:text-slate-300" />
+                    <Shield className="h-6 w-6 text-muted" />
                   </div>
                   <div>
                     <h2 className="text-xl font-semibold">Portfolio Baseline</h2>
@@ -767,7 +767,7 @@ export default function SettingsPage() {
               <section className="rounded-lg border border-line bg-panel p-6">
                 <div className="flex items-center gap-3 mb-8">
                   <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
-                    <Zap className="h-6 w-6 text-slate-600 dark:text-slate-300" />
+                    <Zap className="h-6 w-6 text-muted" />
                   </div>
                   <div>
                     <h2 className="text-xl font-semibold">Market Data</h2>
@@ -804,7 +804,7 @@ export default function SettingsPage() {
               <section className="rounded-lg border border-line bg-panel p-6">
                 <div className="flex items-center gap-3 mb-8">
                   <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
-                    <Search className="h-6 w-6 text-slate-600 dark:text-slate-300" />
+                    <Search className="h-6 w-6 text-muted" />
                   </div>
                   <div>
                     <h2 className="text-xl font-semibold">Research Connectivity</h2>
@@ -885,7 +885,7 @@ export default function SettingsPage() {
               <section className="rounded-lg border border-line bg-panel p-6">
                 <div className="flex items-center gap-3 mb-8">
                   <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
-                    <Zap className="h-6 w-6 text-slate-600 dark:text-slate-300" />
+                    <Zap className="h-6 w-6 text-muted" />
                   </div>
                   <div>
                     <h2 className="text-xl font-semibold">Extraction & Intelligence</h2>
@@ -989,7 +989,7 @@ export default function SettingsPage() {
                   {setup?.development_reset_enabled ? (
                     <div className="border-t border-red-100 pt-6 dark:border-red-900/30">
                       <h3 className="font-bold text-red-700 dark:text-red-400">Hard System Reset</h3>
-                      <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                      <p className="mt-2 text-sm text-muted">
                         This will delete all transaction history, research profiles, and knowledge nodes. This action cannot be undone.
                       </p>
 
@@ -1014,8 +1014,8 @@ export default function SettingsPage() {
                     <div className="flex items-start gap-3 border-t border-slate-200 pt-5 dark:border-slate-800">
                       <Shield className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" />
                       <div>
-                        <h3 className="font-semibold text-slate-900 dark:text-slate-100">Development reset disabled</h3>
-                        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                        <h3 className="font-semibold text-foreground">Development reset disabled</h3>
+                        <p className="mt-1 text-sm text-muted">
                           Destructive reset is unavailable unless it is explicitly enabled for a local development session.
                         </p>
                       </div>
@@ -1214,7 +1214,7 @@ function setupStepTone(status: string): SetupTone {
     };
   }
   return {
-    border: "border-slate-200 dark:border-slate-800",
+    border: "border-line",
     badge: "bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300",
     icon: "text-slate-400",
   };
@@ -1280,7 +1280,7 @@ function automationStatusView(job: AutomationJob) {
     ok: { bg: "bg-emerald-50/70 dark:bg-emerald-950/20", border: "border-emerald-100 dark:border-emerald-900/40", text: "text-emerald-600 dark:text-emerald-300" },
     warn: { bg: "bg-amber-50/70 dark:bg-amber-950/20", border: "border-amber-100 dark:border-amber-900/40", text: "text-amber-700 dark:text-amber-300" },
     error: { bg: "bg-red-50/70 dark:bg-red-950/20", border: "border-red-100 dark:border-red-900/40", text: "text-red-600 dark:text-red-300" },
-    idle: { bg: "bg-slate-50 dark:bg-slate-900", border: "border-slate-100 dark:border-slate-800", text: "text-slate-500 dark:text-slate-400" },
+    idle: { bg: "bg-slate-50 dark:bg-slate-900", border: "border-slate-100 dark:border-slate-800", text: "text-muted" },
   };
   return { ...colors[presentation.tone], meaning: presentation.meaning };
 }
@@ -1360,7 +1360,7 @@ function Card({ title, icon, children }: { title: string; icon?: React.ReactNode
     <section className="rounded-lg border border-line bg-panel p-5">
       <div className="mb-5 flex items-center gap-2 border-b border-slate-100 pb-3 dark:border-slate-800">
         {icon}
-        <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</h2>
+        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
       </div>
       {children}
     </section>
@@ -1370,14 +1370,14 @@ function Card({ title, icon, children }: { title: string; icon?: React.ReactNode
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-2">
-      <label className="text-xs font-medium text-slate-600 dark:text-slate-300">{label}</label>
+      <label className="text-xs font-medium text-muted">{label}</label>
       {children}
     </div>
   );
 }
 
 function SecretStatus({ saved, pending }: { saved: boolean; pending: boolean }) {
-  const tone = pending ? "text-amber-600 dark:text-amber-300" : saved ? "text-emerald-600 dark:text-emerald-300" : "text-slate-500 dark:text-slate-400";
+  const tone = pending ? "text-amber-600 dark:text-amber-300" : saved ? "text-emerald-600 dark:text-emerald-300" : "text-muted";
   const label = pending ? "New credential pending save" : saved ? "Saved credential will be kept" : "Missing credential";
   return (
     <p className={`text-xs font-medium ${tone}`}>
@@ -1389,7 +1389,7 @@ function SecretStatus({ saved, pending }: { saved: boolean; pending: boolean }) 
 function StatItem({ label, value }: { label: string; value: string }) {
   return (
     <div className="border-l-2 border-slate-200 py-1 pl-3 dark:border-slate-700">
-      <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
+      <p className="text-xs text-muted">{label}</p>
       <p className="mt-1 truncate text-lg font-semibold">{value}</p>
     </div>
   );

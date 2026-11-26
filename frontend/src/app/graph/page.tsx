@@ -887,7 +887,7 @@ export default function GraphPage() {
               Analysis
             </div>
             {graphAskTargetLabel ? (
-              <div className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+              <div className="mt-1 text-sm text-foreground">
                 Analyzing {graphAskTargetLabel}
               </div>
             ) : null}
@@ -902,7 +902,7 @@ export default function GraphPage() {
           <div className="mt-3 space-y-2">
             {graphAskJob.events.slice(-4).map((event) => (
               <div key={`${event.phase}-${event.created_at}`} className="rounded-lg border border-amber-100 bg-white/70 px-3 py-2 text-sm text-slate-600 dark:border-amber-950 dark:bg-slate-950/40 dark:text-slate-300">
-                <span className="font-medium text-slate-900 dark:text-slate-100">{event.phase}</span>
+                <span className="font-medium text-foreground">{event.phase}</span>
                 {" · "}
                 {event.message}
               </div>
@@ -921,7 +921,7 @@ export default function GraphPage() {
             </div>
             {graphAskResult.session_id ? (
               <div className="mt-3 flex items-center justify-between gap-3">
-                <div className="text-xs text-slate-500 dark:text-slate-400">
+                <div className="text-xs text-muted">
                   Want to keep going in a longer thread?
                 </div>
                 <Link
@@ -1001,7 +1001,7 @@ export default function GraphPage() {
               <WorkspaceState compact kind="degraded" className="mb-3" title="Could not switch graph views" description={`${graphNotice} The last loaded graph is still available.`} />
             ) : null}
             <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+              <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-medium text-muted">
                 <span className="rounded-none bg-slate-100 px-3 py-1 dark:bg-slate-900">
                   {showMap ? visibleNodeCount : graphView?.browseNodes.length ?? 0} records
                 </span>
@@ -1160,7 +1160,7 @@ export default function GraphPage() {
 
             {graphStats ? (
               <details className="mt-4 border-t border-slate-200 pt-4 dark:border-slate-800">
-                <summary className="cursor-pointer text-xs font-semibold text-slate-600 dark:text-slate-300">
+                <summary className="cursor-pointer text-xs font-semibold text-muted">
                   Knowledge inventory
                 </summary>
                 <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -1171,7 +1171,7 @@ export default function GraphPage() {
                   <InventoryMetric label="Market setups" value={graphStats.market_setup_signals} />
                   <InventoryMetric label="Stored links" value={graphStats.total_edges} />
                 </dl>
-                <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                <p className="mt-3 text-xs leading-5 text-muted">
                   The map follows the selected scope and filters. The inventory counts all stored knowledge, including records outside that view.
                 </p>
               </details>
@@ -1328,8 +1328,8 @@ export default function GraphPage() {
             <section id="knowledge-connection-detail" className="min-w-0 scroll-mt-24 rounded-lg border border-line bg-panel p-4 sm:p-6">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Connection detail</h2>
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Connection detail</h2>
+                  <p className="mt-1 text-xs text-muted">
                     Inspect the link between the two subjects.
                   </p>
                 </div>
@@ -1347,7 +1347,7 @@ export default function GraphPage() {
                   <div className="text-xs uppercase tracking-wider text-amber-500 dark:text-amber-300">
                     {activeEdge.portfolio_peer_basis ? "Research context" : activeEdge.relationship_type.replaceAll("_", " ")}
                   </div>
-                  <div className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  <div className="mt-2 text-sm font-semibold text-foreground">
                     {describeEdge(activeEdge)}
                   </div>
                   {activeEdge.portfolio_peer_basis ? (
@@ -1362,13 +1362,13 @@ export default function GraphPage() {
                 <div className="grid grid-cols-1 gap-2">
                   <div className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
                     <div className="text-xs uppercase tracking-wider text-slate-400">Source node</div>
-                    <div className="mt-0.5 text-xs text-slate-800 dark:text-slate-200">
+                    <div className="mt-0.5 text-xs text-foreground">
                       {nodeByKey[activeEdge.source_key]?.label ?? activeEdge.source_key}
                     </div>
                   </div>
                   <div className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
                     <div className="text-xs uppercase tracking-wider text-slate-400">Target node</div>
-                    <div className="mt-0.5 text-xs text-slate-800 dark:text-slate-200">
+                    <div className="mt-0.5 text-xs text-foreground">
                       {nodeByKey[activeEdge.target_key]?.label ?? activeEdge.target_key}
                     </div>
                   </div>
@@ -1400,8 +1400,8 @@ export default function GraphPage() {
           <section id="knowledge-node-detail" className="min-w-0 scroll-mt-24 rounded-lg border border-line bg-panel p-4 sm:p-6">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Node detail</h2>
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Inspect the selected node, its evidence, and why it belongs in the system.</p>
+                <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Node detail</h2>
+                <p className="mt-1 text-xs text-muted">Inspect the selected node, its evidence, and why it belongs in the system.</p>
               </div>
             </div>
 
@@ -1427,7 +1427,7 @@ export default function GraphPage() {
                       {layerLabel(selectedDetail.layer)}
                     </span>
                   </div>
-                  <h3 className="mt-3 text-base font-semibold text-slate-900 dark:text-slate-100">{selectedDetail.label}</h3>
+                  <h3 className="mt-3 text-base font-semibold text-foreground">{selectedDetail.label}</h3>
                   {(selectedDetail.properties?.entity_type === "company" || propertyText(selectedDetail.properties?.profile_summary) || propertyText(selectedDetail.properties?.profile_business_model)) && (
                     <div className="mt-3 space-y-2 border-t border-line pt-3">
                       <div className="flex flex-wrap justify-between gap-1 text-xs text-muted">
@@ -1472,7 +1472,7 @@ export default function GraphPage() {
                               <img
                                 {...props}
                                 alt={alt ?? ""}
-                                className="my-4 max-w-full rounded-lg border border-slate-200 dark:border-slate-800"
+                                className="my-4 max-w-full rounded-lg border border-line"
                                 loading="lazy"
                               />
                             )
@@ -1486,7 +1486,7 @@ export default function GraphPage() {
                   {selectedDetail.properties?.horizon_reasoning ? (
                     <div className="mt-3 bg-amber-50/50 px-4 py-3 dark:bg-amber-950/10 border-l-4 border-amber-400 rounded-r-lg">
                       <div className="mb-1 text-xs font-bold uppercase tracking-widest text-amber-600/80 dark:text-amber-400/80">Horizon Awareness</div>
-                      <div className="text-xs italic leading-relaxed text-slate-700 dark:text-slate-300">
+                      <div className="text-xs italic leading-relaxed text-foreground">
                         {String(selectedDetail.properties.horizon_reasoning)}
                       </div>
                     </div>
@@ -1496,10 +1496,10 @@ export default function GraphPage() {
                 <details className="border-y border-line py-3">
                   <summary className="cursor-pointer text-sm font-medium">Ask about this record</summary>
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-muted">
                     Guide this analysis
                   </label>
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  <p className="mt-1 text-xs text-muted">
                     Write the exact question you want answered about this node.
                   </p>
                   <textarea
@@ -1636,7 +1636,7 @@ export default function GraphPage() {
                                 style={{ width: `${(selectedDetail.relevance || 0) * 100}%` }}
                               />
                             </div>
-                            <span className="text-xs font-mono font-bold text-sky-600 dark:text-sky-400">
+                            <span className="text-xs font-mono font-bold text-action">
                               {Math.round((selectedDetail.relevance || 0) * 100)}%
                             </span>
                           </div>
@@ -1657,7 +1657,7 @@ export default function GraphPage() {
                 <SourcePassage passage={selectedDetail.source_passage} />
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Citations</h4>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-muted">Citations</h4>
                     <span className="text-xs text-slate-400">{visibleCitations.length}{systemCitations.length > 0 ? ` + ${systemCitations.length} internal` : ""}</span>
                   </div>
                   {visibleCitations.length === 0 ? (
@@ -1669,7 +1669,7 @@ export default function GraphPage() {
                   ) : (
                     visibleCitations.map((citation) => (
                       <div key={citation.raw_evidence_id} className="min-w-0 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                        <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">{citation.source_name}</div>
+                        <div className="text-xs font-semibold text-foreground">{citation.source_name}</div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           <span className="rounded-none border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                             {citation.source_type.replaceAll("_", " ")}
@@ -1683,13 +1683,13 @@ export default function GraphPage() {
                             {citation.origin_label ?? "Source catalog"}
                           </span>
                         </div>
-                        {citation.title ? <div className="mt-2 break-words text-xs text-slate-700 dark:text-slate-200">{citation.title}</div> : null}
+                        {citation.title ? <div className="mt-2 break-words text-xs text-foreground">{citation.title}</div> : null}
                         {citation.origin_detail ? (
-                          <div className="mt-2 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
+                          <div className="mt-2 line-clamp-2 text-xs text-muted">
                             Origin: {citation.origin_detail}
                           </div>
                         ) : null}
-                        <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">
+                        <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted">
                           {citation.author ? <span>Author: {citation.author}</span> : null}
                           <SourceProvenanceLinks
                             evidenceId={citation.raw_evidence_id}
@@ -1711,7 +1711,7 @@ export default function GraphPage() {
                           <div className="text-xs font-bold uppercase tracking-wider text-amber-500 dark:text-amber-300">
                             Internal provenance
                           </div>
-                          <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                          <div className="mt-0.5 text-xs text-muted">
                             These citations come from Prophet operating memory.
                           </div>
                         </div>
@@ -1727,7 +1727,7 @@ export default function GraphPage() {
                         <div className="mt-4 space-y-3">
                           {systemCitations.map((citation) => (
                             <div key={citation.raw_evidence_id} className="min-w-0 rounded-lg border border-amber-100 bg-amber-50/60 p-4 dark:border-amber-950 dark:bg-amber-950/10">
-                              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{citation.source_name}</div>
+                              <div className="text-sm font-semibold text-foreground">{citation.source_name}</div>
                               <div className="mt-2 flex flex-wrap gap-1.5">
                                 <span className="rounded-none border border-amber-200 bg-white/70 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
                                   {citation.system_reason?.replaceAll("_", " ") ?? "system memory"}
@@ -1736,9 +1736,9 @@ export default function GraphPage() {
                                   {citation.origin_label ?? "Source catalog"}
                                 </span>
                               </div>
-                              {citation.title ? <div className="mt-3 break-words text-sm text-slate-700 dark:text-slate-200">{citation.title}</div> : null}
+                              {citation.title ? <div className="mt-3 break-words text-sm text-foreground">{citation.title}</div> : null}
                               {citation.origin_detail ? (
-                                <div className="mt-2 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
+                                <div className="mt-2 line-clamp-2 text-xs text-muted">
                                   Origin: {citation.origin_detail}
                                 </div>
                               ) : null}
@@ -1770,7 +1770,7 @@ export default function GraphPage() {
 
           <section className="min-w-0 rounded-lg border border-line bg-panel p-4 sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-muted">
                 {knowledgeQuery.trim().length >= 2 ? "Knowledge search" : `Portfolio holdings${holdingSubjects ? ` (${holdingSubjects.length})` : ""}`}
               </h2>
               <label className="flex w-full items-center gap-2 border-b border-slate-300 px-1 py-1.5 text-sm dark:border-slate-700">
@@ -1832,7 +1832,7 @@ export default function GraphPage() {
 function InventoryMetric({ label, value }: { label: string; value: number }) {
   return (
     <div className="min-w-0 border-l-2 border-slate-200 pl-3 dark:border-slate-700">
-      <dt className="text-xs text-slate-500 dark:text-slate-400">{label}</dt>
+      <dt className="text-xs text-muted">{label}</dt>
       <dd className="mt-1 text-sm font-semibold text-slate-800 dark:text-slate-100">
         {formatCount(value)}
       </dd>
