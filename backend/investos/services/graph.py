@@ -8,7 +8,7 @@ from itertools import zip_longest
 from typing import Any, Literal
 from uuid import UUID
 
-from sqlalchemy import column, desc, or_, select, true, tuple_, values
+from sqlalchemy import column, desc, func, or_, select, true, tuple_, values
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
@@ -83,6 +83,76 @@ def _is_artifact_label(label: str | None) -> bool:
     return bool(label) and bool(_ARTIFACT_LABEL_RE.match(label or ""))
 
 
+async def _top_per_key(
+    session: AsyncSession,
+    model,
+    key_column,
+    keys,
+    order_by: list,
+    limit: int,
+    *filters,
+    join=None,
+) -> dict[Any, list[Any]]:
+    """Rows of ``model`` per key, ordered and limited as a per-key query would be."""
+    keys = list(dict.fromkeys(keys))
+    if not keys:
+        return {}
+    rank = (
+        func.row_number().over(partition_by=key_column, order_by=order_by).label("rank")
+    )
+    inner = select(model, key_column.label("batch_key"), rank)
+    if join is not None:
+        inner = inner.join(*join)
+    inner = inner.where(key_column.in_(keys), *filters).subquery()
+    row = aliased(model, inner)
+    statement = (
+        select(row, inner.c.batch_key)
+        .where(inner.c.rank <= limit)
+        .order_by(inner.c.batch_key, inner.c.rank)
+    )
+    grouped: dict[Any, list[Any]] = {}
+    for item, key in (await session.execute(statement)).all():
+        grouped.setdefault(key, []).append(item)
+    return grouped
+
+
+def _merge_top(items: list[Any], sort_key, limit: int) -> list[Any]:
+    """Merge per-condition top lists as one ``ORDER BY ... DESC`` query would.
+
+    PostgreSQL sorts NULL first in descending order, so a missing value ranks
+    above any present one.
+    """
+    unique = list({item.id: item for item in items}.values())
+
+    def descending(item):
+        return tuple(
+            part
+            for value in sort_key(item)
+            for part in (value is None, value if value is not None else 0)
+        )
+
+    return sorted(unique, key=descending, reverse=True)[:limit]
+
+
+def _shadow_experiments_holding(
+    experiments: list[ShadowExperiment], security_ids: set[str]
+) -> list[ShadowExperiment]:
+    if not security_ids:
+        return []
+    matched = [
+        experiment
+        for experiment in experiments
+        if any(
+            position.get("security_id") in security_ids
+            for position in (experiment.initial_portfolio_state_json or {}).get(
+                "positions"
+            )
+            or []
+        )
+    ]
+    return matched[:6]
+
+
 class _NeighborhoodReads:
     """Reuse overlapping seed reads within one graph request."""
 
@@ -96,6 +166,9 @@ class _NeighborhoodReads:
         self.conclusions: dict[tuple[str, UUID], ConclusionState | None] = {}
         self.coverage_maps: dict[tuple[str, UUID], CoverageMap | None] = {}
         self.siblings: dict[UUID, list[tuple[str, UUID, str, float, str]]] = {}
+        self.event_source_items: dict[UUID, list[SourceItem]] = {}
+        self.entity_rows: dict[UUID, dict[str, list[Any]]] = {}
+        self.recent_shadow_experiments: list[ShadowExperiment] | None = None
 
     async def node(self, node_type: str, node_id: UUID | str):
         key = self.service._node_key(node_type, node_id)
@@ -204,6 +277,225 @@ class _NeighborhoodReads:
         )
         self.conclusions.update({key: conclusions.get(key) for key in subjects})
         self.coverage_maps.update({key: coverage_maps.get(key) for key in subjects})
+
+    async def prefetch_synthetic(self, frontier: list[tuple[str, UUID | str]]) -> None:
+        """Batch the per-node reads behind synthetic connections for a frontier.
+
+        Each batched query returns, per key, the rows (same filters, order and
+        limit) that the single-node helpers would read one node at a time.
+        """
+        pending = [
+            (node_type, node_id)
+            for node_type, node_id in frontier
+            if isinstance(node_id, UUID)
+            and self.service._node_key(node_type, node_id) not in self.adjacency
+        ]
+        events = [
+            node_id
+            for node_type, node_id in pending
+            if node_type == "event" and node_id not in self.event_source_items
+        ]
+        if events:
+            await self._prefetch_event_source_items(events)
+        source_item_ids: set[UUID] = set()
+        for node_type, node_id in pending:
+            node = self.nodes.get(self.service._node_key(node_type, node_id))
+            if node is None:
+                continue
+            if node_type == "event":
+                source_item_ids.update(
+                    item.id for item in self.event_source_items.get(node_id, [])[:2]
+                )
+            elif node_type in {
+                "fact",
+                "claim",
+                "fundamental_metric",
+                "market_setup_signal",
+            } and getattr(node, "source_item_id", None):
+                source_item_ids.add(node.source_item_id)
+        missing = [item for item in source_item_ids if item not in self.siblings]
+        if missing:
+            self.siblings.update(
+                await self.service._sibling_evidence_candidates_for(missing)
+            )
+        entities = [
+            node_id
+            for node_type, node_id in pending
+            if node_type == "entity"
+            and node_id not in self.entity_rows
+            and self.nodes.get(self.service._node_key(node_type, node_id)) is not None
+        ]
+        if entities:
+            await self.prefetch_subject_state([("entity", item) for item in entities])
+            await self._prefetch_entity_rows(entities)
+
+    async def _prefetch_event_source_items(self, event_ids: list[UUID]) -> None:
+        session = self.service.session
+        edges = (
+            await session.scalars(
+                select(Edge).where(
+                    Edge.source_type == "event",
+                    Edge.source_id.in_(event_ids),
+                    Edge.target_type == "source_item",
+                )
+            )
+        ).all()
+        target_ids = {edge.target_id for edge in edges}
+        items = (
+            {
+                item.id: item
+                for item in await session.scalars(
+                    select(SourceItem).where(SourceItem.id.in_(target_ids))
+                )
+            }
+            if target_ids
+            else {}
+        )
+        grouped: dict[UUID, list[SourceItem]] = {item: [] for item in event_ids}
+        for edge in edges:
+            item = items.get(edge.target_id)
+            if item is not None:
+                grouped[edge.source_id].append(item)
+        self.event_source_items.update(grouped)
+
+    async def _prefetch_entity_rows(self, entity_ids: list[UUID]) -> None:
+        session = self.service.session
+        coverage_by_entity = {
+            entity_id: self.coverage_maps.get(("entity", entity_id))
+            for entity_id in entity_ids
+        }
+        conclusions = {
+            entity_id: self.conclusions.get(("entity", entity_id))
+            for entity_id in entity_ids
+        }
+        questions = await _top_per_key(
+            session,
+            UnresolvedQuestion,
+            UnresolvedQuestion.coverage_map_id,
+            [item.id for item in coverage_by_entity.values() if item],
+            [desc(UnresolvedQuestion.urgency), desc(UnresolvedQuestion.created_at)],
+            6,
+            UnresolvedQuestion.status.in_(["open", "investigating"]),
+        )
+        review_order = [
+            desc(ReviewQueueItem.priority_score),
+            desc(ReviewQueueItem.created_at),
+        ]
+        entity_reviews = await _top_per_key(
+            session,
+            ReviewQueueItem,
+            ReviewQueueItem.item_id,
+            entity_ids,
+            review_order,
+            8,
+            ReviewQueueItem.item_type == "entity",
+        )
+        conclusion_reviews = await _top_per_key(
+            session,
+            ReviewQueueItem,
+            ReviewQueueItem.item_id,
+            [item.id for item in conclusions.values() if item],
+            review_order,
+            8,
+            ReviewQueueItem.item_type == "conclusion",
+        )
+        positions = await _top_per_key(
+            session,
+            Position,
+            Security.entity_id,
+            entity_ids,
+            [desc(Position.market_value), desc(Position.added_at)],
+            6,
+            Position.list_type.in_(["holding", "watchlist", "considering"]),
+            join=(Security, Position.security_id == Security.id),
+        )
+        metric_order = [
+            desc(FundamentalMetric.as_of),
+            desc(FundamentalMetric.public_time),
+            desc(FundamentalMetric.created_at),
+        ]
+        metric_live = FundamentalMetric.is_deprecated.is_(False)
+        metrics_by_entity = await _top_per_key(
+            session,
+            FundamentalMetric,
+            FundamentalMetric.entity_id,
+            entity_ids,
+            metric_order,
+            8,
+            metric_live,
+        )
+        metrics_by_subject = await _top_per_key(
+            session,
+            FundamentalMetric,
+            FundamentalMetric.subject_id,
+            entity_ids,
+            metric_order,
+            8,
+            metric_live,
+            FundamentalMetric.subject_type == "entity",
+        )
+        setup_order = [
+            desc(MarketSetupSignal.public_time),
+            desc(MarketSetupSignal.created_at),
+        ]
+        setup_live = MarketSetupSignal.is_deprecated.is_(False)
+        setups_by_entity = await _top_per_key(
+            session,
+            MarketSetupSignal,
+            MarketSetupSignal.entity_id,
+            entity_ids,
+            setup_order,
+            6,
+            setup_live,
+        )
+        setups_by_subject = await _top_per_key(
+            session,
+            MarketSetupSignal,
+            MarketSetupSignal.subject_id,
+            entity_ids,
+            setup_order,
+            6,
+            setup_live,
+            MarketSetupSignal.subject_type == "entity",
+        )
+        security_ids: dict[UUID, set[str]] = {item: set() for item in entity_ids}
+        for security in await session.scalars(
+            select(Security).where(Security.entity_id.in_(entity_ids))
+        ):
+            security_ids[security.entity_id].add(str(security.id))
+        if self.recent_shadow_experiments is None and any(security_ids.values()):
+            self.recent_shadow_experiments = (
+                await self.service._recent_shadow_experiments()
+            )
+
+        for entity_id in entity_ids:
+            coverage = coverage_by_entity[entity_id]
+            conclusion = conclusions[entity_id]
+            self.entity_rows[entity_id] = {
+                "questions": questions.get(coverage.id, []) if coverage else [],
+                "reviews": _merge_top(
+                    entity_reviews.get(entity_id, [])
+                    + (conclusion_reviews.get(conclusion.id, []) if conclusion else []),
+                    lambda item: (item.priority_score, item.created_at),
+                    8,
+                ),
+                "positions": positions.get(entity_id, []),
+                "metrics": _merge_top(
+                    metrics_by_entity.get(entity_id, [])
+                    + metrics_by_subject.get(entity_id, []),
+                    lambda item: (item.as_of, item.public_time, item.created_at),
+                    8,
+                ),
+                "setups": _merge_top(
+                    setups_by_entity.get(entity_id, [])
+                    + setups_by_subject.get(entity_id, []),
+                    lambda item: (item.public_time, item.created_at),
+                    6,
+                ),
+                "experiments": _shadow_experiments_holding(
+                    self.recent_shadow_experiments or [], security_ids[entity_id]
+                ),
+            }
 
     async def edges(
         self, node_type: str, node_id: UUID | str, node
@@ -514,6 +806,7 @@ class GraphService:
         effective_depth = max(1, min(depth, 4))
         for _level in range(effective_depth):
             await reads.prefetch_edges(frontier)
+            await reads.prefetch_synthetic(frontier)
             neighbors = []
             branches = []
             for current_type, current_id in frontier:
@@ -649,6 +942,7 @@ class GraphService:
         await reads.prefetch_subject_state(
             [seed for seed in seeds if seed[0] in {"entity", "theme"}]
         )
+        await reads.prefetch_synthetic(seeds)
         seed_edges = []
         for node_type, node_id in seeds:
             node = await reads.node(node_type, node_id)
@@ -3227,6 +3521,12 @@ class GraphService:
         reads: _NeighborhoodReads | None = None,
     ) -> list[tuple[str, UUID, str, float, str]]:
         specs: list[tuple[str, UUID, str, float, str]] = []
+        # Rows batched for the whole traversal frontier, when available.
+        prefetched = (
+            reads.entity_rows.get(subject_id)
+            if reads is not None and subject_type == "entity"
+            else None
+        )
         conclusion = await self._subject_conclusion(
             subject_type, subject_id, reads=reads
         )
@@ -3240,7 +3540,9 @@ class GraphService:
                 ("coverage_map", coverage.id, "monitored_by", 0.82, "outgoing")
             )
             questions = (
-                (
+                prefetched["questions"]
+                if prefetched is not None
+                else (
                     await self.session.execute(
                         select(UnresolvedQuestion)
                         .where(
@@ -3267,15 +3569,23 @@ class GraphService:
                         "outgoing",
                     )
                 )
-        review_items = await self._subject_review_items(
-            subject_type,
-            subject_id,
-            conclusion_id=conclusion.id if conclusion else None,
+        review_items = (
+            prefetched["reviews"]
+            if prefetched is not None
+            else await self._subject_review_items(
+                subject_type,
+                subject_id,
+                conclusion_id=conclusion.id if conclusion else None,
+            )
         )
         for review in review_items[:6]:
             specs.append(("review_item", review.id, "needs_review", 0.88, "outgoing"))
         if subject_type == "entity":
-            positions = await self._entity_positions(subject_id)
+            positions = (
+                prefetched["positions"]
+                if prefetched is not None
+                else await self._entity_positions(subject_id)
+            )
             for position in positions[:4]:
                 relationship = (
                     "currently_held"
@@ -3284,7 +3594,9 @@ class GraphService:
                 )
                 specs.append(("position", position.id, relationship, 0.9, "outgoing"))
             metrics = (
-                (
+                prefetched["metrics"]
+                if prefetched is not None
+                else (
                     await self.session.execute(
                         select(FundamentalMetric)
                         .where(
@@ -3319,7 +3631,9 @@ class GraphService:
                     )
                 )
             setup_signals = (
-                (
+                prefetched["setups"]
+                if prefetched is not None
+                else (
                     await self.session.execute(
                         select(MarketSetupSignal)
                         .where(
@@ -3352,7 +3666,11 @@ class GraphService:
                         "outgoing",
                     )
                 )
-            experiments = await self._entity_shadow_experiments(subject_id)
+            experiments = (
+                prefetched["experiments"]
+                if prefetched is not None
+                else await self._entity_shadow_experiments(subject_id)
+            )
             for experiment in experiments[:4]:
                 specs.append(
                     (
@@ -3398,6 +3716,12 @@ class GraphService:
         if reads is not None and getattr(node, "source_item_id", None):
             source_item = await reads.node("source_item", node.source_item_id)
             source_items = [source_item] if source_item is not None else []
+        elif (
+            reads is not None
+            and node_type == "event"
+            and node.id in reads.event_source_items
+        ):
+            source_items = reads.event_source_items[node.id]
         else:
             source_items = await self._source_items_for_extracted_node(node_type, node)
         seen: set[tuple[str, UUID, str]] = set()
@@ -3712,6 +4036,15 @@ class GraphService:
             .all()
         )
 
+    async def _recent_shadow_experiments(self) -> list[ShadowExperiment]:
+        return list(
+            await self.session.scalars(
+                select(ShadowExperiment)
+                .order_by(desc(ShadowExperiment.created_at))
+                .limit(40)
+            )
+        )
+
     async def _entity_shadow_experiments(
         self, entity_id: UUID
     ) -> list[ShadowExperiment]:
@@ -3808,6 +4141,44 @@ class GraphService:
             if reads is not None:
                 reads.siblings[source_item_id] = specs
         return [item for item in specs if item[1] != current_node_id][:8]
+
+    async def _sibling_evidence_candidates_for(
+        self, source_item_ids: list[UUID]
+    ) -> dict[UUID, list[tuple[str, UUID, str, float, str]]]:
+        """``_sibling_evidence_candidates`` for many source items in three queries."""
+        specs: dict[UUID, list[tuple[str, UUID, str, float, str]]] = {
+            source_item_id: [] for source_item_id in source_item_ids
+        }
+        for node_type, model in (("claim", Claim), ("fact", Fact)):
+            rows = await _top_per_key(
+                self.session,
+                model,
+                model.source_item_id,
+                source_item_ids,
+                [desc(model.created_at)],
+                6,
+            )
+            for source_item_id, items in rows.items():
+                specs[source_item_id].extend(
+                    (node_type, row.id, "shares_source_context", 0.76, "outgoing")
+                    for row in items
+                )
+        event_edges = await _top_per_key(
+            self.session,
+            Edge,
+            Edge.target_id,
+            source_item_ids,
+            [desc(Edge.created_at)],
+            4,
+            Edge.source_type == "event",
+            Edge.target_type == "source_item",
+        )
+        for source_item_id, edges in event_edges.items():
+            specs[source_item_id].extend(
+                ("event", edge.source_id, "shares_source_context", 0.76, "outgoing")
+                for edge in edges
+            )
+        return specs
 
     async def _sibling_evidence_candidates(
         self, source_item_id: UUID
