@@ -18,3 +18,15 @@ test("rows name the specific kind instead of repeating Entity", () => {
   assert.equal(browseKind(node("x", "entity", 1, "aircraft configuration program")), "Entity");
   assert.equal(browseKind(node("x", "theme")), "Theme");
 });
+
+test("newest first spans every kind and puts records without a time last", () => {
+  const dated = (label: string, node_type: string, created_at?: string) =>
+    ({ key: `${node_type}:${label}`, id: label, node_type, label, is_root: false, created_at }) as never;
+  const nodes = [
+    dated("Old Co", "entity", "2026-01-01T00:00:00Z"),
+    dated("No time", "claim"),
+    dated("Fresh claim", "claim", "2026-11-26T08:00:00Z"),
+    dated("Mid fact", "fact", "2026-06-01T00:00:00Z"),
+  ];
+  assert.deepEqual(sortBrowseNodes(nodes, "newest", true).map((n: { label: string }) => n.label), ["Fresh claim", "Mid fact", "Old Co", "No time"]);
+});

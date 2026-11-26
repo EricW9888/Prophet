@@ -5,16 +5,24 @@ import { formatUserLabel } from "@/lib/formatting";
 import type { GraphWebNode } from "@/lib/api";
 
 type BrowseNode = GraphWebNode & {degree?: number};
-export type BrowseSort = "connected" | "name";
+export type BrowseSort = "connected" | "newest" | "name";
 
 /**
  * Order records for the list. "Most connected" puts the records with the most
  * stored connections first (the best results at the top); "Name" is A to Z.
- * Subjects (entities and themes) lead in the library either way.
+ * Subjects (entities and themes) lead in the library for both. "Newest" is
+ * what was recorded most recently, across every kind; records without a
+ * time go last.
  */
+function recorded(node: BrowseNode): number {
+  const time = node.created_at ? Date.parse(node.created_at) : Number.NaN;
+  return Number.isNaN(time) ? Number.NEGATIVE_INFINITY : time;
+}
+
 export function sortBrowseNodes<T extends BrowseNode>(nodes: T[], sort: BrowseSort, library: boolean): T[] {
   return [...nodes].sort((a, b) => {
     if (!library) return Number(b.is_root) - Number(a.is_root) || a.label.localeCompare(b.label);
+    if (sort === "newest") return recorded(b) - recorded(a) || a.label.localeCompare(b.label);
     const subject = Number(!["entity", "theme"].includes(a.node_type)) - Number(!["entity", "theme"].includes(b.node_type));
     if (subject) return subject;
     if (sort === "connected") return (b.degree ?? 0) - (a.degree ?? 0) || a.label.localeCompare(b.label);
@@ -56,6 +64,7 @@ export default function GraphNodeNavigator({ nodes, onSelect, library = false, s
         Sort
         <select className="workspace-control" value={sort} onChange={event => {setSort(event.target.value as BrowseSort); setOffset(0);}}>
           <option value="connected">Most connected</option>
+          <option value="newest">Newest first</option>
           <option value="name">Name A–Z</option>
         </select>
       </label> : null}
