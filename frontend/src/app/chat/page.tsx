@@ -5,7 +5,7 @@ import QuantityEvidence from "@/components/QuantityEvidence";
 import WorkspaceDivider, { useWorkspacePane } from "@/components/WorkspaceDivider";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Archive, ArchiveRestore, ArrowUp, Check, Maximize2, PanelLeftOpen, Pencil, Square, X } from "lucide-react";
+import { ArrowUp, Check, Maximize2, PanelLeftOpen, Pencil, Square, X } from "lucide-react";
 import ChatTurnStatus from "@/components/ChatTurnStatus";
 import ActivityIndicator from "@/components/ActivityIndicator";
 import WorkspaceState, { WorkspaceRead, WorkspaceSkeleton } from "@/components/WorkspaceState";
@@ -39,6 +39,7 @@ import { readResearchEntry, researchTurnContext, type ResearchSubject } from "@/
 import { ACTIVE_JOB_STORAGE_KEY, COMPLETED_JOB_NOTICE_KEY, clearActiveJobReference, clearCompletedJobNotice } from "@/lib/job-notifications";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
 import { ARCHIVED_GROUP, groupConversations } from "@/lib/chat-sidebar";
+import ChatActionsMenu from "@/components/ChatActionsMenu";
 
 const ALLOW_ACTIONS_STORAGE_KEY = "prophet:allow-agent-actions";
 const RESEARCH_SIDEBAR_WIDTH = 320;
@@ -1431,24 +1432,12 @@ function ChatWorkspace() {
                             {[formatTimestamp(conversation.updated_at), conversation.subject_name].filter(Boolean).join(" · ")}
                           </p>
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => startRename(conversation)}
-                          className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 opacity-100 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-900 dark:hover:text-slate-200 lg:opacity-0 lg:focus-visible:opacity-100 lg:group-hover:opacity-100"
-                          title="Rename chat"
-                        >
-                          <Pencil className="h-4 w-4" />
-                          <span className="sr-only">Rename chat</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void setArchived(conversation.session_id, !conversation.archived)}
-                          className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center text-muted opacity-100 transition hover:bg-panel-muted hover:text-foreground lg:opacity-0 lg:focus-visible:opacity-100 lg:group-hover:opacity-100"
-                          title={conversation.archived ? "Restore chat" : "Archive chat"}
-                        >
-                          {conversation.archived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
-                          <span className="sr-only">{conversation.archived ? "Restore chat" : "Archive chat"}</span>
-                        </button>
+                        <ChatActionsMenu
+                          title={conversation.title}
+                          archived={Boolean(conversation.archived)}
+                          onRename={() => startRename(conversation)}
+                          onArchive={() => void setArchived(conversation.session_id, !conversation.archived)}
+                        />
                       </div>
                     )}
                   </div>
