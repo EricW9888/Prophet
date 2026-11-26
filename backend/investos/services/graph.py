@@ -79,6 +79,53 @@ _RECLASSIFIED_THEME_DESCRIPTION = (
 )
 
 
+_IDENTIFIER_NAME_RE = re.compile(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)+")
+_NAME_ABBREVIATIONS = {
+    word: word.upper()
+    for word in (
+        "ai",
+        "ebit",
+        "ebitda",
+        "eps",
+        "etf",
+        "ev",
+        "fcf",
+        "fy",
+        "gaap",
+        "ipo",
+        "pe",
+        "q1",
+        "q2",
+        "q3",
+        "q4",
+        "roa",
+        "roe",
+        "roic",
+        "sec",
+        "ttm",
+        "us",
+    )
+} | {"qoq": "QoQ", "yoy": "YoY"}
+
+
+def readable_name(name: str | None) -> str | None:
+    """Turn an identifier-style name (``customer_deposits_qoq``) into words.
+
+    Extraction stores some metric and setup names as identifiers and others
+    as written. Written names are returned unchanged.
+    """
+    if not name or not _IDENTIFIER_NAME_RE.fullmatch(name):
+        return name
+    words = [_NAME_ABBREVIATIONS.get(word, word) for word in name.split("_")]
+    first = words[0]
+    words[0] = (
+        first
+        if first in _NAME_ABBREVIATIONS.values()
+        else first[:1].upper() + first[1:]
+    )
+    return " ".join(words)
+
+
 def _is_artifact_label(label: str | None) -> bool:
     return bool(label) and bool(_ARTIFACT_LABEL_RE.match(label or ""))
 
@@ -2987,9 +3034,9 @@ class GraphService:
         if node_type == "event":
             return node.title
         if node_type == "fundamental_metric":
-            return node.metric_name
+            return readable_name(node.metric_name)
         if node_type == "market_setup_signal":
-            return node.signal_name
+            return readable_name(node.signal_name)
         if node_type == "entity":
             return node.name
         if node_type == "theme":
