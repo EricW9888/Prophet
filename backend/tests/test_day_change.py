@@ -51,11 +51,13 @@ def test_while_closed_the_last_session_is_compared_with_the_one_before():
     )
 
 
-def test_missing_closes_are_skipped_and_no_history_gives_none():
-    chart = _chart(25, {21: 97.0, 24: None, 25: 101.0})
+def test_an_empty_prior_session_gives_no_reference_rather_than_an_older_one():
+    # The source has bars for 20-24 Nov without closes: falling back to the
+    # 19th would report four sessions as one day.
+    chart = _chart(25, {19: 94.0, 20: None, 24: None, 25: 73.0})
     assert MarketDataService._previous_close(chart, NEW_YORK, "regular") == (
-        97.0,
-        "2026-11-21",
+        None,
+        None,
     )
     assert MarketDataService._previous_close(
         _chart(25, {25: 101.0}), NEW_YORK, "regular"
@@ -63,6 +65,20 @@ def test_missing_closes_are_skipped_and_no_history_gives_none():
     assert MarketDataService._previous_close({"meta": {}}, NEW_YORK, "regular") == (
         None,
         None,
+    )
+
+
+def test_a_split_between_the_closes_gives_no_reference():
+    chart = _chart(25, {24: 800.0, 25: 101.0})
+    chart["events"] = {"splits": {"x": {"date": _epoch(25, 9), "numerator": 8}}}
+    assert MarketDataService._previous_close(chart, NEW_YORK, "regular") == (
+        None,
+        None,
+    )
+    chart["events"] = {"splits": {"x": {"date": _epoch(10, 9), "numerator": 8}}}
+    assert MarketDataService._previous_close(chart, NEW_YORK, "regular") == (
+        800.0,
+        "2026-11-24",
     )
 
 

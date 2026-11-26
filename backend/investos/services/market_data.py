@@ -664,7 +664,10 @@ class MarketDataService:
 
         Before the open the latest regular close is the reference. During and
         after the session, and while the market is closed, it is the close of
-        the last daily bar before the session the price belongs to.
+        the daily bar immediately before the session the price belongs to.
+        When that bar has no close, or a split falls between the two, there
+        is no reference: an older close would turn several sessions (or a
+        share-basis change) into one "day".
         """
         meta = chart.get("meta") or {}
         try:
@@ -684,18 +687,24 @@ class MarketDataService:
         ) or []
         previous = None
         for stamp, close in zip(stamps, closes):
-            close = number(close)
-            if close is None or close <= 0:
-                continue
             try:
                 day = datetime.fromtimestamp(float(stamp), timezone).date()
             except (OSError, OverflowError, TypeError, ValueError):
                 continue
             if day < session_day and (previous is None or day >= previous[1]):
-                previous = (float(close), day)
-        if previous is None:
+                previous = (number(close), day)
+        if previous is None or previous[0] is None or previous[0] <= 0:
             return None, None
-        return previous[0], previous[1].isoformat()
+        for event in ((chart.get("events") or {}).get("splits") or {}).values():
+            try:
+                split_day = datetime.fromtimestamp(
+                    float(event["date"]), timezone
+                ).date()
+            except (KeyError, OSError, OverflowError, TypeError, ValueError):
+                continue
+            if previous[1] < split_day <= session_day:
+                return None, None
+        return float(previous[0]), previous[1].isoformat()
 
     @staticmethod
     def _reported_splits(chart, timezone, observed_at):
