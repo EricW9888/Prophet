@@ -578,3 +578,77 @@ async def test_actual_migration_marks_legacy_without_rewriting_ledger_or_receipt
             migration.downgrade()
 
     await (await mailbox_service.session.connection()).run_sync(run)
+
+
+async def test_exact_copies_confirm_together_while_id_only_matches_stay_individual(
+    mailbox_service,
+):
+    from investos.schemas.evidence import RawEvidenceCreate
+
+    service = mailbox_service
+    source = await service._get_or_create_email_source()
+
+    async def legacy(content, external_id):
+        return await service.ingestion.ingest_text(
+            RawEvidenceCreate(
+                source_id=source.id,
+                source_item_type="email_order_confirmation",
+                metadata_json={
+                    "external_id": external_id,
+                    "operational_mailbox": True,
+                    "skip_extraction": True,
+                },
+                content=content,
+            ),
+            process_now=False,
+        )
+
+    # An older importer stored the same email under a different identity.
+    copied = await legacy(
+        "From: notifications@robinhood.com\nSubject: Your individual account deposit is complete\n\nYour individual account deposit is complete. Amount: $123.45",
+        "gmail:Old label:99",
+    )
+    exact = await service._process_message(
+        "8", receipt(), scope(folder="New label"), provider_message_id="7101"
+    )
+    exact_id = UUID(exact["evidence_id"])
+    incoming = await service.session.get(RawEvidence, exact_id)
+    copied.title, copied.author, copied.public_time = (
+        incoming.title,
+        incoming.author,
+        incoming.public_time,
+    )
+    # A different email that matched an older receipt only by a reused ID.
+    reused = await legacy("From: someone\nSubject: Other\n\nOther body", "12")
+    other = RawEvidence(
+        source_id=source.id,
+        source_item_type="email",
+        title="A different notice",
+        author=incoming.author,
+        public_time=incoming.public_time,
+        raw_content_ref=incoming.raw_content_ref,
+        metadata_json={
+            "identity_review": {
+                "status": "pending",
+                "reason": "ambiguous_legacy_identity",
+                "candidate_evidence_ids": [str(reused.id)],
+            }
+        },
+    )
+    service.session.add(other)
+    await service.session.flush()
+    other_id = other.id
+    await service.session.flush()
+
+    assert await service.identities.identical_reviews() == [(exact_id, copied.id)]
+
+    assert await service.identities.confirm_identical() == {"linked": 1, "skipped": 0}
+    linked = (await service.session.get(RawEvidence, exact_id)).metadata_json[
+        "identity_review"
+    ]
+    assert linked["status"] == "resolved" and linked["decision"] == "link_existing"
+    assert linked["canonical_evidence_id"] == str(copied.id)
+    assert (await service.session.get(RawEvidence, other_id)).metadata_json[
+        "identity_review"
+    ]["status"] == "pending"
+    assert await service.identities.identical_reviews() == []
