@@ -5,7 +5,7 @@ export const languageOptions = [
 export type PresentationLanguage = typeof languageOptions[number]["code"];
 
 const en = {
-  Portfolio: "Portfolio", Research: "Research", Monitor: "Monitor", Knowledge: "Knowledge", Review: "Review", Simulate: "Simulate",
+  Chat: "Chat", Overview: "Overview", Feed: "Feed", Portfolio: "Portfolio", Research: "Research", Monitor: "Monitor", Knowledge: "Knowledge", Review: "Review", Simulate: "Simulate",
   Positions: "Positions", History: "History", Risk: "Risk", Decisions: "Decisions", Sources: "Sources", Ideas: "Ideas", Activity: "Activity", Settings: "Settings",
   More: "More", "Portfolio records": "Portfolio records", "Research library": "Research library", System: "System",
   language: "Presentation language", coverage: "Navigation, language controls and the evidence translation panel are localized. Other UI copy and deterministic fallback answers remain in English. Original evidence keeps its source language.",
@@ -23,7 +23,7 @@ const en = {
 };
 const es = {
   translation_in_progress: "Ya se está generando una traducción de esta fuente. Reintente para comprobar si el resultado está guardado.",
-  Portfolio: "Cartera", Research: "Investigación", Monitor: "Seguimiento", Knowledge: "Conocimiento", Review: "Revisión", Simulate: "Simular",
+  Chat: "Chat", Overview: "Resumen", Feed: "Novedades", Portfolio: "Cartera", Research: "Investigación", Monitor: "Seguimiento", Knowledge: "Conocimiento", Review: "Revisión", Simulate: "Simular",
   Positions: "Posiciones", History: "Historial", Risk: "Riesgo", Decisions: "Decisiones", Sources: "Fuentes", Ideas: "Ideas", Activity: "Actividad", Settings: "Configuración",
   More: "Más", "Portfolio records": "Registros de cartera", "Research library": "Biblioteca de investigación", System: "Sistema",
   language: "Idioma de presentación", coverage: "La navegación, los controles de idioma y el panel de traducción están traducidos. El resto de la interfaz y las respuestas de respaldo deterministas siguen en inglés. La evidencia original conserva su idioma.",
@@ -39,7 +39,7 @@ const es = {
 };
 const fr = {
   translation_in_progress: "Une traduction de cette source est déjà en cours. Réessayez pour consulter le résultat conservé.",
-  Portfolio: "Portefeuille", Research: "Recherche", Monitor: "Suivi", Knowledge: "Connaissances", Review: "Révision", Simulate: "Simuler",
+  Chat: "Discussion", Overview: "Vue d’ensemble", Feed: "Fil", Portfolio: "Portefeuille", Research: "Recherche", Monitor: "Suivi", Knowledge: "Connaissances", Review: "Révision", Simulate: "Simuler",
   Positions: "Positions", History: "Historique", Risk: "Risque", Decisions: "Décisions", Sources: "Sources", Ideas: "Idées", Activity: "Activité", Settings: "Paramètres",
   More: "Plus", "Portfolio records": "Registres du portefeuille", "Research library": "Bibliothèque de recherche", System: "Système",
   language: "Langue de présentation", coverage: "La navigation, les contrôles de langue et le panneau de traduction sont traduits. Le reste de l’interface et les réponses de secours déterministes restent en anglais. Les sources conservent leur langue originale.",
@@ -55,7 +55,7 @@ const fr = {
 };
 const zh = {
   translation_in_progress: "此来源的译文正在生成中。请重试以查看是否已有保存的结果。",
-  Portfolio: "投资组合", Research: "研究", Monitor: "监测", Knowledge: "知识", Review: "审查", Simulate: "模拟",
+  Chat: "对话", Overview: "概览", Feed: "动态", Portfolio: "投资组合", Research: "研究", Monitor: "监测", Knowledge: "知识", Review: "审查", Simulate: "模拟",
   Positions: "持仓", History: "历史", Risk: "风险", Decisions: "决策", Sources: "来源", Ideas: "思路", Activity: "活动", Settings: "设置",
   More: "更多", "Portfolio records": "投资组合记录", "Research library": "研究资料库", System: "系统",
   language: "展示语言", coverage: "导航、语言设置和证据翻译面板已本地化。其他界面文字和确定性备用回答仍为英语。原始证据保留其原语言。",
