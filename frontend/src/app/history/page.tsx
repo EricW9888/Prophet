@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
 import WorkspaceState from "@/components/WorkspaceState";
@@ -149,166 +149,105 @@ export default function HistoryPage() {
           description="Review closed positions, transactions, corrections, and how the live book changed over time without losing sight of what is still held."
         />
 
-        <div className="mb-8">
-          <div className="rounded-lg border border-line bg-panel p-5">
+        <div className="mb-8 min-w-0">
+          <div className="min-w-0 border border-line bg-panel p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">Recent flow</div>
-              <div className="flex flex-wrap items-center gap-2">
-                <a
-                  href="#statement-reconcile"
-                  className="inline-flex items-center gap-1.5 rounded-none border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-bold uppercase tracking-widest text-sky-700 hover:border-sky-300 hover:bg-sky-100 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300 dark:hover:bg-sky-950/50"
-                >
-                  <ClipboardCheck className="h-3 w-3" />
-                  Reconcile
-                </a>
-                <span className={`rounded-none border px-2.5 py-1 text-xs font-bold uppercase tracking-widest ${
-                  gmailHealth.tone === "ok"
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
-                    : gmailHealth.tone === "warn"
-                      ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
-                      : "border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400"
-                }`}>
+              <h2 className="text-sm font-semibold">Recent transactions</h2>
+              <div className="flex flex-wrap items-center gap-3 text-xs">
+                <span className={gmailHealth.tone === "ok" ? "text-positive" : gmailHealth.tone === "warn" ? "text-negative" : "text-muted"}>
                   {gmailHealth.label}: {gmailHealth.detail}
                 </span>
+                <a href="#statement-reconcile" className="inline-flex items-center gap-1.5 border border-line px-2.5 py-1 font-medium text-action hover:border-line-strong">
+                  <ClipboardCheck className="h-3 w-3" />
+                  Reconcile with a statement
+                </a>
               </div>
             </div>
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-              {(overview?.recent_transactions ?? []).slice(0, 6).map((txn) => (
-                <div key={txn.id} className="rounded-lg border border-slate-100 dark:border-slate-800 px-4 py-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-black uppercase">{txn.ticker || "CASH"}</span>
-                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-bold uppercase tracking-widest text-slate-500 dark:bg-slate-900 dark:text-slate-300">
-                          {txn.action}
-                        </span>
-                      </div>
-                      <div className="mt-1 truncate text-xs text-muted">
-                        {txn.entity_name || "Portfolio transaction"}
-                      </div>
-                    </div>
-                    <span className="text-xs text-slate-400">
-                      {formatLedgerDate(txn.executed_at)}
-                    </span>
-                  </div>
-                  <div className="mt-3 flex items-end justify-between gap-3">
-                    <div className="text-sm text-muted">
-                      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Fill</div>
-                      {formatQuantity(txn.quantity)} @ {formatPrice(txn.price)}
-                    </div>
-                    <div className="min-w-0 text-right">
-                      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Source</div>
-                      <div className="truncate text-xs font-bold text-foreground">
-                        {txn.source_label || "Manual/API"}
-                        {txn.source_confidence != null ? ` · ${Math.round(txn.source_confidence * 100)}%` : ""}
-                      </div>
-                    </div>
-                  </div>
-                  {txn.source_evidence_id ? (
-                    <Link
-                      href={`/sources/evidence/${txn.source_evidence_id}`}
-                      className="mt-3 block rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-2 text-xs font-semibold text-slate-500 hover:border-sky-200 hover:text-sky-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 dark:hover:border-sky-900 dark:hover:text-sky-300"
-                    >
-                      Evidence receipt {txn.source_evidence_id.slice(0, 8)}
-                    </Link>
-                  ) : txn.source_label === "Broker email" ? (
-                    <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-2 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
-                      Legacy broker-confirmation note
-                    </div>
-                  ) : null}
-                  <div className="mt-3 flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={() => openCorrection(txn)}
-                      className="inline-flex items-center gap-1.5 rounded-none border border-slate-200 px-2.5 py-1 text-xs font-bold uppercase tracking-widest text-slate-500 hover:border-sky-200 hover:text-sky-600 dark:border-slate-800 dark:text-slate-400 dark:hover:border-sky-900 dark:hover:text-sky-300"
-                    >
-                      <PencilLine className="h-3 w-3" />
-                      Correct fill
-                    </button>
-                    {txn.superseded_by_id ? (
-                      <span className="text-xs font-semibold text-caution">
-                        Superseded
-                      </span>
-                    ) : null}
-                  </div>
-                  {correctingTxnId === txn.id && correctionForm ? (
-                    <div className="mt-3 rounded-lg border border-sky-100 bg-sky-50/40 p-3 dark:border-sky-950 dark:bg-sky-950/20">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <div className="text-xs font-bold uppercase tracking-widest text-action-strong">
-                          Save corrected transaction
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCorrectingTxnId(null);
-                            setCorrectionForm(null);
-                            setCorrectionError(null);
-                          }}
-                          className="rounded-none p-1 text-slate-400 hover:bg-white hover:text-slate-700 dark:hover:bg-slate-900 dark:hover:text-slate-200"
-                          aria-label="Close correction form"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <label className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                          Quantity
-                          <input
-                            value={correctionForm.quantity}
-                            onChange={(e) => setCorrectionForm((current) => current ? { ...current, quantity: e.target.value } : current)}
-                            type="number"
-                            step="0.0001"
-                            className="mt-1 w-full rounded-lg border border-line bg-panel px-2 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-sky-400  dark:text-slate-100"
-                          />
-                        </label>
-                        <label className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                          Price
-                          <input
-                            value={correctionForm.price}
-                            onChange={(e) => setCorrectionForm((current) => current ? { ...current, price: e.target.value } : current)}
-                            type="number"
-                            step="0.01"
-                            className="mt-1 w-full rounded-lg border border-line bg-panel px-2 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-sky-400  dark:text-slate-100"
-                          />
-                        </label>
-                        <label className="col-span-2 text-xs font-bold uppercase tracking-widest text-slate-400">
-                          Executed
-                          <input
-                            value={correctionForm.executed_at}
-                            onChange={(e) => setCorrectionForm((current) => current ? { ...current, executed_at: e.target.value } : current)}
-                            type="datetime-local"
-                            className="mt-1 w-full rounded-lg border border-line bg-panel px-2 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-sky-400  dark:text-slate-100"
-                          />
-                        </label>
-                        <label className="col-span-2 text-xs font-bold uppercase tracking-widest text-slate-400">
-                          Reason
-                          <input
-                            value={correctionForm.reason}
-                            onChange={(e) => setCorrectionForm((current) => current ? { ...current, reason: e.target.value } : current)}
-                            className="mt-1 w-full rounded-lg border border-line bg-panel px-2 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-sky-400  dark:text-slate-100"
-                          />
-                        </label>
-                      </div>
-                      {correctionError ? <div className="mt-2 text-xs font-semibold text-rose-600 dark:text-rose-300">{correctionError}</div> : null}
-                      <button
-                        type="button"
-                        onClick={() => submitCorrection(txn)}
-                        disabled={correctionBusy}
-                        className="mt-3 inline-flex items-center gap-1.5 rounded-none bg-sky-600 px-3 py-1.5 text-xs font-bold uppercase tracking-widest text-white hover:bg-sky-700 disabled:opacity-50"
-                      >
-                        <PencilLine className="h-3 w-3" />
-                        {correctionBusy ? "Saving" : "Save correction"}
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-              {status.ledger?.ready && (overview?.recent_transactions ?? []).length === 0 ? (
-                <div className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-sm italic text-slate-400 dark:border-slate-800 dark:text-slate-500">
-                  No recent transactions are in the ledger yet.
-                </div>
-              ) : null}
-            </div>
+            {status.ledger?.ready && (overview?.recent_transactions ?? []).length === 0 ? (
+              <p className="mt-4 border border-dashed border-line px-4 py-6 text-sm text-muted">No recent transactions are in the ledger yet.</p>
+            ) : (
+              <div className="mt-4 max-w-full overflow-x-auto">
+                <table className="w-full min-w-[760px] text-sm">
+                  <thead className="border-b border-line text-xs text-muted">
+                    <tr>
+                      <th scope="col" className="py-2 pr-4 text-left font-medium">Date</th>
+                      <th scope="col" className="py-2 pr-4 text-left font-medium">Holding</th>
+                      <th scope="col" className="py-2 pr-4 text-left font-medium">Action</th>
+                      <th scope="col" className="py-2 pr-4 text-right font-medium">Shares</th>
+                      <th scope="col" className="py-2 pr-4 text-right font-medium">Price</th>
+                      <th scope="col" className="py-2 pr-4 text-left font-medium">Source</th>
+                      <th scope="col" className="py-2 text-right font-medium"><span className="sr-only">Correct</span></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line">
+                    {(overview?.recent_transactions ?? []).slice(0, 10).map((txn) => (
+                      <Fragment key={txn.id}>
+                        <tr className="align-top hover:bg-panel-muted">
+                          <td className="whitespace-nowrap py-2 pr-4 tabular-nums text-muted">{formatLedgerDate(txn.executed_at)}</td>
+                          <td className="py-2 pr-4">
+                            <span className="font-semibold">{txn.ticker || "Cash"}</span>
+                            {txn.entity_name ? <span className="ml-2 hidden text-xs text-muted sm:inline">{txn.entity_name}</span> : null}
+                            {txn.superseded_by_id ? <span className="ml-2 text-xs text-caution">Superseded</span> : null}
+                          </td>
+                          <td className="py-2 pr-4 first-letter:uppercase">{txn.action}</td>
+                          <td className="py-2 pr-4 text-right tabular-nums">{formatQuantity(txn.quantity)}</td>
+                          <td className="py-2 pr-4 text-right tabular-nums">{formatPrice(txn.price)}</td>
+                          <td className="py-2 pr-4 text-xs">
+                            <span>{txn.source_label || "Manual/API"}{txn.source_confidence != null ? ` · ${Math.round(txn.source_confidence * 100)}%` : ""}</span>
+                            {txn.source_evidence_id ? (
+                              <Link href={`/sources/evidence/${txn.source_evidence_id}`} className="ml-2 text-action hover:underline">Receipt</Link>
+                            ) : txn.source_label === "Broker email" ? (
+                              <span className="ml-2 text-muted">legacy note</span>
+                            ) : null}
+                          </td>
+                          <td className="py-2 text-right">
+                            <button type="button" onClick={() => openCorrection(txn)} className="inline-flex items-center gap-1 text-xs text-action hover:underline">
+                              <PencilLine className="h-3 w-3" />
+                              Correct
+                            </button>
+                          </td>
+                        </tr>
+                        {correctingTxnId === txn.id && correctionForm ? (
+                          <tr>
+                            <td colSpan={7} className="bg-panel-muted p-3">
+                              <div className="mb-2 flex items-center justify-between gap-2">
+                                <p className="text-sm font-semibold">Correct this {txn.action}{txn.ticker ? ` of ${txn.ticker}` : ""}</p>
+                                <button type="button" onClick={() => { setCorrectingTxnId(null); setCorrectionForm(null); setCorrectionError(null); }} className="p-1 text-muted hover:text-foreground" aria-label="Close correction form">
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </div>
+                              <div className="grid gap-2 sm:grid-cols-4">
+                                <label className="text-xs text-muted">
+                                  Shares
+                                  <input value={correctionForm.quantity} onChange={(e) => setCorrectionForm((current) => current ? { ...current, quantity: e.target.value } : current)} type="number" step="0.0001" className="workspace-control mt-1 w-full" />
+                                </label>
+                                <label className="text-xs text-muted">
+                                  Price
+                                  <input value={correctionForm.price} onChange={(e) => setCorrectionForm((current) => current ? { ...current, price: e.target.value } : current)} type="number" step="0.01" className="workspace-control mt-1 w-full" />
+                                </label>
+                                <label className="text-xs text-muted sm:col-span-2">
+                                  Executed
+                                  <input value={correctionForm.executed_at} onChange={(e) => setCorrectionForm((current) => current ? { ...current, executed_at: e.target.value } : current)} type="datetime-local" className="workspace-control mt-1 w-full" />
+                                </label>
+                                <label className="text-xs text-muted sm:col-span-4">
+                                  Reason
+                                  <input value={correctionForm.reason} onChange={(e) => setCorrectionForm((current) => current ? { ...current, reason: e.target.value } : current)} className="workspace-control mt-1 w-full" />
+                                </label>
+                              </div>
+                              {correctionError ? <p role="alert" className="mt-2 text-xs text-negative">{correctionError}</p> : null}
+                              <button type="button" onClick={() => submitCorrection(txn)} disabled={correctionBusy} className="workspace-control mt-3 inline-flex items-center gap-1.5 disabled:opacity-50">
+                                <PencilLine className="h-3 w-3" />
+                                {correctionBusy ? "Saving…" : "Save correction"}
+                              </button>
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             {correctionNotice ? (
               <div className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-700 dark:border-emerald-950 dark:bg-emerald-950/20 dark:text-emerald-300">
                 {correctionNotice}
