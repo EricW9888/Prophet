@@ -130,12 +130,33 @@ class SourceLearningService:
                     select(Source).where(Source.url == normalized_url)
                 )
             ).scalar_one_or_none()
-        if source is None:
+        publisher = self._publisher(normalized_url)
+        if source is None and publisher:
+            # A source is the publisher. Match the domain, with or without
+            # "www.", never a name guessed from a document title (#302).
             source = (
-                await self.session.execute(
-                    select(Source).where(Source.name == display_name)
+                (
+                    await self.session.execute(
+                        select(Source)
+                        .where(Source.name.in_((publisher, f"www.{publisher}")))
+                        .order_by(Source.created_at.asc(), Source.id.asc())
+                    )
                 )
-            ).scalar_one_or_none()
+                .scalars()
+                .first()
+            )
+        if source is None and not publisher:
+            source = (
+                (
+                    await self.session.execute(
+                        select(Source)
+                        .where(Source.name == display_name)
+                        .order_by(Source.created_at.asc(), Source.id.asc())
+                    )
+                )
+                .scalars()
+                .first()
+            )
         if source is None:
             source = Source(
                 name=display_name,
@@ -496,15 +517,20 @@ class SourceLearningService:
             )
         )
 
-    def _display_name(self, url: str | None, title: str | None) -> str:
+    def _publisher(self, url: str | None) -> str | None:
+        """The publisher behind a URL: its host without a leading "www."."""
         domain = self._domain(url)
-        if title and " - " in title:
-            prefix = title.split(" - ", 1)[0].strip()
-            if len(prefix) >= 4:
-                return prefix[:120]
-        if domain:
-            root = domain.replace("www.", "")
-            return root[:120]
+        if not domain:
+            return None
+        domain = domain.split("@")[-1].split(":")[0]
+        return (domain[4:] if domain.startswith("www.") else domain)[:120] or None
+
+    def _display_name(self, url: str | None, title: str | None) -> str:
+        # Titles are not publisher identities: EDGAR titles start with the form
+        # type, and pages often start with the subject company's name (#302).
+        publisher = self._publisher(url)
+        if publisher:
+            return publisher
         return (title or "Auto-discovered source")[:120]
 
     def _domain(self, url: str | None) -> str | None:
