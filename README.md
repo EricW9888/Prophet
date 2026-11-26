@@ -22,6 +22,23 @@ exposed.
 
 ## What Prophet Does
 
+Prophet is organized around six areas:
+
+| Area | What you do there |
+| --- | --- |
+| **Portfolio** | See holdings, today's and total gain/loss, history, risk against a loss budget, and how Prophet's past calls turned out. |
+| **Chat** | Ask about a holding, a company, or what changed; answers draw on the research and portfolio context Prophet has stored. |
+| **Research** | Browse sources, the knowledge map of companies, themes and claims, and new ideas from a broader universe. |
+| **Monitor** | Follow new facts, claims and events as they arrive, with when they happened and where they came from. |
+| **Review** | Settle what needs a person: whether a claim turned out right, or whether two receipts are the same. |
+| **Simulate** | Test a policy in a paper portfolio next to the real one, then compare the results. Nothing trades. |
+
+Behind those, background jobs keep researching, re-checking accepted views, and
+scoring earlier claims once their outcome is known.
+
+<details>
+<summary>Full capability list</summary>
+
 - Reconstructs holdings from deterministic transaction records and optional
   broker-confirmation ingestion.
 - Preserves research evidence with source lineage and event, publication, and
@@ -46,6 +63,8 @@ exposed.
   gaps, source checkpoints and reversible exclusions.
 - Tests ideas through shadow experiments and paper accounts, then records
   outcomes and lessons without sending real orders.
+
+</details>
 
 ## How It Works
 
