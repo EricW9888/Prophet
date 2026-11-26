@@ -14,7 +14,6 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.models.catalog import SourceClaimRecord
-from investos.services.claim_record_identity import representative_claim_record
 from investos.models.knowledge import Claim
 from investos.models.market_setup import MarketSetupSignal
 from investos.models.shadow import ShadowExperiment
