@@ -6,7 +6,9 @@ import { useSearchParams } from "next/navigation";
 import AppNav from "@/components/AppNav";
 import PageHeader from "@/components/PageHeader";
 import WorkspaceState, { WorkspaceSkeleton } from "@/components/WorkspaceState";
-import ReviewItemActions from "@/components/ReviewItemActions";
+import Link from "next/link";
+import ReviewItemActions, { reviewFixLink } from "@/components/ReviewItemActions";
+import { groupReviewItems } from "@/lib/review-groups";
 import ReviewDomainFilters, { reviewDomain, reviewDomainLabel, reviewPagePath, reviewSelectionKey } from "@/components/ReviewDomainFilters";
 import { isRecordId, reviewResearchQuestion, reviewSubject, selectReviewContext } from "@/lib/workflows";
 import { API_BASE, apiFetch, ProfileListItem, ReviewDomain, ReviewQueueCounts, ReviewQueueItem, ReviewQueuePage, VerificationResult } from "@/lib/api";
@@ -193,6 +195,59 @@ function VerificationWorkspace() {
     }
   }
 
+  const renderReviewItem = (item: ReviewQueueItem) => (
+                  <div key={item.id} className="rounded-lg border border-line p-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="font-medium">{item.item_label}</p>
+                        <p className="mt-1 text-xs uppercase tracking-wider text-slate-400">{item.item_type.replaceAll("_", " ")}</p>
+                      </div>
+                      <span className="text-xs uppercase tracking-wider text-slate-400">
+                        priority {item.priority_score.toFixed(1)}
+                      </span>
+                    </div>
+                    <div className="mt-2 rounded-lg border border-sky-100 bg-sky-50/60 px-3 py-2 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-200">
+                      Next step: {item.next_action}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {item.signal_tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="rounded-none border border-slate-200 px-2.5 py-1 text-xs uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:text-slate-400"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                    <ReviewItemActions item={item} disabled={running} onChallenge={() => prepareChallenge(item)} onResolved={() => void refreshQueue()} />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedSignals((current) => ({
+                          ...current,
+                          [item.id]: !current[item.id],
+                        }))
+                      }
+                      className="mt-3 text-xs font-bold uppercase tracking-wider text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                    >
+                      {expandedSignals[item.id] ? "Hide rationale and signals" : "View rationale and signals"}
+                    </button>
+                    {expandedSignals[item.id] ? (
+                      <div className="mt-3 space-y-3 border-t border-slate-200 pt-3 dark:border-slate-800">
+                        <p className="break-words text-sm leading-6 text-foreground">
+                          {item.why_now_summary}
+                        </p>
+                        <div className="flex flex-wrap gap-2 text-xs text-slate-400">
+                          <span>priority {item.priority_score.toFixed(1)}</span>
+                          <span>contradiction {item.contradiction_pressure.toFixed(1)}</span>
+                          <span>coverage pressure {item.coverage_weakness.toFixed(1)}</span>
+                          <span>drift {item.thesis_drift.toFixed(1)}</span>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+  );
+
   return (
     <div className="min-h-screen bg-background text-foreground font-sans">
       <AppNav active="review" />
@@ -251,57 +306,15 @@ function VerificationWorkspace() {
                   description="No reviews are currently queued in this view. This does not establish complete coverage, reconciled balances or an absence of risk."
                 />
               ) : (
-                queue.slice(0, visibleQueueCount).map((item) => (
-                  <div key={item.id} className="rounded-lg border border-line p-4">
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="font-medium">{item.item_label}</p>
-                        <p className="mt-1 text-xs uppercase tracking-wider text-slate-400">{item.item_type.replaceAll("_", " ")}</p>
-                      </div>
-                      <span className="text-xs uppercase tracking-wider text-slate-400">
-                        priority {item.priority_score.toFixed(1)}
-                      </span>
-                    </div>
-                    <div className="mt-2 rounded-lg border border-sky-100 bg-sky-50/60 px-3 py-2 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-200">
-                      Next step: {item.next_action}
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {item.signal_tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="rounded-none border border-slate-200 px-2.5 py-1 text-xs uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:text-slate-400"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                    <ReviewItemActions item={item} disabled={running} onChallenge={() => prepareChallenge(item)} />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setExpandedSignals((current) => ({
-                          ...current,
-                          [item.id]: !current[item.id],
-                        }))
-                      }
-                      className="mt-3 text-xs font-bold uppercase tracking-wider text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-                    >
-                      {expandedSignals[item.id] ? "Hide rationale and signals" : "View rationale and signals"}
-                    </button>
-                    {expandedSignals[item.id] ? (
-                      <div className="mt-3 space-y-3 border-t border-slate-200 pt-3 dark:border-slate-800">
-                        <p className="break-words text-sm leading-6 text-foreground">
-                          {item.why_now_summary}
-                        </p>
-                        <div className="flex flex-wrap gap-2 text-xs text-slate-400">
-                          <span>priority {item.priority_score.toFixed(1)}</span>
-                          <span>contradiction {item.contradiction_pressure.toFixed(1)}</span>
-                          <span>coverage pressure {item.coverage_weakness.toFixed(1)}</span>
-                          <span>drift {item.thesis_drift.toFixed(1)}</span>
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
+                groupReviewItems(queue.slice(0, visibleQueueCount)).map((entry) => entry.kind === "item" ? renderReviewItem(entry.item) : (
+                  <details key={entry.key} className="border border-line p-4">
+                    <summary className="cursor-pointer">
+                      <span className="font-medium">{entry.items.length === queue.length ? Math.max(queueTotal, queue.length) : entry.items.length} items: {entry.label}</span>
+                      <span className="mt-1 block text-sm text-muted">The same check for each. Next step: {entry.items[0].next_action}</span>
+                      {reviewFixLink(entry.items[0]) ? <Link href={reviewFixLink(entry.items[0])!.href} className="mt-3 inline-block border border-line px-3 py-2 text-xs font-medium text-action hover:border-line-strong">{reviewFixLink(entry.items[0])!.label}</Link> : null}
+                    </summary>
+                    <div className="mt-3 space-y-3">{entry.items.map((item) => renderReviewItem(item))}</div>
+                  </details>
                 ))
               )}
             </div>
@@ -319,11 +332,9 @@ function VerificationWorkspace() {
         </section>
         <aside className="min-w-0 space-y-5" aria-label="Challenge a view">
           {loaded ? profiles.length === 0 && !selectedSubjectId ? (
-            <WorkspaceState
-              kind="empty"
-              title="No subjects are ready for verification"
-              description="Create or ingest research for a company, position, or theme before running a manual challenge."
-            />
+            <p className="border border-line p-4 text-sm text-muted">
+              Manual challenges test an accepted view against fresh evidence. They need a research profile for a company, position, or theme, and none exists yet. The queue on the left does not depend on them.
+            </p>
           ) : (
             <form id="manual-challenge" onSubmit={runVerification} className="scroll-mt-24 rounded-lg border border-line bg-panel p-6  space-y-4">
               <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Manual challenge</h2>
