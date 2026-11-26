@@ -13,10 +13,11 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "src");
-const BASELINE = { rawPalette: 2729, uppercase: 251 };
+const BASELINE = { rawPalette: 2687, uppercase: 231 };
 
 const RAW_PALETTE = /\b(?:text|bg|border|divide|ring|from|to|via|fill|stroke|outline|accent|placeholder)-(?:slate|sky|red|rose|emerald|amber|blue|gray|green|zinc|neutral|indigo|yellow|orange|teal|cyan|violet|purple|pink|lime|stone|fuchsia)-\d{2,3}\b/g;
-const UPPERCASE = /\buppercase\b/g;
+// `first-letter:uppercase` is how sentence case is applied, so it does not count.
+const UPPERCASE = /(?<!first-letter:)\buppercase\b/g;
 
 function files(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {

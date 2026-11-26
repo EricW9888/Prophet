@@ -691,7 +691,7 @@ function AddDisclosurePanel({
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Add Disclosure Signal</h2>
+            <h2 className="text-sm font-bold text-muted">Add disclosure signal</h2>
             <HintMarker label="Disclosure signal">
               <p>
                 A source-dated ownership, insider, political, institutional, or regulatory disclosure that can affect market setup. Prophet stores the filing date and the event date separately so late disclosures do not look timely.
@@ -731,11 +731,11 @@ function AddDisclosurePanel({
         <input value={form.actorType} onChange={(e) => setForm((current) => ({ ...current, actorType: e.target.value }))} placeholder="Actor type" className={inputClass} title="Example: insider, director, fund, senator, institution." />
         <input value={form.transactionType} onChange={(e) => setForm((current) => ({ ...current, transactionType: e.target.value }))} placeholder="Transaction" className={inputClass} title="Example: buy, sell, option exercise, new position, increased stake." />
         <input value={form.transactionValue} onChange={(e) => setForm((current) => ({ ...current, transactionValue: e.target.value }))} placeholder="$ value or range" className={inputClass} title="Use the disclosed dollar value, share count, or range. Ranges are preserved as text." />
-        <label className="space-y-1 text-xs font-semibold uppercase tracking-wider text-slate-400">
+        <label className="space-y-1 text-xs font-semibold text-slate-400">
           Trade date
           <input type="datetime-local" value={form.transactionDate} onChange={(e) => setForm((current) => ({ ...current, transactionDate: e.target.value }))} className={inputClass} title="When the trade or ownership event happened." />
         </label>
-        <label className="space-y-1 text-xs font-semibold uppercase tracking-wider text-slate-400">
+        <label className="space-y-1 text-xs font-semibold text-slate-400">
           Disclosure date
           <input type="datetime-local" value={form.disclosureDate} onChange={(e) => setForm((current) => ({ ...current, disclosureDate: e.target.value }))} className={inputClass} title="When the market could reasonably know about it." />
         </label>
@@ -767,7 +767,7 @@ function SourceSection({
     <section className="space-y-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-sm font-bold uppercase tracking-wider text-muted">{title}</h2>
+          <h2 className="text-sm font-bold text-muted">{title}</h2>
           <p className="mt-1 text-sm text-muted">{subtitle}</p>
         </div>
         {sources.length > visibleSources.length ? (
@@ -834,7 +834,7 @@ function SourceSection({
 
               <SourceScoreSummary source={source} />
               <details className="mt-3 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                <summary className="cursor-pointer select-none text-xs font-bold uppercase tracking-widest text-slate-400">
+                <summary className="cursor-pointer select-none text-xs font-bold text-slate-400">
                   Score details
                 </summary>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -851,7 +851,7 @@ function SourceSection({
                 </div>
                 {source.performance_history.length > 0 ? (
                   <div className="mt-3 rounded-lg border border-slate-100 bg-white/70 px-3 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-300">
-                    <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Outcome history</div>
+                    <div className="text-xs font-bold text-slate-400">Outcome history</div>
                     {source.performance_history.slice(0, 1).map((history) => (
                       <div key={history.id} className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
                         <span>{history.total_claims} assessed claims</span>
@@ -863,7 +863,7 @@ function SourceSection({
                 ) : null}
                 {source.claim_queue.total > 0 ? (
                   <div className="mt-3 border-t border-slate-200 pt-3 text-sm text-slate-600 dark:border-slate-800 dark:text-slate-300">
-                    <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Claim calibration queue</div>
+                    <div className="text-xs font-bold text-slate-400">Claim calibration queue</div>
                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
                       <span>{source.claim_queue.total} tracked</span>
                       <span>{source.claim_queue.assessed} assessed</span>
@@ -894,7 +894,7 @@ function DiscoveryObservationPanel({ discoveries }: { discoveries: ResearchDisco
   return (
     <section className="space-y-3">
       <div>
-        <h2 className="text-sm font-bold uppercase tracking-wider text-muted">
+        <h2 className="text-sm font-bold text-muted">
           Recent Research Discovery
         </h2>
         <p className="mt-1 max-w-3xl text-sm text-muted">
@@ -992,7 +992,7 @@ function SourceScoreSummary({ source }: { source: SourceRecord }) {
 function SourceMetric({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-slate-100 bg-white/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/60">
-      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">{title}</div>
+      <div className="text-xs font-bold text-slate-400">{title}</div>
       <div className="mt-2 space-y-1 text-sm text-muted">{children}</div>
     </div>
   );
@@ -1012,7 +1012,7 @@ function SubjectAliasPanel({
     <section className="space-y-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Subject Aliases</h2>
+          <h2 className="text-sm font-bold text-muted">Subject aliases</h2>
           <p className="mt-1 text-sm text-muted">
             Inspect the shorthand, synonyms, and pattern labels Prophet uses when resolving context.
           </p>
@@ -1104,7 +1104,7 @@ function RecentEvidence({
   return (
     <section className="space-y-3">
       <div>
-        <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Recent Evidence to Train On</h2>
+        <h2 className="text-sm font-bold text-muted">Recent evidence to train on</h2>
         <p className="mt-1 text-sm text-muted">
           Mark what helped and what wasted attention. These flags remain visible here and are attached to the original evidence.
         </p>
@@ -1204,7 +1204,7 @@ function AddSourcePanel({
 }) {
   return (
     <form onSubmit={onSubmit} className="rounded-lg border border-line bg-panel p-4">
-      <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Add Trusted Source</h2>
+      <h2 className="text-sm font-bold text-muted">Add trusted source</h2>
       <div className="mt-4 space-y-3">
         <select value={form.source_type} onChange={(e) => setForm((current) => ({ ...current, source_type: e.target.value }))} className={inputClass}>
           <option value="analyst">Analyst / investor</option>
@@ -1282,7 +1282,7 @@ function MediaCapabilityPanel({
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Video Ingestion</h2>
+            <h2 className="text-sm font-bold text-muted">Video ingestion</h2>
             <HintMarker label="Video ingestion">
               <p>
                 Prophet tracks channels separately from evidence. It reads captions first, then deepens only when a material gap calls for an available audio or verification pass. Unavailable visual coverage remains explicit.
@@ -1299,7 +1299,7 @@ function MediaCapabilityPanel({
       </div>
       <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-900/60">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <label className="min-w-0 flex-1 space-y-1 text-xs font-semibold uppercase tracking-wider text-muted">
+          <label className="min-w-0 flex-1 space-y-1 text-xs font-semibold text-muted">
             Tracked channel
             <select
               value={channelSourceId}
@@ -1362,7 +1362,7 @@ function MediaCapabilityPanel({
         )}
       </div>
       <form onSubmit={onSubmit} className="mt-4 space-y-2 rounded-lg border border-sky-100 bg-sky-50/60 p-3 dark:border-sky-950 dark:bg-sky-950/20">
-        <label className="block text-xs font-semibold uppercase tracking-wider text-sky-800 dark:text-sky-200" htmlFor="youtube-video-url">
+        <label className="block text-xs font-semibold text-sky-800 dark:text-sky-200" htmlFor="youtube-video-url">
           Individual video
         </label>
         <input
@@ -1499,7 +1499,7 @@ function AddNotePanel({
     <form onSubmit={onSubmit} className="rounded-lg border border-sky-200 bg-white p-4 dark:border-sky-900 dark:bg-slate-950">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Add Note</h2>
+          <h2 className="text-sm font-bold text-muted">Add note</h2>
           <p className="mt-1 text-sm text-muted">Save tests, assumptions, or observations as evidence.</p>
         </div>
         <button type="button" onClick={onCagrTest} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-sky-200 text-sky-600 dark:border-sky-900 dark:text-sky-300" title="Prefill CAGR test note">
@@ -1542,7 +1542,7 @@ function AddNotePanel({
 function FlaggedPanel({ feedback, onClear }: { feedback: SourceFeedbackRecord[]; onClear: (evidenceId: string) => Promise<void> }) {
   return (
     <section className="rounded-lg border border-line bg-panel p-4">
-      <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Flagged Later</h2>
+      <h2 className="text-sm font-bold text-muted">Flagged later</h2>
       <div className="mt-3 space-y-2">
         {feedback.length === 0 ? (
           <p className="text-sm text-muted">No useful/noisy flags yet.</p>
@@ -1582,7 +1582,7 @@ function FlaggedPanel({ feedback, onClear }: { feedback: SourceFeedbackRecord[];
 function NotesPanel({ notes }: { notes: SourceEvidenceSummary[] }) {
   return (
     <section className="rounded-lg border border-line bg-panel p-4">
-      <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Recent Notes</h2>
+      <h2 className="text-sm font-bold text-muted">Recent notes</h2>
       <div className="mt-3 space-y-2">
         {notes.length === 0 ? (
           <p className="text-sm text-muted">No notes saved yet.</p>
@@ -1622,34 +1622,17 @@ function StatusPill({
       ? "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300"
       : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300";
   return (
-    <span title={title} className={`rounded-none border px-2.5 py-1 text-xs font-semibold uppercase tracking-wider ${className}`}>
+    <span title={title} className={`inline-block rounded-none border px-2.5 py-1 text-xs font-semibold first-letter:uppercase ${className}`}>
       {children}
     </span>
   );
 }
 
 
-function OriginPill({ children, kind }: { children: React.ReactNode; kind?: string | null }) {
-  const normalized = (kind || "").toLowerCase();
-  const className =
-    normalized === "manual"
-      ? "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300"
-      : normalized === "email"
-      ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
-      : normalized === "automation"
-      ? "border-teal-200 bg-teal-50 text-teal-700 dark:border-teal-900 dark:bg-teal-950/30 dark:text-teal-300"
-      : normalized === "discovery"
-      ? "border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-900 dark:bg-cyan-950/30 dark:text-cyan-300"
-      : normalized === "chat"
-      ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
-      : normalized === "disclosure"
-      ? "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/30 dark:text-orange-300"
-      : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300";
-  return (
-    <span className={`rounded-none border px-2.5 py-1 text-xs font-semibold uppercase tracking-wider ${className}`}>
-      {children}
-    </span>
-  );
+function OriginPill({ children }: { children: React.ReactNode; kind?: string | null }) {
+  // Origin is a category, not a status: neutral style, the text says which (Fluent 2:
+  // semantic colors carry meaning, never decoration).
+  return <span className="border border-line px-2 py-0.5 text-xs text-muted">{children}</span>;
 }
 
 function formatDate(value?: string | null) {
