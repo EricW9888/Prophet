@@ -92,9 +92,25 @@ def quote_mark(
             issues.append(
                 "The quoted calculation cannot be represented as a finite value."
             )
+    day_change = day_change_pct = None
+    reference = number(receipt.get("previous_close"))
+    if ready and reference is not None and reference > 0:
+        try:
+            day_change = float(qty * (price - reference))
+            day_change_pct = float((price / reference - 1) * 100)
+            if not (math.isfinite(day_change) and math.isfinite(day_change_pct)):
+                day_change = day_change_pct = None
+        except (DecimalException, OverflowError, ValueError):
+            day_change = day_change_pct = None
     return {
         "status": "ready" if ready else "unavailable",
         "ticker": ticker,
+        # Change since the previous regular close, for the shares held now.
+        "day_change": day_change,
+        "day_change_pct": day_change_pct,
+        "previous_close_on": (
+            receipt.get("previous_close_on") if day_change is not None else None
+        ),
         "issues": issues,
         "price": float(price) if ready else None,
         "market_value": float(value) if value is not None else None,
