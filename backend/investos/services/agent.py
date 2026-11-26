@@ -3123,6 +3123,9 @@ class AgentService:
                     else None
                 ),
                 "latest_message_preview": content[:140] if content else None,
+                # Set on every saved turn when archived; a later turn lacks it,
+                # so continuing an archived chat brings it back.
+                "archived": bool(metadata.get("session_archived")),
                 "updated_at": evidence.created_at,
             }
         conversations = []
@@ -3145,10 +3148,16 @@ class AgentService:
         )
 
     async def update_conversation(
-        self, session_id: UUID, *, title: str
+        self,
+        session_id: UUID,
+        *,
+        title: str | None = None,
+        archived: bool | None = None,
     ) -> AgentConversationSummaryResponse:
         source = await self._get_or_create_conversation_source()
-        clean_title = self._session_title_from_message(title)
+        clean_title = (
+            self._session_title_from_message(title) if title is not None else None
+        )
         evidence_rows = (
             (
                 await self.session.execute(
@@ -3175,8 +3184,13 @@ class AgentService:
             raise ValueError("conversation_not_found")
         for evidence in session_rows:
             metadata = dict(evidence.metadata_json or {})
-            metadata["session_title"] = clean_title
-            metadata["session_title_user_set"] = True
+            if clean_title is not None:
+                metadata["session_title"] = clean_title
+                metadata["session_title_user_set"] = True
+            if archived is True:
+                metadata["session_archived"] = True
+            elif archived is False:
+                metadata.pop("session_archived", None)
             evidence.metadata_json = metadata
         await self.session.commit()
         updated = await self.list_conversations()

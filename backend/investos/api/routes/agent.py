@@ -248,7 +248,7 @@ async def update_agent_conversation(
 ):
     try:
         return await AgentService(session).update_conversation(
-            session_id, title=payload.title
+            session_id, title=payload.title, archived=payload.archived
         )
     except ValueError as exc:
         if str(exc) == "conversation_not_found":

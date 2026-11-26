@@ -1785,3 +1785,39 @@ async def source_records(session):
     session.add(source_item)
     await session.flush()
     return raw, source_item
+
+
+async def test_archiving_a_chat_is_reversible_and_a_new_turn_brings_it_back(
+    workflow_session,
+):
+    service = AgentService(workflow_session)
+    chat = uuid4()
+
+    async def save(message):
+        await service._persist_conversation_exchange(
+            session_id=chat,
+            user_message=message,
+            user_subject_id=PORTFOLIO_SUBJECT_ID,
+            user_subject_type="portfolio",
+            assistant_message="Saved evidence finding.",
+            assistant_subject_id=PORTFOLIO_SUBJECT_ID,
+            assistant_subject_type="portfolio",
+            assistant_metadata={},
+        )
+
+    def listed(listing):
+        return next(item for item in listing.conversations if item.session_id == chat)
+
+    await save("What changed this week?")
+    archived = await service.update_conversation(chat, archived=True)
+    assert archived.archived is True
+    assert listed(await service.list_conversations()).archived is True
+
+    restored = await service.update_conversation(chat, archived=False)
+    assert restored.archived is False
+
+    await service.update_conversation(chat, archived=True, title="Weekly check")
+    renamed = listed(await service.list_conversations())
+    assert renamed.archived is True and renamed.title == "Weekly check"
+    await save("And today?")
+    assert listed(await service.list_conversations()).archived is False
