@@ -116,8 +116,13 @@ function VerificationWorkspace() {
     }
   }
 
+  // Repeated identical checks show as one entry; paging counts entries, not items.
+  const queueEntries = groupReviewItems(queue);
+  const shownEntries = queueEntries.slice(0, visibleQueueCount);
+  const shownItemCount = shownEntries.reduce((sum, entry) => sum + (entry.kind === "item" ? 1 : entry.items.length), 0);
+
   async function showMoreConcerns() {
-    if (visibleQueueCount < queue.length) {
+    if (visibleQueueCount < queueEntries.length) {
       setVisibleQueueCount(current => current + 8);
       return;
     }
@@ -306,10 +311,10 @@ function VerificationWorkspace() {
                   description="No reviews are currently queued in this view. This does not establish complete coverage, reconciled balances or an absence of risk."
                 />
               ) : (
-                groupReviewItems(queue.slice(0, visibleQueueCount)).map((entry) => entry.kind === "item" ? renderReviewItem(entry.item) : (
+                shownEntries.map((entry) => entry.kind === "item" ? renderReviewItem(entry.item) : (
                   <details key={entry.key} className="border border-line p-4">
                     <summary className="cursor-pointer">
-                      <span className="font-medium">{entry.items.length === queue.length ? Math.max(queueTotal, queue.length) : entry.items.length} items: {entry.label}</span>
+                      <span className="font-medium">{entry.items.length} items: {entry.label}</span>
                       <span className="mt-1 block text-sm text-muted">The same check for each. Next step: {entry.items[0].next_action}</span>
                       {reviewFixLink(entry.items[0]) ? <Link href={reviewFixLink(entry.items[0])!.href} className="mt-3 inline-block border border-line px-3 py-2 text-xs font-medium text-action hover:border-line-strong">{reviewFixLink(entry.items[0])!.label}</Link> : null}
                     </summary>
@@ -319,8 +324,8 @@ function VerificationWorkspace() {
               )}
             </div>
             {queue.length > 0 && <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-muted">
-              <p>Showing {Math.min(visibleQueueCount, queue.length)} of {Math.max(queueTotal, queue.length)} concerns.</p>
-              {(visibleQueueCount < queue.length || queueOffset < queueTotal) && <button type="button" disabled={loading || loadingMore} onClick={() => void showMoreConcerns()} className="text-action underline disabled:opacity-50">{loadingMore ? "Loading concerns…" : "Show more concerns"}</button>}
+              <p>Showing {shownItemCount} of {Math.max(queueTotal, queue.length)} concerns.</p>
+              {(visibleQueueCount < queueEntries.length || queueOffset < queueTotal) && <button type="button" disabled={loading || loadingMore} onClick={() => void showMoreConcerns()} className="text-action underline disabled:opacity-50">{loadingMore ? "Loading concerns…" : "Show more concerns"}</button>}
             </div>}
           </section>
 
