@@ -101,6 +101,17 @@ export default function AppNav({ active }: { active?: NavKey }) {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  // While the menu is open, a swipe scrolls the menu, not the page behind it.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const root = document.documentElement;
+    const previous = root.style.overflow;
+    root.style.overflow = "hidden";
+    return () => {
+      root.style.overflow = previous;
+    };
+  }, [mobileOpen]);
+
   return (
     <header className="sticky inset-x-0 top-0 z-50 w-full border-b border-line bg-panel">
       <nav lang={i18n.language} aria-label="Primary" className="workspace-frame">
@@ -163,7 +174,7 @@ export default function AppNav({ active }: { active?: NavKey }) {
         ) : null}
 
         {mobileOpen ? (
-          <div id="prophet-mobile-navigation" className="border-t border-line py-3 xl:hidden">
+          <div id="prophet-mobile-navigation" className="max-h-[calc(100dvh-6.5rem)] overflow-y-auto overscroll-contain border-t border-line py-3 xl:hidden">
             <div className="grid gap-3 sm:grid-cols-3">
               {NAV_SECTIONS.map((item) => (
                 <div key={item.key}>
