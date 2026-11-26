@@ -67,7 +67,7 @@ export default function PortfolioHistoryPanel() {
     {busy && history && history.window_days !== days && <p role="status" className="text-sm text-muted">Showing the previous range while the new range loads.</p>}
     {history && <>
       <div className="flex flex-wrap items-baseline justify-between gap-x-5 gap-y-1 text-sm">
-        <p>{latest?.gain != null ? <><strong className="tabular-nums">{safeFormatSignedCurrency(latest.gain)}</strong>{latest.return_pct != null && <span className="ml-2 tabular-nums">{latest.return_pct > 0 ? "+" : ""}{latest.return_pct.toFixed(2)}%</span>}<span className="ml-2 text-muted">since {baseline ? date(baseline.at) : "the first complete value"}</span></> : "Gain and loss are unavailable for the latest close."}</p>
+        <p>{latest?.gain != null ? <><strong className={`tabular-nums ${latest.gain >= 0 ? "text-positive" : "text-negative"}`}>{safeFormatSignedCurrency(latest.gain)}</strong>{latest.return_pct != null && <span className={`ml-2 tabular-nums ${latest.return_pct >= 0 ? "text-positive" : "text-negative"}`}>{latest.return_pct > 0 ? "+" : ""}{latest.return_pct.toFixed(2)}%</span>}<span className="ml-2 text-muted">since {baseline ? date(baseline.at) : "the first complete value"}</span></> : "Gain and loss are unavailable for the latest close."}</p>
         <p className="text-muted">{history.points.length > 0 && `${date(history.points[0].at)} – ${date(history.points.at(-1)!.at)} · `}<time dateTime={history.computed_at}>Calculated {new Date(history.computed_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</time></p>
       </div>
       {history.reasons.length > 0 && <p className="text-sm text-amber-400">{history.reasons.join(" ")}</p>}
