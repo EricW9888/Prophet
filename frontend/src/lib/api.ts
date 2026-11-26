@@ -34,7 +34,7 @@ export type Position = {
   current_price: number | null;
   market_value: number | null;
   unrealized_pnl: number | null;
-  valuation?: {status: string; issues: string[]; quoted_at: string | null; observed_at: string | null; provider: string | null; currency: string | null; receipt?: Record<string, unknown> | null};
+  valuation?: {status: string; issues: string[]; quoted_at: string | null; observed_at: string | null; provider: string | null; currency: string | null; receipt?: Record<string, unknown> | null; day_change?: number | null; day_change_pct?: number | null; previous_close_on?: string | null};
   realized_pnl: number;
   conviction?: number | null;
   added_at: string;

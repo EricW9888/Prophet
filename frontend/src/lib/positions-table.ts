@@ -1,6 +1,6 @@
 import type { Position } from "@/lib/api";
 
-export type PositionSortKey = "ticker" | "quantity" | "cost" | "price" | "value" | "weight" | "gain" | "gainPct";
+export type PositionSortKey = "ticker" | "quantity" | "cost" | "price" | "day" | "value" | "weight" | "gain" | "gainPct";
 export type SortDirection = "asc" | "desc";
 
 export type PositionRow = {
@@ -49,6 +49,23 @@ export function buildPositionRows(holdings: Position[], now: Date = new Date()):
   });
 }
 
+/**
+ * Change since the previous regular close, summed over holdings that have one.
+ * `covered` says how many contributed, so a partial total is never presented
+ * as the whole portfolio's change.
+ */
+export function dayChangeTotal(holdings: Position[]): { total: number; covered: number; count: number } {
+  let total = 0;
+  let covered = 0;
+  for (const item of holdings) {
+    const change = finite(item.valuation?.day_change);
+    if (change == null) continue;
+    total += change;
+    covered += 1;
+  }
+  return { total, covered, count: holdings.length };
+}
+
 /** The newest quote time across ready holdings, shown once for the whole table. */
 export function latestQuoteTime(holdings: Position[]): Date | null {
   let latest: Date | null = null;
@@ -70,6 +87,8 @@ function sortValue(row: PositionRow, key: PositionSortKey): number | string | nu
       return finite(row.position.avg_cost_basis);
     case "price":
       return finite(row.position.current_price);
+    case "day":
+      return finite(row.position.valuation?.day_change);
     case "value":
       return finite(row.position.market_value);
     case "weight":

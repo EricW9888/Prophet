@@ -10,7 +10,7 @@ import ValuationCoverage from "./ValuationCoverage";
 import HintMarker from "./HintMarker";
 import WorkspaceState, { WorkspaceRead, WorkspaceSkeleton } from "./WorkspaceState";
 import type { PortfolioOverview, Position } from "@/lib/api";
-import { buildPositionRows, latestQuoteTime, sortPositionRows, type PositionSortKey, type SortDirection } from "@/lib/positions-table";
+import { buildPositionRows, dayChangeTotal, latestQuoteTime, sortPositionRows, type PositionSortKey, type SortDirection } from "@/lib/positions-table";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
 import { safeFormatCurrency, safeFormatPct, safeFormatSignedCurrency, safeFormatQuantity, formatUserLabel } from "@/lib/formatting";
 import { researchHref } from "@/lib/workflows";
@@ -164,6 +164,7 @@ const HOLDING_COLUMNS: ReadonlyArray<{ key: PositionSortKey; label: string; nume
   { key: "quantity", label: "Shares", numeric: true },
   { key: "cost", label: "Avg cost", numeric: true },
   { key: "price", label: "Price", numeric: true },
+  { key: "day", label: "Day change", numeric: true },
   { key: "value", label: "Value", numeric: true },
   { key: "weight", label: "% of holdings", numeric: true },
   { key: "gain", label: "Total gain/loss", numeric: true },
@@ -180,6 +181,7 @@ function HoldingsTable({ holdings }: { holdings: Position[] }) {
   const rows = useMemo(() => sortPositionRows(buildPositionRows(holdings), sort.key, sort.direction), [holdings, sort]);
   const asOf = latestQuoteTime(holdings);
   const staleCount = rows.filter((row) => row.stale).length;
+  const day = dayChangeTotal(holdings);
 
   function toggle(key: PositionSortKey) {
     setSort((current) => current.key === key
@@ -193,8 +195,14 @@ function HoldingsTable({ holdings }: { holdings: Position[] }) {
         {asOf ? `Prices as of ${asOf.toLocaleString()}` : "No current prices recorded"}
         {staleCount ? ` · ${staleCount} marked * are older than the rest or missing` : ""}
       </p>
+      {day.covered ? (
+        <p className="mt-1 text-sm">
+          Day change <span className={`font-semibold tabular-nums ${gainTone(day.total)}`}>{safeFormatSignedCurrency(day.total)}</span>
+          <span className="text-xs text-muted"> since the previous close{day.covered < day.count ? `, ${day.covered} of ${day.count} holdings` : ""}</span>
+        </p>
+      ) : null}
       <div className="mt-2 max-w-full overflow-x-auto">
-        <table className="w-full min-w-[720px] text-sm">
+        <table className="w-full min-w-[820px] text-sm">
           <thead className="border-b border-line text-xs text-muted">
             <tr>
               {HOLDING_COLUMNS.map((column) => {
@@ -231,12 +239,19 @@ function HoldingsTable({ holdings }: { holdings: Position[] }) {
                   {safeFormatCurrency(pos.current_price, 2)}
                   {stale ? (
                     <span className="ml-1 inline-flex items-center align-middle">
-                      <span aria-hidden="true" className="text-amber-500">*</span>
+                      <span aria-hidden="true" className="text-caution">*</span>
                       <HintMarker label={`Price note for ${pos.ticker ?? "holding"}`}>
                         <p>{pos.valuation?.issues.join(" ") || `${pos.valuation?.status === "ready" ? "Last recorded" : "No current"} quote${pos.valuation?.quoted_at ? ` from ${new Date(pos.valuation.quoted_at).toLocaleString()}` : ""}${pos.valuation?.provider ? ` · ${formatUserLabel(pos.valuation.provider)}` : ""}.`}</p>
                       </HintMarker>
                     </span>
                   ) : null}
+                </td>
+                <td className={`py-2 text-right tabular-nums ${gainTone(pos.valuation?.day_change)}`}
+                  title={pos.valuation?.previous_close_on ? `Since the close of ${pos.valuation.previous_close_on}` : undefined}>
+                  {pos.valuation?.day_change == null ? <span className="text-muted">—</span> : <>
+                    {safeFormatSignedCurrency(pos.valuation.day_change)}
+                    <span className="ml-2 text-xs">{safeFormatPct(pos.valuation.day_change_pct ?? null)}</span>
+                  </>}
                 </td>
                 <td className="py-2 text-right tabular-nums">{safeFormatCurrency(pos.market_value, 2)}</td>
                 <td className="py-2 text-right tabular-nums text-muted">{weightPct == null ? "—" : `${weightPct.toFixed(1)}%`}</td>

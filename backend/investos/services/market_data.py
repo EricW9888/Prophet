@@ -185,6 +185,8 @@ class MarketDataService:
                 "currency": quote["currency"],
                 "provider": "yahoo_finance",
                 "session": quote.get("session"),
+                "previous_close": quote.get("previous_close"),
+                "previous_close_on": quote.get("previous_close_on"),
                 "share_basis_splits": splits,
                 "share_basis_issue": issue,
             }
@@ -346,8 +348,13 @@ class MarketDataService:
                     timezone = ZoneInfo(exchange_timezone or "UTC")
                 except ZoneInfoNotFoundError:
                     timezone = ZoneInfo("UTC")
+                previous_close, previous_close_on = self._previous_close(
+                    chart, timezone, price_session
+                )
                 quotes[ticker.upper()] = {
                     "price": float(price),
+                    "previous_close": previous_close,
+                    "previous_close_on": previous_close_on,
                     "session": price_session,
                     "market_state": market_state or None,
                     "quote_time": (
@@ -650,6 +657,45 @@ class MarketDataService:
                 snapshot["status"] = "missing_verified_session"
                 snapshot["expected_session_date"] = expected.isoformat()
         return snapshot
+
+    @staticmethod
+    def _previous_close(chart, timezone, price_session):
+        """The regular-session close that today's change is measured from.
+
+        Before the open the latest regular close is the reference. During and
+        after the session, and while the market is closed, it is the close of
+        the last daily bar before the session the price belongs to.
+        """
+        meta = chart.get("meta") or {}
+        try:
+            session_day = datetime.fromtimestamp(
+                float(meta["regularMarketTime"]), timezone
+            ).date()
+        except (KeyError, OSError, OverflowError, TypeError, ValueError):
+            return None, None
+        if price_session == "pre_market":
+            close = number(meta.get("regularMarketPrice"))
+            if close is None or close <= 0:
+                return None, None
+            return float(close), session_day.isoformat()
+        stamps = chart.get("timestamp") or []
+        closes = (((chart.get("indicators") or {}).get("quote") or [{}])[0]).get(
+            "close"
+        ) or []
+        previous = None
+        for stamp, close in zip(stamps, closes):
+            close = number(close)
+            if close is None or close <= 0:
+                continue
+            try:
+                day = datetime.fromtimestamp(float(stamp), timezone).date()
+            except (OSError, OverflowError, TypeError, ValueError):
+                continue
+            if day < session_day and (previous is None or day >= previous[1]):
+                previous = (float(close), day)
+        if previous is None:
+            return None, None
+        return previous[0], previous[1].isoformat()
 
     @staticmethod
     def _reported_splits(chart, timezone, observed_at):

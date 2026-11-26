@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { Position } from "../src/lib/api";
-import { buildPositionRows, latestQuoteTime, sortPositionRows } from "../src/lib/positions-table";
+import { buildPositionRows, dayChangeTotal, latestQuoteTime, sortPositionRows } from "../src/lib/positions-table";
 
 function holding(ticker: string, overrides: Partial<Position> = {}): Position {
   return {
@@ -67,4 +67,18 @@ test("overnight, when every quote is from the last close, nothing is marked", ()
   const nextMorning = new Date("2026-11-26T13:00:00Z");
   const rows = buildPositionRows([holding("A"), holding("B")], nextMorning);
   assert.deepEqual(rows.map((row) => row.stale), [false, false]);
+});
+
+const withDay = (ticker: string, change: number | null) =>
+  holding(ticker, { valuation: { status: "ready", issues: [], quoted_at: "2026-11-25T15:00:00Z", observed_at: null, provider: "synthetic", currency: "USD", day_change: change, day_change_pct: change == null ? null : change / 2 } });
+
+test("the day change total says how many holdings it covers", () => {
+  assert.deepEqual(dayChangeTotal([withDay("AAA", 12.5), withDay("BBB", -2.5), withDay("CCC", null)]), { total: 10, covered: 2, count: 3 });
+  assert.deepEqual(dayChangeTotal([withDay("AAA", null)]), { total: 0, covered: 0, count: 1 });
+});
+
+test("sorting by day change keeps holdings without one last", () => {
+  const rows = buildPositionRows([withDay("AAA", -3), withDay("BBB", null), withDay("CCC", 8)], now);
+  assert.deepEqual(sortPositionRows(rows, "day", "desc").map((row) => row.position.ticker), ["CCC", "AAA", "BBB"]);
+  assert.deepEqual(sortPositionRows(rows, "day", "asc").map((row) => row.position.ticker), ["AAA", "CCC", "BBB"]);
 });
