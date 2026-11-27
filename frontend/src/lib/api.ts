@@ -1319,6 +1319,8 @@ export type IntegrationSettings = {
     hosted_base_url: string;
     hosted_model: string;
     vision_model?: string;
+    chat_model?: string;
+    bulk_model?: string;
     available_providers: Array<{
       provider: string;
       label: string;

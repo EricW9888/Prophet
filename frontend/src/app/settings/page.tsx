@@ -973,6 +973,18 @@ export default function SettingsPage() {
                       <p className="mt-1 text-xs text-muted">Reads uploaded images and PDF page graphics. Leave blank to use the provider default. The main model answers using those provisional observations.</p>
                     </Field>
                   ) : null}
+                  {activeLlmCapability?.accepts_model ? (
+                    <>
+                      <Field label="Model for quick replies">
+                        <input value={settings.llm.chat_model ?? ""} onChange={e => updateSettings(c => ({ ...c, llm: { ...c.llm, chat_model: e.target.value }}))} className={inputClass} placeholder="Same as the main model" />
+                        <p className="mt-1 text-xs text-muted">Short interactive steps, such as understanding a chat message or planning a quick lookup. A faster model here keeps chat responsive. Leave blank to use the main model.</p>
+                      </Field>
+                      <Field label="Model for reading documents">
+                        <input value={settings.llm.bulk_model ?? ""} onChange={e => updateSettings(c => ({ ...c, llm: { ...c.llm, bulk_model: e.target.value }}))} className={inputClass} placeholder="Same as the main model" />
+                        <p className="mt-1 text-xs text-muted">Extracting facts and relationships from filings, articles and transcripts, the largest share of model work. Leave blank to use the main model.</p>
+                      </Field>
+                    </>
+                  ) : null}
                 </div>
               </section>
             </div>

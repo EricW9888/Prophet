@@ -20,6 +20,7 @@ from investos.core.provider_health import (
     ProviderHealthStore,
     _probe_call,
     guarded_provider_call,
+    model_for_role,
     observe_local_admission,
     retry_after_seconds,
     retryable_provider_failure,
@@ -524,7 +525,9 @@ async def call_llm_json(
     provider_override: str | None = None,
     on_chunk: Callable[[str], Awaitable[None]] | None = None,
     images: list[str] | None = None,
+    role: str | None = None,
 ) -> dict[str, Any]:
+    model = model_for_role(role, model)
     provider = normalize_llm_provider(provider_override or _runtime_llm_provider())
     capability = _assert_llm_provider_allowed(provider)
     timeout = (
@@ -619,7 +622,9 @@ async def call_llm_json_streaming(
     model: str | None = None,
     timeout_seconds: int | None = None,
     provider_override: str | None = None,
+    role: str | None = None,
 ) -> dict[str, Any]:
+    model = model_for_role(role, model)
     provider = normalize_llm_provider(provider_override or _runtime_llm_provider())
     capability = _assert_llm_provider_allowed(provider)
     timeout = (
@@ -1086,7 +1091,9 @@ async def call_llm_tools(
     tools: list[dict[str, Any]],
     model: str | None = None,
     timeout_seconds: int | None = None,
+    role: str | None = None,
 ) -> dict[str, Any]:
+    model = model_for_role(role, model)
     provider = _runtime_llm_provider()
     timeout = (
         timeout_seconds

@@ -167,6 +167,8 @@ class LLMIntegrationSettings(BaseModel):
     hosted_base_url: str = "https://integrate.api.nvidia.com/v1"
     hosted_model: str = "nvidia/nemotron-3-ultra-550b-a55b"
     vision_model: str = ""
+    chat_model: str = ""
+    bulk_model: str = ""
     available_providers: list[LLMProviderCapabilityResponse] = Field(
         default_factory=list
     )
@@ -180,6 +182,8 @@ class LLMIntegrationSettingsUpdate(BaseModel):
     hosted_base_url: str | None = None
     hosted_model: str | None = None
     vision_model: str | None = None
+    chat_model: str | None = None
+    bulk_model: str | None = None
     api_key: str | None = None
 
 
