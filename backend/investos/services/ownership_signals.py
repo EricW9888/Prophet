@@ -265,7 +265,12 @@ class OwnershipSignalService:
         from investos.services.market_setup import MarketSetupSignalService
 
         await MarketSetupSignalService(self.session).create_signal(
-            signal_name=f"{signal.source_kind}: {signal.direction} {signal.ticker or signal.issuer or 'security'}",
+            # The disclosure's own sentence ("Doe Jane (CFO) sold 1,200 SYNQ shares
+            # at $101.50") reads better than its classification.
+            signal_name=(
+                self._text(evidence.title)
+                or f"{signal.source_kind}: {signal.direction} {signal.ticker or signal.issuer or 'security'}"
+            ),
             signal_family="ownership_or_institutional_flow",
             ticker=signal.ticker,
             raw_evidence_id=evidence.id,
