@@ -313,6 +313,7 @@ class ArkHoldingsService:
                             "shares_after": trade.shares_after,
                             "shares": abs(trade.change),
                             "fund_flow_ratio": trade.flow_ratio,
+                            "discovery_feed": True,
                             "transaction_type": "buy" if trade.change > 0 else "sell",
                             "price": trade.price,
                             "transaction_value": (
