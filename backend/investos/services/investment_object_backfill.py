@@ -191,6 +191,7 @@ class InvestmentObjectBackfillService:
                 extracted = await self.extraction.extract_investment_objects(
                     evidence.title or "Untitled evidence",
                     text[window["input_start"] : window["end"]],
+                    public=await self.extraction.evidence_is_public(evidence),
                 )
             except Exception as exc:
                 result["errors"] += 1

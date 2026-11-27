@@ -431,6 +431,22 @@ INVESTMENT_OBJECT_SCHEMA = {
 }
 
 
+# Source types whose documents are public; only these may go to a model
+# connection that is not allowed private context (#299).
+PUBLIC_SOURCE_TYPES = frozenset(
+    {
+        "web_research",
+        "official",
+        "news",
+        "analyst",
+        "x_account",
+        "filing",
+        "youtube",
+        "ownership_tracker",
+    }
+)
+
+
 class ExtractionWorker:
     def __init__(
         self,
@@ -628,6 +644,7 @@ class ExtractionWorker:
             extracted = await self._extract_structured_data(
                 evidence.title or "Untitled evidence",
                 text_content[window["input_start"] : window["end"]],
+                public=await self.evidence_is_public(evidence),
                 target_context={
                     **(evidence.metadata_json or {}),
                     "source_text_window": {
@@ -1587,14 +1604,22 @@ class ExtractionWorker:
             result["created"] += 1
         return result
 
+    async def evidence_is_public(self, evidence) -> bool:
+        """Whether this evidence's source is public material (#299)."""
+        source_type = await self.session.scalar(
+            select(Source.source_type).where(Source.id == evidence.source_id)
+        )
+        return source_type in PUBLIC_SOURCE_TYPES
+
     async def extract_source_relationships(
-        self, title: str, text_content: str
+        self, title: str, text_content: str, *, public: bool = False
     ) -> list[dict]:
         """The same source-binding contract for a retained-source repair pass."""
         result = await call_llm_json(
             role="bulk",
             system_prompt=SOURCE_RELATIONSHIP_INSTRUCTIONS,
             user_prompt=f"Evidence title: {title}\n\nEvidence text:\n{text_content}",
+            public=public,
             schema={
                 "type": "object",
                 "additionalProperties": False,
@@ -1698,7 +1723,9 @@ class ExtractionWorker:
         window_text = text_content[window["input_start"] : window["end"]]
         extracted = {
             "relationships": await self.extract_source_relationships(
-                evidence.title or "Untitled evidence", window_text
+                evidence.title or "Untitled evidence",
+                window_text,
+                public=await self.evidence_is_public(evidence),
             )
         }
         complete_source_window(progress, window, extracted)
@@ -1810,6 +1837,7 @@ class ExtractionWorker:
             extracted = await self._extract_structured_data(
                 evidence.title or "Untitled evidence",
                 text_content[window["input_start"] : window["end"]],
+                public=await self.evidence_is_public(evidence),
                 target_context={
                     **metadata,
                     "source_text_window": {
@@ -1994,6 +2022,7 @@ class ExtractionWorker:
         text_content: str,
         *,
         target_context: dict | None = None,
+        public: bool = False,
     ) -> dict:
         fallback_subject = self._detect_subject(title, text_content)
         fallback_type = self._subject_type(fallback_subject, title)
@@ -2027,6 +2056,8 @@ class ExtractionWorker:
         )
         extracted = await call_llm_json(
             role="bulk",
+            # Research intent (subject, question) is private research history.
+            public=public and not target_subject and not target_question,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             schema=EXTRACTION_SCHEMA,
@@ -2094,7 +2125,9 @@ class ExtractionWorker:
                     )
         return extracted
 
-    async def extract_investment_objects(self, title: str, text_content: str) -> dict:
+    async def extract_investment_objects(
+        self, title: str, text_content: str, *, public: bool = False
+    ) -> dict:
         """Re-extract only source-dated investment objects from saved evidence.
 
         Historical reindexing deliberately does not recreate facts, claims, events,
@@ -2110,6 +2143,7 @@ class ExtractionWorker:
                 "Omit an object rather than filling a missing value from general knowledge. "
             ),
             user_prompt=f"Evidence title: {title}\n\nEvidence text:\n{text_content}",
+            public=public,
             schema=INVESTMENT_OBJECT_SCHEMA,
         )
         return {

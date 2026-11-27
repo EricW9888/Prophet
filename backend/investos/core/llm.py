@@ -637,8 +637,13 @@ async def _call_llm_json_once(
     raise RuntimeError(f"Unsupported LLM_PROVIDER={settings.LLM_PROVIDER}")
 
 
-def _failover_connections(role: str | None):
-    """Enabled extra connections that take this kind of work, in list order."""
+def _failover_connections(role: str | None, public: bool = False):
+    """Enabled extra connections that take this kind of work, in list order.
+
+    A connection the owner has not allowed private context receives only
+    public work: public documents, without portfolio, mail, chat or research
+    intent.
+    """
     from investos.services.runtime_settings import RuntimeSettingsStore
 
     runtime = RuntimeSettingsStore.load().llm
@@ -648,7 +653,10 @@ def _failover_connections(role: str | None):
     return [
         connection
         for connection in runtime.connections
-        if connection.enabled and connection.api_key and kind in connection.roles
+        if connection.enabled
+        and connection.api_key
+        and kind in connection.roles
+        and (public or connection.private_context)
     ]
 
 
@@ -669,8 +677,12 @@ async def call_llm_json(
     on_chunk: Callable[[str], Awaitable[None]] | None = None,
     images: list[str] | None = None,
     role: str | None = None,
+    public: bool = False,
 ) -> dict[str, Any]:
     """A structured model call, failing over to extra connections (#299).
+
+    ``public`` says the prompt holds only public material; without it, only
+    connections allowed private context are tried.
 
     The main provider is tried first. If it is cooling down or rate-limited,
     each enabled connection that takes this kind of work is tried in order,
@@ -692,7 +704,7 @@ async def call_llm_json(
         if images or provider_override or not _worth_failing_over(exc):
             raise
         last = exc
-    for connection in _failover_connections(role):
+    for connection in _failover_connections(role, public):
         token = active_connection.set(connection)
         try:
             return await _call_llm_json_once(
