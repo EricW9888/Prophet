@@ -179,3 +179,34 @@ def test_review_copy_for_ownership_signal_is_concrete_and_cautious():
     assert "source, timing, mechanism, and later outcome" in summary
     assert "map the signal to demand" in next_action
     assert tags == ["political disclosure", "MEMA", "buy", "reported 14 days later"]
+
+
+def test_discovery_feeds_reach_review_only_for_followed_companies():
+    from types import SimpleNamespace
+
+    from investos.services.ownership_signals import OwnershipSignalService
+
+    def ark_trade(ticker):
+        return SimpleNamespace(
+            id=None,
+            source_item_type="institutional_flow",
+            title=f"ARK (ARKK) sold 400,000 {ticker} shares",
+            url=None,
+            event_time=None,
+            public_time=None,
+            metadata_json={
+                "ticker": ticker,
+                "transaction_type": "sell",
+                "transaction_value": 25_000_000,
+                "transaction_date": "2026-11-26",
+                "discovery_feed": True,
+            },
+        )
+
+    source = SimpleNamespace(source_type="ownership_tracker")
+    unfollowed = OwnershipSignalService.analyze_signal(ark_trade("SYNU"), source)
+    followed = OwnershipSignalService.analyze_signal(
+        ark_trade("SYNF"), source, portfolio_weights={"SYNF": 4.0}
+    )
+    assert unfollowed is not None and not unfollowed.should_surface
+    assert followed is not None and followed.should_surface

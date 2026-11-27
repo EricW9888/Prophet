@@ -221,6 +221,7 @@ class MarketInsiderBuyingService:
                             "trades": transaction.trades,
                             "filing_date": day.isoformat(),
                             "accession": accession,
+                            "discovery_feed": True,
                         },
                         summary=summary,
                     )

@@ -551,8 +551,11 @@ class OwnershipSignalService:
             is_portfolio_linked=is_portfolio_linked,
             ticker=ticker,
         )
+        # Discovery feeds (ARK's trades, market-wide insider buying) send
+        # companies you do not follow to Ideas; only followed ones reach Review.
+        discovery_feed = metadata.get("discovery_feed") is True
         should_surface = is_portfolio_linked or (
-            ticker is not None and review_priority >= 45.0
+            ticker is not None and review_priority >= 45.0 and not discovery_feed
         )
 
         title = cls._text(getattr(evidence, "title", None)) or "Ownership disclosure"
