@@ -741,6 +741,7 @@ async def test_fresh_research_query_planner_generates_event_specific_setup_query
         timeout_seconds=None,
         provider_override=None,
         on_chunk=None,
+        role=None,
     ):
         payload = json.loads(user_prompt)
         assert payload["subject_name"] == "Chip Systems Inc."
