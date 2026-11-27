@@ -211,7 +211,7 @@ function VerificationWorkspace() {
                         priority {item.priority_score.toFixed(1)}
                       </span>
                     </div>
-                    <div className="mt-2 rounded-lg border border-sky-100 bg-sky-50/60 px-3 py-2 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-200">
+                    <div className="mt-2 border border-line bg-panel-muted px-3 py-2 text-sm text-foreground">
                       Next step: {item.next_action}
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">

@@ -5,13 +5,13 @@
 @plugin "@tailwindcss/typography";
 
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
+  --background: #fafafa;
+  --foreground: #18181b;
   --panel: #ffffff;
-  --panel-muted: #f1f5f9;
-  --muted: #475569;
-  --line: #e2e8f0;
-  --line-strong: #cbd5e1;
+  --panel-muted: #f4f4f5;
+  --muted: #52525b;
+  --line: #e4e4e7;
+  --line-strong: #d4d4d8;
   --action: #0369a1;
   --action-strong: #0369a1;
   --focus: #38bdf8;
@@ -19,6 +19,22 @@
   --negative: #be123c;
   --caution: #b45309;
   --workspace-gutter: clamp(0.75rem, 2vw, 2rem);
+}
+
+/* Prophet's greys are neutral. Slate (blue-tinted) appears throughout as "grey",
+   so the scale itself is redefined here as zinc. Blue is for actions only. */
+@theme {
+  --color-slate-50: #fafafa;
+  --color-slate-100: #f4f4f5;
+  --color-slate-200: #e4e4e7;
+  --color-slate-300: #d4d4d8;
+  --color-slate-400: #a1a1aa;
+  --color-slate-500: #71717a;
+  --color-slate-600: #52525b;
+  --color-slate-700: #3f3f46;
+  --color-slate-800: #27272a;
+  --color-slate-900: #18181b;
+  --color-slate-950: #09090b;
 }
 
 @theme inline {
@@ -130,12 +146,12 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #09090b;
-    --foreground: #f1f5f9;
-    --panel: #0f1115;
-    --panel-muted: #171a21;
-    --muted: #94a3b8;
-    --line: #272b35;
-    --line-strong: #3f4654;
+    --foreground: #f4f4f5;
+    --panel: #111113;
+    --panel-muted: #18181b;
+    --muted: #a1a1aa;
+    --line: #27272a;
+    --line-strong: #3f3f46;
     --action: #38bdf8;
     --action-strong: #7dd3fc;
     --focus: #38bdf8;
