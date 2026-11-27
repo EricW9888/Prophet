@@ -1,5 +1,6 @@
 "use client";
 
+import { labelText } from "@/lib/formatting";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -407,7 +408,7 @@ export default function OpportunitiesPage() {
             ["Provider cost", latestRun ? `${latestRun.estimated_credits} estimated credits` : "Not recorded"],
           ].map(([label, value]) => (
             <div key={label} className="bg-panel-muted px-4 py-4">
-              <p className="text-xs font-semibold uppercase text-slate-400">{label}</p>
+              <p className="text-xs font-semibold text-slate-400">{labelText(label)}</p>
               <p className="mt-1 break-words text-sm font-semibold text-foreground">{value}</p>
             </div>
           ))}
@@ -779,7 +780,7 @@ export default function OpportunitiesPage() {
 function ListSection({ title, items, tone }: { title: string; items: string[]; tone: "neutral" | "warning" }) {
   return (
     <section>
-      <h3 className={`text-xs font-semibold uppercase ${tone === "warning" ? "text-caution" : "text-slate-400"}`}>{title}</h3>
+      <h3 className={`text-xs font-semibold ${tone === "warning" ? "text-caution" : "text-slate-400"}`}>{labelText(title)}</h3>
       {items.length ? <ul className="mt-3 space-y-2 text-sm text-foreground">{items.map((item, index) => <li key={`${item}-${index}`} className="flex min-w-0 gap-2">{tone === "warning" ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" /> : <CircleDot className="mt-1 h-3 w-3 shrink-0 text-slate-400" />}<span className="min-w-0 break-words">{item}</span></li>)}</ul> : <p className="mt-3 text-sm text-slate-400">None recorded.</p>}
     </section>
   );
@@ -889,7 +890,7 @@ function OutcomeSection({
 function OutcomeMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-panel-muted px-3 py-3">
-      <p className="text-xs font-semibold uppercase text-slate-400">{label}</p>
+      <p className="text-xs font-semibold text-slate-400">{labelText(label)}</p>
       <p className="mt-1 text-sm font-semibold tabular-nums">{value}</p>
     </div>
   );

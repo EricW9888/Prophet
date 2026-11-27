@@ -1,5 +1,6 @@
 "use client";
 
+import { labelText } from "@/lib/formatting";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, ExternalLink, RotateCcw } from "lucide-react";
@@ -268,7 +269,7 @@ function ProcessingStage({ label, status }: { label: string; status: string }) {
   return (
     <div className={`rounded-lg border px-3 py-3 ${styles}`}>
       <Icon className="h-4 w-4" />
-      <p className="mt-3 text-xs font-bold uppercase tracking-wider">{label}</p>
+      <p className="mt-3 text-xs font-bold">{labelText(label)}</p>
       <p className="mt-1 text-sm font-semibold">{formatUserLabel(status)}</p>
     </div>
   );
@@ -277,7 +278,7 @@ function ProcessingStage({ label, status }: { label: string; status: string }) {
 function ReceiptMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
-      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">{label}</div>
+      <div className="text-xs font-bold text-slate-400">{labelText(label)}</div>
       <div className="mt-1 truncate text-sm font-bold text-foreground">{value}</div>
     </div>
   );
@@ -287,7 +288,7 @@ function MetadataRow({ label, value }: { label: string; value?: string | null })
   if (!value) return null;
   return (
     <div className="rounded-lg border border-slate-100 px-3 py-2 text-sm dark:border-slate-800">
-      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">{label}</div>
+      <div className="text-xs font-bold text-slate-400">{labelText(label)}</div>
       <div className="mt-1 break-words text-foreground">{value}</div>
     </div>
   );
@@ -303,8 +304,8 @@ function StatusPill({ children, tone = "neutral" }: { children: string; tone?: "
       ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
       : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300";
   return (
-    <span className={`rounded-none border px-2.5 py-1 text-xs font-bold uppercase tracking-widest ${className}`}>
-      {children}
+    <span className={`rounded-none border px-2.5 py-1 text-xs font-bold ${className}`}>
+      {labelText(children)}
     </span>
   );
 }
@@ -327,8 +328,8 @@ function OriginPill({ children, kind }: { children: string; kind?: string | null
       ? "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/30 dark:text-orange-300"
       : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300";
   return (
-    <span className={`rounded-none border px-2.5 py-1 text-xs font-bold uppercase tracking-widest ${className}`}>
-      {children}
+    <span className={`rounded-none border px-2.5 py-1 text-xs font-bold ${className}`}>
+      {labelText(children)}
     </span>
   );
 }

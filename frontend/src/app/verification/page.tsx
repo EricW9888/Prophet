@@ -1,5 +1,6 @@
 "use client";
 
+import { labelText } from "@/lib/formatting";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
@@ -373,8 +374,8 @@ function VerificationWorkspace() {
                   <h2 className="text-xl font-semibold tracking-tight">{result.subject_type}</h2>
                   <p className="mt-1 text-sm text-muted">{new Date(result.verified_at).toLocaleString()}</p>
                 </div>
-                <span className={`text-xs uppercase tracking-wider ${result.conclusion_changed ? "text-amber-500" : "text-emerald-500"}`}>
-                  {result.conclusion_changed ? "conclusion changed" : "stance held"}
+                <span className={`text-xs ${result.conclusion_changed ? "text-amber-500" : "text-emerald-500"}`}>
+                  {labelText(result.conclusion_changed ? "conclusion changed" : "stance held")}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-4 text-sm">

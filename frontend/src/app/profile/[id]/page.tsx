@@ -1,5 +1,6 @@
 "use client";
 
+import { labelText } from "@/lib/formatting";
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { Activity, Clock3, ExternalLink, Gauge, SearchCheck } from "lucide-react";
@@ -87,8 +88,8 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
           <div className="space-y-2">
             <div className="flex items-center gap-3">
-              <span className="px-2.5 py-0.5 text-xs font-bold uppercase tracking-widest text-muted bg-panel-muted border border-line rounded">
-                {profile.subject_type} PROFILE
+              <span className="px-2.5 py-0.5 text-xs font-bold text-muted bg-panel-muted border border-line rounded">
+                {labelText(profile.subject_type)} PROFILE
               </span>
             </div>
             <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-foreground">{profile.subject_name}</h1>
@@ -101,7 +102,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
             <div className={`flex flex-col p-3 rounded-lg border ${getStanceColor(profile.current_stance)} min-w-[140px]`}>
               <span className="text-xs font-bold opacity-70 mb-1">System stance</span>
-              <span className="text-xl font-bold uppercase tracking-tight leading-none">{profile.current_stance ?? "no_view"}</span>
+              <span className="text-xl font-bold leading-none">{labelText(profile.current_stance ?? "no_view")}</span>
               <span className="text-xs font-medium mt-2 opacity-80">Confidence: {profile.confidence_band ?? "unknown"}</span>
             </div>
             <div className="flex flex-col p-3 bg-white dark:bg-[#111] border border-line rounded-lg min-w-[140px]">
@@ -337,7 +338,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
               {profile.recent_evidence.map((item) => (
                 <div key={item.id} className="rounded-lg border border-line p-4">
                   <div className="flex items-center justify-between gap-4">
-                    <span className="text-xs uppercase tracking-wider text-slate-400">{item.node_type}</span>
+                    <span className="text-xs text-slate-400">{labelText(item.node_type)}</span>
                     <span className="text-xs font-mono text-slate-400">{item.tier ?? "unknown"}</span>
                   </div>
                   <p className="mt-2 text-sm text-foreground">{item.text}</p>

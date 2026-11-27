@@ -1,5 +1,6 @@
 "use client";
 
+import { labelText } from "@/lib/formatting";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
@@ -87,8 +88,8 @@ function NodeRelevancePanel({ node }: { node: GraphNodeDetail }) {
         <div className="h-2 w-2 rounded-full bg-teal-500 dark:bg-teal-400" />
         <h4 className="text-xs font-bold text-teal-700 dark:text-teal-300">Why this matters</h4>
         {significance ? (
-          <span className="rounded-none border border-teal-300 bg-white/70 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-teal-700 dark:border-teal-700 dark:bg-teal-900/50 dark:text-teal-200">
-            {significance}
+          <span className="rounded-none border border-teal-300 bg-white/70 px-2 py-0.5 text-xs font-semibold text-teal-700 dark:border-teal-700 dark:bg-teal-900/50 dark:text-teal-200">
+            {labelText(significance)}
           </span>
         ) : null}
       </div>
@@ -150,8 +151,8 @@ function NodePillGroup({
 
   return (
     <div>
-      <div className="mb-1 text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
-        {label}
+      <div className="mb-1 text-xs font-bold text-teal-700 dark:text-teal-300/90">
+        {labelText(label)}
       </div>
       <div className="flex flex-wrap gap-2">
         {values.map((value) => (
@@ -175,7 +176,7 @@ function KnowledgeCount({
 }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/50">
-      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">{label}</div>
+      <div className="text-xs font-bold text-slate-400">{labelText(label)}</div>
       <div className="mt-1 text-lg font-bold tabular-nums text-foreground">{active.toLocaleString()}</div>
       <div className="text-xs text-slate-400">{deprecated.toLocaleString()} archived</div>
     </div>
@@ -247,7 +248,7 @@ function VisibleNodeProperties({ node }: { node: GraphNodeDetail }) {
         ) : null}
         {visibleProperties.map(([key, value]) => (
           <div key={key} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-900">
-            <div className="text-xs uppercase tracking-wider text-slate-400">{key.replaceAll("_", " ")}</div>
+            <div className="text-xs text-slate-400">{labelText(key.replaceAll("_", " "))}</div>
             <div className="mt-1 text-sm text-foreground">
               {formatPropertyValue(key, value)}
             </div>
@@ -476,7 +477,7 @@ export default function TimelinePage() {
                 ))}
               </div>
               <p className="min-w-0 text-xs leading-relaxed text-muted sm:max-w-md sm:text-right">
-                Old evidence is retained for outcome learning and historical comparison, but ingestion time is never presented as when it happened.
+                Older evidence is kept to learn from outcomes and compare with the past. The time Prophet received an item is never shown as when it happened.
               </p>
             </div>
           </section>
@@ -605,8 +606,8 @@ export default function TimelinePage() {
                 <p className="mt-1 text-sm text-muted">Audit events when available; older rows are marked as derived.</p>
               </div>
               {knowledgeChanges ? (
-                <span className="rounded-none border border-slate-200 px-2.5 py-1 text-xs font-bold uppercase tracking-widest text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                  {knowledgeChanges.changes.length} latest
+                <span className="rounded-none border border-slate-200 px-2.5 py-1 text-xs font-bold text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                  {labelText(knowledgeChanges.changes.length)} latest
                 </span>
               ) : null}
             </div>
@@ -635,12 +636,12 @@ export default function TimelinePage() {
                       }`}
                     >
                       <div className="mb-1 flex flex-wrap items-center gap-2">
-                        <span className={`rounded-none border px-2 py-0.5 text-xs font-bold uppercase tracking-widest ${getChangeTone(change.change_type)}`}>
-                          {change.change_type}
+                        <span className={`rounded-none border px-2 py-0.5 text-xs font-bold ${getChangeTone(change.change_type)}`}>
+                          {labelText(change.change_type)}
                         </span>
-                        <span className="text-xs font-bold uppercase tracking-widest text-slate-400">{change.node_type}</span>
-                        <span className="rounded-none border border-slate-200 px-2 py-0.5 text-xs font-bold uppercase tracking-widest text-slate-400 dark:border-slate-700">
-                          {change.change_source === "audit_event" ? "audit" : "derived"}
+                        <span className="text-xs font-bold text-slate-400">{labelText(change.node_type)}</span>
+                        <span className="rounded-none border border-slate-200 px-2 py-0.5 text-xs font-bold text-slate-400 dark:border-slate-700">
+                          {labelText(change.change_source === "audit_event" ? "audit" : "derived")}
                         </span>
                         <span className="ml-auto text-xs text-slate-400">{formatDateTime(change.changed_at)}</span>
                       </div>
@@ -652,7 +653,7 @@ export default function TimelinePage() {
                         <p className="mt-1 line-clamp-1 text-xs text-caution">{change.deprecated_reason}</p>
                       ) : null}
                       {change.actor ? (
-                        <p className="mt-1 text-xs uppercase tracking-wider text-slate-400">{change.actor.replaceAll("_", " ")}</p>
+                        <p className="mt-1 text-xs text-slate-400">{labelText(change.actor.replaceAll("_", " "))}</p>
                       ) : null}
                     </button>
                   );
@@ -703,8 +704,8 @@ export default function TimelinePage() {
               <div className="mt-5 space-y-5">
                 <div className="rounded-lg border border-line bg-panel-muted p-4">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="rounded-md border border-line px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-muted">
-                      {selectedNode.node_type}
+                    <span className="rounded-md border border-line px-2 py-0.5 text-xs font-semibold text-muted">
+                      {labelText(selectedNode.node_type)}
                     </span>
                     {selectedNode.tier ? (
                       <span className="text-xs text-action">{selectedNode.tier}</span>
@@ -780,7 +781,7 @@ export default function TimelinePage() {
                         {(["incoming", "outgoing"] as const).map((direction) =>
                           groupedConnections[direction]?.length ? (
                             <div key={direction}>
-                              <div className="mb-2 text-xs uppercase tracking-wider text-slate-400">{direction}</div>
+                              <div className="mb-2 text-xs text-slate-400">{labelText(direction)}</div>
                               <div className="flex flex-wrap gap-2">
                                 {groupedConnections[direction].map((connection) => (
                                   <button

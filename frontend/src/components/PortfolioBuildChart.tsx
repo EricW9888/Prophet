@@ -1,5 +1,6 @@
 "use client";
 
+import { labelText } from "@/lib/formatting";
 import {
   CartesianGrid,
   Tooltip,
@@ -43,8 +44,8 @@ export default function PortfolioBuildChart({ points }: { points: DashboardSumma
                 const data = payload[0].payload;
                 return (
                   <div className="border border-line bg-panel p-3">
-                    <p className="mb-1 text-xs font-bold uppercase tracking-widest text-muted ">
-                      {new Date(data.as_of).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                    <p className="mb-1 text-xs font-bold text-muted ">
+                      {labelText(new Date(data.as_of).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }))}
                     </p>
                     <p className="text-sm font-black text-foreground ">
                       {safeFormatCurrency(data.net_capital_deployed)}
