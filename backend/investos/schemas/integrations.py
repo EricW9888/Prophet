@@ -162,6 +162,31 @@ class LLMProviderCapabilityResponse(BaseModel):
     default_base_url: str = ""
 
 
+class LLMConnectionView(BaseModel):
+    name: str
+    base_url: str
+    model: str
+    roles: list[str]
+    enabled: bool = True
+    rate_per_minute: int = 30
+    max_concurrency: int = 2
+    api_key_set: bool = False
+
+
+class LLMConnectionUpdate(BaseModel):
+    name: str
+    base_url: str
+    model: str
+    roles: list[Literal["chat", "bulk", "planning"]] = Field(
+        default_factory=lambda: ["chat", "bulk", "planning"]
+    )
+    enabled: bool = True
+    rate_per_minute: int = Field(default=30, ge=1, le=6000)
+    max_concurrency: int = Field(default=2, ge=1, le=64)
+    # Blank keeps the saved key for a connection with the same name.
+    api_key: str | None = None
+
+
 class LLMIntegrationSettings(BaseModel):
     provider: str = "nvidia_nim"
     hosted_base_url: str = "https://integrate.api.nvidia.com/v1"
@@ -169,6 +194,7 @@ class LLMIntegrationSettings(BaseModel):
     vision_model: str = ""
     chat_model: str = ""
     bulk_model: str = ""
+    connections: list[LLMConnectionView] = Field(default_factory=list)
     available_providers: list[LLMProviderCapabilityResponse] = Field(
         default_factory=list
     )
@@ -184,6 +210,7 @@ class LLMIntegrationSettingsUpdate(BaseModel):
     vision_model: str | None = None
     chat_model: str | None = None
     bulk_model: str | None = None
+    connections: list[LLMConnectionUpdate] | None = None
     api_key: str | None = None
 
 

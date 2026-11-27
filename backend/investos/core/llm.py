@@ -19,7 +19,9 @@ from investos.core.provider_health import (
     LLMProviderCooldownError,
     ProviderHealthStore,
     _probe_call,
+    active_connection,
     guarded_provider_call,
+    hosted_runtime,
     model_for_role,
     observe_local_admission,
     retry_after_seconds,
@@ -181,6 +183,28 @@ def _get_rate_limiter() -> AsyncRateLimiter:
             max_concurrency=settings.LLM_MAX_CONCURRENCY,
         )
     return _rate_limiter
+
+
+_connection_limiters: dict[tuple, AsyncRateLimiter] = {}
+
+
+def _limiter_for_call() -> AsyncRateLimiter:
+    """The main provider's limiter, or the active extra connection's own."""
+    connection = active_connection.get()
+    if connection is None:
+        return _get_rate_limiter()
+    key = (
+        connection.name,
+        connection.base_url,
+        connection.rate_per_minute,
+        connection.max_concurrency,
+    )
+    if key not in _connection_limiters:
+        _connection_limiters[key] = AsyncRateLimiter(
+            rate_per_minute=connection.rate_per_minute,
+            max_concurrency=connection.max_concurrency,
+        )
+    return _connection_limiters[key]
 
 
 def _summarize_process_stderr(stderr_text: str, *, max_chars: int = 500) -> str:
@@ -516,7 +540,7 @@ def _balanced_json_objects(text: str) -> list[str]:
 
 
 @guarded_provider_call
-async def call_llm_json(
+async def _call_llm_json_once(
     system_prompt: str,
     user_prompt: str,
     schema: dict[str, Any],
@@ -611,6 +635,79 @@ async def call_llm_json(
             )
         raise
     raise RuntimeError(f"Unsupported LLM_PROVIDER={settings.LLM_PROVIDER}")
+
+
+def _failover_connections(role: str | None):
+    """Enabled extra connections that take this kind of work, in list order."""
+    from investos.services.runtime_settings import RuntimeSettingsStore
+
+    runtime = RuntimeSettingsStore.load().llm
+    if normalize_llm_provider(runtime.provider) != "nvidia_nim":
+        return []
+    kind = role if role in ("chat", "bulk") else "planning"
+    return [
+        connection
+        for connection in runtime.connections
+        if connection.enabled and connection.api_key and kind in connection.roles
+    ]
+
+
+def _worth_failing_over(exc: BaseException) -> bool:
+    """The main provider is cooling down or rate-limited, not the request at fault."""
+    if isinstance(exc, LLMProviderCooldownError):
+        return True
+    return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429
+
+
+async def call_llm_json(
+    system_prompt: str,
+    user_prompt: str,
+    schema: dict[str, Any],
+    model: str | None = None,
+    timeout_seconds: int | None = None,
+    provider_override: str | None = None,
+    on_chunk: Callable[[str], Awaitable[None]] | None = None,
+    images: list[str] | None = None,
+    role: str | None = None,
+) -> dict[str, Any]:
+    """A structured model call, failing over to extra connections (#299).
+
+    The main provider is tried first. If it is cooling down or rate-limited,
+    each enabled connection that takes this kind of work is tried in order,
+    each with its own health circuit and rate limiter.
+    """
+    request = dict(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        schema=schema,
+        timeout_seconds=timeout_seconds,
+        on_chunk=on_chunk,
+        images=images,
+    )
+    try:
+        return await _call_llm_json_once(
+            **request, model=model, provider_override=provider_override, role=role
+        )
+    except Exception as exc:
+        if images or provider_override or not _worth_failing_over(exc):
+            raise
+        last = exc
+    for connection in _failover_connections(role):
+        token = active_connection.set(connection)
+        try:
+            return await _call_llm_json_once(
+                **request,
+                model=connection.model,
+                provider_override="nvidia_nim",
+                role=role,
+            )
+        except Exception as exc:
+            if not _worth_failing_over(exc):
+                raise
+            last = exc
+        finally:
+            active_connection.reset(token)
+    raise last
 
 
 @guarded_provider_call
@@ -796,7 +893,7 @@ async def verify_llm_provider_readiness(provider: str) -> tuple[bool, str]:
                 return False, f"NVIDIA NIM is cooling down for {remaining:.0f}s."
             from investos.services.runtime_settings import RuntimeSettingsStore
 
-            runtime = RuntimeSettingsStore.load().llm
+            runtime = hosted_runtime(RuntimeSettingsStore.load().llm)
             if not runtime.api_key:
                 return False, "NVIDIA API key is missing."
             base_url = (runtime.hosted_base_url or settings.NVIDIA_BASE_URL).rstrip("/")
@@ -960,7 +1057,7 @@ async def _call_nvidia_json(
 ) -> dict[str, Any]:
     from investos.services.runtime_settings import RuntimeSettingsStore
 
-    runtime = RuntimeSettingsStore.load().llm
+    runtime = hosted_runtime(RuntimeSettingsStore.load().llm)
     if not runtime.api_key:
         raise RuntimeError("NVIDIA NIM API key is not configured.")
 
@@ -1126,7 +1223,7 @@ async def _call_nvidia_tools(
 ) -> dict[str, Any]:
     from investos.services.runtime_settings import RuntimeSettingsStore
 
-    runtime = RuntimeSettingsStore.load().llm
+    runtime = hosted_runtime(RuntimeSettingsStore.load().llm)
     if not runtime.api_key:
         raise RuntimeError("NVIDIA NIM API key is not configured for tool calling.")
 
@@ -1146,7 +1243,7 @@ async def _call_nvidia_tools(
     }
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-        async with _get_rate_limiter().admission(
+        async with _limiter_for_call().admission(
             check=_nvidia_admission_check(request_model)
         ):
             response = await client.post(
@@ -1175,7 +1272,7 @@ async def _nvidia_chat_json_text(
     payload: dict[str, Any],
     timeout_seconds: int | None = None,
 ) -> str:
-    async with _get_rate_limiter().admission(
+    async with _limiter_for_call().admission(
         check=_nvidia_admission_check(payload.get("model"))
     ):
         response = await client.post(
@@ -1234,7 +1331,7 @@ async def _call_nvidia_json_streaming(
 ) -> dict[str, Any]:
     from investos.services.runtime_settings import RuntimeSettingsStore
 
-    runtime = RuntimeSettingsStore.load().llm
+    runtime = hosted_runtime(RuntimeSettingsStore.load().llm)
     request_model = model or runtime.hosted_model or settings.NVIDIA_MODEL
     base_url = (runtime.hosted_base_url or settings.NVIDIA_BASE_URL).rstrip("/")
     response_format = _structured_response_format("nvidia_nim", schema)
@@ -1274,7 +1371,7 @@ async def _call_nvidia_json_streaming(
     usage = None
     _raise_if_provider_cooling_down("nvidia_nim", request_model)
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-        await _get_rate_limiter().acquire(check=_nvidia_admission_check(request_model))
+        await _limiter_for_call().acquire(check=_nvidia_admission_check(request_model))
         try:
             async with client.stream(
                 "POST",
@@ -1323,7 +1420,7 @@ async def _call_nvidia_json_streaming(
                     except Exception:
                         continue
         finally:
-            _get_rate_limiter().release()
+            _limiter_for_call().release()
     return _validate_json_response(
         _extract_json_object(
             _require_generated_content(

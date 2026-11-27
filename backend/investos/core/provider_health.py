@@ -184,7 +184,7 @@ class ProviderHealthStore:
     def configuration(provider=None, model=None):
         from investos.services.runtime_settings import RuntimeSettingsStore
 
-        runtime = RuntimeSettingsStore.load().llm
+        runtime = hosted_runtime(RuntimeSettingsStore.load().llm)
         provider = normalize_llm_provider(provider or runtime.provider)
         identity = [provider]
         if provider == "nvidia_nim":
@@ -503,6 +503,25 @@ class ProviderHealthStore:
             if admission_timeout:
                 record.record_admission_timeout(now)
             cls._write(registry)
+
+
+# The extra connection a call is currently using, if any (#299). Health keys,
+# admission checks and the request itself all read the endpoint from here.
+active_connection: ContextVar = ContextVar("active_connection", default=None)
+
+
+def hosted_runtime(runtime):
+    """The hosted endpoint in use: the active connection's, else the main one's."""
+    connection = active_connection.get()
+    if connection is None:
+        return runtime
+    return runtime.model_copy(
+        update={
+            "hosted_base_url": connection.base_url,
+            "hosted_model": connection.model,
+            "api_key": connection.api_key,
+        }
+    )
 
 
 # Kinds of work that may use their own model on the current provider (#299).
