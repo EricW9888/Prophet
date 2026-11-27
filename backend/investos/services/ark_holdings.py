@@ -14,6 +14,7 @@ import csv
 import io
 import json
 import re
+import statistics
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -46,7 +47,11 @@ FUNDS = {
 }
 SOURCE_NAME = "ARK Invest daily holdings"
 # Ignore rounding-size changes (for example share-count corrections).
-MIN_CHANGE_FRACTION = 0.001
+# When investors buy or sell an ETF's shares, the fund buys or sells every
+# holding in proportion. That fund-wide flow is not ARK's decision, so a trade
+# is only the change beyond it, and only when that exceeds 1% of the position.
+ACTIVE_CHANGE_FRACTION = 0.01
+FLOW_MIN_POSITIONS = 5
 # A fund's newest file older than this has stopped updating, usually after a
 # rename; it is reported rather than silently skipped.
 STALE_AFTER = timedelta(days=7)
@@ -82,10 +87,14 @@ class Trade:
     shares_before: float
     shares_after: float
     price: float | None
+    flow_ratio: float = 1.0
 
     @property
     def change(self) -> float:
-        return self.shares_after - self.shares_before
+        """Shares ARK chose to buy (+) or sell (-), beyond the fund-wide flow."""
+        if self.shares_before == 0 or self.shares_after == 0:
+            return self.shares_after - self.shares_before
+        return self.shares_after - self.shares_before * self.flow_ratio
 
 
 def _number(text: str) -> float:
@@ -118,18 +127,40 @@ def parse_holdings(text: str, fund: str) -> FundDay | None:
     return FundDay(fund=fund, day=day, holdings=holdings)
 
 
+def flow_ratio(previous: FundDay, current: FundDay) -> float:
+    """How much the whole fund grew or shrank from investor flows: the median
+    change across positions held on both days. 1.0 when too few to tell."""
+    ratios = [
+        current.holdings[key].shares / previous.holdings[key].shares
+        for key in set(previous.holdings) & set(current.holdings)
+        if previous.holdings[key].shares > 0 and current.holdings[key].shares > 0
+    ]
+    return statistics.median(ratios) if len(ratios) >= FLOW_MIN_POSITIONS else 1.0
+
+
 def trades_between(previous: FundDay, current: FundDay) -> list[Trade]:
-    """Positions ARK added to, trimmed, opened or closed between two days."""
+    """Positions ARK added to, trimmed, opened or closed between two days,
+    beyond the fund-wide flow."""
+    ratio = flow_ratio(previous, current)
     trades = []
     for key in sorted(set(previous.holdings) | set(current.holdings)):
         before = previous.holdings.get(key)
         after = current.holdings.get(key)
         shares_before = before.shares if before else 0.0
         shares_after = after.shares if after else 0.0
+        opened_or_closed = (shares_before == 0) != (shares_after == 0)
+        active = (
+            shares_after - shares_before * ratio
+            if not opened_or_closed
+            else shares_after - shares_before
+        )
         if (
-            abs(shares_after - shares_before)
-            <= max(shares_before, shares_after) * MIN_CHANGE_FRACTION
+            not opened_or_closed
+            and abs(active)
+            <= max(shares_before * ratio, shares_after) * ACTIVE_CHANGE_FRACTION
         ):
+            continue
+        if shares_before == 0 and shares_after == 0:
             continue
         reference = after or before
         price = (
@@ -151,6 +182,7 @@ def trades_between(previous: FundDay, current: FundDay) -> list[Trade]:
                 shares_before=shares_before,
                 shares_after=shares_after,
                 price=price,
+                flow_ratio=ratio,
             )
         )
     return trades
@@ -176,6 +208,17 @@ def describe(trade: Trade) -> tuple[str, str]:
     parts.append(
         f"{trade.fund} now holds {trade.shares_after:,.0f} shares of {trade.company or name}."
     )
+    if (
+        abs(trade.flow_ratio - 1) >= 0.005
+        and trade.shares_before
+        and trade.shares_after
+    ):
+        grew = trade.flow_ratio > 1
+        parts.append(
+            f"That day the whole fund {'grew' if grew else 'shrank'} "
+            f"{abs(trade.flow_ratio - 1):.1%} as investors {'bought' if grew else 'sold'} "
+            "its shares; this counts only the change beyond that."
+        )
     parts.append("Derived by comparing ARK's published daily holdings files.")
     return title, " ".join(parts)
 
@@ -269,6 +312,7 @@ class ArkHoldingsService:
                             "shares_before": trade.shares_before,
                             "shares_after": trade.shares_after,
                             "shares": abs(trade.change),
+                            "fund_flow_ratio": trade.flow_ratio,
                             "transaction_type": "buy" if trade.change > 0 else "sell",
                             "price": trade.price,
                             "transaction_value": (
