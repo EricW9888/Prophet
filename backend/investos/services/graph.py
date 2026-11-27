@@ -49,6 +49,7 @@ from investos.schemas.graph import (
 from investos.services.canonical_state import CanonicalStateService
 from investos.services.evidence_provenance import build_evidence_source_reference
 from investos.services.graph_registry import durable_graph_model_map
+from investos.services.sec_industry import company_name_key
 from investos.services.shadow_metrics import result_metrics
 from investos.services.source import SourceService
 from investos.services.source_assessment_state import (
@@ -810,8 +811,11 @@ class GraphService:
                 else_=3,
             )
             created_at = getattr(model, "created_at", None)
+            # Within a quality, shorter text is the closer match.
             statement = statement.order_by(
-                match_quality, *((desc(created_at),) if created_at is not None else ())
+                match_quality,
+                func.length(main),
+                *((desc(created_at),) if created_at is not None else ()),
             )
             rows = (
                 (await self.session.execute(statement.limit(capped_limit)))
@@ -821,9 +825,16 @@ class GraphService:
             for node in rows:
                 label = self._node_label(node_type, node)
                 normalized_label = " ".join(label.casefold().split())
+                # "Tesla, Inc." is an exact match for "tesla": legal suffixes
+                # and punctuation do not count (the SEC matching rule).
+                same_company = (
+                    node_type == "entity"
+                    and company_name_key(label) == company_name_key(search)
+                    and bool(company_name_key(search))
+                )
                 label_rank = (
                     0
-                    if normalized_label == normalized_search
+                    if normalized_label == normalized_search or same_company
                     else (
                         1
                         if normalized_label.startswith(normalized_search)
