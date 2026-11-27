@@ -1,5 +1,6 @@
 "use client";
 
+import { labelText } from "@/lib/formatting";
 import { useEffect, useRef, useState } from "react";
 import { Terminal, X, Maximize2, Minimize2, Trash2 } from "lucide-react";
 import { API_BASE } from "@/lib/api";
@@ -118,7 +119,7 @@ export default function LiveLogConsole({ onClose }: LiveLogConsoleProps) {
           <div className={`h-2 w-2 rounded-full ${
             connectionState === "live" ? "animate-pulse bg-emerald-500" : "bg-amber-500"
           }`} />
-          <span className="text-xs font-bold uppercase tracking-widest text-slate-500">{statusLabel}</span>
+          <span className="text-xs font-bold text-slate-500">{labelText(statusLabel)}</span>
         </div>
         <span className="text-xs font-mono text-slate-600">Gmail backfill</span>
       </div>

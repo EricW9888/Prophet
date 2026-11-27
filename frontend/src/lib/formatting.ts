@@ -65,6 +65,13 @@ export function readableMachineText(text: string | null | undefined): string {
     .join("");
 }
 
+/** A label in sentence case: machine text in words, first letter capital, nothing lowercased. Non-text passes through. */
+export function labelText<T>(value: T): T | string {
+  if (typeof value !== "string") return value;
+  const text = readableMachineText(value);
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 export function formatRegimeLabel(regime: string | null | undefined): string {
   if (!regime) return "Neutral Status";
   return formatUserLabel(regime);

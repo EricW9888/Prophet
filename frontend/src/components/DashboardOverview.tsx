@@ -1,5 +1,6 @@
 "use client";
 
+import { labelText } from "@/lib/formatting";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
@@ -465,8 +466,8 @@ function TransactionCapturePanel({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-black uppercase text-foreground ">
-                      {txn.ticker}
+                    <span className="text-sm font-black text-foreground ">
+                      {labelText(txn.ticker)}
                     </span>
                     <span className="rounded bg-panel-muted px-1.5 py-0.5 text-xs font-medium text-foreground ">
                       {txn.action}
@@ -476,8 +477,8 @@ function TransactionCapturePanel({
                     {txn.entity_name || "Portfolio transaction"}
                   </p>
                 </div>
-                <div className="shrink-0 text-right text-xs font-bold uppercase tracking-wider text-muted">
-                  {formatShortDateTime(txn.executed_at)}
+                <div className="shrink-0 text-right text-xs font-bold text-muted">
+                  {labelText(formatShortDateTime(txn.executed_at))}
                 </div>
               </div>
               <div className="mt-3 grid min-w-0 grid-cols-2 items-end gap-3">
@@ -626,8 +627,8 @@ function ActionFeedRow({
               {formatUserLabel(source)} · {label}
             </div>
             {recentCount && recentCount > 1 ? (
-              <span className="rounded-none bg-panel-muted px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-muted ">
-                {recentCount}x
+              <span className="rounded-none bg-panel-muted px-2 py-0.5 text-xs font-bold text-muted ">
+                {labelText(recentCount)}x
               </span>
             ) : null}
           </div>

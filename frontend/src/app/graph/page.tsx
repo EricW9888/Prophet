@@ -1,5 +1,6 @@
 "use client";
 
+import { labelText } from "@/lib/formatting";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as d3 from "d3";
 import Link from "next/link";
@@ -909,8 +910,8 @@ export default function GraphPage() {
             ) : null}
           </div>
           {graphAskJob ? (
-            <span className="rounded-none border border-amber-300 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-800 dark:text-amber-300">
-              {graphAskJob.status}
+            <span className="rounded-none border border-amber-300 px-3 py-1 text-xs font-semibold text-amber-700 dark:border-amber-800 dark:text-amber-300">
+              {labelText(graphAskJob.status)}
             </span>
           ) : null}
         </div>
@@ -1257,8 +1258,8 @@ export default function GraphPage() {
                         transform: "translate(-50%, calc(-100% - 14px))",
                       }}
                     >
-                      <div className="text-xs font-semibold uppercase tracking-wider text-sky-200">
-                        {hoverPreview.eyebrow}
+                      <div className="text-xs font-semibold text-sky-200">
+                        {labelText(hoverPreview.eyebrow)}
                       </div>
                       <div className="mt-1 break-words text-xs font-semibold leading-snug [overflow-wrap:anywhere]">
                         {hoverPreview.title}
@@ -1273,8 +1274,8 @@ export default function GraphPage() {
                   {activeEdge ? (
                     <div className="absolute inset-x-3 bottom-3 z-30 flex min-w-0 items-start justify-between gap-3 rounded-lg border border-white/15 bg-slate-950/92 px-3 py-3 text-white shadow-xl backdrop-blur-md sm:inset-x-auto sm:left-4 sm:max-w-[520px]">
                       <div className="min-w-0">
-                        <p className="text-xs font-semibold uppercase text-amber-200">
-                          Connection · {Math.round(activeEdge.confidence * 100)}% confidence
+                        <p className="text-xs font-semibold text-amber-200">
+                          Connection · {labelText(Math.round(activeEdge.confidence * 100))}% confidence
                         </p>
                         <p className="mt-1 break-words text-sm font-semibold leading-5 [overflow-wrap:anywhere]">
                           {describeEdge(activeEdge)}
@@ -1298,8 +1299,8 @@ export default function GraphPage() {
                   ) : selectedNode && selectedKey !== activeRootKey ? (
                     <div className="absolute inset-x-3 bottom-3 z-30 flex min-w-0 items-start justify-between gap-3 rounded-lg border border-white/15 bg-slate-950/92 px-3 py-3 text-white shadow-xl backdrop-blur-md sm:inset-x-auto sm:left-4 sm:max-w-[420px]">
                       <div className="min-w-0">
-                        <p className="text-xs font-semibold uppercase text-sky-200">
-                          {nodeTypeLabel(selectedNode.node_type)} · {layerLabel(selectedNode.layer)}
+                        <p className="text-xs font-semibold text-sky-200">
+                          {labelText(nodeTypeLabel(selectedNode.node_type))} · {labelText(layerLabel(selectedNode.layer))}
                         </p>
                         <p className="mt-1 break-words text-sm font-semibold leading-5 [overflow-wrap:anywhere]">
                           {selectedNode.label}
@@ -1357,8 +1358,8 @@ export default function GraphPage() {
               <div className="mt-5 space-y-3">
                 <GraphConnectionSelect edges={displayedEdges} selected={activeEdge} nodes={nodeByKey} edgeKey={graphEdgeIdentity} onSelect={selectGraphEdge} />
                 <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900 dark:bg-amber-950/20">
-                  <div className="text-xs uppercase tracking-wider text-caution">
-                    {activeEdge.portfolio_peer_basis ? "Research context" : activeEdge.relationship_type.replaceAll("_", " ")}
+                  <div className="text-xs text-caution">
+                    {labelText(activeEdge.portfolio_peer_basis ? "Research context" : activeEdge.relationship_type.replaceAll("_", " "))}
                   </div>
                   <div className="mt-2 text-sm font-semibold text-foreground">
                     {describeEdge(activeEdge)}
@@ -1432,8 +1433,8 @@ export default function GraphPage() {
                         : nodeTypeLabel(selectedDetail.node_type)}
                     </span>
                     {selectedDetail.tier || ["fact", "claim"].includes(selectedDetail.node_type) ? (
-                      <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-400">
-                        {["fact", "claim"].includes(selectedDetail.node_type) && selectedDetail.properties.is_verified !== true ? "Unverified" : selectedDetail.tier?.replaceAll("_", " ")}
+                      <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-400">
+                        {labelText(["fact", "claim"].includes(selectedDetail.node_type) && selectedDetail.properties.is_verified !== true ? "Unverified" : selectedDetail.tier?.replaceAll("_", " "))}
                       </span>
                     ) : null}
                     <span className="rounded-md border border-slate-300 bg-white/40 px-2 py-0.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
@@ -1567,8 +1568,8 @@ export default function GraphPage() {
                         Portfolio context
                       </span>
                       {selectedDetail.properties?.portfolio_significance ? (
-                        <span className="rounded-none border border-teal-300 bg-teal-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-teal-700 dark:border-teal-700 dark:bg-teal-900/50 dark:text-teal-200">
-                          {String(selectedDetail.properties.portfolio_significance)}
+                        <span className="rounded-none border border-teal-300 bg-teal-100 px-2 py-0.5 text-xs font-semibold text-teal-700 dark:border-teal-700 dark:bg-teal-900/50 dark:text-teal-200">
+                          {labelText(String(selectedDetail.properties.portfolio_significance))}
                         </span>
                       ) : null}
                     </div>
@@ -1685,16 +1686,16 @@ export default function GraphPage() {
                       <div key={citation.raw_evidence_id} className="min-w-0 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                         <div className="text-xs font-semibold text-foreground">{citation.source_name}</div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
-                          <span className="rounded-none border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                            {citation.source_type.replaceAll("_", " ")}
+                          <span className="rounded-none border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                            {labelText(citation.source_type.replaceAll("_", " "))}
                           </span>
                           {citation.source_item_type ? (
-                            <span className="rounded-none border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                              {citation.source_item_type.replaceAll("_", " ")}
+                            <span className="rounded-none border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                              {labelText(citation.source_item_type.replaceAll("_", " "))}
                             </span>
                           ) : null}
-                          <span className={`rounded-none border px-2 py-0.5 text-xs font-semibold uppercase tracking-wider ${citationOriginClasses(citation.origin_kind)}`}>
-                            {citation.origin_label ?? "Source catalog"}
+                          <span className={`rounded-none border px-2 py-0.5 text-xs font-semibold ${citationOriginClasses(citation.origin_kind)}`}>
+                            {labelText(citation.origin_label ?? "Source catalog")}
                           </span>
                         </div>
                         {citation.title ? <div className="mt-2 break-words text-xs text-foreground">{citation.title}</div> : null}
@@ -1743,11 +1744,11 @@ export default function GraphPage() {
                             <div key={citation.raw_evidence_id} className="min-w-0 rounded-lg border border-amber-100 bg-amber-50/60 p-4 dark:border-amber-950 dark:bg-amber-950/10">
                               <div className="text-sm font-semibold text-foreground">{citation.source_name}</div>
                               <div className="mt-2 flex flex-wrap gap-1.5">
-                                <span className="rounded-none border border-amber-200 bg-white/70 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-                                  {citation.system_reason?.replaceAll("_", " ") ?? "system memory"}
+                                <span className="rounded-none border border-amber-200 bg-white/70 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+                                  {labelText(citation.system_reason?.replaceAll("_", " ") ?? "system memory")}
                                 </span>
-                                <span className={`rounded-none border px-2 py-0.5 text-xs font-semibold uppercase tracking-wider ${citationOriginClasses(citation.origin_kind)}`}>
-                                  {citation.origin_label ?? "Source catalog"}
+                                <span className={`rounded-none border px-2 py-0.5 text-xs font-semibold ${citationOriginClasses(citation.origin_kind)}`}>
+                                  {labelText(citation.origin_label ?? "Source catalog")}
                                 </span>
                               </div>
                               {citation.title ? <div className="mt-3 break-words text-sm text-foreground">{citation.title}</div> : null}
@@ -1784,8 +1785,8 @@ export default function GraphPage() {
 
           <section className="min-w-0 rounded-lg border border-line bg-panel p-4 sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-sm font-bold uppercase tracking-wider text-muted">
-                {knowledgeQuery.trim().length >= 2 ? "Knowledge search" : `Portfolio holdings${holdingSubjects ? ` (${holdingSubjects.length})` : ""}`}
+              <h2 className="text-sm font-bold text-muted">
+                {labelText(knowledgeQuery.trim().length >= 2 ? "Knowledge search" : `Portfolio holdings${holdingSubjects ? ` (${holdingSubjects.length})` : ""}`)}
               </h2>
               <label className="flex w-full items-center gap-2 border-b border-slate-300 px-1 py-1.5 text-sm dark:border-slate-700">
                 <Search size={15} className="shrink-0 text-slate-400" aria-hidden="true" />
@@ -1812,8 +1813,8 @@ export default function GraphPage() {
                     className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs text-slate-700 hover:border-sky-400 hover:bg-white dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-sky-600 dark:hover:bg-slate-950"
                   >
                     <span className="flex min-w-0 items-start justify-between gap-2">
-                      <span className="shrink-0 text-xs font-semibold uppercase text-slate-400">
-                        {item.caption}
+                      <span className="shrink-0 text-xs font-semibold text-slate-400">
+                        {labelText(item.caption)}
                       </span>
                       {item.subtitle ? (
                         <span className="min-w-0 break-words text-right text-xs text-slate-400 [overflow-wrap:anywhere]">

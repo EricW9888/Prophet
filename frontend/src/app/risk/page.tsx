@@ -1,5 +1,6 @@
 "use client";
 
+import { labelText } from "@/lib/formatting";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -245,7 +246,7 @@ export default function RiskPage() {
                   <div key={benchmark.id} className="rounded-lg border border-line p-4">
                     <div className="flex items-center justify-between gap-4">
                       <p className="font-medium">{benchmark.name}</p>
-                      <span className="text-xs uppercase tracking-wider text-slate-400">{benchmark.benchmark_type}</span>
+                      <span className="text-xs text-slate-400">{labelText(benchmark.benchmark_type)}</span>
                     </div>
                     <p className="mt-1 text-sm text-muted">
                       {benchmark.ticker ?? "custom"} · {new Date(benchmark.created_at).toLocaleDateString()}
@@ -365,7 +366,7 @@ function AttributionStat({ label, value, detail, tone }: { label: string; value:
   const toneClass = tone == null ? "" : tone < 0 ? "text-red-600 dark:text-red-400" : tone > 0 ? "text-emerald-600 dark:text-emerald-400" : "";
   return (
     <div>
-      <p className="text-xs uppercase text-slate-500">{label}</p>
+      <p className="text-xs text-slate-500">{labelText(label)}</p>
       <p className={`mt-1 text-xl font-semibold ${toneClass}`}>{value}</p>
       {detail ? <p className="mt-1 text-xs text-slate-500">{detail}</p> : null}
     </div>
@@ -435,7 +436,7 @@ function MetricCard({ label, value, detail }: { label: string; value: string; de
 function ExposureList({ title, items }: { title: string; items: RiskSummary["sector_exposures"] }) {
   return (
     <div className="rounded-lg border border-line p-4">
-      <p className="text-xs uppercase tracking-wider text-slate-400">{title}</p>
+      <p className="text-xs text-slate-400">{labelText(title)}</p>
       <div className="mt-3 space-y-2">
         {items.length === 0 ? (
           <p className="text-sm text-muted">No exposure data yet.</p>

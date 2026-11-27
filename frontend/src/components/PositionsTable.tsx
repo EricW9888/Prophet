@@ -1,5 +1,6 @@
 "use client";
 
+import { labelText } from "@/lib/formatting";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
@@ -136,7 +137,7 @@ export default function PositionsTable() {
                 overview?.recent_transactions.map((txn) => (
                   <div key={txn.id} className="rounded-lg border border-slate-200 p-4 text-sm dark:border-slate-800">
                     <div className="flex items-center justify-between gap-4">
-                      <p className="font-medium uppercase">{formatUserLabel(txn.action)}</p>
+                      <p className="font-medium">{labelText(formatUserLabel(txn.action))}</p>
                       <span className="text-xs text-slate-400">
                         {new Date(txn.executed_at).toLocaleDateString()}
                       </span>
@@ -327,7 +328,7 @@ function SidebarList({
                 <p className="mt-1 text-sm text-muted">{item.entity_name}</p>
               ) : null}
               {item.conviction != null ? (
-                <p className="mt-1 text-xs uppercase tracking-wider text-slate-400">conviction {item.conviction}/5</p>
+                <p className="mt-1 text-xs text-slate-400">conviction {labelText(item.conviction)}/5</p>
               ) : null}
             </div>
           ))

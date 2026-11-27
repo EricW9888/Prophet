@@ -1,5 +1,6 @@
 "use client";
 
+import { labelText } from "@/lib/formatting";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
@@ -268,8 +269,8 @@ export default function HistoryPage() {
                 Superseded fills stay visible here with their replacement row and reason.
               </p>
             </div>
-            <span className="rounded-none border border-slate-200 px-2.5 py-1 text-xs font-bold uppercase tracking-widest text-slate-500 dark:border-slate-800 dark:text-slate-400">
-              {correctionHistory.length} corrections
+            <span className="rounded-none border border-slate-200 px-2.5 py-1 text-xs font-bold text-slate-500 dark:border-slate-800 dark:text-slate-400">
+              {labelText(correctionHistory.length)} corrections
             </span>
           </div>
           <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -277,8 +278,8 @@ export default function HistoryPage() {
               <div key={`${item.original.id}:${item.replacement?.id ?? "missing"}`} className="rounded-lg border border-slate-100 px-4 py-3 dark:border-slate-800">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="text-sm font-black uppercase text-foreground">
-                      {item.original.ticker || item.replacement?.ticker || "CASH"}
+                    <div className="text-sm font-black text-foreground">
+                      {labelText(item.original.ticker || item.replacement?.ticker || "CASH")}
                     </div>
                     <div className="mt-0.5 truncate text-xs text-muted">
                       {(item.original.entity_name || item.replacement?.entity_name || "Portfolio transaction")} · {formatLedgerDate(item.corrected_at || item.replacement?.executed_at || item.original.executed_at)}
@@ -323,7 +324,7 @@ export default function HistoryPage() {
               <div className={`text-3xl font-bold tracking-tighter ${totalRealizedPnl >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
                 {totalRealizedPnl >= 0 ? "+" : ""}${totalRealizedPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
-              <p className="text-xs text-slate-500 mt-1 uppercase font-bold tracking-widest">Net outcome across {closedPositions.length} trades</p>
+              <p className="text-xs text-slate-500 mt-1 font-bold">Net outcome across {labelText(closedPositions.length)} trades</p>
             </div>
           </div>
 
@@ -423,12 +424,12 @@ export default function HistoryPage() {
                       <td className="px-5 py-3">
                         <div className="flex flex-col">
                           <span className="text-sm font-bold tracking-tight text-foreground">{pos.ticker || "UNKNOWN"}</span>
-                          <span className="text-xs text-slate-500 uppercase tracking-tighter mt-0.5">{pos.entity_name}</span>
+                          <span className="text-xs text-slate-500 mt-0.5">{labelText(pos.entity_name)}</span>
                         </div>
                       </td>
                       <td className="px-5 py-3">
-                        <span className={`inline-flex items-center rounded-none px-2 py-0.5 text-xs font-bold uppercase tracking-widest ${kind === "live" ? "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300" : "bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>
-                          {statusLabel}
+                        <span className={`inline-flex items-center rounded-none px-2 py-0.5 text-xs font-bold ${kind === "live" ? "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300" : "bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300"}`}>
+                          {labelText(statusLabel)}
                         </span>
                       </td>
                       <td className="px-5 py-3 text-right font-mono text-xs text-muted">
@@ -453,8 +454,8 @@ export default function HistoryPage() {
                         </div>
                       </td>
                       <td className="px-5 py-3 text-right">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                          {new Date((pos.updated_at || pos.added_at) as string).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                        <span className="text-xs font-bold text-slate-400">
+                          {labelText(new Date((pos.updated_at || pos.added_at) as string).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }))}
                         </span>
                       </td>
                     </tr>
@@ -472,7 +473,7 @@ export default function HistoryPage() {
 function CorrectionTxnMini({ label, txn }: { label: string; txn: Transaction }) {
   return (
     <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950">
-      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">{label}</div>
+      <div className="text-xs font-bold text-slate-400">{labelText(label)}</div>
       <div className="mt-1 truncate text-xs font-bold text-foreground">
         {txn.action.toUpperCase()} {formatQuantity(txn.quantity)}
       </div>

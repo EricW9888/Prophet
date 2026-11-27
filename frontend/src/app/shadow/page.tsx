@@ -1,5 +1,6 @@
 "use client";
 
+import { labelText } from "@/lib/formatting";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import AppNav from "@/components/AppNav";
@@ -485,10 +486,10 @@ export default function ShadowPage() {
                             </p>
                           </div>
                           <span
-                            className="rounded-none border border-slate-300 px-2.5 py-1 text-xs font-semibold uppercase text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            className="rounded-none border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300"
                             title="Provisional means fewer than the configured minimum repeated experiments. Validated requires repeated, directionally consistent outcomes. Mixed means the family has meaningful counterexamples."
                           >
-                            {experiment.lesson.maturity_status}
+                            {labelText(experiment.lesson.maturity_status)}
                           </span>
                         </div>
                         <p className="mt-3 text-sm text-muted">
@@ -1655,7 +1656,7 @@ function ComparisonBar({
       : "bg-rose-500";
   return (
     <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-      <p className="text-xs uppercase tracking-wider text-slate-400">{label}</p>
+      <p className="text-xs text-slate-400">{labelText(label)}</p>
       <p className="mt-2 text-lg font-semibold">{formatPct(value)}</p>
       <div className="mt-3 h-2 rounded-none bg-slate-200 dark:bg-slate-800">
         <div className={`h-2 rounded-none ${toneClass}`} style={{ width: pct }} />

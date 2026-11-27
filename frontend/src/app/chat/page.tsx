@@ -1,5 +1,6 @@
 "use client";
 
+import { labelText } from "@/lib/formatting";
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import QuantityEvidence from "@/components/QuantityEvidence";
 import WorkspaceDivider, { useWorkspacePane } from "@/components/WorkspaceDivider";
@@ -312,8 +313,8 @@ function CorroborationPanel({ summary }: { summary: StructuredReasoningSummary }
     <div className={`rounded-lg border p-3 ${tone}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-medium">Evidence confidence</p>
-        <span className="rounded-none border border-current/25 px-2 py-1 text-xs font-medium uppercase">
-          {formatUserLabel(assessment.status)}
+        <span className="rounded-none border border-current/25 px-2 py-1 text-xs font-medium">
+          {labelText(formatUserLabel(assessment.status))}
         </span>
       </div>
       <p className="mt-2 text-sm">
@@ -329,7 +330,7 @@ function CorroborationPanel({ summary }: { summary: StructuredReasoningSummary }
             <div key={`${assertion.statement}-${index}`} className="border-t border-current/15 pt-2 text-sm">
               <div className="flex flex-wrap justify-between gap-2">
                 <p className="font-medium">{assertion.statement}</p>
-                <span className="text-xs uppercase opacity-75">{["portfolio_ledger", "market_data_calculation"].includes(assertion.evidenceBasis) && !assertion.quantityVerification ? "Numerical check unavailable" : formatUserLabel(assertion.status)}</span>
+                <span className="text-xs opacity-75">{labelText(["portfolio_ledger", "market_data_calculation"].includes(assertion.evidenceBasis) && !assertion.quantityVerification ? "Numerical check unavailable" : formatUserLabel(assertion.status))}</span>
               </div>
               <p className="mt-1 text-xs opacity-75">
                 {assertion.evidenceBasis === "portfolio_ledger"
@@ -360,12 +361,12 @@ function CorroborationPanel({ summary }: { summary: StructuredReasoningSummary }
       ) : null}
       {summary.independentReview ? (
         <div className="mt-3 border-t border-current/15 pt-2 text-sm">
-          <p className="text-xs font-medium uppercase tracking-wider">
-            Independent review · {formatUserLabel(summary.independentReview.stance)}
-            {summary.independentReview.disagrees ? " · disagrees" : ""}
-            {summary.independentReview.answerability !== "unknown"
+          <p className="text-xs font-medium">
+            Independent review · {labelText(formatUserLabel(summary.independentReview.stance))}
+            {labelText(summary.independentReview.disagrees ? " · disagrees" : "")}
+            {labelText(summary.independentReview.answerability !== "unknown"
               ? ` · ${formatUserLabel(summary.independentReview.answerability)} scope`
-              : ""}
+              : "")}
           </p>
           {summary.independentReview.summary ? (
             <p className="mt-1 opacity-80">{summary.independentReview.summary}</p>
@@ -433,8 +434,8 @@ function LiveWatchers() {
             <div className="flex items-center justify-between">
               <span className="font-bold text-action">{w.ticker}</span>
               <div className="flex items-center gap-1.5">
-                <span className="text-xs uppercase text-slate-400 font-bold">
-                  {w.condition_type.replaceAll("_", " ")}
+                <span className="text-xs text-slate-400 font-bold">
+                  {labelText(w.condition_type.replaceAll("_", " "))}
                 </span>
                 <button
                   type="button"
@@ -469,10 +470,10 @@ function LiveWatchers() {
               </p>
             ) : null}
             {w.deadline && (
-              <p className={`mt-1 text-xs font-semibold uppercase tracking-wide ${w.is_overdue ? "text-rose-500" : "text-slate-400"}`}>
-                {w.is_overdue ? "Overdue" : formatCountdown(w.countdown_seconds)}
-                {" · "}
-                {formatTimestamp(w.deadline)}
+              <p className={`mt-1 text-xs font-semibold ${w.is_overdue ? "text-rose-500" : "text-slate-400"}`}>
+                {labelText(w.is_overdue ? "Overdue" : formatCountdown(w.countdown_seconds))}
+                {labelText(" · ")}
+                {labelText(formatTimestamp(w.deadline))}
               </p>
             )}
           </div>
@@ -506,8 +507,8 @@ function RunningChats({
 
   return (
     <div className="shrink-0 border-b border-slate-200 p-4 dark:border-slate-800">
-      <p className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
-        Active chats ({jobs.length})
+      <p className="mb-3 text-xs font-medium text-muted">
+        Active chats ({labelText(jobs.length)})
       </p>
       <div className="space-y-2">
         {jobs.slice(0, 5).map((job) => (
@@ -1635,15 +1636,15 @@ function ChatWorkspace() {
                       >
                         {formatTimestamp(m.createdAt) || m.role === "assistant" ? (
                           <div className={`mb-2 flex flex-wrap items-center gap-2 ${m.role === "user" ? "justify-end" : "justify-between"}`}>
-                            <p className="text-xs uppercase tracking-wide text-muted">{formatTimestamp(m.createdAt)}</p>
+                            <p className="text-xs text-muted">{labelText(formatTimestamp(m.createdAt))}</p>
                             {m.role === "assistant" ? (
                               <button type="button" className="workspace-control" onClick={() => setFocusedAnswer(m)}><Maximize2 size={14} aria-hidden="true" /> Full screen</button>
                             ) : null}
                           </div>
                         ) : null}
                         {m.isArtifact ? (
-                          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
-                            {formatUserLabel(m.messageKind ?? "system_artifact")}
+                          <p className="mb-2 text-xs font-medium text-slate-400">
+                            {labelText(formatUserLabel(m.messageKind ?? "system_artifact"))}
                           </p>
                         ) : null}
                         {m.content.includes("Enable state updates first") ? (
@@ -1690,8 +1691,8 @@ function ChatWorkspace() {
                             </div>
                             {m.meta.actions && m.meta.actions.length > 0 ? (
                               <details className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
-                                <summary className="cursor-pointer text-xs font-medium uppercase tracking-wider text-muted">
-                                  Agent actions · {m.meta.actions.length}
+                                <summary className="cursor-pointer text-xs font-medium text-muted">
+                                  Agent actions · {labelText(m.meta.actions.length)}
                                 </summary>
                                 <div className="mt-3 space-y-2">
                                 {m.meta.actions.map((action, actionIndex) => (
@@ -1705,8 +1706,8 @@ function ChatWorkspace() {
                             ) : null}
                             {m.meta.subagents && Object.keys(m.meta.subagents).length > 0 ? (
                               <details className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
-                                <summary className="cursor-pointer text-xs font-medium uppercase tracking-wider text-muted">
-                                  Independent analysis lenses · {Object.keys(m.meta.subagents).length}
+                                <summary className="cursor-pointer text-xs font-medium text-muted">
+                                  Independent analysis lenses · {labelText(Object.keys(m.meta.subagents).length)}
                                 </summary>
                                 <div className="mt-3 space-y-2">
                                 {Object.entries(m.meta.subagents).map(([label, insight]) => (
@@ -1940,7 +1941,7 @@ function AutonomousReport({
       <article className="min-h-full w-full px-4 py-5 sm:px-8">
         <header className="mb-5 flex flex-wrap items-start justify-between gap-3 border-b border-line pb-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Autonomous finding · {formatTimestamp(report.updated_at)}</p>
+            <p className="text-xs font-semibold text-muted">Autonomous finding · {labelText(formatTimestamp(report.updated_at))}</p>
             <h2 id="autonomous-report-title" className="mt-1 text-xl font-semibold">{report.subject_name ?? report.title}</h2>
           </div>
           <button type="button" className="workspace-control" onClick={() => dialog.current?.close()}><X size={15} aria-hidden="true" /> Close review</button>
@@ -2046,8 +2047,8 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
               : "border-amber-300 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/20"
           }`}
         >
-          <p className="text-xs font-medium uppercase tracking-wider text-muted">
-            Question scope · {formatUserLabel(answerability.status)}
+          <p className="text-xs font-medium text-muted">
+            Question scope · {labelText(formatUserLabel(answerability.status))}
           </p>
           {answerability.reason ? <p className="mt-2">{answerability.reason}</p> : null}
           {answerability.missingInformation.length > 0 ? (
@@ -2215,12 +2216,12 @@ function EvidenceSourceList({
           <div key={source.raw_evidence_id} className="py-3 first:pt-0 last:pb-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold text-slate-800 dark:text-slate-100">{source.source_name}</span>
-              <span className="rounded border border-slate-200 px-1.5 py-0.5 text-xs uppercase tracking-wider text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                {readableMachineText(source.origin_label) || source.source_type.replaceAll("_", " ")}
+              <span className="rounded border border-slate-200 px-1.5 py-0.5 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                {labelText(readableMachineText(source.origin_label) || source.source_type.replaceAll("_", " "))}
               </span>
               {source.evidence_roles.map((role) => (
-                <span key={role} className="text-xs font-medium uppercase tracking-wider text-action">
-                  {role}
+                <span key={role} className="text-xs font-medium text-action">
+                  {labelText(role)}
                 </span>
               ))}
             </div>
@@ -2267,13 +2268,13 @@ function ActualProcessSummary({
 
   return (
     <details className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-3 text-sm dark:border-slate-800 dark:bg-slate-950/40">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-medium uppercase tracking-wider text-muted">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-medium text-muted">
         <span>{fileAnswer ? "File evidence" : "Answer audit"}</span>
-        {displayedConfidence ? (
+        {labelText(displayedConfidence ? (
           <span className="rounded-none border border-slate-200 px-2 py-1 text-xs dark:border-slate-700">
             {formatUserLabel(displayedConfidence)}
           </span>
-        ) : null}
+        ) : null)}
       </summary>
       <div className="mt-3 space-y-3">
       <p className="text-xs text-muted">{fileAnswer ? "Based on the supplied files and provisional visual readings." : "Check the original evidence and its dates before relying on this answer."}</p>
@@ -2332,8 +2333,8 @@ function ActualProcessSummary({
       ) : null}
       {summary.answerability ? (
         <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-          <p className="text-xs font-medium uppercase tracking-wider text-muted">
-            Scope verdict · {formatUserLabel(summary.answerability.status)}
+          <p className="text-xs font-medium text-muted">
+            Scope verdict · {labelText(formatUserLabel(summary.answerability.status))}
           </p>
           {summary.answerability.reason ? (
             <p className="mt-2 text-foreground">

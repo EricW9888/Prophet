@@ -1,3 +1,4 @@
+import { labelText } from "@/lib/formatting";
 import { type ReactNode } from "react";
 
 export default function PageHeader({
@@ -19,7 +20,7 @@ export default function PageHeader({
     >
       <div className="min-w-0">
         {eyebrow ? (
-          <p className="text-xs font-semibold uppercase text-muted">{eyebrow}</p>
+          <p className="text-xs font-semibold text-muted">{labelText(eyebrow)}</p>
         ) : null}
         <h1 className={`${eyebrow ? "mt-1.5" : ""} text-2xl font-semibold text-foreground sm:text-3xl`}>
           {title}
