@@ -12,23 +12,23 @@ packages = [{include = "investos"}]
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.15"
-fastapi = "^0.162.5"
+fastapi = "^0.165.0"
 uvicorn = "^0.54.0"
-sqlalchemy = {extras = ["asyncio"], version = "^2.1.8"}
+sqlalchemy = {extras = ["asyncio"], version = "^2.1.9"}
 alembic = "^1.20.1"
 asyncpg = "^0.32.0"
-pydantic = {extras = ["email"], version = "^2.14.3"}
-pydantic-settings = "^2.16.2"
+pydantic = {extras = ["email"], version = "^2.14.4"}
+pydantic-settings = "^2.16.3"
 httpx = "^0.28.1"
 apscheduler = "^3.11.3"
-python-multipart = "^0.0.33"
+python-multipart = "^0.0.34"
 greenlet = "^3.5.6"
 plaid-python = "^39.0.0"
 youtube-transcript-api = "^1.2.5"
 requests = "^2.32"
 fastjsonschema = "^2.22.3"
 pywebpush = "^2.5.0"
-exchange-calendars = "^4.13.2"
+exchange-calendars = "^4.13.3"
 feedparser = "^6.0.14"
 pypdfium2 = "^5.15.2"
 pillow = "^13.0.0"
