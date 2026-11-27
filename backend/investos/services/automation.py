@@ -646,6 +646,9 @@ class AutomationCoordinator:
             name=name,
             interval_seconds=interval_seconds,
             enabled=enabled,
+            # Status shows the last recorded completion, not "not run yet",
+            # when the job last finished before this process started.
+            last_run_at=self._completed_runs.get(name),
             last_status="disabled" if not enabled else "idle",
         )
         if enabled:
