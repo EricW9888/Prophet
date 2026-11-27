@@ -34,7 +34,7 @@ import {
   ReasoningTrace,
 } from "@/lib/api";
 
-import { formatModelUsedLabel, formatUserLabel } from "@/lib/formatting";
+import { formatModelUsedLabel, formatUserLabel, readableMachineText } from "@/lib/formatting";
 import { readResearchEntry, researchTurnContext, type ResearchSubject } from "@/lib/workflows";
 import { ACTIVE_JOB_STORAGE_KEY, COMPLETED_JOB_NOTICE_KEY, clearActiveJobReference, clearCompletedJobNotice } from "@/lib/job-notifications";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
@@ -2216,7 +2216,7 @@ function EvidenceSourceList({
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold text-slate-800 dark:text-slate-100">{source.source_name}</span>
               <span className="rounded border border-slate-200 px-1.5 py-0.5 text-xs uppercase tracking-wider text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                {source.origin_label ?? source.source_type.replaceAll("_", " ")}
+                {readableMachineText(source.origin_label) || source.source_type.replaceAll("_", " ")}
               </span>
               {source.evidence_roles.map((role) => (
                 <span key={role} className="text-xs font-medium uppercase tracking-wider text-action">

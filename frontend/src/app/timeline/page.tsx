@@ -10,6 +10,7 @@ import WorkspaceState, { WorkspaceSkeleton } from "@/components/WorkspaceState";
 import { loadMonitorSnapshot } from "@/lib/monitor";
 import SourceProvenanceLinks from "@/components/SourceProvenanceLinks";
 import { apiFetch, TimelineItem, API_BASE, SourceRecord, GraphNodeDetail, GraphConnection, KnowledgeChangeSummary } from "@/lib/api";
+import { readableMachineText } from "@/lib/formatting";
 
 const HIDDEN_DETAIL_PROPERTY_KEYS = new Set([
   "portfolio_significance",
@@ -572,7 +573,7 @@ export default function TimelinePage() {
                             {sources.slice(0, 3).map((source) => (
                               <dd key={source.raw_evidence_id} className="mt-2 min-w-0">
                                 <span className="font-medium text-foreground">{source.source_name}</span>
-                                <span className="text-muted"> · {source.origin_label ?? source.source_type.replaceAll("_", " ")}</span>
+                                <span className="text-muted"> · {readableMachineText(source.origin_label) || source.source_type.replaceAll("_", " ")}</span>
                                 <SourceProvenanceLinks
                                   evidenceId={source.raw_evidence_id}
                                   sourceName={source.source_name}
@@ -849,7 +850,7 @@ export default function TimelinePage() {
               <select value={selectedSourceId} onChange={(e) => setSelectedSourceId(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-line-strong bg-white dark:bg-slate-900">
                 <option value="">Manual Research Inbox</option>
                 {sources.map((source) => (
-                  <option key={source.id} value={source.id}>{source.name} ({source.source_type})</option>
+                  <option key={source.id} value={source.id}>{readableMachineText(source.name)} ({readableMachineText(source.source_type)})</option>
                 ))}
               </select>
               <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" className="w-full px-3 py-2 rounded-lg border border-line-strong bg-white dark:bg-slate-900" />
