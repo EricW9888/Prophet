@@ -263,7 +263,7 @@ export default function HistoryPage() {
         <section className="mb-8 rounded-lg border border-line bg-panel p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Correction history</div>
+              <div className="text-xs font-bold text-slate-400">Correction history</div>
               <p className="mt-1 text-sm text-muted">
                 Superseded fills stay visible here with their replacement row and reason.
               </p>
@@ -284,8 +284,8 @@ export default function HistoryPage() {
                       {(item.original.entity_name || item.replacement?.entity_name || "Portfolio transaction")} · {formatLedgerDate(item.corrected_at || item.replacement?.executed_at || item.original.executed_at)}
                     </div>
                   </div>
-                  <span className="rounded-none border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-bold uppercase tracking-widest text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
-                    superseded
+                  <span className="rounded-none border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                    Superseded
                   </span>
                 </div>
                 <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-xs">
@@ -316,7 +316,7 @@ export default function HistoryPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
           <div className="flex flex-col justify-between rounded-lg border border-line bg-panel p-6">
             <div className="flex items-center justify-between mb-4">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total Realized P&L</span>
+              <span className="text-xs font-bold text-slate-400">Total realized P&L</span>
               <DollarSign className="w-4 h-4 text-slate-300" />
             </div>
             <div>
@@ -329,7 +329,7 @@ export default function HistoryPage() {
 
           <div className="flex flex-col justify-between rounded-lg border border-line bg-panel p-6">
             <div className="flex items-center justify-between mb-4">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Success Rate</span>
+              <span className="text-xs font-bold text-slate-400">Success rate</span>
               <TrendingUp className="w-4 h-4 text-slate-300" />
             </div>
             <div>
@@ -344,14 +344,14 @@ export default function HistoryPage() {
 
           <div className="flex flex-col justify-between rounded-lg border border-line bg-panel p-6">
             <div className="flex items-center justify-between mb-4">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Active Days tracked</span>
+              <span className="text-xs font-bold text-slate-400">Active days tracked</span>
               <Calendar className="w-4 h-4 text-slate-300" />
             </div>
             <div>
               <div className="text-3xl font-bold tracking-tighter">
                 {activeDaysTracked}
               </div>
-              <p className="text-xs text-slate-500 mt-1 uppercase font-bold tracking-widest">Total operational span</p>
+              <p className="text-xs text-slate-500 mt-1 font-bold">Total operational span</p>
             </div>
           </div>
         </div>
@@ -359,7 +359,7 @@ export default function HistoryPage() {
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 grayscale opacity-50">
             <div className="w-8 h-8 border-3 border-line border-t-sky-500 rounded-full animate-spin mb-4" />
-            <p className="text-xs font-bold uppercase tracking-widest animate-pulse">Retrieving Audit logs...</p>
+            <p className="text-xs font-bold animate-pulse">Retrieving audit logs...</p>
           </div>
         ) : error ? (
           <div className="rounded-lg border border-rose-100 bg-rose-50/50 p-12 text-center dark:border-rose-900/40 dark:bg-rose-950/10">
@@ -403,12 +403,12 @@ export default function HistoryPage() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-100 dark:border-slate-800/50">
-                  <th className="px-5 py-3 text-xs font-bold text-slate-400 uppercase tracking-widest">Asset</th>
-                  <th className="px-5 py-3 text-xs font-bold text-slate-400 uppercase tracking-widest">Book state</th>
-                  <th className="px-5 py-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">Quantity</th>
-                  <th className="px-5 py-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">Avg Cost</th>
-                  <th className="px-5 py-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">Value / Outcome</th>
-                  <th className="px-5 py-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">Last Activity</th>
+                  <th className="px-5 py-3 text-xs font-bold text-slate-400">Asset</th>
+                  <th className="px-5 py-3 text-xs font-bold text-slate-400">Book state</th>
+                  <th className="px-5 py-3 text-xs font-bold text-slate-400 text-right">Quantity</th>
+                  <th className="px-5 py-3 text-xs font-bold text-slate-400 text-right">Avg cost</th>
+                  <th className="px-5 py-3 text-xs font-bold text-slate-400 text-right">Value / outcome</th>
+                  <th className="px-5 py-3 text-xs font-bold text-slate-400 text-right">Last activity</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-900/50">

@@ -220,7 +220,7 @@ export default function DecisionsPage() {
                         {review.what_to_improve ? <p className="mt-1 text-sm text-foreground">Improve: {review.what_to_improve}</p> : null}
                         {review.extracted_lessons.length ? (
                           <div className="mt-3 space-y-2">
-                            <p className="text-xs font-medium uppercase tracking-wider text-muted">
+                            <p className="text-xs font-medium text-muted">
                               Extracted lessons
                             </p>
                             {review.extracted_lessons.map((lesson) => (
