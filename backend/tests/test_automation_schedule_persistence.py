@@ -135,3 +135,22 @@ async def test_review_queue_rebuilds_on_its_own_schedule_without_a_model(
     telemetry = coordinator.telemetry["review_queue_refresh"]
     assert calls == [True]
     assert telemetry.last_status == "ok" and telemetry.detail == "3 items need review."
+
+
+async def test_every_registered_job_can_be_run_now(monkeypatch, tmp_path):
+    coordinator = _coordinator(monkeypatch, tmp_path)
+    ran = []
+
+    async def job():
+        ran.append(True)
+        coordinator.telemetry["synthetic_job"].last_status = "ok"
+
+    coordinator._register_job("synthetic_job", job, 3600, True)
+    monkeypatch.setattr(coordinator, "sync_runtime_jobs", lambda: None)
+    await coordinator.run_job("synthetic_job")
+    assert ran == [True]
+
+    import pytest
+
+    with pytest.raises(ValueError):
+        await coordinator.run_job("not_a_job")
