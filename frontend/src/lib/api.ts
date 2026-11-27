@@ -1207,7 +1207,18 @@ export type DashboardSummary = {
   current_regime?: string | null;
 };
 
+export type ConnectionHealth = {
+  name: string;
+  model: string;
+  state?: string | null;
+  failure_code?: string | null;
+  next_probe_at?: string | null;
+  last_success_at?: string | null;
+  median_latency_seconds?: number | null;
+};
+
 export type ProviderHealth = {
+  connections?: ConnectionHealth[];
   admission_timeout_count?: number;
   last_admission_timeout_at?: string | null;
   caller_timeout_count?: number;

@@ -6,7 +6,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from investos.core.provider_health import ProviderHealthStore, probe_llm_provider
+from investos.core.provider_health import (
+    ProviderHealthStore,
+    connection_statuses,
+    probe_connection,
+    probe_llm_provider,
+)
 from investos.db import get_session
 from investos.models.coverage import CoverageMap, QuestionHistory, UnresolvedQuestion
 from investos.schemas.automation import AutomationJobStatus, AutomationStatusResponse
@@ -21,7 +26,17 @@ router = APIRouter(prefix="/automation", tags=["automation"])
 
 @router.get("/provider-health")
 async def provider_health():
-    return ProviderHealthStore.public_status()
+    return {**ProviderHealthStore.public_status(), "connections": connection_statuses()}
+
+
+@router.post("/provider-health/connections/{name}/probe")
+async def probe_connection_health(name: str):
+    status = await probe_connection(name)
+    if status is None:
+        raise HTTPException(
+            status_code=404, detail="No enabled connection by that name."
+        )
+    return status
 
 
 @router.post("/provider-health/probe")

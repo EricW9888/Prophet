@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { apiFetch, DashboardSummary, ProviderHealth } from "@/lib/api";
+import { apiFetch, ConnectionHealth, DashboardSummary, ProviderHealth } from "@/lib/api";
 
 /** "Recent responses took about 48s (fastest tenth 31s), over the last 50 successful requests." */
 export function responseTimes(seconds: number[]): string {
@@ -27,6 +27,13 @@ export default function ProviderWorkSummary({ usage, operations }: { usage: Dash
     catch { setError("The shared provider probe could not complete."); }
     finally { setBusy(false); }
   }
+  const [testing, setTesting] = useState<string | null>(null);
+  async function testConnection(name: string) {
+    setTesting(name);
+    try { await apiFetch<ConnectionHealth>(`/automation/provider-health/connections/${encodeURIComponent(name)}/probe`, { method: "POST" }); await refresh(); }
+    catch { setError(`The connection "${name}" could not be tested.`); }
+    finally { setTesting(null); }
+  }
   const canProbe = health && ["open", "unobserved"].includes(health.state) && (!health.next_probe_at || Date.parse(health.next_probe_at) <= Date.now());
   return <details className="rounded border border-slate-200 p-3 text-xs dark:border-slate-800">
     <summary className="cursor-pointer font-medium">Work completed in the last 24 hours · {usage.live_analysis_runs_24h} live analyses · {usage.cached_runs_24h} cached</summary>
@@ -41,6 +48,14 @@ export default function ProviderWorkSummary({ usage, operations }: { usage: Dash
       {health.last_admission_timeout_at ? <p className="mt-1">Latest at {new Date(health.last_admission_timeout_at).toLocaleString()}.</p> : null}
     </details> : null}
     {health?.caller_timeout_count ? <details className="mt-2"><summary className="cursor-pointer">Requests that reached shorter time limits</summary><p className="mt-2">{health.caller_timeout_count} recorded across retained history. These requests failed at their own time limit; their errors remain in Activity.</p>{health.last_caller_timeout_at ? <p className="mt-1">Latest: {new Date(health.last_caller_timeout_at).toLocaleString()}{health.last_caller_timeout_seconds != null ? ` · ${health.last_caller_timeout_seconds}s request limit` : ""}.</p> : null}</details> : null}
+    {health?.connections?.length ? <div className="mt-2 space-y-1">
+      <p>Extra connections:</p>
+      {health.connections.map((c) => <div key={c.name} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="font-medium">{c.name}</span>
+        <span className="text-muted">{c.model} · {(c.state ?? "unknown").replaceAll("_", " ")}{c.median_latency_seconds != null ? ` · about ${Math.round(c.median_latency_seconds)}s per response` : ""}{c.failure_code ? ` · ${c.failure_code.replaceAll("_", " ")}` : ""}</span>
+        <button type="button" className="workspace-control" disabled={testing === c.name} onClick={() => void testConnection(c.name)}>{testing === c.name ? "Testing…" : "Test"}</button>
+      </div>)}
+    </div> : null}
     {health?.recent_latency_seconds?.length ? <p className="mt-2">{responseTimes(health.recent_latency_seconds)}</p> : null}
     {health?.short_limit_skip_count ? <p className="mt-1 text-muted">{health.short_limit_skip_count} quick requests were not sent because the provider has recently been slower than their time limit; they used their fallback at once instead of waiting and failing.</p> : null}
     {health?.failure_code ? <p className="mt-1 text-caution">{health.failure_code.replaceAll("_", " ")}. Model-dependent jobs wait; ingestion, market data, paper maintenance and recovery continue.</p> : null}

@@ -297,6 +297,12 @@ class AutomationCoordinator:
         telemetry = self.telemetry["provider_health_probe"]
         previous_state = ProviderHealthStore.public_status()["state"]
         health = await probe_llm_provider()
+        # Extra connections reopen through their own probes (#299).
+        from investos.core.provider_health import connection_statuses, probe_connection
+
+        for connection in connection_statuses():
+            if connection["state"] in {"open", "unobserved"}:
+                await probe_connection(connection["name"])
         recovered = health["state"] in {"healthy", "recovering"} and (
             previous_state in {"open", "probing", "unobserved"}
             or telemetry.last_status == "deferred"

@@ -1346,3 +1346,69 @@ def test_saving_connections_keeps_a_blank_key_and_refuses_duplicate_names():
     )
     with pytest.raises(ValueError):
         RuntimeSettingsStore._update_llm(current, incomplete)
+
+
+async def test_each_connection_has_its_own_status_and_reopens_through_a_probe(
+    monkeypatch, isolated_health
+):
+    from investos.core.provider_health import (
+        active_connection,
+        connection_statuses,
+        probe_connection,
+    )
+
+    connection = synthetic_connection()
+    isolated_health.llm.connections = [connection]
+    token = active_connection.set(connection)
+    try:
+        key, provider = ProviderHealthStore.configuration(None, connection.model)
+        ProviderHealthStore.failed(key, provider, httpx.ReadTimeout("synthetic"))
+    finally:
+        active_connection.reset(token)
+    make_probe_due()
+
+    (status,) = connection_statuses()
+    assert status["name"] == "backup" and status["state"] == "open"
+    assert ProviderHealthStore.public_status()["state"] != "open"
+
+    models = []
+
+    async def request(**kwargs):
+        models.append(kwargs.get("model"))
+        return {"ok": True}
+
+    monkeypatch.setattr("investos.core.llm._call_nvidia_json", request)
+    probed = await probe_connection("backup")
+    assert models == ["synthetic/backup-model"]
+    assert probed["state"] in {"healthy", "recovering"}
+    assert await probe_connection("missing") is None
+
+
+async def test_the_scheduled_probe_also_reopens_open_connections(
+    monkeypatch, isolated_health
+):
+    from investos.core import provider_health
+    from investos.services import automation as module
+
+    isolated_health.llm.connections = [synthetic_connection()]
+    probed = []
+
+    async def main_probe():
+        return {"state": "healthy"}
+
+    async def fake_probe_connection(name):
+        probed.append(name)
+
+    monkeypatch.setattr(module, "probe_llm_provider", main_probe)
+    monkeypatch.setattr(
+        provider_health,
+        "connection_statuses",
+        lambda: [{"name": "backup", "state": "open"}],
+    )
+    monkeypatch.setattr(provider_health, "probe_connection", fake_probe_connection)
+    coordinator = module.AutomationCoordinator()
+    coordinator._register_job(
+        "provider_health_probe", coordinator._run_provider_health_probe, 300, True
+    )
+    await coordinator._run_provider_health_probe()
+    assert probed == ["backup"]
