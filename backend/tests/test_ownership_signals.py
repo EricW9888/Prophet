@@ -42,8 +42,11 @@ def test_ownership_signal_parses_lag_value_and_portfolio_priority():
     assert signal.portfolio_weight_pct == 25.0
     assert signal.should_surface is True
     assert signal.review_priority > 80
-    assert "Verify the disclosure" in signal.review_trigger_reason
-    assert "Do not treat it as a trade instruction" in signal.next_test
+    assert "Check whether it changes the reasons you hold or watch MEMA" in (
+        signal.review_trigger_reason
+    )
+    assert "about 25% of the portfolio" in signal.review_trigger_reason
+    assert "not a reason to trade" in signal.next_test
 
 
 def test_ownership_signal_ignores_regular_research_items():
