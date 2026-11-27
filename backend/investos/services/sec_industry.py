@@ -31,6 +31,20 @@ from investos.services.business_map import (
 
 STATE_FILE = "sec_industry_checks.json"
 RECHECK_AFTER = timedelta(days=90)
+# Entity types are free text written by the model ("company", "public_company",
+# "subsidiary", "investment_bank", ...). These words mark a company; the SEC
+# match itself still requires an exact, unambiguous registered name.
+_COMPANY_TYPE = re.compile(
+    r"compan|corporat|firm|bank|holding|subsidiar|issuer|trust|organi[sz]ation"
+)
+_NOT_A_COMPANY = re.compile(r"event|action|meeting|category|account")
+
+
+def is_company_like(entity_type: str | None) -> bool:
+    value = (entity_type or "").lower()
+    return bool(_COMPANY_TYPE.search(value)) and not _NOT_A_COMPANY.search(value)
+
+
 _SUFFIXES = re.compile(
     r"\b(inc|incorporated|corp|corporation|co|company|ltd|limited|plc|holding|holdings"
     r"|group|sa|nv|ag|se|the|class [a-z]|common stock)\b"
@@ -83,7 +97,7 @@ class SecIndustryService:
             await self.session.execute(
                 select(Entity, Security.ticker)
                 .outerjoin(Security, Security.entity_id == Entity.id)
-                .where(Entity.industry.is_(None), Entity.entity_type == "company")
+                .where(Entity.industry.is_(None))
                 .order_by(Security.ticker.is_(None), Entity.name)
             )
         ).all()
@@ -91,6 +105,8 @@ class SecIndustryService:
         tickers: dict[str, str] = {}
         entities: dict[str, Entity] = {}
         for entity, ticker in rows:
+            if not ticker and not is_company_like(entity.entity_type):
+                continue
             key = str(entity.id)
             last = checks.get(key)
             if last and now - datetime.fromisoformat(last) < RECHECK_AFTER:
