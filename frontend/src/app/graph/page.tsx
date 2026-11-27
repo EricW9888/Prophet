@@ -1426,7 +1426,7 @@ export default function GraphPage() {
               <div className="mt-5 space-y-5">
                 <div className="min-w-0 rounded-lg border border-line bg-panel-muted p-4">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-md border border-line bg-panel px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-muted">
+                    <span className="rounded-md border border-line bg-panel px-2 py-0.5 text-xs font-semibold text-muted">
                       {selectedDetail.node_type === "entity" && propertyText(selectedDetail.properties?.entity_type)
                         ? formatUserLabel(String(selectedDetail.properties.entity_type))
                         : nodeTypeLabel(selectedDetail.node_type)}
@@ -1436,7 +1436,7 @@ export default function GraphPage() {
                         {["fact", "claim"].includes(selectedDetail.node_type) && selectedDetail.properties.is_verified !== true ? "Unverified" : selectedDetail.tier?.replaceAll("_", " ")}
                       </span>
                     ) : null}
-                    <span className="rounded-md border border-slate-300 bg-white/40 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
+                    <span className="rounded-md border border-slate-300 bg-white/40 px-2 py-0.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
                       {layerLabel(selectedDetail.layer)}
                     </span>
                   </div>
