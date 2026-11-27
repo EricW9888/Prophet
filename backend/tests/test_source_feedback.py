@@ -710,9 +710,9 @@ def test_source_claim_review_copy_is_specific_and_actionable():
 
     assert "Memory Channel made the claim" in summary
     assert "HBM demand raises NAND mix" in summary
-    assert "source reliability and trust trajectory" in summary
-    assert "assess the claim as correct" in next_action
-    assert tags == ["source outcome", "strategic", "MEMB", "original claim"]
+    assert "this source's track record" in summary
+    assert "mark the claim correct" in next_action
+    assert tags == ["source track record", "strategic", "MEMB", "original claim"]
 
 
 def test_source_claim_auto_assessment_sanitizes_evidence_and_confidence():
