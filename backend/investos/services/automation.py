@@ -91,6 +91,14 @@ class JobTelemetry:
     provider_deferred: bool = False
 
 
+# What an evidence-processing outcome means, for the Activity page.
+EVIDENCE_OUTCOME_WORDS = {
+    "deferred": "Evidence is waiting for the AI provider.",
+    "knowledge_promoted": "New evidence was added to what Prophet knows.",
+    "source_text_advanced": "More of a source's text was read.",
+}
+
+
 class AutomationCoordinator:
     # Spacing between overdue jobs that catch up after a restart, so they do
     # not all start in the same instant.
@@ -263,7 +271,7 @@ class AutomationCoordinator:
                 self._log_job_action(
                     job_name=name,
                     status="deferred",
-                    summary="Model-dependent work deferred until the shared provider probe succeeds.",
+                    summary="Waiting for the AI provider. This work resumes on its own when it responds.",
                     metadata={"provider_health": health},
                 )
         return True
@@ -278,8 +286,11 @@ class AutomationCoordinator:
             job_name=job_name,
             status=status,
             summary=(
-                f"Model work deferred: {error}" if status == "deferred" else summary
+                "Waiting for the AI provider. This work resumes on its own when it responds."
+                if status == "deferred"
+                else summary
             ),
+            metadata={"detail": str(error)} if status == "deferred" else None,
         )
 
     async def _run_provider_health_probe(self):
@@ -2142,7 +2153,9 @@ class AutomationCoordinator:
                 self._log_job_action(
                     job_name="evidence_processing",
                     status=telemetry.last_status,
-                    summary=(f"Evidence work: {outcome.replace('_', ' ')}."),
+                    summary=EVIDENCE_OUTCOME_WORDS.get(
+                        outcome, f"Evidence work: {outcome.replace('_', ' ')}."
+                    ),
                     metadata={
                         "evidence_id": str(evidence.id),
                         "loop_detail": loop_detail,

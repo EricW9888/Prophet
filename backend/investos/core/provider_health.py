@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import threading
+import time
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
@@ -37,6 +38,23 @@ class LLMProviderCooldownError(RuntimeError):
 
 class LocalAdmissionTimeout(TimeoutError):
     """The request deadline expired before obtaining a local request slot."""
+
+
+class BudgetBelowObservedLatency(TimeoutError):
+    """Not sent: even the fastest recent calls took longer than this caller allows.
+
+    A caller with a short limit (an interactive helper, say) falls back when the
+    model is slower than that limit. Starting the request anyway spends a rate
+    limit slot and provider work on an answer that will be discarded.
+    """
+
+
+# Successful call durations kept per connection, and how many are needed
+# before a short-limit call may be skipped.
+LATENCY_SAMPLES = 50
+LATENCY_MIN_SAMPLES = 20
+# The fastest tenth: a limit below this almost never succeeds.
+LATENCY_FAST_QUANTILE = 0.1
 
 
 @contextmanager
@@ -133,6 +151,16 @@ class ProviderHealthRecord(BaseModel):
     last_caller_timeout_seconds: float | None = None
     admission_timeout_count: int = Field(default=0, ge=0)
     last_admission_timeout_at: AwareDatetime | None = None
+    recent_latency_seconds: list[float] = Field(default_factory=list)
+    short_limit_skip_count: int = Field(default=0, ge=0)
+    last_short_limit_skip_at: AwareDatetime | None = None
+
+    def fast_latency_seconds(self) -> float | None:
+        """How long the fastest tenth of recent successful calls took, once known."""
+        samples = sorted(self.recent_latency_seconds)
+        if len(samples) < LATENCY_MIN_SAMPLES:
+            return None
+        return samples[int(len(samples) * LATENCY_FAST_QUANTILE)]
 
     def record_admission_timeout(self, now):
         self.admission_timeout_count += 1
@@ -302,14 +330,20 @@ class ProviderHealthStore:
                 cls._write(registry)
 
     @classmethod
-    def succeeded(cls, key, provider, revision):
+    def succeeded(cls, key, provider, revision, *, latency_seconds=None):
         with cls._lock:
             registry = cls._read()
             record = registry.records.setdefault(
                 key, ProviderHealthRecord(provider=provider)
             )
+            if latency_seconds is not None and math.isfinite(latency_seconds):
+                record.recent_latency_seconds = [
+                    *record.recent_latency_seconds,
+                    round(float(latency_seconds), 2),
+                ][-LATENCY_SAMPLES:]
             # An older in-flight success cannot clear a newer failure.
             if record.revision != revision or record.state in {"open", "probing"}:
+                cls._write(registry)
                 return
             record.state = "healthy"
             record.failure_count = 0
@@ -388,6 +422,23 @@ class ProviderHealthStore:
             record.last_caller_timeout_at = datetime.now(UTC)
             record.last_caller_timeout_seconds = seconds
             cls._write(registry)
+
+    @classmethod
+    def short_limit_check(cls, key, provider, budget):
+        """Raise instead of sending when the caller's limit cannot be met."""
+        with cls._lock:
+            registry = cls._read()
+            record = registry.records.get(key)
+            fast = record.fast_latency_seconds() if record else None
+            if fast is None or budget >= fast:
+                return
+            record.short_limit_skip_count += 1
+            record.last_short_limit_skip_at = datetime.now(UTC)
+            cls._write(registry)
+        raise BudgetBelowObservedLatency(
+            f"Not sent: the fastest recent {provider} calls took about {fast:.0f}s, "
+            f"longer than this caller's {budget:.0f}s limit."
+        )
 
     @classmethod
     def admission_timed_out(cls, key, provider):
@@ -484,18 +535,21 @@ def guarded_provider_call(function):
             call_parameters.get("role"), call_parameters.get("model")
         )
         key, provider = ProviderHealthStore.configuration(provider, model)
-        revision = ProviderHealthStore.claim_work(key, provider, model)
-        owner = _recovery_owner.set((key, revision))
-        depth = _call_depth.set(1)
         supplied = call_parameters.get("timeout_seconds")
         try:
             budget = float(supplied) if not isinstance(supplied, bool) else 0.0
         except (TypeError, ValueError):
             budget = 0.0
         shared_budget = settings.LLM_TIMEOUT_SECONDS or settings.CODEX_TIMEOUT_SECONDS
+        if math.isfinite(budget) and 0 < budget < shared_budget:
+            ProviderHealthStore.short_limit_check(key, provider, budget)
+        revision = ProviderHealthStore.claim_work(key, provider, model)
+        owner = _recovery_owner.set((key, revision))
+        depth = _call_depth.set(1)
         deadline_budget = (
             budget if math.isfinite(budget) and budget > 0 else shared_budget
         )
+        started = time.monotonic()
         try:
             async with request_deadline(deadline_budget):
                 result = await function(*args, **kwargs)
@@ -516,7 +570,9 @@ def guarded_provider_call(function):
                 ProviderHealthStore.failed(key, provider, exc, revision=revision)
             raise
         else:
-            ProviderHealthStore.succeeded(key, provider, revision)
+            ProviderHealthStore.succeeded(
+                key, provider, revision, latency_seconds=time.monotonic() - started
+            )
             return result
         finally:
             try:

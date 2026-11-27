@@ -1212,6 +1212,9 @@ export type ProviderHealth = {
   last_admission_timeout_at?: string | null;
   caller_timeout_count?: number;
   last_caller_timeout_at?: string | null;
+  recent_latency_seconds?: number[];
+  short_limit_skip_count?: number;
+  last_short_limit_skip_at?: string | null;
   last_caller_timeout_seconds?: number | null;
   provider?: string;
   state: string;

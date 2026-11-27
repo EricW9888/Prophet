@@ -116,3 +116,23 @@ async def test_refresh_subject_routes_evidence_provenance_to_shadow(monkeypatch)
     retrieve_evidence.assert_awaited_once()
     run_analysis.assert_awaited_once_with(packet_id, include_critique=False)
     refresh_queue.assert_awaited_once_with()
+
+
+def test_a_simulation_says_why_it_started_in_sentences():
+    from investos.services.operating_loop import run_reason
+
+    reason = run_reason(
+        "new evidence arrived: Synthetic filing",
+        triggers=["contradiction_pressure", "accepted_state_changed"],
+        stance="no_view",
+        confidence="very_low",
+        coverage_score=0.7,
+        contradictions=2,
+    )
+    assert reason == (
+        "Started after new evidence arrived: Synthetic filing. "
+        "Why now: contradicting evidence is building, Prophet's accepted view changed. "
+        "Prophet's view: no view yet, very low confidence; 2 contradicting items; "
+        "research coverage 1 of 100."
+    )
+    assert "=" not in reason
