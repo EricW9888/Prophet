@@ -81,6 +81,8 @@ class LLMConnection(BaseModel):
     enabled: bool = True
     rate_per_minute: int = Field(default=30, ge=1, le=6000)
     max_concurrency: int = Field(default=2, ge=1, le=64)
+    # Off: only public work (public documents, no research intent) may use it.
+    private_context: bool = False
 
 
 class LLMRuntimeSettings(BaseModel):
@@ -364,6 +366,7 @@ class RuntimeSettingsStore:
                         enabled=connection.enabled,
                         rate_per_minute=connection.rate_per_minute,
                         max_concurrency=connection.max_concurrency,
+                        private_context=connection.private_context,
                         api_key_set=bool(connection.api_key),
                     )
                     for connection in runtime.llm.connections
@@ -587,6 +590,7 @@ class RuntimeSettingsStore:
                         "enabled": item.enabled,
                         "rate_per_minute": item.rate_per_minute,
                         "max_concurrency": item.max_concurrency,
+                        "private_context": item.private_context,
                     }
                 )
             data["connections"] = connections

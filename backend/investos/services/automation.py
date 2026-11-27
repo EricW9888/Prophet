@@ -343,6 +343,11 @@ class AutomationCoordinator:
             "database_backup", self._run_database_backup, 86400, settings.BACKUP_ENABLED
         )
         self._register_job("integrity_audit", self._run_integrity_audit, 3600, True)
+        # Review is rebuilt from stored state without a model, so it stays
+        # current while the AI provider is cooling down.
+        self._register_job(
+            "review_queue_refresh", self._run_review_queue_refresh, 900, True
+        )
         self._register_job(
             "market_insider_buying_refresh",
             self._run_market_insider_buying_refresh,
@@ -1470,6 +1475,20 @@ class AutomationCoordinator:
                 error=exc,
                 summary=f"Database backup failed: {exc}",
             )
+
+    async def _run_review_queue_refresh(self) -> None:
+        """Rebuild the Review queue from stored state (no model calls)."""
+        telemetry = self.telemetry["review_queue_refresh"]
+        telemetry.last_run_at = datetime.now(UTC)
+        async with async_session_maker() as session:
+            try:
+                items = await ReviewService(session).refresh_queue()
+                telemetry.last_status = "ok"
+                telemetry.detail = f"{len(items)} items need review."
+            except Exception as exc:
+                await session.rollback()
+                telemetry.last_status = "error"
+                telemetry.detail = compact_exception_message(exc)
 
     async def _run_integrity_audit(self) -> None:
         telemetry = self.telemetry["integrity_audit"]

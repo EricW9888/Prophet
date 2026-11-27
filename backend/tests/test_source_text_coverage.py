@@ -297,7 +297,7 @@ async def test_historical_investment_windows_resume_within_existing_call_budget(
     }
     seen = []
 
-    async def model(title, text):
+    async def model(title, text, *, public=False):
         seen.append(text)
         template = extraction_payload(subject_name)["fundamental_metrics"][0]
         return {
@@ -362,7 +362,7 @@ async def test_relationship_reindex_does_not_skip_the_middle(workflow_session):
     evidence, item = await source_fixture(session, document)
     calls = []
 
-    async def model(title, text):
+    async def model(title, text, *, public=False):
         calls.append(text)
         return [relationship(person, company, quote)] if quote in text else []
 

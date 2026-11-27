@@ -11,7 +11,35 @@ from investos.models.entity import Entity, Security
 from investos.models.graph import Edge
 from investos.models.knowledge import Claim, Event, Fact
 from investos.models.portfolio import Position
+from investos.services.business_map import GENERIC_MEMBERS, BusinessMapService
 from investos.services.graph_edge_state import GraphEdgeStateService
+
+# A revenue driver counts toward a peer link when it is at least this share of
+# each company's revenue (#341 part 4).
+SHARED_DRIVER_MIN_SHARE = 0.10
+# Labels that say nothing about what a company sells.
+GENERIC_DRIVERS = frozenset(
+    {
+        "product",
+        "products",
+        "service",
+        "services",
+        "productsandservices",
+        "other",
+        "others",
+        "allother",
+        "allothersegments",
+        "corporate",
+        "reportablesegment",
+        "total",
+        "unallocated",
+        "eliminations",
+    }
+)
+# Prophet's own names for a filer's generic product and service lines.
+GENERIC_DRIVERS |= {
+    re.sub(r"[^a-z0-9]", "", label.lower()) for label in GENERIC_MEMBERS.values()
+}
 
 
 class PortfolioPeerContextService:
@@ -71,6 +99,7 @@ class PortfolioPeerContextService:
                     "origin": "portfolio_peer_context",
                     "reviewed_via": "relation_review",
                     "shared_terms": exposure.get("shared_terms") or [],
+                    "shared_drivers": exposure.get("shared_drivers") or [],
                 },
             )
             links_added += 1 if created else 0
@@ -172,6 +201,20 @@ class PortfolioPeerContextService:
                 "stored knowledge overlaps on " + ", ".join(shared_terms[:6])
             )
 
+        left_drivers = dict(left.get("drivers") or {})
+        right_drivers = dict(right.get("drivers") or {})
+        shared_drivers = sorted(set(left_drivers) & set(right_drivers))
+        if shared_drivers:
+            confidence += min(0.4, 0.25 + 0.05 * (len(shared_drivers) - 1))
+            labels = dict(left.get("driver_labels") or {})
+            reasons.append(
+                "both earn a real share of revenue from "
+                + ", ".join(
+                    f"{labels.get(key, key)} ({left_drivers[key]:.0%} and {right_drivers[key]:.0%})"
+                    for key in shared_drivers[:3]
+                )
+            )
+
         if confidence < 0.24:
             return None
         source = left
@@ -191,6 +234,7 @@ class PortfolioPeerContextService:
             "relationship_type": "contextualizes",
             "confidence": round(min(confidence, 0.9), 2),
             "shared_terms": shared_terms[:8],
+            "shared_drivers": shared_drivers[:8],
             "reason": "; ".join(reasons),
             "combined_weight_pct": round(source_weight + target_weight, 2),
         }
@@ -211,6 +255,7 @@ class PortfolioPeerContextService:
             if item
         )
         snippets = await self._knowledge_snippets(security=security, entity=entity)
+        drivers, driver_labels = await self._revenue_drivers(entity.id)
         return {
             "position_id": str(position.id),
             "entity_id": str(entity.id),
@@ -225,7 +270,33 @@ class PortfolioPeerContextService:
             "knowledge_terms": self._meaningful_terms(
                 f"{base_text} {' '.join(snippets)}"
             ),
+            "drivers": drivers,
+            "driver_labels": driver_labels,
         }
+
+    async def _revenue_drivers(
+        self, entity_id: UUID
+    ) -> tuple[dict[str, float], dict[str, str]]:
+        """Segments and products carrying a real share of revenue, by normalized label."""
+        business_map = await BusinessMapService(self.session).latest_map(entity_id)
+        drivers: dict[str, float] = {}
+        labels: dict[str, str] = {}
+        for driver in (business_map or {}).get("drivers", []):
+            if driver["kind"] not in ("segment", "product"):
+                continue
+            key = self.driver_key(driver["label"])
+            share = float(driver["share"] or 0.0)
+            if not key or key in GENERIC_DRIVERS or share < SHARED_DRIVER_MIN_SHARE:
+                continue
+            if share > drivers.get(key, 0.0):
+                drivers[key] = share
+                labels[key] = driver["label"]
+        return drivers, labels
+
+    @staticmethod
+    def driver_key(label: str) -> str:
+        """'Data Center', 'Datacenter' and 'data-center' are one driver."""
+        return re.sub(r"[^a-z0-9]", "", (label or "").lower())
 
     async def _knowledge_snippets(
         self, *, security: Security, entity: Entity, limit: int = 8

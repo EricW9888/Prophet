@@ -101,3 +101,37 @@ def test_status_after_a_restart_shows_the_recorded_last_run(monkeypatch, tmp_pat
     # Before the fix Status read "Not run yet" for a backup that ran 22 hours ago.
     assert restarted.telemetry["database_backup"].last_run_at == finished
     assert restarted.telemetry["integrity_audit"].last_run_at is None
+
+
+async def test_review_queue_rebuilds_on_its_own_schedule_without_a_model(
+    monkeypatch, tmp_path
+):
+    from contextlib import asynccontextmanager
+
+    from investos.services import automation as module
+
+    coordinator = _coordinator(monkeypatch, tmp_path)
+    coordinator._register_job(
+        "review_queue_refresh", coordinator._run_review_queue_refresh, 900, True
+    )
+
+    calls = []
+
+    class FakeReview:
+        def __init__(self, session):
+            pass
+
+        async def refresh_queue(self):
+            calls.append(True)
+            return [object(), object(), object()]
+
+    @asynccontextmanager
+    async def fake_session():
+        yield Mock()
+
+    monkeypatch.setattr(module, "ReviewService", FakeReview)
+    monkeypatch.setattr(module, "async_session_maker", fake_session)
+    await coordinator._run_review_queue_refresh()
+    telemetry = coordinator.telemetry["review_queue_refresh"]
+    assert calls == [True]
+    assert telemetry.last_status == "ok" and telemetry.detail == "3 items need review."

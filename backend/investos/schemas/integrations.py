@@ -170,6 +170,7 @@ class LLMConnectionView(BaseModel):
     enabled: bool = True
     rate_per_minute: int = 30
     max_concurrency: int = 2
+    private_context: bool = False
     api_key_set: bool = False
 
 
@@ -183,6 +184,7 @@ class LLMConnectionUpdate(BaseModel):
     enabled: bool = True
     rate_per_minute: int = Field(default=30, ge=1, le=6000)
     max_concurrency: int = Field(default=2, ge=1, le=64)
+    private_context: bool = False
     # Blank keeps the saved key for a connection with the same name.
     api_key: str | None = None
 

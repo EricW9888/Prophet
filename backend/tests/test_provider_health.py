@@ -1243,7 +1243,9 @@ async def test_successful_calls_record_their_latency_and_too_few_never_skip(
     assert len(latencies) == 6 and latencies[-1] < 5
 
 
-def synthetic_connection(name="backup", roles=("chat", "bulk", "planning")):
+def synthetic_connection(
+    name="backup", roles=("chat", "bulk", "planning"), private_context=True
+):
     from investos.services.runtime_settings import LLMConnection
 
     return LLMConnection(
@@ -1252,6 +1254,7 @@ def synthetic_connection(name="backup", roles=("chat", "bulk", "planning")):
         model=f"synthetic/{name}-model",
         api_key=f"synthetic-{name}-key",
         roles=list(roles),
+        private_context=private_context,
     )
 
 
@@ -1412,3 +1415,55 @@ async def test_the_scheduled_probe_also_reopens_open_connections(
     )
     await coordinator._run_provider_health_probe()
     assert probed == ["backup"]
+
+
+async def test_a_connection_without_private_context_only_takes_public_work(
+    monkeypatch, isolated_health
+):
+    open_health()
+    from investos.services.runtime_settings import LLMConnection
+
+    assert (
+        LLMConnection(name="n", base_url="https://x", model="m").private_context
+        is False
+    )
+    connection = synthetic_connection(private_context=False)
+    isolated_health.llm.connections = [connection]
+    request = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr("investos.core.llm._call_nvidia_json", request)
+
+    with pytest.raises(LLMProviderCooldownError):
+        await call_llm_json("system", "user", {"type": "object"}, role="bulk")
+    request.assert_not_awaited()
+    assert await call_llm_json(
+        "system", "user", {"type": "object"}, role="bulk", public=True
+    ) == {"ok": True}
+
+    connection.private_context = True
+    assert await call_llm_json("system", "user", {"type": "object"}) == {"ok": True}
+
+
+async def test_extraction_is_public_only_for_public_sources_without_research_intent(
+    monkeypatch,
+):
+    from investos.workers import extraction
+    from investos.workers.extraction import PUBLIC_SOURCE_TYPES, ExtractionWorker
+
+    assert {"email", "manual"}.isdisjoint(PUBLIC_SOURCE_TYPES)
+    assert {"news", "filing", "official"} <= PUBLIC_SOURCE_TYPES
+    seen = []
+
+    async def fake_call(**kwargs):
+        seen.append(kwargs.get("public"))
+        raise RuntimeError("stop after recording")
+
+    monkeypatch.setattr(extraction, "call_llm_json", fake_call)
+    worker = ExtractionWorker.__new__(ExtractionWorker)
+    for context in ({}, {"subject_name": "Synthetic Co"}):
+        try:
+            await worker._extract_structured_data(
+                "Synthetic title", "Synthetic text", target_context=context, public=True
+            )
+        except Exception:
+            pass
+    assert seen == [True, False]
