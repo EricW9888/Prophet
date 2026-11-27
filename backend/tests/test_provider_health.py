@@ -1161,3 +1161,37 @@ async def test_mixed_foreground_and_unattended_work_survives_a_short_http_read_d
         await server.wait_closed()
         if handlers:
             await asyncio.gather(*handlers)
+
+
+async def test_a_kind_of_work_uses_its_own_model_with_its_own_health(
+    monkeypatch, isolated_health
+):
+    from investos.core.provider_health import model_for_role
+
+    calls = []
+
+    async def request(**kwargs):
+        calls.append(kwargs.get("model"))
+        return {"ok": True}
+
+    monkeypatch.setattr("investos.core.llm._call_nvidia_json", request)
+    # Blank settings: every kind of work uses the main model, as before.
+    await call_llm_json("system", "user", {"type": "object"}, role="chat")
+    assert calls == [None]
+
+    isolated_health.llm.chat_model = "synthetic/fast-model"
+    await call_llm_json("system", "user", {"type": "object"}, role="chat")
+    await call_llm_json("system", "user", {"type": "object"}, role="bulk")
+    await call_llm_json(
+        "system", "user", {"type": "object"}, role="chat", model="explicit/model"
+    )
+    assert calls[1:] == ["synthetic/fast-model", None, "explicit/model"]
+    assert model_for_role("planning") is None
+
+    # The fast model's circuit is separate: its failure leaves the main model open.
+    fast_key, provider = ProviderHealthStore.configuration(None, "synthetic/fast-model")
+    main_key, _ = ProviderHealthStore.configuration()
+    assert fast_key != main_key
+    ProviderHealthStore.failed(fast_key, provider, httpx.ReadTimeout("synthetic"))
+    await call_llm_json("system", "user", {"type": "object"}, role="bulk")
+    assert calls[-1] is None

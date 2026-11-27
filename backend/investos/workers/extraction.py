@@ -1592,6 +1592,7 @@ class ExtractionWorker:
     ) -> list[dict]:
         """The same source-binding contract for a retained-source repair pass."""
         result = await call_llm_json(
+            role="bulk",
             system_prompt=SOURCE_RELATIONSHIP_INSTRUCTIONS,
             user_prompt=f"Evidence title: {title}\n\nEvidence text:\n{text_content}",
             schema={
@@ -2025,6 +2026,7 @@ class ExtractionWorker:
             f"Evidence text:\n{text_content}"
         )
         extracted = await call_llm_json(
+            role="bulk",
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             schema=EXTRACTION_SCHEMA,
@@ -2100,6 +2102,7 @@ class ExtractionWorker:
         keeping the write boundary in the backfill service.
         """
         extracted = await call_llm_json(
+            role="bulk",
             system_prompt=(
                 self._structured_extraction_system_prompt()
                 + " For this historical reindexing pass, return only fundamental_metrics "

@@ -454,6 +454,22 @@ class ProviderHealthStore:
             cls._write(registry)
 
 
+# Kinds of work that may use their own model on the current provider (#299).
+# "chat": short interactive steps; "bulk": reading documents. Anything else, or
+# a blank setting, uses the main model.
+MODEL_ROLES = ("chat", "bulk")
+
+
+def model_for_role(role: str | None, model: str | None = None) -> str | None:
+    """An explicit model wins; otherwise the role's configured model, if any."""
+    if model or role not in MODEL_ROLES:
+        return model
+    from investos.services.runtime_settings import RuntimeSettingsStore
+
+    runtime = RuntimeSettingsStore.load().llm
+    return (getattr(runtime, f"{role}_model", "") or "").strip() or None
+
+
 def guarded_provider_call(function):
     parameters = signature(function)
 
@@ -463,7 +479,10 @@ def guarded_provider_call(function):
             return await function(*args, **kwargs)
         call_parameters = parameters.bind_partial(*args, **kwargs).arguments
         provider = call_parameters.get("provider_override")
-        model = call_parameters.get("model")
+        # The role decides the model, and the model decides which circuit applies.
+        model = model_for_role(
+            call_parameters.get("role"), call_parameters.get("model")
+        )
         key, provider = ProviderHealthStore.configuration(provider, model)
         revision = ProviderHealthStore.claim_work(key, provider, model)
         owner = _recovery_owner.set((key, revision))

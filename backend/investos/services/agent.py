@@ -2013,6 +2013,7 @@ class AgentService:
                     "required": ["insight"],
                 },
                 timeout_seconds=5,
+                role="chat",
             )
             return result.get("insight")
         except Exception as exc:
@@ -2103,6 +2104,7 @@ class AgentService:
                 ),
                 schema=dispatch_schema,
                 timeout_seconds=5,
+                role="chat",
             )
 
             analysis_lenses = dispatch_result.get("analysis_lenses") or []
@@ -4444,6 +4446,7 @@ class AgentService:
                     user_prompt=json.dumps({"message": message}, ensure_ascii=True),
                     schema=SUBJECT_HINT_SCHEMA,
                     timeout_seconds=3,
+                    role="chat",
                 ),
                 timeout=3,
             )
@@ -4575,6 +4578,7 @@ class AgentService:
                         user_prompt=prompt_payload,
                         schema=CONVERSATIONAL_HANDOFF_SCHEMA,
                         timeout_seconds=3,
+                        role="chat",
                     ),
                     timeout=3,
                 )
@@ -4650,6 +4654,7 @@ class AgentService:
                 user_prompt=message,
                 tools=AGENT_TOOLS,
                 timeout_seconds=5,
+                role="chat",
             )
         except Exception as e:
             # Fallback for providers that don't support tool calling yet
@@ -6286,6 +6291,7 @@ class AgentService:
                 user_prompt=json.dumps(payload, ensure_ascii=True, default=str),
                 schema=FRESH_RESEARCH_QUERY_SCHEMA,
                 timeout_seconds=5,
+                role="chat",
             )
         except Exception:
             return {
@@ -6898,6 +6904,7 @@ class AgentService:
                     ),
                     schema=AUTO_RESEARCH_SCHEMA,
                     timeout_seconds=4,
+                    role="chat",
                 ),
                 timeout=4,
             )
