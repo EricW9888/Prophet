@@ -1321,6 +1321,7 @@ export type IntegrationSettings = {
     vision_model?: string;
     chat_model?: string;
     bulk_model?: string;
+    connections?: import("@/components/ModelConnections").ModelConnection[];
     available_providers: Array<{
       provider: string;
       label: string;

@@ -1241,3 +1241,108 @@ async def test_successful_calls_record_their_latency_and_too_few_never_skip(
     await call_llm_json("system", "user", {"type": "object"}, timeout_seconds=3)
     latencies = ProviderHealthStore.read().recent_latency_seconds
     assert len(latencies) == 6 and latencies[-1] < 5
+
+
+def synthetic_connection(name="backup", roles=("chat", "bulk", "planning")):
+    from investos.services.runtime_settings import LLMConnection
+
+    return LLMConnection(
+        name=name,
+        base_url=f"https://{name}.example.test/v1",
+        model=f"synthetic/{name}-model",
+        api_key=f"synthetic-{name}-key",
+        roles=list(roles),
+    )
+
+
+async def test_work_fails_over_to_a_connection_when_the_main_provider_cools_down(
+    monkeypatch, isolated_health
+):
+    from investos.core.provider_health import active_connection, hosted_runtime
+    from investos.services.runtime_settings import RuntimeSettingsStore
+
+    open_health()
+    isolated_health.llm.connections = [synthetic_connection()]
+    seen = []
+
+    async def request(**kwargs):
+        runtime = hosted_runtime(RuntimeSettingsStore.load().llm)
+        seen.append((kwargs.get("model"), runtime.hosted_base_url, runtime.api_key))
+        return {"ok": True}
+
+    monkeypatch.setattr("investos.core.llm._call_nvidia_json", request)
+    assert await call_llm_json("system", "user", {"type": "object"}) == {"ok": True}
+    assert seen == [
+        (
+            "synthetic/backup-model",
+            "https://backup.example.test/v1",
+            "synthetic-backup-key",
+        )
+    ]
+    assert active_connection.get() is None
+    # The connection has its own circuit; the main one is still open.
+    main_key, _ = ProviderHealthStore.configuration()
+    token = active_connection.set(isolated_health.llm.connections[0])
+    try:
+        backup_key, _ = ProviderHealthStore.configuration(
+            None, "synthetic/backup-model"
+        )
+    finally:
+        active_connection.reset(token)
+    assert backup_key != main_key
+    assert ProviderHealthStore.read().state == "open"
+
+
+async def test_a_connection_only_takes_the_kinds_of_work_it_lists(
+    monkeypatch, isolated_health
+):
+    open_health()
+    isolated_health.llm.connections = [synthetic_connection(roles=("bulk",))]
+    request = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr("investos.core.llm._call_nvidia_json", request)
+
+    with pytest.raises(LLMProviderCooldownError):
+        await call_llm_json("system", "user", {"type": "object"}, role="chat")
+    request.assert_not_awaited()
+    assert await call_llm_json("system", "user", {"type": "object"}, role="bulk") == {
+        "ok": True
+    }
+
+
+def test_saving_connections_keeps_a_blank_key_and_refuses_duplicate_names():
+    from investos.schemas.integrations import (
+        LLMConnectionUpdate,
+        LLMIntegrationSettingsUpdate,
+    )
+    from investos.services.runtime_settings import (
+        LLMRuntimeSettings,
+        RuntimeSettingsStore,
+    )
+
+    current = LLMRuntimeSettings(connections=[synthetic_connection()])
+    update = LLMIntegrationSettingsUpdate(
+        connections=[
+            LLMConnectionUpdate(
+                name="backup",
+                base_url="https://backup.example.test/v1/",
+                model="synthetic/other",
+                api_key="",
+            )
+        ]
+    )
+    saved = RuntimeSettingsStore._update_llm(current, update)
+    assert saved.connections[0].api_key == "synthetic-backup-key"
+    assert saved.connections[0].base_url == "https://backup.example.test/v1"
+    duplicate = LLMIntegrationSettingsUpdate(
+        connections=[
+            LLMConnectionUpdate(name="x", base_url="https://a", model="m"),
+            LLMConnectionUpdate(name="x", base_url="https://b", model="m"),
+        ]
+    )
+    with pytest.raises(ValueError):
+        RuntimeSettingsStore._update_llm(current, duplicate)
+    incomplete = LLMIntegrationSettingsUpdate(
+        connections=[LLMConnectionUpdate(name="blank", base_url="", model="")]
+    )
+    with pytest.raises(ValueError):
+        RuntimeSettingsStore._update_llm(current, incomplete)

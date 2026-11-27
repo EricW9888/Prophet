@@ -26,6 +26,7 @@ from investos.schemas.integrations import (
     GmailIntegrationSettingsUpdate,
     IntegrationSettingsResponse,
     IntegrationSettingsUpdate,
+    LLMConnectionView,
     LLMIntegrationSettings,
     LLMIntegrationSettingsUpdate,
     MarketDataIntegrationSettings,
@@ -63,6 +64,25 @@ class GmailRuntimeSettings(GmailIntegrationSettings):
     password: str | None = None
 
 
+class LLMConnection(BaseModel):
+    """An extra OpenAI-compatible model connection (#299).
+
+    Work fails over to it, in list order, when the main provider is cooling
+    down or rate-limited, for the kinds of work listed in ``roles``.
+    """
+
+    name: str
+    base_url: str
+    model: str
+    api_key: str | None = None
+    roles: list[Literal["chat", "bulk", "planning"]] = Field(
+        default_factory=lambda: ["chat", "bulk", "planning"]
+    )
+    enabled: bool = True
+    rate_per_minute: int = Field(default=30, ge=1, le=6000)
+    max_concurrency: int = Field(default=2, ge=1, le=64)
+
+
 class LLMRuntimeSettings(BaseModel):
     provider: str = settings.LLM_PROVIDER
     hosted_base_url: str = settings.NVIDIA_BASE_URL
@@ -72,6 +92,7 @@ class LLMRuntimeSettings(BaseModel):
     chat_model: str = ""
     bulk_model: str = ""
     api_key: str | None = settings.NVIDIA_API_KEY
+    connections: list[LLMConnection] = Field(default_factory=list)
 
 
 class ResearchRuntimeSettings(BaseModel):
@@ -334,6 +355,19 @@ class RuntimeSettingsStore:
                 vision_model=runtime.llm.vision_model,
                 chat_model=runtime.llm.chat_model,
                 bulk_model=runtime.llm.bulk_model,
+                connections=[
+                    LLMConnectionView(
+                        name=connection.name,
+                        base_url=connection.base_url,
+                        model=connection.model,
+                        roles=list(connection.roles),
+                        enabled=connection.enabled,
+                        rate_per_minute=connection.rate_per_minute,
+                        max_concurrency=connection.max_concurrency,
+                        api_key_set=bool(connection.api_key),
+                    )
+                    for connection in runtime.llm.connections
+                ],
                 available_providers=[
                     capability.public_dict()
                     for capability in selectable_llm_providers(
@@ -521,6 +555,41 @@ class RuntimeSettingsStore:
             data["chat_model"] = update.chat_model.strip()
         if update.bulk_model is not None:
             data["bulk_model"] = update.bulk_model.strip()
+        if update.connections is not None:
+            existing = {c.name: c for c in current.connections}
+            names = set()
+            connections = []
+            for item in update.connections:
+                name = item.name.strip()
+                if not name or name in names:
+                    raise ValueError("Each model connection needs a unique name.")
+                names.add(name)
+                base_url = item.base_url.strip().rstrip("/")
+                if (
+                    not base_url.startswith(("https://", "http://"))
+                    or not item.model.strip()
+                ):
+                    raise ValueError(
+                        f"Model connection {name!r} needs a base URL starting with "
+                        "https:// and a model name."
+                    )
+                previous = existing.get(name)
+                key = (item.api_key or "").strip() or (
+                    previous.api_key if previous else None
+                )
+                connections.append(
+                    {
+                        "name": name,
+                        "base_url": item.base_url.strip().rstrip("/"),
+                        "model": item.model.strip(),
+                        "api_key": key,
+                        "roles": item.roles,
+                        "enabled": item.enabled,
+                        "rate_per_minute": item.rate_per_minute,
+                        "max_concurrency": item.max_concurrency,
+                    }
+                )
+            data["connections"] = connections
         if update.api_key is not None:
             data["api_key"] = update.api_key.strip() or current.api_key
         return LLMRuntimeSettings.model_validate(data)

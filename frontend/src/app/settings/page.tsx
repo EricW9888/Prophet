@@ -29,6 +29,7 @@ import {
 import { ArrowRight, Clock, Database, Landmark, Zap, Search, Shield, SlidersHorizontal, Trash2, CheckCircle2, AlertCircle, Terminal } from "lucide-react";
 import LiveLogConsole from "@/components/LiveLogConsole";
 import MailboxIdentityReviews from "@/components/MailboxIdentityReviews";
+import ModelConnections from "@/components/ModelConnections";
 import { automationJobPresentation } from "@/lib/automation";
 
 type SettingsTab = "general" | "data" | "research" | "status" | "system";
@@ -986,6 +987,9 @@ export default function SettingsPage() {
                     </>
                   ) : null}
                 </div>
+                {settings.llm.provider === "nvidia_nim" ? (
+                  <ModelConnections value={settings.llm.connections ?? []} onChange={(connections) => updateSettings(c => ({ ...c, llm: { ...c.llm, connections }}))} />
+                ) : null}
               </section>
             </div>
           )}
