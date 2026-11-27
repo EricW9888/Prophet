@@ -338,6 +338,7 @@ export type GraphWebEdge = {
   portfolio_peer_basis?: string | null;
   supporting_claim_id?: string | null;
   supporting_claim_verified?: boolean | null;
+  shared_evidence_count?: number | null;
   id: string;
   source_key: string;
   target_key: string;

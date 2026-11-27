@@ -8,7 +8,7 @@ from itertools import zip_longest
 from typing import Any, Literal
 from uuid import UUID
 
-from sqlalchemy import column, desc, func, or_, select, true, tuple_, values
+from sqlalchemy import case, column, desc, func, or_, select, true, tuple_, values
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
@@ -64,6 +64,10 @@ PORTFOLIO_WEB_SEED_LIMIT = 40
 EXPANDED_WEB_SEED_LIMIT = 100
 WEB_NEIGHBORHOOD_DEPTH = 2
 WEB_NEIGHBORHOOD_LIMIT = 20
+# Companies named together in at least this many stored facts, claims or events
+# are linked on the map, keeping each company's strongest links (six degrees).
+SHARED_EVIDENCE_MIN_ITEMS = 1
+SHARED_EVIDENCE_LINKS_PER_SUBJECT = 6
 EXPLICIT_NODE_EDGE_LIMIT = 40
 CLAIM_ENDPOINT_ROLES = ("relationship_subject", "relationship_object")
 
@@ -771,14 +775,41 @@ class GraphService:
 
         candidates: list[tuple[int, datetime, str, object]] = []
         normalized_search = search.casefold()
+        # A ticker finds its company.
+        for entity in (
+            await self.session.scalars(
+                select(Entity)
+                .join(Security, Security.entity_id == Entity.id)
+                .where(func.upper(Security.ticker) == search.upper())
+            )
+        ).all():
+            candidates.append(
+                (
+                    -1,
+                    getattr(entity, "created_at", None)
+                    or datetime.min.replace(tzinfo=UTC),
+                    "entity",
+                    entity,
+                )
+            )
         for node_type, model, text_fields, filters in definitions:
             statement = select(model).where(
                 or_(*(field.ilike(pattern) for field in text_fields)),
                 *filters,
             )
+            # Exact, then prefix, then contained matches of the main text come
+            # first; a per-type limit must not cut the best match for newer ones.
+            main = text_fields[0]
+            match_quality = case(
+                (func.lower(main) == normalized_search, 0),
+                (main.ilike(f"{search}%"), 1),
+                (main.ilike(pattern), 2),
+                else_=3,
+            )
             created_at = getattr(model, "created_at", None)
-            if created_at is not None:
-                statement = statement.order_by(desc(created_at))
+            statement = statement.order_by(
+                match_quality, *((desc(created_at),) if created_at is not None else ())
+            )
             rows = (
                 (await self.session.execute(statement.limit(capped_limit)))
                 .scalars()
@@ -806,7 +837,18 @@ class GraphService:
                     )
                 )
 
-        candidates.sort(key=lambda item: (item[0], -item[1].timestamp()))
+        # Subjects (companies, themes) lead at equal match quality.
+        # Then the closest match: the shortest label ("Tesla, Inc." before
+        # "Tesla Energy Storage Business").
+        subject_first = {"entity": 0, "theme": 1}
+        candidates.sort(
+            key=lambda item: (
+                item[0],
+                subject_first.get(item[2], 2),
+                len(self._node_label(item[2], item[3]) or ""),
+                -item[1].timestamp(),
+            )
+        )
         results: list[GraphSearchResultResponse] = []
         seen: set[str] = set()
         for _rank, created_at, node_type, node in candidates:
@@ -976,16 +1018,16 @@ class GraphService:
             else None
         )
         seeds: list[tuple[str, UUID]] = []
-        if not expanded:
-            if portfolio_profile:
-                seeds.append(("portfolio", portfolio_profile.subject_id))
-            holding_ids = await self.session.scalars(
-                select(Position.id)
-                .where(Position.list_type == "holding")
-                .order_by(Position.id)
-                .limit(PORTFOLIO_WEB_SEED_LIMIT)
-            )
-            seeds.extend(("position", holding_id) for holding_id in holding_ids)
+        # Holdings are always part of the map; "everything" adds to them.
+        if portfolio_profile:
+            seeds.append(("portfolio", portfolio_profile.subject_id))
+        holding_ids = await self.session.scalars(
+            select(Position.id)
+            .where(Position.list_type == "holding")
+            .order_by(Position.id)
+            .limit(PORTFOLIO_WEB_SEED_LIMIT)
+        )
+        seeds.extend(("position", holding_id) for holding_id in holding_ids)
         seed_limit = EXPANDED_WEB_SEED_LIMIT if expanded else PORTFOLIO_WEB_SEED_LIMIT
         seeds.extend(
             (profile.subject_type, profile.subject_id)
@@ -1050,6 +1092,7 @@ class GraphService:
             node.is_root = node.key == root_key
         edge_projection = OrderedDict((edge.id, edge) for edge in edges.values())
         await self._project_source_relationships(nodes, edge_projection, reads=reads)
+        await self._project_shared_evidence(nodes, edge_projection)
         await self._attach_layouts(nodes)
         return GraphNeighborhoodResponse(
             root_key=root_key,
@@ -1057,6 +1100,81 @@ class GraphService:
             nodes=list(nodes.values()),
             edges=list(edge_projection.values()),
         )
+
+    async def _project_shared_evidence(
+        self,
+        nodes: dict[str, GraphWebNodeResponse],
+        edges: dict[UUID, GraphWebEdgeResponse],
+    ) -> list[GraphWebEdgeResponse]:
+        """Link companies on the map that stored evidence names together.
+
+        A fact, claim or event about two companies connects them. Pairs sharing
+        at least SHARED_EVIDENCE_MIN_ITEMS items are linked, each company
+        keeping its strongest SHARED_EVIDENCE_LINKS_PER_SUBJECT links. Like
+        claim projections, nothing is stored: the link exists while the
+        evidence does.
+        """
+        by_id = {
+            str(node.id): key
+            for key, node in nodes.items()
+            if node.node_type == "entity"
+        }
+        if len(by_id) < 2:
+            return []
+        ids = [UUID(value) for value in by_id]
+        first, second = aliased(Edge), aliased(Edge)
+        evidence_types = ("fact", "claim", "event")
+        shared = func.count(func.distinct(first.source_id)).label("shared")
+        rows = (
+            await self.session.execute(
+                select(first.target_id, second.target_id, shared)
+                .join(
+                    second,
+                    (second.source_type == first.source_type)
+                    & (second.source_id == first.source_id),
+                )
+                .where(
+                    first.source_type.in_(evidence_types),
+                    first.target_type == "entity",
+                    second.target_type == "entity",
+                    first.target_id.in_(ids),
+                    second.target_id.in_(ids),
+                    first.target_id < second.target_id,
+                )
+                .group_by(first.target_id, second.target_id)
+                .having(shared >= SHARED_EVIDENCE_MIN_ITEMS)
+                .order_by(desc(shared))
+            )
+        ).all()
+        kept: dict[str, int] = {}
+        projected = []
+        for left, right, count in rows:
+            left_key, right_key = by_id[str(left)], by_id[str(right)]
+            if (
+                kept.get(left_key, 0) >= SHARED_EVIDENCE_LINKS_PER_SUBJECT
+                or kept.get(right_key, 0) >= SHARED_EVIDENCE_LINKS_PER_SUBJECT
+            ):
+                continue
+            kept[left_key] = kept.get(left_key, 0) + 1
+            kept[right_key] = kept.get(right_key, 0) + 1
+            edge_id = self._synthetic_edge_id(
+                source_type="entity",
+                source_id=left,
+                target_type="entity",
+                target_id=right,
+                relationship_type="mentioned_together",
+            )
+            edge = GraphWebEdgeResponse(
+                id=edge_id,
+                source_key=left_key,
+                target_key=right_key,
+                relationship_type="mentioned_together",
+                confidence=min(1.0, count / 10),
+                shared_evidence_count=int(count),
+            )
+            edges[edge_id] = edge
+            projected.append(edge)
+        return projected
 
     async def _project_source_relationships(
         self,
