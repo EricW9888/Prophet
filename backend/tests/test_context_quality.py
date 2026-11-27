@@ -2596,3 +2596,35 @@ def test_shadow_review_tags_do_not_render_priced_in_analysis_as_a_tag():
         "catalyst nearby",
     ]
     assert assessment not in tags
+
+
+def test_holdings_earning_revenue_from_the_same_driver_are_peers():
+    def descriptor(n, drivers, labels):
+        return {
+            "entity_id": f"00000000-0000-0000-0000-00000000000{n}",
+            "ticker": f"SYN{n}",
+            "name": f"Synthetic {n}",
+            "sector": f"Sector {n}",
+            "industry": f"Industry {n}",
+            "name_terms": [],
+            "knowledge_terms": [],
+            "weight_pct": 5.0,
+            "drivers": drivers,
+            "driver_labels": labels,
+        }
+
+    left = descriptor(1, {"datacenter": 0.6}, {"datacenter": "Data Center"})
+    right = descriptor(2, {"datacenter": 0.3}, {"datacenter": "Datacenter"})
+    (pair,) = PortfolioPeerContextService.score_descriptors([left, right])
+    assert pair["shared_drivers"] == ["datacenter"]
+    assert "Data Center (60% and 30%)" in pair["reason"]
+
+    unrelated = descriptor(3, {"gaming": 0.5}, {"gaming": "Gaming"})
+    assert PortfolioPeerContextService.score_descriptors([left, unrelated]) == []
+    assert PortfolioPeerContextService.driver_key("Data-center") == "datacenter"
+    generic = descriptor(4, {}, {})
+    generic_peer = descriptor(5, {}, {})
+    from investos.services.portfolio_peers import GENERIC_DRIVERS
+
+    assert {"allproducts", "allservices", "other"} <= GENERIC_DRIVERS
+    assert PortfolioPeerContextService.score_descriptors([generic, generic_peer]) == []
