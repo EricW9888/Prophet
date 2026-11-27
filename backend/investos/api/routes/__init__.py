@@ -4,6 +4,7 @@ from .activity import router as activity_router
 from .agent import router as agent_router
 from .automation import router as automation_router
 from .benchmark import router as benchmark_router
+from .business_map import router as business_map_router
 from .chat import router as chat_router
 from .dashboard import router as dashboard_router
 from .decision import router as decision_router
@@ -33,6 +34,7 @@ from .watcher import router as watcher_router
 api_router = APIRouter()
 api_router.include_router(news_intake_router)
 api_router.include_router(portfolio_router)
+api_router.include_router(business_map_router)
 api_router.include_router(ingestion_router)
 api_router.include_router(timeline_router)
 api_router.include_router(chat_router)

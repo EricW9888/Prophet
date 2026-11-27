@@ -38,6 +38,7 @@ from investos.services.artifact_hygiene import (
     is_artifact_subject_name,
 )
 from investos.services.brokerage import BrokerageService
+from investos.services.business_map import BusinessMapService
 from investos.services.canonical_state import CanonicalStateService
 from investos.services.database_backup import DatabaseBackupService
 from investos.services.entity_hygiene import EntityHygieneService
@@ -322,6 +323,12 @@ class AutomationCoordinator:
             "database_backup", self._run_database_backup, 86400, settings.BACKUP_ENABLED
         )
         self._register_job("integrity_audit", self._run_integrity_audit, 3600, True)
+        self._register_job(
+            "business_map_refresh",
+            self._run_business_map_refresh,
+            86400,
+            settings.BUSINESS_MAP_ENABLED,
+        )
         self._register_job(
             "news_intake",
             self._run_news_intake,
@@ -1614,6 +1621,27 @@ class AutomationCoordinator:
                     error=exc,
                     summary=f"Theme hygiene failed: {exc}",
                 )
+
+    async def _run_business_map_refresh(self) -> None:
+        """Map companies' revenue drivers from their latest annual reports."""
+        telemetry = self.telemetry["business_map_refresh"]
+        telemetry.last_run_at = datetime.now(UTC)
+        async with async_session_maker() as session:
+            try:
+                outcomes = await BusinessMapService(session).refresh(
+                    limit=settings.BUSINESS_MAP_BATCH_SIZE
+                )
+                telemetry.last_status = "ok"
+                telemetry.detail = (
+                    " ".join(
+                        f"{key}={value}" for key, value in sorted(outcomes.items())
+                    )
+                    or "nothing_due"
+                )
+            except Exception as exc:
+                await session.rollback()
+                telemetry.last_status = "error"
+                telemetry.detail = compact_exception_message(exc)
 
     async def _run_media_cleanup(self) -> None:
         telemetry = self.telemetry["media_cleanup"]
