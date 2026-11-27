@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     INSIDER_FILINGS_ENABLED: bool = True
     MARKET_INSIDER_BUYING_ENABLED: bool = True
     MARKET_INSIDER_BUYING_MIN_VALUE: float = 100_000
+    ARK_TRADES_ENABLED: bool = True
     BUSINESS_MAP_BATCH_SIZE: int = 12
     BACKUP_DIR: str = str(PROJECT_ROOT / "backups")
     BACKUP_KEEP_COUNT: int = 7

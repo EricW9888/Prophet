@@ -179,6 +179,7 @@ async def fetch_public_document(
     max_redirects: int = 5,
     max_bytes: int = 2 * 1024 * 1024,
     max_pdf_bytes: int | None = None,
+    allow_binary_text: bool = False,
     allowed_ports: set[int] | frozenset[int] = frozenset({80, 443}),
     resolver: Resolver | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
@@ -251,7 +252,12 @@ async def fetch_public_document(
                         or "json" in content_type
                         or "xml" in content_type
                     )
-                    if not allowed_content and not pdf_response:
+                    # Some publishers serve plain CSV or text as a generic binary type.
+                    # A caller may accept it when the bytes turn out to be text.
+                    binary_text = (
+                        allow_binary_text and content_type == "application/octet-stream"
+                    )
+                    if not allowed_content and not pdf_response and not binary_text:
                         raise UrlFetchNetworkError(
                             "The URL did not return a supported text document."
                         )
@@ -276,13 +282,26 @@ async def fetch_public_document(
                             )
                         if (
                             content_type == "application/octet-stream"
+                            and not binary_text
                             and len(body) >= 1024
                             and b"%PDF-" not in body[:1024]
                         ):
                             raise UrlFetchNetworkError(
                                 "The URL did not return a supported document."
                             )
-                    if content_type == "application/octet-stream":
+                    if binary_text and b"%PDF-" not in body[:1024]:
+                        if b"\x00" in body:
+                            raise UrlFetchNetworkError(
+                                "The URL did not return a supported document."
+                            )
+                        try:
+                            bytes(body).decode("utf-8")
+                        except UnicodeDecodeError as exc:
+                            raise UrlFetchNetworkError(
+                                "The URL did not return a supported document."
+                            ) from exc
+                        content_type = "text/plain"
+                    elif content_type == "application/octet-stream":
                         if b"%PDF-" not in body[:1024]:
                             raise UrlFetchNetworkError(
                                 "The URL did not return a supported document."
