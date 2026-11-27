@@ -108,6 +108,16 @@ _NAME_ABBREVIATIONS = {
 } | {"qoq": "QoQ", "yoy": "YoY"}
 
 
+# A conclusion without a summary yet is named by its stance, in words.
+STANCE_LABELS = {
+    "bullish": "Bullish view",
+    "bearish": "Bearish view",
+    "neutral": "Neutral view",
+    "uncertain": "Uncertain view",
+    "no_view": "No view yet",
+}
+
+
 def readable_name(name: str | None) -> str | None:
     """Turn an identifier-style name (``customer_deposits_qoq``) into words.
 
@@ -3059,7 +3069,9 @@ class GraphService:
         if node_type == "unresolved_question":
             return node.question_text
         if node_type == "conclusion":
-            return node.current_thesis_summary or f"{node.current_stance} view"
+            return node.current_thesis_summary or STANCE_LABELS.get(
+                node.current_stance, readable_name(node.current_stance) or "View"
+            )
         if node_type == "review_item":
             return node.trigger_reason or "Review queue item"
         if node_type == "lesson":

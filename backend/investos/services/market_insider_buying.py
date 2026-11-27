@@ -32,6 +32,7 @@ from investos.services.insider_filings import (
     SOURCE_NAME,
     InsiderTransaction,
     _first,
+    combine,
     describe,
     parse_form4,
 )
@@ -184,7 +185,7 @@ class MarketInsiderBuyingService:
                 if not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", ticker):
                     continue
                 issuer = _first(xml, "issuerName") or ticker
-                for number, transaction in enumerate(parse_form4(xml)):
+                for transaction in combine(parse_form4(xml)):
                     if not is_notable_buy(transaction, self.min_value):
                         continue
                     title, summary = describe(transaction, ticker, day)
@@ -196,7 +197,7 @@ class MarketInsiderBuyingService:
                         source_item_type="insider_disclosure",
                         title=title,
                         url=ARCHIVES + path,
-                        external_id=f"{accession}:{number}",
+                        external_id=f"{accession}:{transaction.code}",
                         author=transaction.owner,
                         metadata={
                             "ticker": ticker,
@@ -212,6 +213,12 @@ class MarketInsiderBuyingService:
                             "shares_owned_after": transaction.owned_after,
                             "under_10b5_1_plan": transaction.under_plan,
                             "transaction_date": transaction.transaction_date.isoformat(),
+                            "last_transaction_date": (
+                                transaction.last_date.isoformat()
+                                if transaction.last_date
+                                else None
+                            ),
+                            "trades": transaction.trades,
                             "filing_date": day.isoformat(),
                             "accession": accession,
                         },

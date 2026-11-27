@@ -233,11 +233,11 @@ function VisibleNodeProperties({ node }: { node: GraphNodeDetail }) {
       <h4 className="text-xs font-bold uppercase tracking-wider text-muted">Operating context</h4>
       <div className="grid grid-cols-1 gap-2">
         {node.relevance != null ? (
-          <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 dark:border-sky-800/60 dark:bg-sky-950/20">
-            <div className="text-xs uppercase tracking-wider text-sky-500">Match relevance</div>
+          <div className="rounded-lg border border-line bg-panel-muted px-3 py-2">
+            <div className="text-xs uppercase tracking-wider text-muted">Match relevance</div>
             <div className="mt-2 flex items-center gap-2">
               <div className="h-2 flex-1 overflow-hidden rounded-none bg-slate-200 dark:bg-slate-800">
-                <div className="h-full bg-sky-500" style={{ width: `${Math.round((node.relevance || 0) * 100)}%` }} />
+                <div className="h-full bg-muted" style={{ width: `${Math.round((node.relevance || 0) * 100)}%` }} />
               </div>
               <span className="text-xs font-mono font-bold text-action">
                 {Math.round((node.relevance || 0) * 100)}%
@@ -701,9 +701,9 @@ export default function TimelinePage() {
 
             {selectedNode ? (
               <div className="mt-5 space-y-5">
-                <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-4 dark:border-sky-900 dark:bg-sky-950/30">
+                <div className="rounded-lg border border-line bg-panel-muted p-4">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="rounded-md border border-sky-300 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-sky-700 dark:border-sky-700 dark:text-sky-300">
+                    <span className="rounded-md border border-line px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-muted">
                       {selectedNode.node_type}
                     </span>
                     {selectedNode.tier ? (
@@ -742,7 +742,7 @@ export default function TimelinePage() {
                                   x2={node.x}
                                   y2={node.y}
                                   stroke="currentColor"
-                                  className="text-sky-300 dark:text-sky-700"
+                                  className="text-line-strong"
                                   strokeWidth="1.5"
                                   strokeDasharray={index % 2 === 0 ? "0" : "4 4"}
                                 />

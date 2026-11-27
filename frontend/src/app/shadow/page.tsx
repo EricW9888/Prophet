@@ -350,7 +350,7 @@ export default function ShadowPage() {
             />
           ) : (
             experiments.map((experiment) => (
-              <article id={`experiment-${experiment.id}`} key={experiment.id} className="min-w-0 scroll-mt-24 overflow-hidden rounded-lg border border-line bg-panel p-5 [overflow-wrap:anywhere] target:border-sky-500">
+              <article id={`experiment-${experiment.id}`} key={experiment.id} className="min-w-0 scroll-mt-24 overflow-hidden rounded-lg border border-line bg-panel p-5 [overflow-wrap:anywhere] target:border-action">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
@@ -432,13 +432,13 @@ export default function ShadowPage() {
                 ) : null}
 
                 {experiment.run_status === "queued" ? (
-                  <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-800 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300">
+                  <div className="mt-4 rounded-lg border border-line bg-panel-muted p-4 text-sm text-foreground">
                     This shadow run is queued. Prophet has cloned the current portfolio state and will begin the live experiment on the next shadow refresh cycle.
                   </div>
                 ) : null}
 
                 {experiment.run_status === "running" ? (
-                  <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-800 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300">
+                  <div className="mt-4 rounded-lg border border-line bg-panel-muted p-4 text-sm text-foreground">
                     {(() => {
                       const progress = experiment.run_details?.progress ?? {};
                       const stepCount = progress.step_count ?? 0;
@@ -469,7 +469,7 @@ export default function ShadowPage() {
                       {experiment.report.policy_assessment}
                     </p>
                     {experiment.report.key_lesson ? (
-                      <p className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                      <p className="mt-3 rounded-lg border border-line bg-panel-muted px-3 py-2 text-sm text-foreground">
                         {experiment.report.key_lesson}
                       </p>
                     ) : null}

@@ -57,6 +57,8 @@ class InsiderTransaction:
     acquired: bool
     owned_after: float | None
     under_plan: bool
+    last_date: date | None = None
+    trades: int = 1
 
     @property
     def value(self) -> float | None:
@@ -123,19 +125,71 @@ def parse_form4(xml: str) -> list[InsiderTransaction]:
     return transactions
 
 
+def combine(transactions: list[InsiderTransaction]) -> list[InsiderTransaction]:
+    """One trade per transaction code in a filing.
+
+    A Form 4 often lists one decision as many rows: a sale filled at a dozen
+    prices over two days. Rows with the same code are one trade, with total
+    shares, the average price, and the span of dates.
+    """
+    groups: dict[str, list[InsiderTransaction]] = {}
+    for transaction in transactions:
+        groups.setdefault(transaction.code, []).append(transaction)
+    combined = []
+    for rows in groups.values():
+        first = min(row.transaction_date for row in rows)
+        last = max(row.transaction_date for row in rows)
+        priced = [row for row in rows if row.price]
+        priced_shares = sum(row.shares for row in priced)
+        latest = max(rows, key=lambda row: row.transaction_date)
+        combined.append(
+            InsiderTransaction(
+                owner=rows[0].owner,
+                role=rows[0].role,
+                transaction_date=first,
+                code=rows[0].code,
+                shares=sum(row.shares for row in rows),
+                price=(
+                    sum(row.shares * row.price for row in priced) / priced_shares
+                    if priced_shares
+                    else None
+                ),
+                acquired=rows[0].acquired,
+                owned_after=latest.owned_after,
+                under_plan=any(row.under_plan for row in rows),
+                last_date=last if last != first else None,
+                trades=len(rows),
+            )
+        )
+    return combined
+
+
 def describe(
     transaction: InsiderTransaction, ticker: str, filed: date
 ) -> tuple[str, str]:
-    """Plain-language title and summary for one transaction."""
+    """Plain-language title and summary for one trade."""
     template = TRANSACTION_TYPES.get(
         transaction.code, "reported a transaction in {shares}"
     )
     shares = f"{transaction.shares:,.0f} {ticker} shares"
-    price = f" at ${transaction.price:,.2f}" if transaction.price else ""
+    price = (
+        ""
+        if not transaction.price
+        else (
+            f" at an average ${transaction.price:,.2f}"
+            if transaction.trades > 1
+            else f" at ${transaction.price:,.2f}"
+        )
+    )
     title = f"{transaction.owner} ({transaction.role}) {template.format(shares=shares)}{price}"
-    parts = [
-        f"{title} on {transaction.transaction_date:%b %d, %Y}, reported {filed:%b %d, %Y}."
-    ]
+    when = (
+        f"between {transaction.transaction_date:%b %d} and {transaction.last_date:%b %d, %Y}"
+        if transaction.last_date
+        else f"on {transaction.transaction_date:%b %d, %Y}"
+    )
+    parts = [f"{title} {when}, reported {filed:%b %d, %Y}."]
+    if transaction.trades > 1:
+        parts.append(f"Filed as {transaction.trades} separate transactions.")
     if transaction.value:
         parts.append(f"Value about ${transaction.value:,.0f}.")
     if transaction.owned_after is not None:
@@ -200,7 +254,7 @@ class InsiderFilingService:
                 url = f"{folder}/{document}"
                 transactions = parse_form4(await self.maps._get(url))
                 counts["filings"] += 1
-                for number, transaction in enumerate(transactions):
+                for transaction in combine(transactions):
                     title, summary = describe(
                         transaction, ticker, date.fromisoformat(filed)
                     )
@@ -212,7 +266,7 @@ class InsiderFilingService:
                         source_item_type="insider_disclosure",
                         title=title,
                         url=url,
-                        external_id=f"{accession}:{number}",
+                        external_id=f"{accession}:{transaction.code}",
                         author=transaction.owner,
                         metadata={
                             "ticker": ticker,
@@ -232,6 +286,12 @@ class InsiderFilingService:
                             "shares_owned_after": transaction.owned_after,
                             "under_10b5_1_plan": transaction.under_plan,
                             "transaction_date": transaction.transaction_date.isoformat(),
+                            "last_transaction_date": (
+                                transaction.last_date.isoformat()
+                                if transaction.last_date
+                                else None
+                            ),
+                            "trades": transaction.trades,
                             "filing_date": filed,
                             "accession": accession,
                         },

@@ -13,6 +13,7 @@ from investos.models.portfolio import Position
 from investos.services import business_map
 from investos.services.insider_filings import (
     InsiderFilingService,
+    combine,
     describe,
     parse_form4,
 )
@@ -143,3 +144,58 @@ async def test_followed_companies_get_new_filings_once(
         "filings": 0,
         "transactions": 0,
     }
+
+
+def test_one_decision_filed_as_many_rows_reads_as_one_trade():
+    rows = "".join(
+        f"""<nonDerivativeTransaction>
+      <transactionDate><value>2026-11-{day}</value></transactionDate>
+      <transactionCoding><transactionCode>S</transactionCode></transactionCoding>
+      <transactionAmounts><transactionShares><value>{shares}</value></transactionShares>
+        <transactionPricePerShare><value>{price}</value></transactionPricePerShare>
+        <transactionAcquiredDisposedCode><value>D</value></transactionAcquiredDisposedCode></transactionAmounts>
+      <postTransactionAmounts><sharesOwnedFollowingTransaction><value>{after}</value></sharesOwnedFollowingTransaction></postTransactionAmounts>
+    </nonDerivativeTransaction>"""
+        for day, shares, price, after in [
+            (12, 1000, 100.0, 9000),
+            (12, 3000, 102.0, 6000),
+            (13, 1000, 106.0, 5000),
+        ]
+    )
+    xml = (
+        "<ownershipDocument><reportingOwner><reportingOwnerId><rptOwnerName>Doe Jane"
+        "</rptOwnerName></reportingOwnerId><reportingOwnerRelationship><isDirector>1"
+        "</isDirector></reportingOwnerRelationship></reportingOwner>"
+        f"<nonDerivativeTable>{rows}</nonDerivativeTable></ownershipDocument>"
+    )
+    (sale,) = combine(parse_form4(xml))
+    assert (sale.shares, sale.price, sale.trades) == (5000, 102.4, 3)
+    assert (sale.transaction_date, sale.last_date) == (
+        date(2026, 11, 12),
+        date(2026, 11, 13),
+    )
+    assert sale.owned_after == 5000
+
+    title, summary = describe(sale, "SYNQ", date(2026, 11, 14))
+    assert title == "Doe Jane (director) sold 5,000 SYNQ shares at an average $102.40"
+    assert "between Nov 12 and Nov 13, 2026" in summary
+    assert "Filed as 3 separate transactions." in summary
+
+
+def test_only_open_market_trades_are_timing_signals():
+    from types import SimpleNamespace
+
+    from investos.services.ownership_signals import OwnershipSignalService
+
+    def evidence(code):
+        return SimpleNamespace(
+            source_item_type="insider_disclosure",
+            metadata_json={"ticker": "SYNQ", "transaction_code": code},
+            title="Synthetic insider trade",
+        )
+
+    source = SimpleNamespace(source_type="filing")
+    for code in ("A", "F", "G", "M"):
+        assert OwnershipSignalService.analyze_signal(evidence(code), source) is None
+    for code in ("P", "S"):
+        assert OwnershipSignalService.analyze_signal(evidence(code), source) is not None

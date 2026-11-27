@@ -17,6 +17,8 @@ from investos.models.review import ReviewQueueItem
 from investos.models.source import Source
 
 DISCLOSURE_SOURCE_TYPES = frozenset({"filing", "ownership_tracker"})
+# Form 4 open-market purchase and sale; other codes are not trading decisions.
+OPEN_MARKET_CODES = frozenset({"P", "S"})
 TICKER_KEYS = ("ticker", "symbol", "issuer_ticker", "security_ticker")
 DISCLOSURE_ITEM_TYPES = frozenset(
     {
@@ -263,7 +265,12 @@ class OwnershipSignalService:
         from investos.services.market_setup import MarketSetupSignalService
 
         await MarketSetupSignalService(self.session).create_signal(
-            signal_name=f"{signal.source_kind}: {signal.direction} {signal.ticker or signal.issuer or 'security'}",
+            # The disclosure's own sentence ("Doe Jane (CFO) sold 1,200 SYNQ shares
+            # at $101.50") reads better than its classification.
+            signal_name=(
+                self._text(evidence.title)
+                or f"{signal.source_kind}: {signal.direction} {signal.ticker or signal.issuer or 'security'}"
+            ),
             signal_family="ownership_or_institutional_flow",
             ticker=signal.ticker,
             raw_evidence_id=evidence.id,
@@ -394,6 +401,11 @@ class OwnershipSignalService:
             return None
 
         metadata = dict(getattr(evidence, "metadata_json", None) or {})
+        # Grants, tax withholding, gifts and option exercises are recorded as
+        # evidence, but they are not decisions to trade and carry no timing.
+        code = str(metadata.get("transaction_code") or "").strip().upper()
+        if code and code not in OPEN_MARKET_CODES:
+            return None
         portfolio_weights = {
             str(k).upper(): float(v or 0.0)
             for k, v in (portfolio_weights or {}).items()

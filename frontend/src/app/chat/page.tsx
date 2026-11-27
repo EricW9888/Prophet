@@ -429,7 +429,7 @@ function LiveWatchers() {
       </h2>
       <div className="space-y-3 px-4 pb-4">
         {visibleWatchers.map((w) => (
-          <div key={w.id} className="rounded-lg border border-sky-200 bg-sky-50/30 p-3 text-xs dark:border-sky-900/30 dark:bg-sky-900/10">
+          <div key={w.id} className="rounded-lg border border-line bg-panel-muted p-3 text-xs">
             <div className="flex items-center justify-between">
               <span className="font-bold text-action">{w.ticker}</span>
               <div className="flex items-center gap-1.5">
@@ -1605,7 +1605,7 @@ function ChatWorkspace() {
             {loadingHistory && messages.length === 0 && !isTyping ? <WorkspaceSkeleton label="Loading saved conversation" /> :
             messages.length === 0 && !historyError && !isTyping && !turnStopped ? (
               <div className="mx-auto mt-16 max-w-2xl text-center">
-                <div className="inline-flex h-16 w-16 items-center justify-center rounded-lg bg-sky-100 dark:bg-sky-900/30">
+                <div className="inline-flex h-16 w-16 items-center justify-center rounded-lg bg-panel-muted">
                   <svg className="h-8 w-8 text-action" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
