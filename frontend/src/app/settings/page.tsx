@@ -1000,7 +1000,7 @@ export default function SettingsPage() {
                       </p>
 
                       <div className="mt-6 space-y-4">
-                        <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Type RESET INVESTOS to confirm</p>
+                        <p className="text-xs font-bold text-slate-400">Type reset investos to confirm</p>
                         <input
                           value={resetPhrase}
                           onChange={e => setResetPhrase(e.target.value)}

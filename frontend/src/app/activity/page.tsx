@@ -6,7 +6,8 @@ import AppNav from "@/components/AppNav";
 import PageHeader from "@/components/PageHeader";
 import WorkspaceState from "@/components/WorkspaceState";
 import { AgentActionLogItem, apiFetch } from "@/lib/api";
-import { formatUserLabel } from "@/lib/formatting";
+import { activityStatus, activityTrigger, groupRepeats, type Tone } from "@/lib/activity-feed";
+import { formatUserLabel, readableMachineText } from "@/lib/formatting";
 
 const SOURCES = ["all", "automation", "chat", "research"] as const;
 const STATUSES = ["all", "ok", "processed_with_errors", "deferred", "rejected", "skipped", "no_new_knowledge", "no_new_evidence", "error", "empty_result", "blocked"] as const;
@@ -17,27 +18,15 @@ type FeedItem = AgentActionLogItem & {
   displaySummary: string;
 };
 
-function actionWhen(timestamp: string) {
-  if (!timestamp) return "";
-  const date = new Date(timestamp);
-  return date.toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
+const TONE_DOT: Record<Tone, string> = {
+  positive: "bg-positive",
+  caution: "bg-caution",
+  negative: "bg-negative",
+  neutral: "bg-muted",
+};
 
-function actionAccent(status: string) {
-  const normalized = status.toLowerCase();
-  if (normalized.includes("error") || normalized.includes("failed")) {
-    return "border-red-200 bg-red-50/70 text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300";
-  }
-  if (normalized.includes("blocked") || normalized.includes("empty") || ["deferred", "rejected", "warning", "waiting_for_config"].includes(normalized)) {
-    return "border-amber-200 bg-amber-50/70 text-amber-700 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300";
-  }
-  if (["skipped", "no_new_knowledge", "no_new_evidence", "idle"].includes(normalized)) return "border-slate-200 bg-slate-50/70 text-slate-600 dark:border-slate-800 dark:bg-slate-950/20 dark:text-slate-300";
-  return "border-emerald-200 bg-emerald-50/70 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300";
+function timeOfDay(timestamp: string) {
+  return new Date(timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
 function cleanResearchTitle(title: string | null | undefined) {
@@ -120,7 +109,7 @@ function mergeRelatedActions(items: AgentActionLogItem[]): FeedItem[] {
       displaySource: formatUserLabel(item.source),
       displayTitle: actionTitle(item),
       displayStatus: statusLabel(item),
-      displaySummary: item.summary,
+      displaySummary: readableMachineText(item.summary),
     });
   }
   return merged;
@@ -266,49 +255,46 @@ export default function ActivityPage() {
 
         <div className="mt-8 space-y-8">
           {groups.map(([day, dayItems]) => (
-            <section key={day}>
-              <div className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">
-                {day}
-              </div>
-              <div className="space-y-3">
-                {dayItems.map((item) => (
-                  <article
-                    key={item.id}
-                    className="rounded-lg border border-line bg-panel p-4"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
+            <section key={day} aria-label={day}>
+              <h2 className="mb-2 text-sm font-semibold text-foreground">{day}</h2>
+              <ul className="divide-y divide-line border-y border-line">
+                {groupRepeats(dayItems, (item) => [item.source, item.action_type, item.status, item.displayTitle, item.displaySummary].join("|")).map(({ item, count, earliest }) => {
+                  const state = activityStatus(item.status);
+                  const trigger = activityTrigger(item.metadata?.automation_trigger);
+                  return (
+                    <li key={item.id} className="py-2">
+                      <details>
+                        <summary className="grid cursor-pointer list-none grid-cols-[4.25rem_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-sm sm:grid-cols-[4.25rem_minmax(0,15rem)_minmax(0,1fr)] [&::-webkit-details-marker]:hidden">
+                          <time dateTime={item.timestamp} className="text-xs leading-5 text-muted tabular-nums">{timeOfDay(item.timestamp)}</time>
+                          <span className="min-w-0 truncate font-medium">{item.displayTitle}</span>
+                          <span className="col-start-2 flex min-w-0 items-center gap-2 text-muted sm:col-start-3">
+                            <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${TONE_DOT[state.tone]}`} />
+                            <span className="shrink-0">{state.label}</span>
+                            <span className="min-w-0 truncate">{item.displaySummary}</span>
+                            {count > 1 ? <span className="shrink-0 tabular-nums">×{count}</span> : null}
+                          </span>
+                        </summary>
+                        <div className="mt-2 space-y-2 text-sm sm:pl-[5.5rem]">
+                          <p className="leading-relaxed text-foreground">{item.displaySummary}</p>
+                          <p className="text-xs text-muted">
                             {item.displaySource}
-                          </span>
-                          <span className="text-sm font-semibold text-foreground">
-                            {item.displayTitle}
-                          </span>
-                          <span className={`rounded-none border px-2.5 py-1 text-xs font-semibold uppercase tracking-wider ${actionAccent(item.status)}`}>
-                            {item.displayStatus}
-                          </span>
+                            {trigger ? ` · ran because ${trigger}` : ""}
+                            {count > 1 ? ` · happened ${count} times between ${timeOfDay(earliest)} and ${timeOfDay(item.timestamp)}` : ""}
+                          </p>
+                          {Object.keys(item.metadata || {}).length > 0 ? (
+                            <details>
+                              <summary className="cursor-pointer text-xs text-action">Technical details</summary>
+                              <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs leading-relaxed text-muted">
+                                {JSON.stringify(item.metadata, null, 2)}
+                              </pre>
+                            </details>
+                          ) : null}
                         </div>
-                        <p className="mt-2 text-sm leading-relaxed text-muted">{item.displaySummary}</p>
-                        {typeof item.metadata?.automation_trigger === "string" && item.metadata.automation_trigger.startsWith("signal:") ? (
-                          <p className="mt-2 text-xs text-muted">Prompted by {formatUserLabel(item.metadata.automation_trigger.slice(7)).toLowerCase()}</p>
-                        ) : null}
-                        {Object.keys(item.metadata || {}).length > 0 ? (
-                          <details className="mt-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
-                            <summary className="cursor-pointer text-xs font-medium text-muted">
-                              View metadata
-                            </summary>
-                            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs leading-relaxed text-muted">
-                              {JSON.stringify(item.metadata, null, 2)}
-                            </pre>
-                          </details>
-                        ) : null}
-                      </div>
-                      <div className="text-xs text-slate-400 dark:text-slate-500">{actionWhen(item.timestamp)}</div>
-                    </div>
-                  </article>
-                ))}
-              </div>
+                      </details>
+                    </li>
+                  );
+                })}
+              </ul>
             </section>
           ))}
         </div>

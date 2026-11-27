@@ -170,7 +170,7 @@ export default function RiskPage() {
                   <ExposureList title="Asset classes" items={summary.asset_class_exposures} />
                 </div>
                 <div className="mt-4 rounded-lg border border-line p-4">
-                  <p className="text-xs uppercase tracking-wider text-slate-400">Concentration stats</p>
+                  <p className="text-xs text-slate-400">Concentration stats</p>
                   <p className="mt-2 text-sm text-foreground">
                     {summary.top_sector ? "Top known sector " + summary.top_sector + " · " + summary.top_sector_weight_pct.toFixed(1) + "%" : "No classified sector exposure"}
                   </p>
@@ -182,7 +182,7 @@ export default function RiskPage() {
 
               <Panel title="Benchmark trend + scenarios" eyebrow="Price rule and hypothetical shocks">
                 <div className="rounded-lg border border-line p-4">
-                  <p className="text-xs uppercase tracking-wider text-slate-400">Current regime</p>
+                  <p className="text-xs text-slate-400">Current regime</p>
                   <p className="mt-2 text-lg font-semibold tracking-tight">
                     {summary.current_regime?.regime_type ? readableMachineText(summary.current_regime.regime_type) : "Not computed"}
                   </p>
@@ -298,7 +298,7 @@ function PerformanceAttributionPanel({
         </div>
         <div className="flex items-end gap-2">
           <label className="block">
-            <span className="text-xs font-medium uppercase text-slate-500">Calendar days</span>
+            <span className="text-xs font-medium text-slate-500">Calendar days</span>
             <input
               type="number"
               min={1}
