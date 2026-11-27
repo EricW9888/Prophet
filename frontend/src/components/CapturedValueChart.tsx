@@ -15,7 +15,7 @@ const eventKinds: Record<ChartEvent["kind"], { label: string; color: string }> =
   ledger: { label: "Trades and cash flows", color: "var(--color-emerald-500)" },
   fill: { label: "Paper fills", color: "var(--color-emerald-500)" },
   decision: { label: "Decisions", color: "var(--color-amber-500)" },
-  research: { label: "Research", color: "var(--color-action)" },
+  research: { label: "Research", color: "var(--color-muted)" },
   alert: { label: "Alerts", color: "var(--color-rose-500)" },
 };
 
