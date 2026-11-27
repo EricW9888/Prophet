@@ -3304,6 +3304,7 @@ class AgentService:
                         agent_context, ensure_ascii=True, default=str
                     ),
                     schema=AGENT_RESPONSE_SCHEMA,
+                    timeout_seconds=12,
                 ),
                 timeout=12,
             )
@@ -7066,6 +7067,7 @@ class AgentService:
                     ),
                     user_prompt=json.dumps(payload, ensure_ascii=True, default=str),
                     schema=OPERATING_RESPONSE_SCHEMA,
+                    timeout_seconds=8,
                 ),
                 timeout=8,
             )
