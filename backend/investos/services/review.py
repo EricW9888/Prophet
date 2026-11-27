@@ -960,9 +960,9 @@ class ReviewService:
             due_at = ctx.get("claim_due_at")
             return (
                 f'{source} made the claim "{statement}"{ticker_clause} '
-                f"{self._age_phrase(ctx.get('claim_time'))}. It became due for outcome assessment "
-                f"{self._age_phrase(due_at)}; until it is marked correct, partially correct, "
-                "incorrect, or indeterminate, source reliability and trust trajectory stay blind to the result."
+                f"{self._age_phrase(ctx.get('claim_time'))}. It became due to check "
+                f"{self._age_phrase(due_at)}. Until it is marked, this source's track record "
+                "and how much Prophet trusts it cannot reflect how the claim turned out."
             )
         if item.item_type == "raw_evidence" and ctx.get("ownership_signal"):
             signal = ctx["ownership_signal"]
@@ -1049,8 +1049,8 @@ class ReviewService:
             )
         if item.item_type == "source_claim_record":
             return (
-                "Find direct follow-up evidence, assess the claim as correct, partially correct, "
-                "incorrect, or indeterminate, then let the source performance history recompute."
+                "Check what actually happened, then mark the claim correct, partly correct, "
+                "incorrect or can't tell. Your answer updates this source's track record."
             )
         if item.item_type == "raw_evidence" and ctx.get("ownership_signal"):
             return ctx["ownership_signal"].get(
@@ -1098,7 +1098,7 @@ class ReviewService:
         ctx = ctx or {}
         tags: list[str] = []
         if item.item_type == "source_claim_record":
-            tags.append("source outcome")
+            tags.append("source track record")
             if ctx.get("claim_horizon"):
                 tags.append(str(ctx["claim_horizon"]).replace("_", " "))
             if ctx.get("claim_ticker"):
@@ -1115,7 +1115,7 @@ class ReviewService:
                 tags.append(str(signal["direction"]))
             lag = signal.get("disclosure_lag_days")
             if lag is not None:
-                tags.append(f"{float(lag):.0f}d lag")
+                tags.append(f"reported {float(lag):.0f} days later")
             return tags[:4]
         if item.item_type == "position":
             weight = ctx.get("weight_pct")
@@ -1123,11 +1123,11 @@ class ReviewService:
         if item.item_type == "shadow_experiment":
             profile = ctx.get("opportunity_profile") or {}
             if profile:
-                tags.append("shadow opportunity")
+                tags.append("simulated opportunity")
                 if profile.get("signal_stage"):
                     tags.append(str(profile["signal_stage"]).replace("_", " "))
             else:
-                tags.append("shadow divergence")
+                tags.append("simulation differs from portfolio")
         if item.trigger_reason.startswith("Open research question:"):
             tags.append("research gap")
         if not ctx.get("stance") and item.item_type == "position":
@@ -1135,7 +1135,7 @@ class ReviewService:
         if float(item.coverage_weakness or 0.0) >= 8.0:
             tags.append("thin coverage")
         elif float(item.coverage_weakness or 0.0) >= 4.0:
-            tags.append("coverage pressure")
+            tags.append("research getting thin")
         if float(item.contradiction_pressure or 0.0) > 0:
             n = ctx.get("unresolved_contra", 0)
             tags.append(f"{n} contradictions" if n else "contradictions")
