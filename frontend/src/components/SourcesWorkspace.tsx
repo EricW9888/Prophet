@@ -20,6 +20,7 @@ import {
   YouTubeChannelVideo,
 } from "@/lib/api";
 import { normalizeSourceOrigin } from "@/lib/sourceOrigin";
+import DeferredDisclosure from "@/components/DeferredDisclosure";
 import HintMarker from "@/components/HintMarker";
 import NewsIntakePanel from "@/components/NewsIntakePanel";
 import PageHeader from "@/components/PageHeader";
@@ -749,6 +750,9 @@ function AddDisclosurePanel({
   );
 }
 
+const SOURCE_PAGE = 25;
+
+/** One line per source; search and "show more" keep every source reachable. */
 function SourceSection({
   title,
   subtitle,
@@ -762,78 +766,76 @@ function SourceSection({
   empty: string;
   onToggleTrusted: (source: SourceRecord) => Promise<void>;
 }) {
-  const visibleSources = sources.slice(0, 12);
+  const [query, setQuery] = useState("");
+  const [limit, setLimit] = useState(SOURCE_PAGE);
+  const term = query.trim().toLocaleLowerCase();
+  const matches = term
+    ? sources.filter((source) => `${source.name} ${source.source_type} ${source.url ?? ""}`.toLocaleLowerCase().includes(term))
+    : sources;
+  const visibleSources = matches.slice(0, limit);
   return (
     <section className="space-y-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-sm font-bold text-muted">{title}</h2>
+          <h2 className="text-sm font-semibold">{title} <span className="font-normal text-muted">({sources.length})</span></h2>
           <p className="mt-1 text-sm text-muted">{subtitle}</p>
         </div>
-        {sources.length > visibleSources.length ? (
-          <p className="text-xs text-muted">
-            Showing {visibleSources.length} of {sources.length}
-          </p>
+        {sources.length > SOURCE_PAGE ? (
+          <input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setLimit(SOURCE_PAGE); }}
+            aria-label={`Search ${title.toLocaleLowerCase()}`} placeholder="Search by name or type" className="workspace-control w-full sm:w-64" />
         ) : null}
       </div>
       {sources.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-line bg-panel p-5 text-sm text-slate-500">
-          {empty}
-        </div>
+        <div className="border border-dashed border-line bg-panel p-5 text-sm text-muted">{empty}</div>
+      ) : matches.length === 0 ? (
+        <p className="text-sm text-muted">No sources match this search.</p>
       ) : (
-        <div className="grid min-w-0 gap-3 2xl:grid-cols-2">
+        <ul className="divide-y divide-line border border-line bg-panel">
           {visibleSources.map((source) => {
             const origin = normalizeSourceOrigin(source.origin);
+            const reliability = source.trust_profile?.factual_reliability?.replaceAll("_", " ");
             return (
-            <article key={source.id} className="min-w-0 rounded-lg border border-line bg-panel p-4">
+            <li key={source.id} className="min-w-0 px-4 py-3">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="truncate text-base font-semibold tracking-tight">{source.name}</h3>
-                    <StatusPill tone={source.is_trusted ? "good" : "neutral"}>{source.is_trusted ? "trusted" : "learning"}</StatusPill>
-                    <StatusPill tone={source.trust_origin === "operator" ? "info" : "neutral"}>
-                      {source.trust_origin === "operator"
-                        ? "operator decision"
-                        : source.trust_origin === "learned"
-                          ? "learned assessment"
-                          : "not assessed"}
-                    </StatusPill>
-                    <StatusPill>{source.source_type.replaceAll("_", " ")}</StatusPill>
-                    <OriginPill kind={origin.origin_kind}>{origin.origin_label}</OriginPill>
-                  </div>
-                  {source.description ? (
-                    <p className="mt-2 line-clamp-2 text-sm text-muted">{source.description}</p>
-                  ) : null}
-                  {origin.origin_detail ? (
-                    <p className="mt-2 line-clamp-2 text-xs text-muted">
-                      Origin: {origin.origin_detail}
+                  <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+                    <span className="truncate font-semibold" title={source.name}>{source.name}</span>
+                    <span className="text-xs text-muted first-letter:uppercase">{source.source_type.replaceAll("_", " ")}</span>
+                    <span className="text-xs text-muted">· {source.evidence_count} evidence</span>
+                    <span className="text-xs text-muted">· reliability {reliability ?? "unscored"}</span>
+                    {source.trust_origin === "learned" ? <span className="text-xs text-muted">· trusted by Prophet</span> : null}
+                  </p>
+                  {source.trust_review_status === "change_recommended" ? (
+                    <p className="mt-1 text-sm text-caution">
+                      Trust review recommended: {source.trust_review_reason || "Prophet's learned assessment now differs from your explicit trust choice."} Your setting was not changed.
                     </p>
-                  ) : null}
-                  {source.url ? (
-                    <a href={source.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex max-w-full items-center gap-1 truncate text-sm text-action">
-                      <span className="truncate">{source.url}</span>
-                      <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                    </a>
                   ) : null}
                 </div>
                 <button
                   onClick={() => void onToggleTrusted(source)}
-                  className="shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700"
+                  className="workspace-control shrink-0"
                 >
                   {source.is_trusted ? "Untrust" : "Trust"}
                 </button>
               </div>
-
-              {source.trust_review_status === "change_recommended" ? (
-                <div className="mt-3 border-l-2 border-amber-500 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
-                  <div className="font-semibold">Trust review recommended</div>
-                  <p className="mt-1">{source.trust_review_reason || "Prophet's learned assessment now differs from your explicit trust choice."}</p>
-                  <p className="mt-1 text-xs opacity-80">Your trust setting was not changed automatically.</p>
-                </div>
-              ) : null}
-
+              <DeferredDisclosure className="mt-1" title={<span className="text-xs text-muted">Details</span>}>
+                <div className="space-y-2 text-sm">
+                  <p className="flex flex-wrap gap-2">
+                    <StatusPill tone={source.trust_origin === "operator" ? "info" : "neutral"}>
+                      {source.trust_origin === "operator" ? "operator decision" : source.trust_origin === "learned" ? "learned assessment" : "not assessed"}
+                    </StatusPill>
+                    <OriginPill kind={origin.origin_kind}>{origin.origin_label}</OriginPill>
+                  </p>
+                  {source.description ? <p className="text-muted">{source.description}</p> : null}
+                  {origin.origin_detail ? <p className="text-xs text-muted">Origin: {origin.origin_detail}</p> : null}
+                  {source.url ? (
+                    <a href={source.url} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1 truncate text-action">
+                      <span className="truncate">{source.url}</span>
+                      <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                    </a>
+                  ) : null}
               <SourceScoreSummary source={source} />
-              <details className="mt-3 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+              <details className="mt-3 border border-line bg-panel-muted px-3 py-2 text-sm text-muted">
                 <summary className="cursor-pointer select-none text-xs font-bold text-slate-400">
                   Score details
                 </summary>
@@ -881,11 +883,20 @@ function SourceSection({
                   </div>
                 ) : null}
               </details>
-            </article>
+                </div>
+              </DeferredDisclosure>
+            </li>
             );
           })}
-        </div>
+        </ul>
       )}
+      {matches.length > visibleSources.length ? (
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <span className="text-muted">Showing {visibleSources.length} of {matches.length}</span>
+          <button type="button" className="text-action underline" onClick={() => setLimit((value) => value + SOURCE_PAGE)}>Show {Math.min(SOURCE_PAGE, matches.length - visibleSources.length)} more</button>
+          <button type="button" className="text-action underline" onClick={() => setLimit(matches.length)}>Show all</button>
+        </div>
+      ) : null}
     </section>
   );
 }
