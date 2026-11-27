@@ -1032,7 +1032,7 @@ export default function GraphPage() {
                   <span className="text-muted">Filters exclude {graphView?.filteredNodeCount} records and {graphView?.filteredEdgeCount} connections</span>
                 ) : null}
                 {graphMode === "focused" ? (
-                  <span className="rounded-none bg-sky-50 px-3 py-1 text-sky-700 dark:bg-sky-900/20 dark:text-sky-300">
+                  <span className="rounded-none bg-panel-muted px-3 py-1 text-muted">
                     Focused view
                   </span>
                 ) : null}
@@ -1222,7 +1222,7 @@ export default function GraphPage() {
                   ) : (loading || layoutPending) && (
                     <div className="absolute inset-0 flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px] z-20 pointer-events-none">
                       <div className="flex flex-col items-center gap-4">
-                        <div className="h-8 w-8 rounded-full border-4 border-sky-500/30 border-t-sky-500 motion-safe:animate-spin" aria-hidden="true" />
+                        <div className="h-8 w-8 rounded-full border-4 border-line border-t-sky-500 motion-safe:animate-spin" aria-hidden="true" />
                         <p className="text-sm text-sky-100" role="status">{loading ? "Loading graph…" : "Arranging graph…"}</p>
                       </div>
                     </div>
@@ -1424,9 +1424,9 @@ export default function GraphPage() {
               <p role="alert" className="mt-4 text-sm text-rose-700 dark:text-rose-300">{detailError}</p>
             ) : selectedDetail ? (
               <div className="mt-5 space-y-5">
-                <div className="min-w-0 rounded-lg border border-sky-200 bg-sky-50/70 p-4 dark:border-sky-900 dark:bg-sky-950/30">
+                <div className="min-w-0 rounded-lg border border-line bg-panel-muted p-4">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-md border border-sky-300 bg-white/60 px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-sky-700 dark:border-sky-700 dark:bg-sky-900/50 dark:text-sky-300">
+                    <span className="rounded-md border border-line bg-panel px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-muted">
                       {selectedDetail.node_type === "entity" && propertyText(selectedDetail.properties?.entity_type)
                         ? formatUserLabel(String(selectedDetail.properties.entity_type))
                         : nodeTypeLabel(selectedDetail.node_type)}
@@ -1475,8 +1475,8 @@ export default function GraphPage() {
                   )}
                   {selectedDetail.node_type === "entity" ? <BusinessMapSummary entityId={selectedDetail.id} /> : null}
                   {selectedDetail.node_type === "fundamental_metric" ? <GraphMetricSummary properties={selectedDetail.properties} /> : selectedDetail.body && selectedDetail.body.trim() !== selectedDetail.label.trim() ? (
-                    <div className="mt-3 bg-white px-4 py-3 dark:bg-[#1e1e1e] border-l-4 border-sky-500 rounded-r-lg">
-                      <div className="mb-2 text-xs font-bold uppercase tracking-widest text-sky-500/80 dark:text-sky-400/80">Evidence summary</div>
+                    <div className="mt-3 bg-white px-4 py-3 dark:bg-[#1e1e1e] border-l-4 border-line rounded-r-lg">
+                      <div className="mb-2 text-xs font-bold uppercase tracking-widest text-muted">Evidence summary</div>
                       <div className="prose prose-xs dark:prose-invert max-w-none prose-sky leading-relaxed break-words">
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm]}
@@ -1608,7 +1608,7 @@ export default function GraphPage() {
                           {selectedDetail.properties.linked_holdings.map((holding) => (
                             <span
                               key={`holding-${String(holding)}`}
-                              className="rounded-none border border-sky-300 bg-sky-100 px-2 py-1 text-xs font-semibold tracking-wide text-sky-700 dark:border-sky-400/30 dark:bg-sky-500/10 dark:text-sky-200"
+                              className="rounded-none border border-line bg-panel-muted px-2 py-1 text-xs font-semibold tracking-wide text-muted"
                             >
                               {String(holding)}
                             </span>
@@ -1641,12 +1641,12 @@ export default function GraphPage() {
                     <summary className="cursor-pointer text-sm font-medium text-muted">Record fields</summary>
                     <div className="mt-2 grid grid-cols-1 gap-1.5">
                       {selectedDetail.relevance !== undefined && selectedDetail.properties?.portfolio_linkage_status !== "unresolved" && (
-                        <div className="min-w-0 rounded-lg border border-sky-200 bg-sky-50/30 px-2 py-1.5 dark:border-sky-800/60 dark:bg-sky-950/20">
-                          <div className="text-xs text-sky-500 font-bold uppercase tracking-tighter">Match Relevance</div>
+                        <div className="min-w-0 rounded-lg border border-line bg-panel-muted px-2 py-1.5">
+                          <div className="text-xs text-muted font-bold uppercase tracking-tighter">Match Relevance</div>
                           <div className="mt-0.5 flex items-center gap-2">
                             <div className="h-1.5 flex-1 bg-slate-200 dark:bg-slate-800 rounded-none overflow-hidden">
                               <div
-                                className="h-full bg-sky-500 transition-all duration-1000"
+                                className="h-full bg-muted transition-all duration-1000"
                                 style={{ width: `${(selectedDetail.relevance || 0) * 100}%` }}
                               />
                             </div>
