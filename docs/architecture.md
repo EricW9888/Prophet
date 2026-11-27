@@ -610,6 +610,25 @@ does not silently reclassify or consolidate existing issuer identities.
 The portfolio attachment check excludes relationship subject and object edges.
 Those edges locate a claim's named parties and remain visible in Knowledge.
 
+Subjects also connect through three projected links. Like assertion
+projections, they are computed on each read and never stored:
+- **Named together.** Subjects linked to the same stored facts, claims or
+  events are linked to each other, with the number of shared items. Each
+  subject keeps its strongest few such links.
+- **Same industry.** Companies on the map that share an industry link to
+  that industry's best-connected member.
+- **Same sector.** A company with no industry peer on the map links to the
+  best-connected company in its sector.
+
+Industry and sector come from the SEC's own classification. The industry is
+the filer's SIC description; the sector is the SEC office that reviews it.
+`services/sec_industry.py` matches a company to its filer by a linked ticker,
+or by an exact, unambiguous match of its normalized registered name. It fills
+only empty fields and creates no security or ticker link.
+Search ranks an exact name first. A company's name without its legal suffix
+counts as exact, and a ticker finds its issuer. Holdings are always part of
+the Everything view.
+
 Workspace graph reads batch node and provenance dependencies within each
 request while retaining per-node admission limits. Bounded neighborhoods share
 each breadth-first frontier across branches, preserving branch edge order so a
