@@ -410,7 +410,7 @@ export default function ShadowPage() {
                       if (isOpen !== expandedZones.has(key)) toggleZone(key);
                     }}
                   >
-                    <summary className="cursor-pointer text-xs font-bold uppercase tracking-wider text-slate-500">
+                    <summary className="cursor-pointer text-xs font-bold text-slate-500">
                       Operator guidance
                     </summary>
                     <p className="mt-3 whitespace-pre-wrap text-sm text-muted">
@@ -463,7 +463,7 @@ export default function ShadowPage() {
                 {experiment.run_status === "completed" && experiment.report?.policy_assessment ? (
                   <div className="mt-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
                     <div className="flex items-start justify-between gap-3">
-                      <p className="text-xs uppercase tracking-wider text-slate-400">Experiment report</p>
+                      <p className="text-xs text-slate-400">Experiment report</p>
                     </div>
                     <p className="mt-3 text-sm text-muted">
                       {experiment.report.policy_assessment}
@@ -477,7 +477,7 @@ export default function ShadowPage() {
                       <div className="mt-4 border-t border-slate-200 pt-4 dark:border-slate-800">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
-                            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                            <p className="text-xs font-semibold text-slate-500">
                               Learning state
                             </p>
                             <p className="mt-1 text-sm font-medium text-foreground">
@@ -496,21 +496,21 @@ export default function ShadowPage() {
                         </p>
                         <dl className="mt-4 grid grid-cols-2 gap-x-5 gap-y-3 text-sm sm:grid-cols-4">
                           <div>
-                            <dt className="text-xs uppercase text-slate-400">Confidence</dt>
+                            <dt className="text-xs text-slate-400">Confidence</dt>
                             <dd className="mt-1 font-medium">
                               {formatPct(experiment.lesson.confidence_score)}
                             </dd>
                           </div>
                           <div>
-                            <dt className="text-xs uppercase text-slate-400">Supportive</dt>
+                            <dt className="text-xs text-slate-400">Supportive</dt>
                             <dd className="mt-1 font-medium">{experiment.lesson.supporting_observations}</dd>
                           </div>
                           <div>
-                            <dt className="text-xs uppercase text-slate-400">Contradictory</dt>
+                            <dt className="text-xs text-slate-400">Contradictory</dt>
                             <dd className="mt-1 font-medium">{experiment.lesson.contradicting_observations}</dd>
                           </div>
                           <div>
-                            <dt className="text-xs uppercase text-slate-400">Immaterial</dt>
+                            <dt className="text-xs text-slate-400">Immaterial</dt>
                             <dd className="mt-1 font-medium">{experiment.lesson.neutral_observations}</dd>
                           </div>
                         </dl>
@@ -529,7 +529,7 @@ export default function ShadowPage() {
                     if (isOpen !== expandedZones.has(key)) toggleZone(key);
                   }}
                 >
-                  <summary className="cursor-pointer text-xs font-bold uppercase tracking-wider text-slate-500">
+                  <summary className="cursor-pointer text-xs font-bold text-slate-500">
                     Run details
                   </summary>
                   {loadingDetailIds.has(experiment.id) ? (
@@ -539,7 +539,7 @@ export default function ShadowPage() {
                   ) : null}
                   {experiment.report?.learning_summary ? (
                     <div className="mt-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
-                      <p className="text-xs uppercase tracking-wider text-slate-400">How the system should learn from this</p>
+                      <p className="text-xs text-slate-400">How the system should learn from this</p>
                       <p className="mt-3 text-sm text-muted">
                         {experiment.report.learning_summary.why_this_matters}
                       </p>
@@ -552,7 +552,7 @@ export default function ShadowPage() {
                   {experiment.report?.thesis_context?.length ? (
                     <div className="mt-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
                       <div className="flex items-start justify-between gap-3">
-                        <p className="text-xs uppercase tracking-wider text-slate-400">Thesis context used by the run</p>
+                        <p className="text-xs text-slate-400">Thesis context used by the run</p>
                       </div>
                       <div className="mt-3 space-y-3">
                         {experiment.report.thesis_context.map((item, index) => (
@@ -578,7 +578,7 @@ export default function ShadowPage() {
                   <div className="mt-4 grid gap-4 lg:grid-cols-2">
                     <div className="rounded-lg border border-slate-200 p-4 text-sm dark:border-slate-800">
                       <div className="flex items-start justify-between gap-3">
-                        <p className="text-xs uppercase tracking-wider text-slate-400">Run state</p>
+                        <p className="text-xs text-slate-400">Run state</p>
                       </div>
                       <div className="mt-3 space-y-2 text-muted">
                         <p>
@@ -608,7 +608,7 @@ export default function ShadowPage() {
                     </div>
                     <div className="rounded-lg border border-slate-200 p-4 text-sm dark:border-slate-800">
                       <div className="flex items-start justify-between gap-3">
-                        <p className="text-xs uppercase tracking-wider text-slate-400">What the run concluded</p>
+                        <p className="text-xs text-slate-400">What the run concluded</p>
                       </div>
                       {experiment.run_status === "completed" && experiment.result ? (
                         <p className="mt-3 text-muted">{experiment.result.reasoning}</p>
@@ -629,7 +629,7 @@ export default function ShadowPage() {
                     <div className="mt-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <p className="text-xs uppercase tracking-wider text-slate-400">
+                          <p className="text-xs text-slate-400">
                             Evidence wake-ups
                           </p>
                           <p className="mt-2 text-sm text-muted">
@@ -682,7 +682,7 @@ export default function ShadowPage() {
                   {experiment.run_details.checkpoint_log?.length ? (
                     <div className="mt-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
                       <div className="flex items-start justify-between gap-3">
-                        <p className="text-xs uppercase tracking-wider text-slate-400">Checkpoint timeline</p>
+                        <p className="text-xs text-slate-400">Checkpoint timeline</p>
                       </div>
                       <div className="mt-3 space-y-3">
                         {experiment.run_details.checkpoint_log.map((checkpoint, index) => (
@@ -703,7 +703,7 @@ export default function ShadowPage() {
                   {experiment.run_details.decision_history?.length ? (
                     <div className="mt-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
                       <div className="flex items-start justify-between gap-3">
-                        <p className="text-xs uppercase tracking-wider text-slate-400">Decision history</p>
+                        <p className="text-xs text-slate-400">Decision history</p>
                       </div>
                       <div className="mt-3 space-y-3">
                         {experiment.run_details.decision_history.map((entry, index) => (
@@ -780,7 +780,7 @@ export default function ShadowPage() {
 
                   <div className="mt-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
                     <div className="flex items-start justify-between gap-3">
-                      <p className="text-xs uppercase tracking-wider text-slate-400">Run log</p>
+                      <p className="text-xs text-slate-400">Run log</p>
                     </div>
                     {experiment.run_details.run_log?.length ? (
                       <div className="mt-3 space-y-3">
@@ -1047,7 +1047,7 @@ function PaperBrokerLedger({
     <section className="mt-5 border-t border-slate-200 pt-5 dark:border-slate-800">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Paper broker ledger</p>
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-300">Paper broker ledger</p>
           <p className="mt-1 text-sm text-muted">{isManual ? "Only simulated fills change this account." : "Prophet proposes orders. Only simulated fills change this account."}</p>
         </div>
         <span className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
@@ -1173,7 +1173,7 @@ function PaperBrokerLedger({
       {accountEvents.length ? (
         <div className="mt-5 border-t border-slate-200 pt-4 dark:border-slate-800">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-300">
               Account events
             </p>
             <p className="text-xs text-muted">
@@ -1591,7 +1591,7 @@ function ShadowComparisonChart({ experiment }: { experiment: ShadowExperiment })
   return (
     <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
       <div className="flex items-start justify-between gap-3">
-        <p className="text-xs uppercase tracking-wider text-slate-400">Shadow vs real portfolio</p>
+        <p className="text-xs text-slate-400">Shadow vs real portfolio</p>
       </div>
       <div className="mt-4 grid gap-4 md:grid-cols-3">
         <ComparisonBar label="Shadow" value={shadow} maxAbs={maxAbs} tone="sky" />

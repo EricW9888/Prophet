@@ -310,15 +310,15 @@ export default function DashboardOverview({ children, history }: { children?: Re
               <summary className="cursor-pointer text-sm font-medium">Return measurement details</summary>
               <div className="grid gap-2 mt-1">
                 <div className="flex justify-between items-center bg-panel-muted p-2 rounded-lg">
-                   <span className="text-xs text-muted font-bold uppercase">Open cost basis</span>
+                   <span className="text-xs text-muted font-bold">Open cost basis</span>
                    <span className="font-bold text-foreground text-sm">{summary?.open_holdings_return_pct == null ? "n/a" : safeFormatPct(summary.open_holdings_return_pct)}</span>
                 </div>
                 <div className="flex justify-between items-center bg-panel-muted p-2 rounded-lg">
-                   <span className="text-xs text-muted font-bold uppercase">Stored risk return</span>
+                   <span className="text-xs text-muted font-bold">Stored risk return</span>
                    <span className="font-bold text-foreground text-sm">{summary?.portfolio_return_pct == null ? "n/a" : safeFormatPct(summary.portfolio_return_pct)}</span>
                 </div>
                 <div className="flex justify-between items-center bg-panel-muted p-2">
-                   <span className="text-xs text-muted font-bold uppercase">Risk benchmark return</span>
+                   <span className="text-xs text-muted font-bold">Risk benchmark return</span>
                    <span className="font-bold text-foreground text-sm">{summary?.benchmark_return_pct == null ? "n/a" : safeFormatPct(summary.benchmark_return_pct)}</span>
                 </div>
               </div>
@@ -400,7 +400,7 @@ export default function DashboardOverview({ children, history }: { children?: Re
         >
           <div className="space-y-3">
             <div className="rounded-lg border border-line p-3 bg-panel-muted">
-              <div className="text-xs font-bold text-muted uppercase tracking-widest mb-2 flex items-center gap-2">
+              <div className="text-xs font-bold text-muted mb-2 flex items-center gap-2">
                 Storage
               </div>
               <div className="text-sm font-bold text-foreground leading-snug">
@@ -409,11 +409,11 @@ export default function DashboardOverview({ children, history }: { children?: Re
             </div>
             <div className="grid grid-cols-2 gap-3">
                <div className="rounded-lg border border-line p-3 bg-panel-muted">
-                  <p className="text-xs uppercase font-bold text-muted tracking-widest mb-1">Profiles</p>
+                  <p className="text-xs font-bold text-muted mb-1">Profiles</p>
                   <p className="text-xl font-bold text-foreground">{summary?.profile_count ?? 0}</p>
                </div>
                <div className="rounded-lg border border-line p-3 bg-panel-muted">
-                  <p className="text-xs uppercase font-bold text-muted tracking-widest mb-1">Recent lessons</p>
+                  <p className="text-xs font-bold text-muted mb-1">Recent lessons</p>
                   <p className="text-xl font-bold text-foreground">{summary?.recent_lessons?.length ?? 0}</p>
                </div>
             </div>
@@ -482,7 +482,7 @@ function TransactionCapturePanel({
               </div>
               <div className="mt-3 grid min-w-0 grid-cols-2 items-end gap-3">
                 <div className="min-w-0">
-                  <p className="text-xs font-bold uppercase tracking-widest text-muted">
+                  <p className="text-xs font-bold text-muted">
                     Quantity
                   </p>
                   <p className="break-words text-sm font-bold text-foreground ">
@@ -490,7 +490,7 @@ function TransactionCapturePanel({
                   </p>
                 </div>
                 <div className="min-w-0 text-right">
-                  <p className="text-xs font-bold uppercase tracking-widest text-muted">
+                  <p className="text-xs font-bold text-muted">
                     Source
                   </p>
                   <p className="break-words text-xs font-bold text-foreground [overflow-wrap:anywhere]">
@@ -683,7 +683,7 @@ function ScannerRow({
         ) : null}
       </div>
       <div className="text-right">
-        <div className="text-xs font-bold uppercase tracking-widest text-muted ">Score</div>
+        <div className="text-xs font-bold text-muted ">Score</div>
         <div className="mt-1 text-sm font-black text-foreground ">{score.toFixed(1)}</div>
       </div>
     </div>

@@ -85,7 +85,7 @@ function NodeRelevancePanel({ node }: { node: GraphNodeDetail }) {
     <section className="space-y-3 rounded-lg border border-teal-200 bg-teal-50/70 p-4 dark:border-teal-900/60 dark:bg-teal-950/25">
       <div className="flex flex-wrap items-center gap-2">
         <div className="h-2 w-2 rounded-full bg-teal-500 dark:bg-teal-400" />
-        <h4 className="text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300">Why this matters</h4>
+        <h4 className="text-xs font-bold text-teal-700 dark:text-teal-300">Why this matters</h4>
         {significance ? (
           <span className="rounded-none border border-teal-300 bg-white/70 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-teal-700 dark:border-teal-700 dark:bg-teal-900/50 dark:text-teal-200">
             {significance}
@@ -99,7 +99,7 @@ function NodeRelevancePanel({ node }: { node: GraphNodeDetail }) {
 
       {mechanism ? (
         <div className="rounded-lg border border-teal-200 bg-white/70 px-3 py-2 dark:border-teal-800/70 dark:bg-teal-950/30">
-          <div className="mb-1 text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
+          <div className="mb-1 text-xs font-bold text-teal-700 dark:text-teal-300/90">
             Portfolio mechanism
           </div>
           <p className="text-sm leading-relaxed text-teal-950 dark:text-teal-100">{mechanism}</p>
@@ -108,7 +108,7 @@ function NodeRelevancePanel({ node }: { node: GraphNodeDetail }) {
 
       {nextTest ? (
         <div className="rounded-lg border border-teal-200 bg-white/70 px-3 py-2 dark:border-teal-800/70 dark:bg-teal-950/30">
-          <div className="mb-1 text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300/90">
+          <div className="mb-1 text-xs font-bold text-teal-700 dark:text-teal-300/90">
             Next useful test
           </div>
           <p className="text-sm leading-relaxed text-teal-950 dark:text-teal-100">{nextTest}</p>
@@ -230,11 +230,11 @@ function VisibleNodeProperties({ node }: { node: GraphNodeDetail }) {
 
   return (
     <section className="space-y-3">
-      <h4 className="text-xs font-bold uppercase tracking-wider text-muted">Operating context</h4>
+      <h4 className="text-xs font-bold text-muted">Operating context</h4>
       <div className="grid grid-cols-1 gap-2">
         {node.relevance != null ? (
           <div className="rounded-lg border border-line bg-panel-muted px-3 py-2">
-            <div className="text-xs uppercase tracking-wider text-muted">Match relevance</div>
+            <div className="text-xs text-muted">Match relevance</div>
             <div className="mt-2 flex items-center gap-2">
               <div className="h-2 flex-1 overflow-hidden rounded-none bg-slate-200 dark:bg-slate-800">
                 <div className="h-full bg-muted" style={{ width: `${Math.round((node.relevance || 0) * 100)}%` }} />
@@ -601,7 +601,7 @@ export default function TimelinePage() {
           <section>
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Knowledge Changes</h2>
+                <h2 className="text-sm font-bold text-muted">Knowledge changes</h2>
                 <p className="mt-1 text-sm text-muted">Audit events when available; older rows are marked as derived.</p>
               </div>
               {knowledgeChanges ? (
@@ -670,7 +670,7 @@ export default function TimelinePage() {
           <section className="rounded-lg border border-line bg-panel p-6">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Information Node</h2>
+                <h2 className="text-sm font-bold text-muted">Information node</h2>
                 <p className="mt-1 text-sm text-muted">Inspect how one fact, claim, event, or subject links to the rest of the system.</p>
               </div>
               {selectedNode ? (
@@ -724,7 +724,7 @@ export default function TimelinePage() {
 
                 <section className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-muted">Connected web</h4>
+                    <h4 className="text-xs font-bold text-muted">Connected web</h4>
                     <span className="text-xs text-slate-400">{connectedWeb.length} visible links</span>
                   </div>
                   <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
@@ -804,7 +804,7 @@ export default function TimelinePage() {
                 </section>
 
                 <section className="space-y-3">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted">Source citations</h4>
+                  <h4 className="text-xs font-bold text-muted">Source citations</h4>
                   {selectedNode.citations.length === 0 ? (
                     <div className="rounded-lg border border-slate-200 p-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
                       No source citation is attached to this node yet.
@@ -845,7 +845,7 @@ export default function TimelinePage() {
 
           <DeferredDisclosure title="Add a note or URL" className="border border-line bg-panel p-4" contentClassName="mt-3 space-y-6">
           <section className="rounded-lg border border-line bg-panel p-6">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-muted mb-4">Add Research Note</h2>
+            <h2 className="text-sm font-bold text-muted mb-4">Add research note</h2>
             <form onSubmit={handleNoteSubmit} className="space-y-4">
               <select value={selectedSourceId} onChange={(e) => setSelectedSourceId(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-line-strong bg-white dark:bg-slate-900">
                 <option value="">Manual Research Inbox</option>
@@ -862,7 +862,7 @@ export default function TimelinePage() {
           </section>
 
           <section className="rounded-lg border border-line bg-panel p-6">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-muted mb-4">Ingest URL</h2>
+            <h2 className="text-sm font-bold text-muted mb-4">Ingest URL</h2>
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
@@ -902,7 +902,7 @@ export default function TimelinePage() {
           </section>
 
           <section className="rounded-lg border border-line bg-panel p-6">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-muted mb-3">Research Discipline</h2>
+            <h2 className="text-sm font-bold text-muted mb-3">Research discipline</h2>
             <p className="text-sm text-muted">Every note is persisted as raw evidence first, then parsed into claims, facts, and events with provenance preserved.</p>
             <Link href="/sources" className="mt-3 inline-block text-sm text-action">Manage trusted sources</Link>
           </section>

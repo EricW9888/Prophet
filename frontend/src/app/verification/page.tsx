@@ -342,7 +342,7 @@ function VerificationWorkspace() {
             </p>
           ) : (
             <form id="manual-challenge" onSubmit={runVerification} className="scroll-mt-24 rounded-lg border border-line bg-panel p-6  space-y-4">
-              <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Manual challenge</h2>
+              <h2 className="text-sm font-bold text-muted">Manual challenge</h2>
               <p className="text-sm text-muted">{selectedSubjectId ? `Subject: ${selectedSubjectName || selectedSubjectType}. Review the question before running verification.` : "Choose the subject you want to verify."}</p>
               <label htmlFor="challenge-subject" className="block text-xs text-muted">Subject</label>
               <select id="challenge-subject" disabled={running} value={selectedId} onChange={(e) => handleProfileChange(e.target.value)} className={inputClass}>
@@ -394,12 +394,12 @@ function VerificationWorkspace() {
                 ) : null}
               </div>
               <div>
-                <h3 className="text-sm font-bold uppercase tracking-wider text-muted">Reasoning</h3>
+                <h3 className="text-sm font-bold text-muted">Reasoning</h3>
                 <p className="mt-2 text-sm text-foreground">{result.change_reasoning}</p>
               </div>
               {result.what_would_falsify.length ? (
                 <div>
-                  <h3 className="text-sm font-bold uppercase tracking-wider text-muted">Falsifiers</h3>
+                  <h3 className="text-sm font-bold text-muted">Falsifiers</h3>
                   <ul className="mt-2 space-y-2 text-sm text-foreground">
                     {result.what_would_falsify.map((item) => (
                       <li key={item}>{item}</li>

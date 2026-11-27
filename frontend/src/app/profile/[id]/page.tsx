@@ -100,12 +100,12 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
           </div>
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
             <div className={`flex flex-col p-3 rounded-lg border ${getStanceColor(profile.current_stance)} min-w-[140px]`}>
-              <span className="text-xs uppercase font-bold tracking-wider opacity-70 mb-1">System Stance</span>
+              <span className="text-xs font-bold opacity-70 mb-1">System stance</span>
               <span className="text-xl font-bold uppercase tracking-tight leading-none">{profile.current_stance ?? "no_view"}</span>
               <span className="text-xs font-medium mt-2 opacity-80">Confidence: {profile.confidence_band ?? "unknown"}</span>
             </div>
             <div className="flex flex-col p-3 bg-white dark:bg-[#111] border border-line rounded-lg min-w-[140px]">
-              <span className="text-xs uppercase font-bold tracking-wider text-slate-500 mb-1">Coverage Score</span>
+              <span className="text-xs font-bold text-slate-500 mb-1">Coverage score</span>
               <div className="flex items-baseline gap-1">
                 <span className="text-2xl font-bold tracking-tight text-foreground leading-none">{profile.coverage_score == null ? "Not assessed" : profile.coverage_score.toFixed(1)}</span>
                 {profile.coverage_score != null && <span className="text-sm text-slate-400">/ 100</span>}
@@ -118,7 +118,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
       <main className="workspace-frame py-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-8">
           <section className="bg-white dark:bg-[#111] border border-line rounded-lg p-6">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-muted mb-4">Core Conclusion State</h2>
+            <h2 className="text-sm font-bold text-muted mb-4">Core conclusion state</h2>
             <p className="text-lg md:text-xl font-medium text-foreground leading-snug">
               {profile.current_thesis_summary ?? profile.executive_summary ?? "No current conclusion state yet."}
             </p>
@@ -135,7 +135,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                   <div className="mb-4 flex items-start gap-3">
                     <Gauge className="mt-0.5 h-5 w-5 text-action" aria-hidden="true" />
                     <div>
-                      <h2 className="text-sm font-bold uppercase text-muted">Fundamentals & Valuation</h2>
+                      <h2 className="text-sm font-bold text-muted">Fundamentals & valuation</h2>
                       <p className="mt-1 text-sm text-muted">
                         Source-dated measurements tied to this profile. Stale and contradictory values remain visible for review.
                       </p>
@@ -181,7 +181,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                   <div className="mb-4 flex items-start gap-3">
                     <Activity className="mt-0.5 h-5 w-5 text-caution" aria-hidden="true" />
                     <div>
-                      <h2 className="text-sm font-bold uppercase text-muted">Market Setup & Expectations</h2>
+                      <h2 className="text-sm font-bold text-muted">Market setup & expectations</h2>
                       <p className="mt-1 text-sm text-muted">
                         What investors appeared to expect, what occurred, and the evidence still needed to score the signal.
                       </p>
@@ -255,7 +255,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
             <section className="bg-white dark:bg-[#111] border border-line rounded-lg p-6">
               <div className="flex items-start justify-between gap-4 mb-5">
                 <div>
-                  <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Historical Rhyme</h2>
+                  <h2 className="text-sm font-bold text-muted">Historical rhyme</h2>
                   <p className="mt-1 text-sm text-muted">
                     Causal analogies to test against current evidence, not predictions.
                   </p>
@@ -278,25 +278,25 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                       {lens.dominant_channel_test ? (
                         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
-                          <p className="text-xs font-bold uppercase tracking-wider text-muted">Channel To Test</p>
+                          <p className="text-xs font-bold text-muted">Channel to test</p>
                           <p className="mt-1 text-sm text-foreground">{lens.dominant_channel_test}</p>
                         </div>
                       ) : null}
                       {lens.where_analogy_breaks ? (
                         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
-                          <p className="text-xs font-bold uppercase tracking-wider text-muted">Break Condition</p>
+                          <p className="text-xs font-bold text-muted">Break condition</p>
                           <p className="mt-1 text-sm text-foreground">{lens.where_analogy_breaks}</p>
                         </div>
                       ) : null}
                       {lens.portfolio_transmission ? (
                         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
-                          <p className="text-xs font-bold uppercase tracking-wider text-muted">Portfolio Route</p>
+                          <p className="text-xs font-bold text-muted">Portfolio route</p>
                           <p className="mt-1 text-sm text-foreground">{lens.portfolio_transmission}</p>
                         </div>
                       ) : null}
                       {lens.best_next_check ? (
                         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
-                          <p className="text-xs font-bold uppercase tracking-wider text-muted">Best Next Check</p>
+                          <p className="text-xs font-bold text-muted">Best next check</p>
                           <p className="mt-1 text-sm text-foreground">{lens.best_next_check}</p>
                         </div>
                       ) : null}
@@ -318,7 +318,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
           ) : null}
 
           <section className="bg-red-50/50 dark:bg-red-950/10 border border-red-100 dark:border-red-900/30 rounded-lg p-6">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-red-800 dark:text-red-400 mb-4">What Would Falsify This</h2>
+            <h2 className="text-sm font-bold text-red-800 dark:text-red-400 mb-4">What would falsify this</h2>
             <ul className="space-y-3">
               {profile.what_would_falsify.length ? profile.what_would_falsify.map((item, i) => (
                 <li key={i} className="flex items-start gap-3">
@@ -332,7 +332,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
           </section>
 
           <section className="border border-line rounded-lg p-6 bg-white dark:bg-[#111]">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-muted mb-4">Recent Evidence</h2>
+            <h2 className="text-sm font-bold text-muted mb-4">Recent evidence</h2>
             <div className="space-y-3">
               {profile.recent_evidence.map((item) => (
                 <div key={item.id} className="rounded-lg border border-line p-4">
@@ -350,7 +350,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
 
         <div className="space-y-6">
           <section className="bg-white dark:bg-[#111] border border-line rounded-lg p-6">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-muted mb-5 border-b border-slate-100 dark:border-slate-800 pb-2">Coverage Audit</h3>
+            <h3 className="text-xs font-bold text-muted mb-5 border-b border-slate-100 dark:border-slate-800 pb-2">Coverage audit</h3>
             <div className="space-y-4">
               <div>
                 <span className="text-xs text-slate-500 block mb-1">Missing Evidence Classes</span>
@@ -383,14 +383,14 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
           </section>
 
           <section className="bg-white dark:bg-[#111] border border-line rounded-lg p-6">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-muted mb-4 border-b border-slate-100 dark:border-slate-800 pb-2">Narrative Split</h3>
+            <h3 className="text-xs font-bold text-muted mb-4 border-b border-slate-100 dark:border-slate-800 pb-2">Narrative split</h3>
             <div className="space-y-4 text-sm">
               <div>
-                <p className="text-xs uppercase tracking-wider text-slate-400 mb-1">Bull Case</p>
+                <p className="text-xs text-slate-400 mb-1">Bull case</p>
                 <p>{profile.bull_case ?? "Not set yet."}</p>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wider text-slate-400 mb-1">Bear Case</p>
+                <p className="text-xs text-slate-400 mb-1">Bear case</p>
                 <p>{profile.bear_case ?? "Not set yet."}</p>
               </div>
             </div>

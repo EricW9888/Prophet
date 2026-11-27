@@ -60,7 +60,7 @@ export default function LiveLogConsole({ onClose }: LiveLogConsoleProps) {
       <div className="flex items-center justify-between gap-3 border-b border-slate-800 bg-slate-900/50 px-4 py-3 sm:px-6 sm:py-4">
         <div className="flex items-center gap-3">
           <Terminal className="w-4 h-4 text-emerald-500" />
-          <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Backfill Monitor</span>
+          <span className="text-xs font-bold text-slate-400">Backfill monitor</span>
         </div>
         <div className="flex items-center gap-2">
           <button
