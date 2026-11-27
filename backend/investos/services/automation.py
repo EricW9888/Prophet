@@ -33,6 +33,7 @@ from investos.models.review import ReviewQueueItem
 from investos.models.theme import Theme
 from investos.services.agent import AgentService
 from investos.services.agent_action_log import AgentActionLogService
+from investos.services.ark_holdings import ArkHoldingsService
 from investos.services.artifact_hygiene import (
     is_artifact_question_text,
     is_artifact_subject_name,
@@ -324,6 +325,12 @@ class AutomationCoordinator:
             "database_backup", self._run_database_backup, 86400, settings.BACKUP_ENABLED
         )
         self._register_job("integrity_audit", self._run_integrity_audit, 3600, True)
+        self._register_job(
+            "ark_trades_refresh",
+            self._run_ark_trades_refresh,
+            21600,
+            settings.ARK_TRADES_ENABLED,
+        )
         self._register_job(
             "insider_filings_refresh",
             self._run_insider_filings_refresh,
@@ -1628,6 +1635,20 @@ class AutomationCoordinator:
                     error=exc,
                     summary=f"Theme hygiene failed: {exc}",
                 )
+
+    async def _run_ark_trades_refresh(self) -> None:
+        """Record ARK Invest's daily trades from its published holdings."""
+        telemetry = self.telemetry["ark_trades_refresh"]
+        telemetry.last_run_at = datetime.now(UTC)
+        async with async_session_maker() as session:
+            try:
+                counts = await ArkHoldingsService(session).refresh()
+                telemetry.last_status = "ok"
+                telemetry.detail = f"Read {counts['funds']} ARK funds; {counts['trades']} trades recorded."
+            except Exception as exc:
+                await session.rollback()
+                telemetry.last_status = "error"
+                telemetry.detail = compact_exception_message(exc)
 
     async def _run_insider_filings_refresh(self) -> None:
         """Record insider trades (SEC Form 4) for held and watched companies."""

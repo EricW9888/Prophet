@@ -142,3 +142,36 @@ async def test_fetch_public_text_rejects_non_text_documents():
             resolver=_public_resolver,
             transport=httpx.MockTransport(handler),
         )
+
+
+@pytest.mark.parametrize(
+    ("body", "allowed", "expected"),
+    [
+        (b"date,fund,ticker\n11/25/2026,ARKK,SYNQ\n", True, "date,fund,ticker"),
+        (b"date,fund,ticker\n11/25/2026,ARKK,SYNQ\n", False, None),
+        (bytes([0, 1, 2, 3]) * 10, True, None),
+    ],
+)
+async def test_generic_binary_responses_are_text_only_when_asked_and_actually_text(
+    body, allowed, expected
+):
+    from investos.core.url_security import fetch_public_document
+
+    async def handler(_request):
+        return httpx.Response(
+            200, headers={"content-type": "application/octet-stream"}, content=body
+        )
+
+    fetch = fetch_public_document(
+        "https://example.test/holdings.csv",
+        allow_binary_text=allowed,
+        resolver=_public_resolver,
+        transport=httpx.MockTransport(handler),
+    )
+    if expected is None:
+        with pytest.raises(UrlFetchNetworkError):
+            await fetch
+    else:
+        document = await fetch
+        assert document.media_type == "text/plain"
+        assert document.text().startswith(expected)

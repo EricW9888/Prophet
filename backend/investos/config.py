@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     BACKUP_ENABLED: bool = True
     BUSINESS_MAP_ENABLED: bool = True
     INSIDER_FILINGS_ENABLED: bool = True
+    ARK_TRADES_ENABLED: bool = True
     BUSINESS_MAP_BATCH_SIZE: int = 12
     BACKUP_DIR: str = str(PROJECT_ROOT / "backups")
     BACKUP_KEEP_COUNT: int = 7
