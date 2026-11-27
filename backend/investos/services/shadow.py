@@ -863,19 +863,39 @@ class ShadowService:
     async def evaluate_discovery_context(
         self,
         discovery_context: dict[str, Any],
+        *,
+        focus_tickers: list[str] | None = None,
     ) -> tuple[dict[str, Any], bool, str | None]:
-        """Evaluate a dated packet without mutating accepted or portfolio state."""
+        """Evaluate a dated packet without mutating accepted or portfolio state.
+
+        ``focus_tickers`` names the companies an opportunity scan is about. Without
+        it the evaluator may choose any subject in the packet, which for a scan
+        means the owner's holdings, and the scan then has no candidate to keep.
+        """
+        instruction = (
+            "Identify at most one paper-trading opportunity or risk-control experiment. "
+            "Use only information whose evidence_ref is present in this packet."
+        )
+        payload: dict[str, Any] = {
+            "point_in_time_opportunity_packet": discovery_context,
+        }
+        if focus_tickers:
+            payload["focus_tickers"] = sorted(
+                {ticker.strip().upper() for ticker in focus_tickers if ticker}
+            )
+            instruction += (
+                " This is an opportunity scan of the companies in focus_tickers. "
+                "Choose an opportunity only among those companies, and cite evidence "
+                "about the chosen company. Portfolio holdings in the packet are context "
+                "for exposure, overlap and sizing, not candidates. If no focus company "
+                "warrants a paper experiment, return no opportunity."
+            )
+        payload["instruction"] = instruction
 
         discovery_result = await call_llm_json(
             system_prompt=self._shadow_discovery_prompt(),
             user_prompt=json.dumps(
-                {
-                    "point_in_time_opportunity_packet": discovery_context,
-                    "instruction": (
-                        "Identify at most one paper-trading opportunity or risk-control experiment. "
-                        "Use only information whose evidence_ref is present in this packet."
-                    ),
-                },
+                payload,
                 ensure_ascii=True,
                 default=str,
             ),

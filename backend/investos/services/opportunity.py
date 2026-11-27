@@ -1324,7 +1324,9 @@ class OpportunityDiscoveryService:
         )
         profile, actionable, reason = await ShadowService(
             self.session
-        ).evaluate_discovery_context(context)
+        ).evaluate_discovery_context(
+            context, focus_tickers=[security.ticker for _, security, _ in members]
+        )
         if not actionable:
             run.skipped_count += 1
             run.skipped_json = [
