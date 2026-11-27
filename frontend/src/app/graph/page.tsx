@@ -771,6 +771,7 @@ export default function GraphPage() {
     const sName = source?.label ?? edge.source_key;
     const tName = target?.label ?? edge.target_key;
     if (edge.portfolio_peer_basis) return `Peer comparison · ${sName} and ${tName}`;
+    if (edge.shared_evidence_count) return `${sName} and ${tName} are named together in ${edge.shared_evidence_count} stored facts, claims or events`;
     const attribution = edge.supporting_claim_id ? "Extracted relationship · " : "";
     return `${attribution}${sName} ${edge.relationship_type.replace(/_/g, " ")} ${tName}`;
   }, [nodeByKey]);
@@ -1163,8 +1164,8 @@ export default function GraphPage() {
             </div>
             {!activeGraph && !showMap ? (error ? <WorkspaceState kind="error" title="Knowledge unavailable" description={error} /> : <WorkspaceSkeleton label="Loading knowledge" rows={4} />) : null}
             <GraphNodeNavigator key={showMap ? "map" : "library"} library={!showMap}
-              search={!showMap ? {value:knowledgeQuery,onChange:setKnowledgeQuery,remote:knowledgeQuery.trim().length >= 2,status:knowledgeSearching ? "Searching all stored knowledge…" : knowledgeSearchError ?? (!activeGraph ? (loading ? "Loading stored knowledge…" : "The loaded view is unavailable. Search is still available.") : undefined)} : undefined}
-              nodes={!showMap && knowledgeQuery.trim().length >= 2 ? knowledgeResults.map(item => ({key:`${item.node_type}:${item.node_id}`,id:item.node_id,node_type:item.node_type,label:item.label,layer:item.layer,subtitle:item.subtitle,is_root:false,is_autonomous:false})) : graphView?.browseNodes ?? []} onSelect={(node) => {
+              search={{value:knowledgeQuery,onChange:setKnowledgeQuery,remote:knowledgeQuery.trim().length >= 2,status:knowledgeSearching ? "Searching all stored knowledge…" : knowledgeSearchError ?? (!activeGraph ? (loading ? "Loading stored knowledge…" : "The loaded view is unavailable. Search is still available.") : undefined)}}
+              nodes={knowledgeQuery.trim().length >= 2 ? knowledgeResults.map(item => ({key:`${item.node_type}:${item.node_id}`,id:item.node_id,node_type:item.node_type,label:item.label,layer:item.layer,subtitle:item.subtitle,is_root:false,is_autonomous:false})) : graphView?.browseNodes ?? []} onSelect={(node) => {
               const positioned = displayedNodes.find(current => current.key === node.key);
               if (showMap && positioned) jumpToNode(positioned);
               else void openGraph(node.node_type, node.id).then(() => setShowMap(true));
