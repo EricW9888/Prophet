@@ -86,3 +86,18 @@ def test_unreadable_schedule_state_treats_jobs_as_overdue(monkeypatch, tmp_path)
     path.write_text("{not json", encoding="utf-8")
 
     assert coordinator._load_completed_runs() == {}
+
+
+def test_status_after_a_restart_shows_the_recorded_last_run(monkeypatch, tmp_path):
+    first = _coordinator(monkeypatch, tmp_path)
+    finished = datetime.now(UTC) - timedelta(hours=22)
+    first._record_completed_run("database_backup", finished)
+
+    restarted = _coordinator(monkeypatch, tmp_path)
+    restarted._completed_runs = restarted._load_completed_runs()
+    restarted._register_job("database_backup", Mock(), 86400, True)
+    restarted._register_job("integrity_audit", Mock(), 3600, True)
+
+    # Before the fix Status read "Not run yet" for a backup that ran 22 hours ago.
+    assert restarted.telemetry["database_backup"].last_run_at == finished
+    assert restarted.telemetry["integrity_audit"].last_run_at is None
