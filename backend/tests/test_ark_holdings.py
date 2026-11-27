@@ -5,7 +5,9 @@ from datetime import date
 from sqlalchemy import select
 
 from investos.config import settings
+from investos.models.entity import Security
 from investos.models.evidence import RawEvidence
+from investos.models.opportunity import OpportunityUniverseMember
 from investos.services import ark_holdings as module
 from investos.services.ark_holdings import (
     ArkHoldingsService,
@@ -68,11 +70,18 @@ async def test_first_run_is_a_baseline_and_the_next_day_records_trades(
         return pages["day"]
 
     service = ArkHoldingsService(session, fetch=fake_fetch)
-    assert await service.refresh() == {"funds": 1, "trades": 0}
-    assert await service.refresh() == {"funds": 1, "trades": 0}  # same day again
+    today = date(2026, 11, 26)
+    nothing = {"funds": 1, "trades": 0, "ideas": 0, "stale": []}
+    assert await service.refresh(today=today) == nothing
+    assert await service.refresh(today=today) == nothing  # same day again
 
     pages["day"] = DAY2
-    assert await service.refresh() == {"funds": 1, "trades": 3}
+    assert await service.refresh(today=today) == {
+        "funds": 1,
+        "trades": 3,
+        "ideas": 1,
+        "stale": [],
+    }
     rows = (
         await session.scalars(
             select(RawEvidence).where(
@@ -84,3 +93,48 @@ async def test_first_run_is_a_baseline_and_the_next_day_records_trades(
     assert len(rows) == 3
     assert {row.metadata_json["transaction_type"] for row in rows} == {"buy", "sell"}
     assert parse_holdings(DAY2, "ARKK").day == date(2026, 11, 25)
+
+
+async def test_a_new_position_goes_to_ideas_and_a_stalled_file_is_reported(
+    workflow_session, monkeypatch, tmp_path
+):
+    session = workflow_session
+    monkeypatch.setattr(settings, "STORAGE_DIR", str(tmp_path))
+    monkeypatch.setattr(module, "FUNDS", {"ARKK": ["ARK_SYNTH_ARKK_HOLDINGS"]})
+    pages = {"day": DAY1}
+
+    async def fake_fetch(url):
+        return pages["day"]
+
+    service = ArkHoldingsService(session, fetch=fake_fetch)
+    await service.refresh(today=date(2026, 11, 25))
+    pages["day"] = DAY2
+    await service.refresh(today=date(2026, 11, 26))
+
+    # Only the opened position (SYNS) is a discovery signal; the add (SYNR) is not.
+    members = {
+        security.ticker: member
+        for member, security in (
+            await session.execute(
+                select(OpportunityUniverseMember, Security)
+                .join(Security, OpportunityUniverseMember.security_id == Security.id)
+                .where(Security.ticker.in_(["SYNS", "SYNR"]))
+            )
+        ).all()
+        if any(
+            origin["source_type"] == "ark_buying"
+            for origin in (member.metadata_json or {}).get("origins", [])
+        )
+    }
+    assert set(members) == {"SYNS"}
+    (origin,) = [
+        origin
+        for origin in members["SYNS"].metadata_json["origins"]
+        if origin["source_type"] == "ark_buying"
+    ]
+    assert origin["label"] == "ARK (ARKK) opened a position on Nov 25"
+    assert members["SYNS"].priority >= module.OPENING_PRIORITY
+
+    # Weeks later the file still says Nov 25: the fund has stopped updating.
+    counts = await service.refresh(today=date(2026, 12, 20))
+    assert counts["stale"] == ["ARKK (last file Nov 25)"] and counts["trades"] == 0

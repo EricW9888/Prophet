@@ -13,16 +13,18 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 from urllib.parse import quote
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.config import settings
 from investos.core.url_security import fetch_public_document
+from investos.services.opportunity import OpportunityDiscoveryService
 from investos.services.ownership_signals import OwnershipSignalService
 
 CSV_BASE = "https://assets.ark-funds.com/fund-documents/funds-etf-csv/"
@@ -45,6 +47,12 @@ FUNDS = {
 SOURCE_NAME = "ARK Invest daily holdings"
 # Ignore rounding-size changes (for example share-count corrections).
 MIN_CHANGE_FRACTION = 0.001
+# A fund's newest file older than this has stopped updating, usually after a
+# rename; it is reported rather than silently skipped.
+STALE_AFTER = timedelta(days=7)
+# A new position by ARK is a discovery signal for Ideas; adds and trims are not.
+OPENING_PRIORITY = 0.7
+_PLAIN_TICKER = re.compile(r"[A-Z][A-Z0-9.\-]{0,9}")
 
 Fetch = Callable[[str], Awaitable[str]]
 
@@ -227,14 +235,19 @@ class ArkHoldingsService:
                 best = parsed
         return best
 
-    async def refresh(self) -> dict[str, int]:
-        counts = {"funds": 0, "trades": 0}
+    async def refresh(self, *, today: date | None = None) -> dict[str, Any]:
+        today = today or datetime.now(UTC).date()
+        counts: dict[str, Any] = {"funds": 0, "trades": 0, "ideas": 0, "stale": []}
         signals = OwnershipSignalService(self.session)
+        ideas = OpportunityDiscoveryService(self.session)
         for fund in FUNDS:
             current = await self.latest(fund)
             if current is None:
+                counts["stale"].append(f"{fund} (no file found)")
                 continue
             counts["funds"] += 1
+            if today - current.day > STALE_AFTER:
+                counts["stale"].append(f"{fund} (last file {current.day:%b %d})")
             previous = self._load(fund)
             if previous is not None and current.day > previous.day:
                 for trade in trades_between(previous, current):
@@ -267,6 +280,32 @@ class ArkHoldingsService:
                         summary=summary,
                     )
                     counts["trades"] += 1
+                    if (
+                        trade.shares_before == 0
+                        and _PLAIN_TICKER.fullmatch(trade.ticker or "")
+                        and await ideas.note_universe_signal(
+                            ticker=trade.ticker,
+                            entity_name=trade.company or None,
+                            source_type="ark_buying",
+                            source_id=f"{fund}:{trade.ticker}",
+                            label=(
+                                f"ARK ({fund}) opened a position on {trade.day:%b %d}"
+                            ),
+                            priority=OPENING_PRIORITY,
+                            metadata={
+                                "fund": fund,
+                                "shares": trade.shares_after,
+                                "value": (
+                                    trade.shares_after * trade.price
+                                    if trade.price
+                                    else None
+                                ),
+                                "day": trade.day.isoformat(),
+                            },
+                        )
+                        is not None
+                    ):
+                        counts["ideas"] += 1
             if previous is None or current.day >= previous.day:
                 self._save(current)
         return counts

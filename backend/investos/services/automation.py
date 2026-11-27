@@ -1650,8 +1650,16 @@ class AutomationCoordinator:
         async with async_session_maker() as session:
             try:
                 counts = await ArkHoldingsService(session).refresh()
-                telemetry.last_status = "ok"
-                telemetry.detail = f"Read {counts['funds']} ARK funds; {counts['trades']} trades recorded."
+                telemetry.last_status = "warning" if counts["stale"] else "ok"
+                telemetry.detail = (
+                    f"Read {counts['funds']} ARK funds; {counts['trades']} trades "
+                    f"recorded; {counts['ideas']} new positions sent to Ideas."
+                    + (
+                        " Not updating: " + ", ".join(counts["stale"]) + "."
+                        if counts["stale"]
+                        else ""
+                    )
+                )
             except Exception as exc:
                 await session.rollback()
                 telemetry.last_status = "error"
