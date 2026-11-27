@@ -903,7 +903,7 @@ export default function TimelinePage() {
 
           <section className="rounded-lg border border-line bg-panel p-6">
             <h2 className="text-sm font-bold uppercase tracking-wider text-muted mb-3">Research Discipline</h2>
-            <p className="text-sm text-muted">Every note is persisted as raw evidence first, then parsed into claims, facts, and events with provenance preserved.</p>
+            <p className="text-sm text-muted">Every note is saved as evidence first, then read into claims, facts and events, with its source kept.</p>
             <Link href="/sources" className="mt-3 inline-block text-sm text-action">Manage trusted sources</Link>
           </section>
           </DeferredDisclosure>

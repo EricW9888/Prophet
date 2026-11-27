@@ -1293,7 +1293,7 @@ function MediaCapabilityPanel({
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-bold text-muted">Video ingestion</h2>
+            <h2 className="text-sm font-bold text-muted">Videos</h2>
             <HintMarker label="Video ingestion">
               <p>
                 Prophet tracks channels separately from evidence. It reads captions first, then deepens only when a material gap calls for an available audio or verification pass. Unavailable visual coverage remains explicit.
@@ -1485,7 +1485,7 @@ function MediaCapabilityPanel({
           </button>
         </>
       ) : (
-        <p className="mt-4 text-sm text-muted">Loading media ingestion status...</p>
+        <p className="mt-4 text-sm text-muted">Loading video status…</p>
       )}
     </section>
   );
