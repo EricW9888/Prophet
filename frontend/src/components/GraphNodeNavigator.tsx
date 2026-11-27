@@ -47,8 +47,10 @@ export default function GraphNodeNavigator({ nodes, onSelect, library = false, s
   const [sort, setSort] = useState<BrowseSort>("connected");
   const matches = useMemo(() => {
     const text = query.trim().toLocaleLowerCase();
+    // Server search results arrive ranked by relevance; keep that order.
+    if (search?.remote) return nodes;
     return sortBrowseNodes(
-      nodes.filter(node => search?.remote || `${node.label} ${node.node_type} ${node.subtitle ?? ""}`.toLocaleLowerCase().includes(text)),
+      nodes.filter(node => `${node.label} ${node.node_type} ${node.subtitle ?? ""}`.toLocaleLowerCase().includes(text)),
       sort,
       library,
     );

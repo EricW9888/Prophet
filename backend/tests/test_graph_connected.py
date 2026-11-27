@@ -92,3 +92,15 @@ async def test_companies_named_together_in_evidence_are_linked_with_a_count(
     monkeypatch.setattr(module, "SHARED_EVIDENCE_LINKS_PER_SUBJECT", 1)
     capped = await GraphService(session)._project_shared_evidence(nodes, {})
     assert [e.shared_evidence_count for e in capped] == [2]
+
+
+async def test_a_company_name_without_its_legal_suffix_is_an_exact_match(
+    workflow_session,
+):
+    session = workflow_session
+    tag = uuid4().hex[:6].upper()
+    company = await _company(session, f"Zr{tag}, Inc.")
+    shorter = await _company(session, f"Zr{tag} AB")
+    await session.commit()
+    results = await GraphService(session).search_nodes(query=f"zr{tag}", limit=5)
+    assert [r.node_id for r in results[:2]] == [company.id, shorter.id]
