@@ -8,6 +8,7 @@ export type ModelConnection = {
   enabled: boolean;
   rate_per_minute: number;
   max_concurrency: number;
+  private_context?: boolean;
   api_key_set?: boolean;
   api_key?: string;
 };
@@ -23,7 +24,7 @@ const inputClass = "w-full border border-line bg-panel px-3 py-2 text-sm text-fo
 export function newConnection(existing: ModelConnection[]): ModelConnection {
   let n = existing.length + 1;
   while (existing.some((c) => c.name === `connection-${n}`)) n += 1;
-  return { name: `connection-${n}`, base_url: "", model: "", roles: ["chat", "bulk", "planning"], enabled: true, rate_per_minute: 30, max_concurrency: 2 };
+  return { name: `connection-${n}`, base_url: "", model: "", roles: ["chat", "bulk", "planning"], enabled: true, rate_per_minute: 30, max_concurrency: 2, private_context: false };
 }
 
 /** Extra OpenAI-compatible connections that take over when the main provider is cooling down (#299). */
@@ -35,7 +36,7 @@ export default function ModelConnections({ value, onChange }: { value: ModelConn
         <h3 className="text-sm font-semibold">Extra model connections</h3>
         <p className="mt-1 text-xs leading-5 text-muted">
           When the main provider is rate-limited or cooling down, work moves to these connections in order, for the kinds of work each one takes. Each has its own health and request limits.
-          Any OpenAI-compatible service works (base URL ending in <code>/v1</code>). <strong className="font-semibold text-foreground">A connection can receive the same context as the main provider, including your portfolio and chats</strong>, so add only services whose terms you accept for that.
+          Any OpenAI-compatible service works (base URL ending in <code>/v1</code>). A connection reads only public documents unless you allow it private context; allow that only for services whose terms you accept for your portfolio, mail and chats.
         </p>
       </div>
       {value.map((connection, index) => (
@@ -58,6 +59,10 @@ export default function ModelConnections({ value, onChange }: { value: ModelConn
               </label>
             ))}
           </div>
+          <label className="flex items-start gap-1.5 text-sm">
+            <input type="checkbox" className="mt-1" checked={Boolean(connection.private_context)} onChange={(e) => update(index, { private_context: e.target.checked })} />
+            <span>May receive private context <span className="text-xs text-muted">(your portfolio, mail, chats and what you research). Off: it only reads public documents such as filings and news.</span></span>
+          </label>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <label className="inline-flex items-center gap-1.5 text-sm"><input type="checkbox" checked={connection.enabled} onChange={(e) => update(index, { enabled: e.target.checked })} />On</label>
             <button type="button" className="workspace-control" onClick={() => onChange(value.filter((_, i) => i !== index))}>Remove</button>
