@@ -16,8 +16,10 @@ from sqlalchemy.pool import NullPool
 from investos.config import settings
 from investos.core.llm import call_llm_json
 from investos.core.provider_health import (
+    BudgetBelowObservedLatency,
     LLMProviderCooldownError,
     LocalAdmissionTimeout,
+    ProviderHealthRecord,
     ProviderHealthStore,
     probe_llm_provider,
     retry_after_seconds,
@@ -1163,3 +1165,45 @@ async def test_mixed_foreground_and_unattended_work_survives_a_short_http_read_d
         await server.wait_closed()
         if handlers:
             await asyncio.gather(*handlers)
+
+
+def seed_latencies(seconds):
+    key, provider = ProviderHealthStore.configuration()
+    registry = ProviderHealthStore._read()
+    record = registry.records.setdefault(key, ProviderHealthRecord(provider=provider))
+    record.recent_latency_seconds = list(seconds)
+    ProviderHealthStore._write(registry)
+    return key
+
+
+async def test_a_short_limit_call_that_cannot_finish_is_not_sent(monkeypatch):
+    seed_latencies([30.0 + n for n in range(20)])
+    request = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr("investos.core.llm._call_nvidia_json", request)
+
+    with pytest.raises(BudgetBelowObservedLatency):
+        await call_llm_json("system", "user", {"type": "object"}, timeout_seconds=5)
+    request.assert_not_awaited()
+    health = ProviderHealthStore.read()
+    assert health.short_limit_skip_count == 1
+    assert health.failure_count == health.caller_timeout_count == 0
+
+    # A limit the fastest calls can meet, and the shared limit, are still sent.
+    assert await call_llm_json(
+        "system", "user", {"type": "object"}, timeout_seconds=45
+    ) == {"ok": True}
+    assert await call_llm_json("system", "user", {"type": "object"}) == {"ok": True}
+    assert request.await_count == 2
+
+
+async def test_successful_calls_record_their_latency_and_too_few_never_skip(
+    monkeypatch,
+):
+    seed_latencies([60.0] * 5)
+    request = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr("investos.core.llm._call_nvidia_json", request)
+
+    # Five samples are not enough to judge; the call goes ahead.
+    await call_llm_json("system", "user", {"type": "object"}, timeout_seconds=3)
+    latencies = ProviderHealthStore.read().recent_latency_seconds
+    assert len(latencies) == 6 and latencies[-1] < 5
