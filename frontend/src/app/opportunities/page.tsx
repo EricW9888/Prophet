@@ -527,7 +527,7 @@ export default function OpportunitiesPage() {
                         <p className="mt-2 text-xs text-slate-400">Captured {formatDate(selected.captured_at)} · expires {formatDate(selected.expires_at)}</p>
                       </div>
                       <div className="shrink-0 text-left sm:text-right">
-                        <p className="text-xs font-semibold uppercase text-slate-400">Priority score</p>
+                        <p className="text-xs font-semibold text-slate-400">Priority score</p>
                         <p className="mt-1 text-2xl font-semibold tabular-nums">{Math.round(selected.priority_score * 100)}</p>
                       </div>
                     </div>
@@ -535,19 +535,19 @@ export default function OpportunitiesPage() {
 
                   <div className="grid gap-6 lg:grid-cols-2">
                     <section className="min-w-0">
-                      <h3 className="text-xs font-semibold uppercase text-slate-400">Why now</h3>
+                      <h3 className="text-xs font-semibold text-slate-400">Why now</h3>
                       <p className="mt-2 break-words text-sm leading-6 text-foreground">{selected.why_now}</p>
                     </section>
                     <section className="min-w-0">
-                      <h3 className="text-xs font-semibold uppercase text-slate-400">Investable thesis</h3>
+                      <h3 className="text-xs font-semibold text-slate-400">Investable thesis</h3>
                       <p className="mt-2 break-words text-sm leading-6 text-foreground">{selected.investable_thesis}</p>
                     </section>
                     <section className="min-w-0">
-                      <h3 className="text-xs font-semibold uppercase text-slate-400">Portfolio transmission</h3>
+                      <h3 className="text-xs font-semibold text-slate-400">Portfolio transmission</h3>
                       <p className="mt-2 break-words text-sm leading-6 text-foreground">{selected.portfolio_transmission}</p>
                     </section>
                     <section className="min-w-0">
-                      <h3 className="text-xs font-semibold uppercase text-slate-400">Expected edge</h3>
+                      <h3 className="text-xs font-semibold text-slate-400">Expected edge</h3>
                       <p className="mt-2 break-words text-sm leading-6 text-foreground">{selected.expected_edge}</p>
                     </section>
                   </div>
@@ -562,7 +562,7 @@ export default function OpportunitiesPage() {
 
                   <section>
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <h3 className="text-xs font-semibold uppercase text-slate-400">Evidence snapshot</h3>
+                      <h3 className="text-xs font-semibold text-slate-400">Evidence snapshot</h3>
                       <span className="text-xs text-slate-400">{selected.evidence_snapshot.length} items · {selected.evidence_refs.length} refs</span>
                     </div>
                     {selected.evidence_snapshot.length ? (
@@ -576,7 +576,7 @@ export default function OpportunitiesPage() {
 
                   <section className="grid gap-6 border-t border-slate-200 pt-6 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.7fr)] dark:border-slate-800">
                     <div>
-                      <label htmlFor="review-reason" className="text-xs font-semibold uppercase text-slate-400">Review note</label>
+                      <label htmlFor="review-reason" className="text-xs font-semibold text-slate-400">Review note</label>
                       <textarea id="review-reason" rows={4} value={reviewReason} onChange={(event) => setReviewReason(event.target.value)} className={`${fieldClass} mt-2`} placeholder="Why this should be monitored, rejected, or revisited" />
                       {selected.status !== "shadow_tested" ? (
                         <div className="mt-3 flex flex-wrap gap-2">
@@ -812,7 +812,7 @@ function OutcomeSection({
   if (!observation) {
     return (
       <section className="border-b border-slate-200 pb-6 dark:border-slate-800">
-        <h3 className="text-xs font-semibold uppercase text-slate-400">Point-in-time outcome</h3>
+        <h3 className="text-xs font-semibold text-slate-400">Point-in-time outcome</h3>
         <p className="mt-2 text-sm text-slate-500">
           No immutable discovery observation exists for this legacy candidate. Prophet will not infer a historical direction after seeing the result.
         </p>
@@ -832,7 +832,7 @@ function OutcomeSection({
     <section className="border-b border-slate-200 pb-6 dark:border-slate-800">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h3 className="text-xs font-semibold uppercase text-slate-400">Point-in-time outcome</h3>
+          <h3 className="text-xs font-semibold text-slate-400">Point-in-time outcome</h3>
           <p className="mt-2 text-sm font-medium">
             Expected {ticker} to {displayValue(observation.expected_relative_direction)} {observation.benchmark_ticker}
           </p>
@@ -870,7 +870,7 @@ function OutcomeSection({
       ) : null}
       {observations.length > 1 ? (
         <div className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
-          <p className="text-xs font-semibold uppercase text-slate-400">Prior frozen observations</p>
+          <p className="text-xs font-semibold text-slate-400">Prior frozen observations</p>
           <div className="mt-2 divide-y divide-line">
             {observations.slice(1).map((item) => (
               <div key={item.id} className="grid gap-1 py-2 text-xs sm:grid-cols-[1fr_auto_auto] sm:items-center sm:gap-4">

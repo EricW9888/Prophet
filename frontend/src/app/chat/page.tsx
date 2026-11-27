@@ -311,7 +311,7 @@ function CorroborationPanel({ summary }: { summary: StructuredReasoningSummary }
   return (
     <div className={`rounded-lg border p-3 ${tone}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-medium uppercase tracking-wider">Evidence confidence</p>
+        <p className="text-xs font-medium">Evidence confidence</p>
         <span className="rounded-none border border-current/25 px-2 py-1 text-xs font-medium uppercase">
           {formatUserLabel(assessment.status)}
         </span>
@@ -346,7 +346,7 @@ function CorroborationPanel({ summary }: { summary: StructuredReasoningSummary }
       ) : null}
       {assessment.assumptions.length > 0 ? (
         <div className="mt-3 border-t border-current/15 pt-2">
-          <p className="text-xs font-medium uppercase tracking-wider">Load-bearing assumptions</p>
+          <p className="text-xs font-medium">Load-bearing assumptions</p>
           {assessment.assumptions.slice(0, 4).map((assumption, index) => (
             <div key={`${assumption.statement}-${index}`} className="mt-2 text-sm">
               <p>{assumption.statement}</p>
@@ -1312,7 +1312,7 @@ function ChatWorkspace() {
           </div> : null}
           {researchView === "Chats" ? <>
           <div className="border-b border-slate-200 p-4 dark:border-slate-800">
-            <p className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
+            <p className="mb-3 text-xs font-medium text-muted">
               Saved chats
             </p>
             <button
@@ -2080,7 +2080,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
           </div>
           {strengthen.length > 0 ? (
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-muted">
+              <p className="text-xs font-medium text-muted">
                 What would strengthen this view
               </p>
               <ul className="mt-2 list-disc space-y-1 pl-5">
@@ -2092,7 +2092,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
           ) : null}
           {gapFlags.length > 0 ? (
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-muted">
+              <p className="text-xs font-medium text-muted">
                 What looks thin or missing
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
@@ -2109,7 +2109,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
           ) : null}
           {falsify.length > 0 ? (
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-muted">
+              <p className="text-xs font-medium text-muted">
                 What would change the conclusion
               </p>
               <ul className="mt-2 list-disc space-y-1 pl-5">
@@ -2121,7 +2121,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
           ) : null}
           {retrievalLayers.length > 0 ? (
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-muted">
+              <p className="text-xs font-medium text-muted">
                 Retrieval path
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
@@ -2138,7 +2138,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
           ) : null}
           {contradictions.length > 0 ? (
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-muted">
+              <p className="text-xs font-medium text-muted">
                 Active contradictions
               </p>
               <ul className="mt-2 list-disc space-y-1 pl-5">
@@ -2150,7 +2150,7 @@ function ReasoningTraceCard({ trace }: { trace?: ReasoningTrace }) {
           ) : null}
           {alternativeHypotheses.length > 0 ? (
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-muted">
+              <p className="text-xs font-medium text-muted">
                 Alternative explanations
               </p>
               <div className="mt-2 space-y-2">
@@ -2286,7 +2286,7 @@ function ActualProcessSummary({
         {sourceFeedbackSummary ? <p>source feedback: {sourceFeedbackSummary}</p> : null}
         {trace ? (
           <details className="pt-1">
-            <summary className="cursor-pointer text-xs uppercase tracking-wider text-slate-400">
+            <summary className="cursor-pointer text-xs text-slate-400">
               Technical trace
             </summary>
             <p className="mt-1">
@@ -2309,7 +2309,7 @@ function ActualProcessSummary({
       {summary.researchPlan ? (
         <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted">
+            <p className="text-xs font-medium text-muted">
               Research scope
             </p>
             <span className="text-xs text-muted">
@@ -2345,7 +2345,7 @@ function ActualProcessSummary({
       <CorroborationPanel summary={summary} />
       {historicalLens ? (
         <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-          <p className="text-xs font-medium uppercase tracking-wider text-muted">
+          <p className="text-xs font-medium text-muted">
             Historical rhyme
           </p>
           <p className="mt-2 font-medium text-slate-800 dark:text-slate-100">
@@ -2384,7 +2384,7 @@ function ActualProcessSummary({
         <div className="mt-3 grid gap-3 md:grid-cols-3">
           {displayedThesis ? (
             <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted">
+              <p className="text-xs font-medium text-muted">
                 Current read
               </p>
               <p className="mt-2 text-foreground">{displayedThesis}</p>
@@ -2399,7 +2399,7 @@ function ActualProcessSummary({
           ) : null}
           {summary.gapFlags.length > 0 ? (
             <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted">
+              <p className="text-xs font-medium text-muted">
                 Missing or thin
               </p>
               <ul className="mt-2 space-y-1 text-foreground">
@@ -2411,7 +2411,7 @@ function ActualProcessSummary({
           ) : null}
           {nextBestStep ? (
             <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted">
+              <p className="text-xs font-medium text-muted">
                 Best next check
               </p>
               <p className="mt-2 text-foreground">{nextBestStep}</p>
