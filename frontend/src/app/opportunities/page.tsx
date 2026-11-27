@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useNow } from "@/lib/use-now";
 
 import { useWorkspaceReads } from "@/lib/workspace-reads";
 import WorkspaceState from "@/components/WorkspaceState";
@@ -116,6 +117,7 @@ function EvidenceItem({ item, index }: { item: Record<string, unknown>; index: n
 }
 
 export default function OpportunitiesPage() {
+  const now = useNow();
   const [tab, setTab] = useState<WorkspaceTab>("queue");
   const [filter, setFilter] = useState<CandidateFilter>("all");
   const [candidates, setCandidates] = useState<OpportunityCandidate[]>([]);
@@ -178,7 +180,7 @@ export default function OpportunitiesPage() {
   const dueCount = universe.filter((member) => {
     if (!member.enabled) return false;
     if (!member.next_inspection_at) return true;
-    return new Date(member.next_inspection_at).getTime() <= Date.now();
+    return new Date(member.next_inspection_at).getTime() <= now;
   }).length;
 
   function updateDiscoverySettings(

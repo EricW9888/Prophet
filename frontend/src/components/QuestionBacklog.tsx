@@ -31,14 +31,15 @@ export default function QuestionBacklog() {
   const [offset, setOffset] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const requestVersion = useRef(0);
-  const load = useCallback(async () => {
+  const load = useCallback(() => {
     const version = ++requestVersion.current;
-    try {
-      const result = await apiFetch<Backlog>(`/automation/questions?view=${view}&offset=${offset}`);
-      if (version !== requestVersion.current) return false;
-      setData(result); setError(null); return true;
-    }
-    catch (err) { if (version === requestVersion.current) setError(err instanceof Error ? err.message : "Could not load research work"); return false; }
+    return apiFetch<Backlog>(`/automation/questions?view=${view}&offset=${offset}`).then(
+      (result) => {
+        if (version !== requestVersion.current) return false;
+        setData(result); setError(null); return true;
+      },
+      (err) => { if (version === requestVersion.current) setError(err instanceof Error ? err.message : "Could not load research work"); return false; },
+    );
   }, [view, offset]);
   useEffect(() => { void load(); }, [load]);
   async function show(id: string, more = false) {

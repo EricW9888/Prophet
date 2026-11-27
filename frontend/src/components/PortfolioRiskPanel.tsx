@@ -20,15 +20,13 @@ export default function PortfolioRiskPanel() {
   const requestSequence = useRef(0);
   const mutationPending = useRef(false);
 
-  async function load() {
-    if (mutationPending.current) return;
+  function load() {
+    if (mutationPending.current) return Promise.resolve();
     const request = ++requestSequence.current;
-    try {
-      const next = await apiFetch<PortfolioRiskState>("/risk/portfolio");
-      if (request === requestSequence.current) { setState(next); setError(null); }
-    } catch (err) {
-      if (request === requestSequence.current) setError(err instanceof Error ? err.message : "Unable to load portfolio risk.");
-    }
+    return apiFetch<PortfolioRiskState>("/risk/portfolio").then(
+      (next) => { if (request === requestSequence.current) { setState(next); setError(null); } },
+      (err) => { if (request === requestSequence.current) setError(err instanceof Error ? err.message : "Unable to load portfolio risk."); },
+    );
   }
 
   useEffect(() => {

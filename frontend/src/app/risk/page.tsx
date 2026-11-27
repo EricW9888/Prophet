@@ -35,43 +35,53 @@ export default function RiskPage() {
 
   const { read, status } = useWorkspaceReads<"summary" | "benchmarks">();
 
-  const loadState = useCallback(async (refresh = false) => {
-    if (!refresh && refreshingRef.current) return;
-    if (refresh) {
-      refreshingRef.current = true;
-      setRefreshing(true);
-    }
+  const readState = useCallback((refresh: boolean) => {
     void read<BenchmarkRecord[]>("benchmarks", "/benchmarks", setBenchmarks);
-    try {
-      await read<RiskSummary>("summary", "/risk/summary?refresh=" + refresh, setSummary);
-    } finally {
-      if (refresh) {
-        refreshingRef.current = false;
-        setRefreshing(false);
-      }
-    }
+    return read<RiskSummary>("summary", "/risk/summary?refresh=" + refresh, setSummary);
   }, [read]);
 
-  async function loadAttribution(days: number) {
-    setAttributionLoading(true);
+  // A background or follow-up read; skipped while a requested refresh runs.
+  const loadState = useCallback(
+    () => (refreshingRef.current ? Promise.resolve() : readState(false)),
+    [readState],
+  );
+
+  // The owner asked for fresh figures: recompute, and show progress.
+  async function refreshState() {
+    refreshingRef.current = true;
+    setRefreshing(true);
     try {
-      const result = await apiFetch<PerformanceAttribution>(
-        `/risk/performance-attribution?window_days=${days}`,
-      );
-      setAttribution(result);
-      setAttributionError(null);
-    } catch (err) {
-      setAttributionError(err instanceof Error ? err.message : "Unable to calculate performance attribution.");
+      await readState(true);
     } finally {
-      setAttributionLoading(false);
+      refreshingRef.current = false;
+      setRefreshing(false);
     }
   }
 
+  // Attribution shows its loading state from the start, so only a later
+  // re-analysis sets it again.
+  function loadAttribution(days: number) {
+    return apiFetch<PerformanceAttribution>(`/risk/performance-attribution?window_days=${days}`)
+      .then(
+        (result) => {
+          setAttribution(result);
+          setAttributionError(null);
+        },
+        (err) => setAttributionError(err instanceof Error ? err.message : "Unable to calculate performance attribution."),
+      )
+      .finally(() => setAttributionLoading(false));
+  }
+
+  function reanalyse(days: number) {
+    setAttributionLoading(true);
+    return loadAttribution(days);
+  }
+
   useEffect(() => {
-    void loadState(false);
+    void loadState();
     void loadAttribution(21);
     const interval = window.setInterval(() => {
-      if (!document.hidden) void loadState(false);
+      if (!document.hidden) void loadState();
     }, 20000);
     return () => window.clearInterval(interval);
   }, [loadState]);
@@ -100,7 +110,7 @@ export default function RiskPage() {
         description: "",
         benchmark_type: "broad_market",
       });
-      await loadState(false);
+      await loadState();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to create benchmark.");
     } finally {
@@ -117,7 +127,7 @@ export default function RiskPage() {
           title="Risk and benchmark"
           description="Benchmark-relative performance, concentration, regime, and scenario impact for the live portfolio."
           actions={(
-            <button onClick={() => { void loadState(true); void loadAttribution(Number(windowDays) || 21); }} disabled={refreshing} className="rounded border border-line-strong px-3 py-2 text-sm font-medium disabled:opacity-50">
+            <button onClick={() => { void refreshState(); void reanalyse(Number(windowDays) || 21); }} disabled={refreshing} className="rounded border border-line-strong px-3 py-2 text-sm font-medium disabled:opacity-50">
               {refreshing ? "Refreshing..." : "Refresh snapshot"}
             </button>
           )}
@@ -133,10 +143,10 @@ export default function RiskPage() {
         <AdvisoryTrialPanel />
 
         {status.benchmarks?.error ? (
-          <WorkspaceState compact kind="degraded" title="Benchmark list unavailable" description={status.benchmarks.error} actionLabel="Retry" onAction={() => void loadState(false)} />
+          <WorkspaceState compact kind="degraded" title="Benchmark list unavailable" description={status.benchmarks.error} actionLabel="Retry" onAction={() => void loadState()} />
         ) : null}
         {status.summary?.error ? (
-          <WorkspaceState compact kind={summary ? "degraded" : "error"} title="Benchmark context unavailable" description={status.summary.error} actionLabel="Retry" onAction={() => void loadState(false)} />
+          <WorkspaceState compact kind={summary ? "degraded" : "error"} title="Benchmark context unavailable" description={status.summary.error} actionLabel="Retry" onAction={() => void loadState()} />
         ) : null}
         {!summary ? (
           status.summary?.error ? null : <WorkspaceState compact kind="loading" title="Loading benchmark context" description="Reading stored exposures and benchmark settings." />
@@ -159,7 +169,7 @@ export default function RiskPage() {
               onAnalyze={() => {
                 const days = Math.max(1, Math.min(1825, Number(windowDays) || 21));
                 setWindowDays(String(days));
-                void loadAttribution(days);
+                void reanalyse(days);
               }}
             />
 

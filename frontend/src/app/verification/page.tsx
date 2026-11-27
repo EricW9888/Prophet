@@ -15,6 +15,17 @@ import ReviewDomainFilters, { reviewDomain, reviewDomainLabel, reviewPagePath, r
 import { isRecordId, reviewResearchQuestion, reviewSubject, selectReviewContext } from "@/lib/workflows";
 import { API_BASE, apiFetch, ProfileListItem, ReviewDomain, ReviewQueueCounts, ReviewQueueItem, ReviewQueuePage, VerificationResult } from "@/lib/api";
 
+/** Profiles, the domain's first queue page, and a linked item not on that page. */
+async function readReviewWorkspace(domain: ReturnType<typeof reviewDomain>, requestedId: string | null) {
+  const [items, page] = await Promise.all([
+    apiFetch<ProfileListItem[]>("/profiles"),
+    apiFetch<ReviewQueuePage>(reviewPagePath(domain)),
+  ]);
+  const linkedItem = isRecordId(requestedId) && !page.items.some(item => item.id === requestedId)
+    ? await apiFetch<ReviewQueueItem | null>(`/review/queue/${requestedId}`) : null;
+  return { items, page, linkedItem };
+}
+
 export default function VerificationPage() {
   return <Suspense fallback={<><AppNav active="review" /><main className="workspace-frame py-6"><WorkspaceSkeleton label="Loading review workspace" rows={4} /></main></>}><VerificationWorkspace /></Suspense>;
 }
@@ -39,29 +50,23 @@ function VerificationWorkspace() {
   const [contextNotice, setContextNotice] = useState<string | null>(null);
   const [challengeText, setChallengeText] = useState("Are you sure? Re-check contradictions, missing evidence, and whether the current stance should change.");
   const [result, setResult] = useState<VerificationResult | null>(null);
-  const [loading, setLoading] = useState(true);
+  // The view the last load settled on; loading means it is not the one asked for.
+  const [settledKey, setSettledKey] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const loading = refreshing || settledKey !== targetKey;
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedSignals, setExpandedSignals] = useState<Record<string, boolean>>({});
 
-  const loadWorkspace = useCallback(async () => {
+  const loadWorkspace = useCallback(() => {
     const request = ++workspaceRequestRef.current;
     const params = new URLSearchParams(targetKey);
     const domain = reviewDomain(params.get("domain") ?? "investment");
     const selectionKey = reviewSelectionKey(targetKey);
-    setLoading(true);
-    setLoadingMore(false);
-    try {
-      const [items, page] = await Promise.all([
-        apiFetch<ProfileListItem[]>("/profiles"),
-        apiFetch<ReviewQueuePage>(reviewPagePath(domain)),
-      ]);
+    return readReviewWorkspace(domain, params.get("item_id")).then(({ items, page, linkedItem }) => {
       const queueItems = page.items;
-      const requestedId = params.get("item_id");
-      const linkedItem = isRecordId(requestedId) && !queueItems.some(item => item.id === requestedId)
-        ? await apiFetch<ReviewQueueItem | null>(`/review/queue/${requestedId}`) : null;
       if (request !== workspaceRequestRef.current) return;
       setProfiles(items);
       setQueue(queueItems);
@@ -86,12 +91,15 @@ function VerificationWorkspace() {
       }
       setLoaded(true);
       setLoadError(null);
-    } catch (err) {
+    }, (err) => {
       if (request !== workspaceRequestRef.current) return;
       setLoadError(`${reviewDomainLabel(domain)} reviews could not be loaded. ${err instanceof Error ? err.message : "Unable to load the review workspace."}`);
-    } finally {
-      if (request === workspaceRequestRef.current) setLoading(false);
-    }
+    }).finally(() => {
+      if (request !== workspaceRequestRef.current) return;
+      setSettledKey(targetKey);
+      // A "show more" from the previous view is superseded by this load.
+      setLoadingMore(false);
+    });
   }, [targetKey]);
 
   useEffect(() => {
@@ -107,14 +115,14 @@ function VerificationWorkspace() {
 
   async function refreshQueue() {
     setError(null);
-    setLoading(true);
+    setRefreshing(true);
     try {
       await apiFetch<ReviewQueueItem[]>("/review/queue/refresh", { method: "POST" });
       await loadWorkspace();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to refresh review queue.");
     } finally {
-      setLoading(false);
+      setRefreshing(false);
     }
   }
 

@@ -27,6 +27,27 @@ function permissionLabel(permission: NotificationPermission | "unsupported"): st
   return "Unavailable in this browser context";
 }
 
+/** Browser permission, server status and this device's subscription, read together. */
+async function readNotificationState() {
+  const supported = browserNotificationsSupported();
+  let status = await apiFetch<PushNotificationServerStatus>("/notifications/status");
+  const subscription = supported ? await currentPushSubscription() : null;
+  if (
+    subscription &&
+    Notification.permission === "granted" &&
+    status.ready &&
+    pushSubscriptionMatches(subscription, status.application_server_key)
+  ) {
+    await syncPushSubscription(subscription);
+    status = await apiFetch<PushNotificationServerStatus>("/notifications/status");
+  }
+  return { permission: browserPermission(), status, subscription };
+}
+
+function browserPermission(): NotificationPermission | "unsupported" {
+  return browserNotificationsSupported() ? Notification.permission : "unsupported";
+}
+
 export default function PushNotificationSettings() {
   const [status, setStatus] = useState<PushNotificationServerStatus | null>(null);
   const [subscription, setSubscription] = useState<PushSubscription | null>(null);
@@ -40,26 +61,19 @@ export default function PushNotificationSettings() {
   const foregroundEnabled = useSyncExternalStore(subscribeForegroundPreference, foregroundNotificationsEnabled, () => false);
   const deliveryHealth = useSyncExternalStore(subscribeForegroundHealth, foregroundDeliveryHealth, foregroundDeliveryHealth);
 
-  async function refresh() {
-    const supported = browserNotificationsSupported();
-    setPermission(supported ? Notification.permission : "unsupported");
-    let serverStatus = await apiFetch<PushNotificationServerStatus>(
-      "/notifications/status",
+  function refresh() {
+    return readNotificationState().then(
+      (next) => {
+        setPermission(next.permission);
+        setStatus(next.status);
+        setSubscription(next.subscription);
+      },
+      (reason) => {
+        // The browser's own permission is known even when the server is not.
+        setPermission(browserPermission());
+        throw reason;
+      },
     );
-    const currentSubscription = supported ? await currentPushSubscription() : null;
-    if (
-      currentSubscription &&
-      Notification.permission === "granted" &&
-      serverStatus.ready &&
-      pushSubscriptionMatches(currentSubscription, serverStatus.application_server_key)
-    ) {
-      await syncPushSubscription(currentSubscription);
-      serverStatus = await apiFetch<PushNotificationServerStatus>(
-        "/notifications/status",
-      );
-    }
-    setStatus(serverStatus);
-    setSubscription(currentSubscription);
   }
 
   useEffect(() => {
@@ -90,7 +104,7 @@ export default function PushNotificationSettings() {
       await refresh();
     } catch (reason) {
       setPermission(
-        browserNotificationsSupported() ? Notification.permission : "unsupported",
+        browserPermission(),
       );
       setError(
         reason instanceof Error ? reason.message : "Notifications could not be enabled.",

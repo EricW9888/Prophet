@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch, ConnectionHealth, DashboardSummary, ProviderHealth } from "@/lib/api";
+import { useNow } from "@/lib/use-now";
 
 /** "Recent responses took about 48s (fastest tenth 31s), over the last 50 successful requests." */
 export function responseTimes(seconds: number[]): string {
@@ -16,9 +17,12 @@ export default function ProviderWorkSummary({ usage, operations }: { usage: Dash
   const [health, setHealth] = useState<ProviderHealth | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  async function refresh() {
-    try { setHealth(await apiFetch<ProviderHealth>("/automation/provider-health")); setError(null); }
-    catch { setError("Provider health could not be refreshed."); }
+  const now = useNow();
+  function refresh() {
+    return apiFetch<ProviderHealth>("/automation/provider-health").then(
+      (next) => { setHealth(next); setError(null); },
+      () => setError("Provider health could not be refreshed."),
+    );
   }
   useEffect(() => { void refresh(); const timer = setInterval(() => void refresh(), 15000); return () => clearInterval(timer); }, []);
   async function probe() {
@@ -34,7 +38,7 @@ export default function ProviderWorkSummary({ usage, operations }: { usage: Dash
     catch { setError(`The connection "${name}" could not be tested.`); }
     finally { setTesting(null); }
   }
-  const canProbe = health && ["open", "unobserved"].includes(health.state) && (!health.next_probe_at || Date.parse(health.next_probe_at) <= Date.now());
+  const canProbe = health && ["open", "unobserved"].includes(health.state) && (!health.next_probe_at || Date.parse(health.next_probe_at) <= now);
   return <details className="rounded border border-slate-200 p-3 text-xs dark:border-slate-800">
     <summary className="cursor-pointer font-medium">Work completed in the last 24 hours · {usage.live_analysis_runs_24h} live analyses · {usage.cached_runs_24h} cached</summary>
     <p className="mt-3 text-slate-500">{usage.analysis_runs_24h} analysis records: {usage.live_analysis_runs_24h} live, {usage.cached_runs_24h} cached, {usage.fallback_runs_24h} fallback, {usage.deferred_runs_24h} deferred, {usage.failed_runs_24h} failed, {usage.unclassified_runs_24h} unclassified.</p>

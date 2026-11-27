@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { usePlaidLink } from "react-plaid-link";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
 import AppNav from "@/components/AppNav";
@@ -11,7 +12,7 @@ import FloatingNotice from "@/components/FloatingNotice";
 import FloatingSaveBar from "@/components/FloatingSaveBar";
 import PageHeader from "@/components/PageHeader";
 import PushNotificationSettings from "@/components/PushNotificationSettings";
-import WorkspaceState from "@/components/WorkspaceState";
+import WorkspaceState, { WorkspaceSkeleton } from "@/components/WorkspaceState";
 import {
   API_BASE,
   apiFetch,
@@ -48,12 +49,17 @@ type GmailSyncResult = {
 };
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+  return <Suspense fallback={<><AppNav active="settings" /><main className="workspace-frame py-8"><WorkspaceSkeleton label="Loading settings" rows={4} /></main></>}><SettingsWorkspace /></Suspense>;
+}
+
+function settingsTab(value: string | null): SettingsTab {
+  return value === "data" || value === "research" || value === "status" || value === "system" ? value : "general";
+}
+
+function SettingsWorkspace() {
   // Deep link to a tab, for example /settings?tab=data from a review item.
-  useEffect(() => {
-    const tab = new URLSearchParams(window.location.search).get("tab");
-    if (tab === "general" || tab === "data" || tab === "research" || tab === "status" || tab === "system") setActiveTab(tab);
-  }, []);
+  const requestedTab = useSearchParams().get("tab");
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() => settingsTab(requestedTab));
   const [settings, setSettings] = useState<IntegrationSettings | null>(null);
   const [setup, setSetup] = useState<SetupStatus | null>(null);
   const [automation, setAutomation] = useState<AutomationStatus | null>(null);
@@ -1087,26 +1093,28 @@ function PlaidConnectionControl({
   onNotice: (message: string | null) => void;
   onChanged: () => Promise<void>;
 }) {
-  const [linkToken, setLinkToken] = useState<string | null>(null);
+  // A link token is requested only while linking is possible, and dropped as
+  // soon as it is not, so a later link always uses a fresh token.
+  const linkable = enabled && credentialsReady && !connected;
+  const [fetchedToken, setFetchedToken] = useState<string | null>(null);
+  const linkToken = linkable ? fetchedToken : null;
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!enabled || !credentialsReady || connected) {
-      setLinkToken(null);
-      return;
-    }
+    if (!linkable) return;
     let cancelled = false;
     void apiFetch<{ link_token: string }>("/integrations/plaid/link-token", { method: "POST" })
       .then(result => {
-        if (!cancelled) setLinkToken(result.link_token);
+        if (!cancelled) setFetchedToken(result.link_token);
       })
       .catch(err => {
         if (!cancelled) onError(err instanceof Error ? err.message : "Unable to initialize Plaid Link.");
       });
     return () => {
       cancelled = true;
+      setFetchedToken(null);
     };
-  }, [connected, credentialsReady, enabled, onError]);
+  }, [linkable, onError]);
 
   async function reconcile() {
     setBusy(true);
