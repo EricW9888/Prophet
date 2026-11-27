@@ -267,8 +267,10 @@ Fetch = Callable[[str], Awaitable[str]]
 
 
 async def _fetch_text(url: str) -> str:
+    # The SEC serves some plain-text files, such as its daily indexes, as a
+    # generic binary type; they are accepted only when they really are text.
     document = await fetch_public_document(
-        url, max_bytes=80_000_000, timeout_seconds=90
+        url, max_bytes=80_000_000, timeout_seconds=90, allow_binary_text=True
     )
     return document.text()
 

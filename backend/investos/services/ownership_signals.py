@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime, time
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import desc, or_, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.models.entity import Security
@@ -17,6 +17,7 @@ from investos.models.review import ReviewQueueItem
 from investos.models.source import Source
 
 DISCLOSURE_SOURCE_TYPES = frozenset({"filing", "ownership_tracker"})
+TICKER_KEYS = ("ticker", "symbol", "issuer_ticker", "security_ticker")
 DISCLOSURE_ITEM_TYPES = frozenset(
     {
         "insider_disclosure",
@@ -172,25 +173,41 @@ class OwnershipSignalService:
         return evidence
 
     async def queue_review_items(self, *, limit: int = 75) -> int:
+        """Queue disclosures worth review: the newest overall, and the newest
+        for each followed company, so market-wide feeds cannot crowd out a
+        followed company's filings."""
         portfolio_weights = await self.portfolio_weights_by_ticker()
-        rows = (
-            await self.session.execute(
-                select(RawEvidence, Source)
-                .join(Source, RawEvidence.source_id == Source.id)
-                .where(
-                    or_(
-                        Source.source_type.in_(DISCLOSURE_SOURCE_TYPES),
-                        RawEvidence.source_item_type.in_(DISCLOSURE_ITEM_TYPES),
-                    )
+        disclosures = (
+            select(RawEvidence, Source)
+            .join(Source, RawEvidence.source_id == Source.id)
+            .where(
+                or_(
+                    Source.source_type.in_(DISCLOSURE_SOURCE_TYPES),
+                    RawEvidence.source_item_type.in_(DISCLOSURE_ITEM_TYPES),
                 )
-                .order_by(
-                    desc(RawEvidence.public_time),
-                    desc(RawEvidence.event_time),
-                    desc(RawEvidence.created_at),
-                )
-                .limit(limit)
             )
-        ).all()
+            .order_by(
+                desc(RawEvidence.public_time),
+                desc(RawEvidence.event_time),
+                desc(RawEvidence.created_at),
+            )
+            .limit(limit)
+        )
+        rows = list((await self.session.execute(disclosures)).all())
+        if portfolio_weights:
+            followed = list(portfolio_weights)
+            about_followed = or_(
+                *(
+                    func.upper(RawEvidence.metadata_json[key].astext).in_(followed)
+                    for key in TICKER_KEYS
+                )
+            )
+            seen = {evidence.id for evidence, _ in rows}
+            for evidence, source in (
+                await self.session.execute(disclosures.where(about_followed))
+            ).all():
+                if evidence.id not in seen:
+                    rows.append((evidence, source))
 
         queued = 0
         for evidence, source in rows:
@@ -304,9 +321,7 @@ class OwnershipSignalService:
     def _title_from_metadata(
         cls, source_item_type: str, metadata: dict[str, Any]
     ) -> str:
-        ticker = cls._upper(
-            cls._first(metadata, "ticker", "symbol", "issuer_ticker", "security_ticker")
-        )
+        ticker = cls._upper(cls._first(metadata, *TICKER_KEYS))
         issuer = cls._text(
             cls._first(
                 metadata, "issuer", "issuer_name", "company", "entity", "entity_name"
@@ -383,9 +398,7 @@ class OwnershipSignalService:
             str(k).upper(): float(v or 0.0)
             for k, v in (portfolio_weights or {}).items()
         }
-        ticker = cls._upper(
-            cls._first(metadata, "ticker", "symbol", "issuer_ticker", "security_ticker")
-        )
+        ticker = cls._upper(cls._first(metadata, *TICKER_KEYS))
         issuer = cls._text(
             cls._first(
                 metadata, "issuer", "issuer_name", "company", "entity", "entity_name"
