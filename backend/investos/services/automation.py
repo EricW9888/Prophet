@@ -68,6 +68,7 @@ from investos.services.research import ResearchService
 from investos.services.review import ReviewService
 from investos.services.risk import RiskService
 from investos.services.runtime_settings import RuntimeSettingsStore
+from investos.services.sec_industry import SecIndustryService
 from investos.services.shadow import ShadowService
 from investos.services.source import SourceService
 from investos.services.theme_hygiene import ThemeHygieneService
@@ -343,6 +344,12 @@ class AutomationCoordinator:
             "database_backup", self._run_database_backup, 86400, settings.BACKUP_ENABLED
         )
         self._register_job("integrity_audit", self._run_integrity_audit, 3600, True)
+        self._register_job(
+            "industry_refresh",
+            self._run_industry_refresh,
+            86400,
+            settings.INDUSTRY_REFRESH_ENABLED,
+        )
         # Review is rebuilt from stored state without a model, so it stays
         # current while the AI provider is cooling down.
         self._register_job(
@@ -1485,6 +1492,23 @@ class AutomationCoordinator:
                 items = await ReviewService(session).refresh_queue()
                 telemetry.last_status = "ok"
                 telemetry.detail = f"{len(items)} items need review."
+            except Exception as exc:
+                await session.rollback()
+                telemetry.last_status = "error"
+                telemetry.detail = compact_exception_message(exc)
+
+    async def _run_industry_refresh(self) -> None:
+        """Record each listed company's industry and sector from the SEC."""
+        telemetry = self.telemetry["industry_refresh"]
+        telemetry.last_run_at = datetime.now(UTC)
+        async with async_session_maker() as session:
+            try:
+                counts = await SecIndustryService(session).refresh()
+                telemetry.last_status = "ok"
+                telemetry.detail = (
+                    f"Checked {counts['checked']} companies; industry recorded for "
+                    f"{counts['filled']}; {counts['no_sec_match']} without an SEC match."
+                )
             except Exception as exc:
                 await session.rollback()
                 telemetry.last_status = "error"
