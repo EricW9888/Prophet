@@ -49,6 +49,7 @@ from investos.services.integrity import IntegrityService
 from investos.services.investment_object_backfill import InvestmentObjectBackfillService
 from investos.services.listing_directory import ListingDirectoryService
 from investos.services.market_data import MarketDataService
+from investos.services.market_insider_buying import MarketInsiderBuyingService
 from investos.services.market_setup import MarketSetupSignalService
 from investos.services.media_workspace import MediaIngestionPolicy
 from investos.services.news_intake import NewsIntakeService
@@ -324,6 +325,12 @@ class AutomationCoordinator:
             "database_backup", self._run_database_backup, 86400, settings.BACKUP_ENABLED
         )
         self._register_job("integrity_audit", self._run_integrity_audit, 3600, True)
+        self._register_job(
+            "market_insider_buying_refresh",
+            self._run_market_insider_buying_refresh,
+            86400,
+            settings.MARKET_INSIDER_BUYING_ENABLED,
+        )
         self._register_job(
             "insider_filings_refresh",
             self._run_insider_filings_refresh,
@@ -1641,6 +1648,26 @@ class AutomationCoordinator:
                     f"Checked {counts['companies']} companies; "
                     f"{counts['filings']} new filings with "
                     f"{counts['transactions']} trades recorded."
+                )
+            except Exception as exc:
+                await session.rollback()
+                telemetry.last_status = "error"
+                telemetry.detail = compact_exception_message(exc)
+
+    async def _run_market_insider_buying_refresh(self) -> None:
+        """Find open-market insider buying across the market and send it to Ideas."""
+        telemetry = self.telemetry["market_insider_buying_refresh"]
+        telemetry.last_run_at = datetime.now(UTC)
+        async with async_session_maker() as session:
+            try:
+                counts = await MarketInsiderBuyingService(
+                    session, min_value=settings.MARKET_INSIDER_BUYING_MIN_VALUE
+                ).refresh()
+                telemetry.last_status = "ok"
+                telemetry.detail = (
+                    f"Read {counts['filings']} insider filings from "
+                    f"{counts['days']} days; {counts['buys']} open-market buys; "
+                    f"{counts['companies']} companies sent to Ideas."
                 )
             except Exception as exc:
                 await session.rollback()

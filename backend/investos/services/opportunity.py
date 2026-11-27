@@ -465,6 +465,12 @@ class OpportunityDiscoveryService:
         else:
             member.enabled = payload.enabled
             member.priority = payload.priority
+            if (member.metadata_json or {}).get("signal_boost") is not None:
+                member.metadata_json = {
+                    key: value
+                    for key, value in member.metadata_json.items()
+                    if key != "signal_boost"
+                }
         await self.session.flush()
         metadata = dict(member.metadata_json or {})
         metadata["origins"] = self._merge_universe_origins(
@@ -487,6 +493,93 @@ class OpportunityDiscoveryService:
             raise ValueError("Opportunity universe security has no entity.")
         return self._serialize_member(member, security=security, entity=entity)
 
+    async def note_universe_signal(
+        self,
+        *,
+        ticker: str,
+        entity_name: str | None,
+        source_type: str,
+        source_id: str,
+        label: str,
+        priority: float,
+        metadata: dict[str, Any] | None = None,
+    ) -> OpportunityUniverseMember | None:
+        """Put a company an automated signal points at first in line for research.
+
+        Adds the company to the universe if needed, records the signal as an
+        origin, and makes it due now with at least ``priority``. The raise is
+        temporary: the next inspection restores the earlier priority, and an
+        owner-set priority replaces it. A member the owner disabled stays
+        disabled and is not made due. Returns None when the ticker cannot be
+        catalogued or is not an eligible asset class.
+        """
+        try:
+            security = await SecurityCatalogService(
+                self.session
+            ).resolve_or_create_equity(ticker=ticker, entity_name=entity_name)
+        except ValueError:
+            return None
+        if self._universe_eligibility_reason(security) is not None:
+            return None
+        member = (
+            await self.session.execute(
+                select(OpportunityUniverseMember)
+                .where(OpportunityUniverseMember.security_id == security.id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if member is None:
+            member = OpportunityUniverseMember(
+                security_id=security.id,
+                entity_id=security.entity_id,
+                enabled=True,
+                priority=self.DEFAULT_UNIVERSE_PRIORITY,
+                source=source_type,
+                metadata_json={},
+            )
+            self.session.add(member)
+            await self.session.flush()
+        now = datetime.now(UTC)
+        metadata_json = dict(member.metadata_json or {})
+        metadata_json["origins"] = self._merge_universe_origins(
+            list(metadata_json.get("origins") or []),
+            [
+                {
+                    "source_type": source_type,
+                    "source_id": source_id,
+                    "label": label,
+                    "observed_at": now.isoformat(),
+                    "metadata": metadata or {},
+                }
+            ],
+        )
+        if member.enabled:
+            boost = dict(metadata_json.get("signal_boost") or {})
+            base = float(boost.get("base_priority", member.priority))
+            if priority > float(member.priority):
+                member.priority = priority
+            if float(member.priority) > base:
+                metadata_json["signal_boost"] = {
+                    "base_priority": base,
+                    "source_type": source_type,
+                    "label": label,
+                    "noted_at": now.isoformat(),
+                }
+            member.next_inspection_at = now
+        member.metadata_json = metadata_json
+        await self.session.commit()
+        return member
+
+    @staticmethod
+    def _end_signal_boost(member: OpportunityUniverseMember) -> None:
+        """Restore the priority a signal raised, once its purpose is served."""
+        metadata_json = dict(member.metadata_json or {})
+        boost = metadata_json.pop("signal_boost", None)
+        if boost is None:
+            return
+        member.priority = float(boost.get("base_priority", member.priority))
+        member.metadata_json = metadata_json
+
     async def update_universe_member(
         self,
         member_id: UUID,
@@ -496,6 +589,9 @@ class OpportunityDiscoveryService:
         if member is None:
             raise ValueError("Opportunity universe member not found.")
         if payload.priority is not None:
+            metadata_json = dict(member.metadata_json or {})
+            if metadata_json.pop("signal_boost", None) is not None:
+                member.metadata_json = metadata_json
             member.priority = payload.priority
         if payload.enabled is not None:
             member.enabled = payload.enabled
@@ -1255,6 +1351,7 @@ class OpportunityDiscoveryService:
             ]
         finally:
             if inspected:
+                self._end_signal_boost(member)
                 member.last_inspected_at = datetime.now(UTC)
                 member.next_inspection_at = member.last_inspected_at + timedelta(
                     hours=self.runtime.revisit_hours
