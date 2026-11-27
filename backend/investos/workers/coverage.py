@@ -13,10 +13,12 @@ from investos.models.coverage import (
     MissingEvidenceClass,
     UnresolvedQuestion,
 )
+from investos.models.entity import Security
 from investos.models.evidence import RawEvidence, SourceItem
 from investos.models.graph import Edge
 from investos.models.knowledge import Claim, Fact
 from investos.services.artifact_hygiene import is_artifact_subject_name
+from investos.services.business_map import BusinessMapService
 from investos.services.canonical_state import CanonicalStateService
 from investos.services.question_lifecycle import (
     ACTIVE_QUESTION_STATUSES,
@@ -53,6 +55,7 @@ COVERAGE_SCHEMA = {
                     "decision_relevance": {"type": "string"},
                     "existing_question_id": {"type": ["string", "null"]},
                     "source_triggered": {"type": "boolean"},
+                    "business_driver": {"type": ["string", "null"]},
                 },
                 "required": [
                     "question_text",
@@ -62,6 +65,7 @@ COVERAGE_SCHEMA = {
                     "decision_relevance",
                     "existing_question_id",
                     "source_triggered",
+                    "business_driver",
                 ],
             },
         },
@@ -284,6 +288,9 @@ class CoverageWorker:
                 "contradictions": c_map.contradiction_count,
             },
         }
+        drivers = await self._business_drivers(subject_id, subject_type)
+        if drivers:
+            evidence_context["business_drivers"] = drivers
         if lead_evidence_id is not None:
             lead = await self.session.get(RawEvidence, lead_evidence_id)
             item = await self.session.scalar(
@@ -319,7 +326,11 @@ class CoverageWorker:
                     "An unrelated headline, a routine profile gap, or a fresh copy of an already known development is insufficient. "
                     "The extracted summary is a lead to verify. Its receipt time is when Prophet got it. "
                     "For a paraphrase of an existing uncertainty, return its existing_question_id and reuse its exact dimensions. "
-                    "Different mechanisms, horizons and decisions must remain distinct. Do not treat exhausted research as answered."
+                    "Different mechanisms, horizons and decisions must remain distinct. Do not treat exhausted research as answered. "
+                    "business_drivers, when present, is where the company's revenue came from in its latest annual report, with each driver's share. "
+                    "Set business_driver to the driver label a question concerns, or null. "
+                    "Weigh urgency by how much of the business the answer could change: a question about a driver carrying most of the revenue usually outranks one about a minor line. "
+                    "Keep exploring: usually keep one question for a smaller, fast-growing or not yet examined driver that could change the picture."
                 ),
                 user_prompt=json.dumps(evidence_context, ensure_ascii=True),
                 schema=COVERAGE_SCHEMA,
@@ -354,6 +365,36 @@ class CoverageWorker:
 
         await self.session.commit()
         return c_map
+
+    async def _business_drivers(
+        self, subject_id: UUID, subject_type: str
+    ) -> dict[str, object] | None:
+        """The subject company's latest revenue map, compact enough for a prompt."""
+        entity_id = subject_id
+        if subject_type == "security":
+            security = await self.session.get(Security, subject_id)
+            if security is None:
+                return None
+            entity_id = security.entity_id
+        elif subject_type != "entity":
+            return None
+        business_map = await BusinessMapService(self.session).latest_map(entity_id)
+        if business_map is None:
+            return None
+        drivers = sorted(
+            business_map["drivers"], key=lambda driver: -float(driver["share"] or 0)
+        )
+        return {
+            "fiscal_year_end": business_map["period_end"],
+            "drivers": [
+                {
+                    "kind": driver["kind"],
+                    "label": driver["label"],
+                    "share_of_revenue": f"{float(driver['share'] or 0):.0%}",
+                }
+                for driver in drivers[:20]
+            ],
+        }
 
     @staticmethod
     def _normalized_gap_key(value: str | None) -> str:
@@ -477,6 +518,16 @@ class CoverageWorker:
                 ),
             )
             if question is not None:
+                driver = " ".join(str(payload.get("business_driver") or "").split())
+                if (
+                    driver
+                    and (question.uncertainty_json or {}).get("business_driver")
+                    != driver
+                ):
+                    question.uncertainty_json = {
+                        **(question.uncertainty_json or {}),
+                        "business_driver": driver,
+                    }
                 retained.add(question.id)
                 if question not in existing:
                     existing.append(question)
