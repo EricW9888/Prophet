@@ -340,6 +340,7 @@ export type GraphWebEdge = {
   supporting_claim_verified?: boolean | null;
   shared_evidence_count?: number | null;
   shared_industry?: string | null;
+  shared_sector?: string | null;
   id: string;
   source_key: string;
   target_key: string;
