@@ -12,6 +12,7 @@ import WorkspaceState from "@/components/WorkspaceState";
 import PageHeader from "@/components/PageHeader";
 import PortfolioRiskPanel from "@/components/PortfolioRiskPanel";
 import { API_BASE, apiFetch, BenchmarkRecord, PerformanceAttribution, RiskSummary } from "@/lib/api";
+import { readableMachineText } from "@/lib/formatting";
 
 export default function RiskPage() {
   const [summary, setSummary] = useState<RiskSummary | null>(null);
@@ -145,7 +146,7 @@ export default function RiskPage() {
               <MetricCard label="Open Cost-Basis Return" value={formatPct(summary.portfolio_return_pct)} detail="Unrealized return on current holdings" />
               <MetricCard label="Top Holding" value={summary.top_holding ?? "n/a"} detail={`${summary.top_holding_weight_pct.toFixed(1)}% weight`} />
               <MetricCard label="Top known sector" value={summary.top_sector ?? "Unavailable"} detail={summary.top_sector ? summary.top_sector_weight_pct.toFixed(1) + "% of invested value" : "Sector classification is missing"} />
-              <MetricCard label="Benchmark trend" value={summary.current_regime?.regime_type ?? "pending"} detail="30-day price rule · separate from portfolio risk" />
+              <MetricCard label="Benchmark trend" value={summary.current_regime?.regime_type ? readableMachineText(summary.current_regime.regime_type) : "pending"} detail="30-day price rule · separate from portfolio risk" />
             </section>
 
             <PerformanceAttributionPanel
@@ -183,7 +184,7 @@ export default function RiskPage() {
                 <div className="rounded-lg border border-line p-4">
                   <p className="text-xs uppercase tracking-wider text-slate-400">Current regime</p>
                   <p className="mt-2 text-lg font-semibold tracking-tight">
-                    {summary.current_regime?.regime_type ?? "Not computed"}
+                    {summary.current_regime?.regime_type ? readableMachineText(summary.current_regime.regime_type) : "Not computed"}
                   </p>
                   <p className="mt-1 text-sm text-muted">
                     {summary.current_regime

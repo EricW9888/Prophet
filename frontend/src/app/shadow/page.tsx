@@ -14,7 +14,7 @@ import { useWorkspaceReads } from "@/lib/workspace-reads";
 import WorkspaceState from "@/components/WorkspaceState";
 import { API_BASE, apiFetch, AutomationStatus, ShadowExperiment, ShadowFamily, ShadowLifecycleCounts } from "@/lib/api";
 import { isRecordId } from "@/lib/workflows";
-import { formatUserLabel, safeFormatCurrency } from "@/lib/formatting";
+import { formatUserLabel, readableMachineText, safeFormatCurrency } from "@/lib/formatting";
 
 
 
@@ -561,13 +561,13 @@ export default function ShadowPage() {
                               {item.ticker} {item.entity_name ? `· ${item.entity_name}` : ""}
                             </p>
                             <p className="mt-1 text-muted">
-                              stance {item.stance ?? "n/a"} · confidence {item.confidence_band ?? "n/a"} · action {item.action ?? "n/a"}
+                              stance {readableMachineText(item.stance) || "not set"} · confidence {readableMachineText(item.confidence_band) || "not set"} · action {readableMachineText(item.action) || "none"}
                             </p>
                             {item.thesis_summary ? (
-                              <p className="mt-2 text-muted">{item.thesis_summary}</p>
+                              <p className="mt-2 text-muted">{readableMachineText(item.thesis_summary)}</p>
                             ) : null}
                             {item.rationale ? (
-                              <p className="mt-2 text-muted">{item.rationale}</p>
+                              <p className="mt-2 text-muted">{readableMachineText(item.rationale)}</p>
                             ) : null}
                           </div>
                         ))}
@@ -657,7 +657,7 @@ export default function ShadowPage() {
                           <div key={`${experiment.id}-evidence-event-${event.event_id}`} className="py-3 text-sm">
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="font-medium text-slate-800 dark:text-slate-100">
-                                {event.trigger_reason}
+                                {readableMachineText(event.trigger_reason)}
                               </span>
                               <span className="rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
                                 {event.state}
@@ -716,13 +716,13 @@ export default function ShadowPage() {
                               <p className="mt-2 text-foreground">{entry.checkpoint_objective}</p>
                             ) : null}
                             {entry.portfolio_view ? (
-                              <p className="mt-2 text-muted">{entry.portfolio_view}</p>
+                              <p className="mt-2 text-muted">{readableMachineText(entry.portfolio_view)}</p>
                             ) : null}
                             {entry.planned_posture ? (
                               <p className="mt-2 text-muted">posture: {entry.planned_posture}</p>
                             ) : null}
                             {entry.prior_realization ? (
-                              <p className="mt-2 text-muted">{entry.prior_realization}</p>
+                              <p className="mt-2 text-muted">{readableMachineText(entry.prior_realization)}</p>
                             ) : null}
                             {entry.research_goal ? (
                               <p className="mt-2 text-muted">
@@ -746,19 +746,19 @@ export default function ShadowPage() {
                                     <p className="font-medium text-slate-800 dark:text-slate-100">
                                       {decision.ticker}
                                       {decision.entity_name ? ` · ${decision.entity_name}` : ""}
-                                      {decision.action ? ` · ${decision.action.toUpperCase()}` : ""}
+                                      {decision.action ? ` · ${readableMachineText(decision.action)}` : ""}
                                     </p>
                                     {decision.observed_signal ? (
-                                      <p className="mt-1 text-muted">signal: {decision.observed_signal}</p>
+                                      <p className="mt-1 text-muted">Signal: {readableMachineText(decision.observed_signal)}</p>
                                     ) : null}
                                     {decision.expected_outcome ? (
-                                      <p className="mt-1 text-muted">expected: {decision.expected_outcome}</p>
+                                      <p className="mt-1 text-muted">Expected: {readableMachineText(decision.expected_outcome)}</p>
                                     ) : null}
                                     {decision.risk_guardrail ? (
-                                      <p className="mt-1 text-muted">guardrail: {decision.risk_guardrail}</p>
+                                      <p className="mt-1 text-muted">Guardrail: {readableMachineText(decision.risk_guardrail)}</p>
                                     ) : null}
                                     {decision.rationale ? (
-                                      <p className="mt-1 text-muted">{decision.rationale}</p>
+                                      <p className="mt-1 text-muted">{readableMachineText(decision.rationale)}</p>
                                     ) : null}
                                   </div>
                                 ))}
@@ -794,13 +794,13 @@ export default function ShadowPage() {
                                 {entry.quantity.toFixed(2)} @ {formatCurrency(entry.price)}
                               </span>
                             </div>
-                            <p className="mt-2 text-muted">{entry.rationale}</p>
+                            <p className="mt-2 text-muted">{readableMachineText(entry.rationale)}</p>
                             <p className="mt-2 text-muted">
-                              stance {entry.stance ?? "n/a"} · confidence {entry.confidence_band ?? "n/a"}
+                              stance {readableMachineText(entry.stance) || "not set"} · confidence {readableMachineText(entry.confidence_band) || "not set"}
                               {entry.actual_weight_pct != null ? ` · actual weight ${entry.actual_weight_pct.toFixed(2)}%` : ""}
                             </p>
                             {entry.thesis_summary ? (
-                              <p className="mt-2 text-muted">{entry.thesis_summary}</p>
+                              <p className="mt-2 text-muted">{readableMachineText(entry.thesis_summary)}</p>
                             ) : null}
                             <p className="mt-2 text-muted">
                               buying power after trade: {formatCurrency(entry.post_trade_buying_power)}
@@ -961,7 +961,7 @@ export default function ShadowPage() {
                   <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                     <div className="min-w-0">
                       <p className="font-medium">{job.name}</p>
-                      <p className="text-sm text-muted">{job.detail ?? "No detail yet."}</p>
+                      <p className="text-sm text-muted">{readableMachineText(job.detail) || "No detail yet."}</p>
                     </div>
                     <button
                       onClick={() => void triggerAutomation(job.name)}
@@ -1189,7 +1189,7 @@ function PaperBrokerLedger({
                     <span className="capitalize text-foreground">{event.event_type}</span>
                     <AccountEventStatus status={event.status} />
                   </div>
-                  <p className="mt-1 text-muted">{event.detail}</p>
+                  <p className="mt-1 text-muted">{readableMachineText(event.detail)}</p>
                   <p
                     className="mt-1 text-xs text-muted"
                     title="Derivation records whether the amount came directly from broker provenance or was reconstructed from the settled transaction ledger."
@@ -1247,7 +1247,7 @@ function PaperBrokerLedger({
                   ) : null}
                   {order.rejection_reason ? <p className="mt-1 text-red-600 dark:text-red-300">{order.rejection_reason.replaceAll("_", " ")}</p> : null}
                   {adjustments.map((adjustment, index) => <p key={`${order.id}-adjustment-${index}`} className="mt-1 text-caution">{adjustment}</p>)}
-                  <p className="mt-2 text-muted">{order.rationale}</p>
+                  <p className="mt-2 text-muted">{readableMachineText(order.rationale)}</p>
                 </div>
                 <div className="text-left text-xs text-slate-500 md:text-right dark:text-slate-400">
                   <p>reference {formatCurrency(order.reference_price)}</p>
@@ -1307,7 +1307,7 @@ function ExperimentSetup({ experiment }: { experiment: ShadowExperiment }) {
       {facts.map(([label, value]) => <div key={label}><dt className="text-muted">{label}</dt><dd className="mt-1 font-medium">{value}</dd></div>)}
     </dl>
     <OpportunitySummary profile={profile} />
-    {!profile?.investable_thesis && experiment.trigger_reason && <p className="max-w-[76ch] whitespace-pre-wrap text-sm leading-relaxed">{experiment.trigger_reason}</p>}
+    {!profile?.investable_thesis && experiment.trigger_reason && <p className="max-w-[76ch] whitespace-pre-wrap text-sm leading-relaxed">{readableMachineText(experiment.trigger_reason)}</p>}
     <details className="border border-line p-3">
       <summary className="cursor-pointer text-sm font-medium">Starting balances, policy, and setup record</summary>
       <div className="mt-3 space-y-4 text-sm">
@@ -1324,7 +1324,7 @@ function ExperimentSetup({ experiment }: { experiment: ShadowExperiment }) {
           {(manual || experiment.guidance_summary) && <div><h3 className="mb-1 font-medium">Guidance in this run</h3><p className="whitespace-pre-wrap leading-relaxed text-muted">{manual ? "Orders submitted through the manual ticket change this paper account." : experiment.guidance_summary}</p></div>}
           {profile?.investable_thesis && experiment.trigger_reason && <details>
             <summary className="cursor-pointer font-medium">Original trigger record</summary>
-            <p className="mt-2 whitespace-pre-wrap leading-relaxed text-muted">{experiment.trigger_reason}</p>
+            <p className="mt-2 whitespace-pre-wrap leading-relaxed text-muted">{readableMachineText(experiment.trigger_reason)}</p>
           </details>}
         </div>
       </div>
@@ -1495,13 +1495,13 @@ function ExperimentOutcomeSummary({ experiment }: { experiment: ShadowExperiment
       {objective ? (
         <div className="border-l-2 border-slate-300 pl-3 dark:border-slate-700">
           <p className="text-xs font-medium text-muted">Objective</p>
-          <p className="mt-2 text-sm leading-6 text-foreground">{objective}</p>
+          <p className="mt-2 text-sm leading-6 text-foreground">{readableMachineText(objective)}</p>
         </div>
       ) : null}
       {expected?.summary ? (
         <div className="border-l-2 border-amber-400 pl-3">
           <p className="text-xs font-medium text-caution">Expected outcome</p>
-          <p className="mt-2 text-sm leading-6 text-foreground">{expected.summary}</p>
+          <p className="mt-2 text-sm leading-6 text-foreground">{readableMachineText(expected.summary)}</p>
           {expected.expected_alpha_vs_baseline != null ? (
             <p className="mt-2 text-xs text-muted">
               Expected edge {formatPct(expected.expected_alpha_vs_baseline)}
@@ -1512,7 +1512,7 @@ function ExperimentOutcomeSummary({ experiment }: { experiment: ShadowExperiment
       {actual?.summary ? (
         <div className="border-l-2 border-emerald-500 pl-3">
           <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Observed outcome</p>
-          <p className="mt-2 text-sm leading-6 text-foreground">{actual.summary}</p>
+          <p className="mt-2 text-sm leading-6 text-foreground">{readableMachineText(actual.summary)}</p>
           {actual.alpha_vs_real_portfolio != null ? (
             <p className="mt-2 text-xs text-muted">
               Observed edge {formatPct(actual.alpha_vs_real_portfolio)}

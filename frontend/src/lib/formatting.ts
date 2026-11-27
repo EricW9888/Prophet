@@ -46,6 +46,25 @@ export function formatUserLabel(label: string | null | undefined): string {
   return result.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/**
+ * Machine text made readable for people: `key=value` pairs become "key: value",
+ * identifiers lose their underscores, and ";" separators become " · ".
+ * URLs, dates and numbers are left alone.
+ *
+ * "triggers=contradiction_pressure; stance=no_view" -> "triggers: contradiction pressure · stance: no view"
+ */
+export function readableMachineText(text: string | null | undefined): string {
+  if (!text) return "";
+  return text
+    .split(/(\bhttps?:\/\/\S+)/)
+    .map((part, index) => index % 2 === 1 ? part : part
+      .replace(/\b([a-z][a-z0-9]*(?:_[a-z0-9]+)*)=([^\s;,]+)/g, (_, key: string, value: string) =>
+        `${key.replace(/_/g, " ")}: ${/^[a-z][a-z0-9_]*$/.test(value) ? value.replace(/_/g, " ") : value}`)
+      .replace(/\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g, (word) => word.replace(/_/g, " "))
+      .replace(/\s*;\s*/g, " · "))
+    .join("");
+}
+
 export function formatRegimeLabel(regime: string | null | undefined): string {
   if (!regime) return "Neutral Status";
   return formatUserLabel(regime);

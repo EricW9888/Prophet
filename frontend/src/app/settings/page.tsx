@@ -23,7 +23,8 @@ import {
 } from "@/lib/api";
 import {
   safeFormatCurrency,
-  formatRegimeLabel
+  formatRegimeLabel,
+  readableMachineText,
 } from "@/lib/formatting";
 import { ArrowRight, Clock, Database, Landmark, Zap, Search, Shield, SlidersHorizontal, Trash2, CheckCircle2, AlertCircle, Terminal } from "lucide-react";
 import LiveLogConsole from "@/components/LiveLogConsole";
@@ -1324,7 +1325,7 @@ function humanizeJobDetail(detail: string): string {
       })
       .join(" · ");
   }
-  return known[detail] ?? detail.replace(/_/g, " ");
+  return known[detail] ?? readableMachineText(detail);
 }
 
 function formatInterval(seconds?: number | null): string {
