@@ -194,3 +194,64 @@ async def test_refresh_maps_holdings_and_records_what_it_could_not(
     assert await service.latest_map(foreign_entity.id) is None
     # Checked companies are not fetched again within the month.
     assert await service.refresh(limit=50) == {}
+
+
+def region_document(rows: list[tuple[str, str]]) -> str:
+    parts = [context("fy", "2025-01-01", "2025-12-31"), fact("fy", "1,000")]
+    for index, (member, value) in enumerate(rows):
+        cid = f"r{index}"
+        parts.append(
+            context(
+                cid, "2025-01-01", "2025-12-31", member, "srt:StatementGeographicalAxis"
+            )
+        )
+        parts.append(fact(cid, value))
+    return "".join(parts)
+
+
+def test_two_complete_breakdowns_on_one_axis_keep_the_finer_one():
+    # By region (3 members) and by country (5 members), each adding up to 1,000.
+    mapped = parse_business_map(
+        region_document(
+            [
+                ("srt:AsiaPacificMember", "562"),
+                ("srt:AmericasMember", "296"),
+                ("us-gaap:EMEAMember", "142"),
+                ("country:US", "258"),
+                ("syn:ChinaMember", "175"),
+                ("country:SG", "169"),
+                ("country:TW", "101"),
+                ("syn:AllOtherGeographiesMemberMember", "297"),
+            ]
+        )
+    )
+    regions = {d.member: d.share for d in mapped.drivers if d.kind == "region"}
+    assert set(regions) == {
+        "country:US",
+        "syn:ChinaMember",
+        "country:SG",
+        "country:TW",
+        "syn:AllOtherGeographiesMemberMember",
+    }
+    assert sum(regions.values()) == pytest.approx(1.0)
+
+
+def test_an_axis_that_overshoots_without_a_complete_breakdown_is_dropped():
+    mapped = parse_business_map(
+        region_document(
+            [("country:US", "700"), ("syn:EuropeMember", "650"), ("country:JP", "40")]
+        )
+    )
+    assert not [d for d in mapped.drivers if d.kind == "region"]
+
+
+def test_a_filer_label_that_is_an_identifier_reads_as_words():
+    labels = {"syn:AllOtherGeographiesMemberMember": "AllOtherGeographiesMember"}
+    assert (
+        member_label("syn:AllOtherGeographiesMemberMember", labels)
+        == "All other geographies"
+    )
+    assert (
+        member_label("syn:AllOtherGeographiesMemberMember") == "All other geographies"
+    )
+    assert member_label("syn:ChinaMember", {"syn:ChinaMember": "China"}) == "China"
