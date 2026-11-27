@@ -160,6 +160,8 @@ class AutomationCoordinator:
             },
         )
         self.telemetry: dict[str, JobTelemetry] = {}
+        # What each registered job runs; "Run now" uses the same functions.
+        self._job_functions: dict[str, Callable[[], object]] = {}
         self._shutting_down = False
         self._signal_listener: asyncio.Task | None = None
         self._pending_signals: dict[str, str] = {}
@@ -567,43 +569,13 @@ class AutomationCoordinator:
         return "ok"
 
     async def run_job(self, name: str) -> None:
+        """Run a registered job now. Every registered job can be run this way;
+        there is no second list to keep in step with the registrations."""
         self.sync_runtime_jobs()
-        mapping = {
-            "listing_directory": self._run_listing_directory,
-            "news_intake": self._run_news_intake,
-            "news_capture": self._run_news_capture,
-            "provider_health_probe": self._run_provider_health_probe,
-            "database_backup": self._run_database_backup,
-            "integrity_audit": self._run_integrity_audit,
-            "market_data_refresh": self._run_market_data_refresh,
-            "risk_refresh": self._run_risk_refresh,
-            "evidence_processing": self._run_evidence_processing,
-            "evidence_subject_refresh": self._run_evidence_subject_refresh,
-            "research_loop": self._run_research_loop,
-            "question_resolution": self._run_question_resolution,
-            "relation_review": self._run_relation_review,
-            "agent_reflection": self._run_agent_reflection,
-            "shadow_refresh": self._run_shadow_refresh,
-            "shadow_discovery": self._run_shadow_discovery,
-            "opportunity_discovery": self._run_opportunity_discovery,
-            "gmail_sync": self._run_gmail_sync,
-            "brokerage_reconcile": self._run_brokerage_reconcile,
-            "strategist_cycle": self._run_strategist_cycle,
-            "pattern_discovery": self._run_pattern_discovery,
-            "watcher_loop": self._run_watcher_loop,
-            "owner_notifications": self._run_owner_notifications,
-            "entity_hygiene": self._run_entity_hygiene,
-            "theme_hygiene": self._run_theme_hygiene,
-            "media_cleanup": self._run_media_cleanup,
-            "youtube_channel_review": self._run_youtube_channel_review,
-            "source_claim_assessment": self._run_source_claim_assessment,
-            "market_setup_assessment": self._run_market_setup_assessment,
-            "fundamental_freshness": self._run_fundamental_freshness,
-            "investment_object_backfill": self._run_investment_object_backfill,
-        }
-        if name not in mapping:
+        func = self._job_functions.get(name)
+        if func is None:
             raise ValueError(f"Unknown job: {name}")
-        await self._dispatch_job(name, mapping[name], trigger="manual")
+        await self._dispatch_job(name, func, trigger="manual")
 
     def signal_ready_work(self, signal: str) -> None:
         """Wake existing workers; the signal itself cannot make work eligible."""
@@ -699,6 +671,7 @@ class AutomationCoordinator:
         interval_seconds: int,
         enabled: bool,
     ) -> None:
+        self._job_functions[name] = func
         self.telemetry[name] = JobTelemetry(
             name=name,
             interval_seconds=interval_seconds,
