@@ -337,7 +337,7 @@ export default function HistoryPage() {
                 {winRate.toFixed(1)}%
               </div>
               <div className="mt-2 h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-none overflow-hidden">
-                <div className="h-full bg-sky-500 transition-all duration-1000" style={{ width: `${winRate}%` }} />
+                <div className="h-full bg-muted transition-all duration-1000" style={{ width: `${winRate}%` }} />
               </div>
             </div>
           </div>
@@ -358,7 +358,7 @@ export default function HistoryPage() {
 
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 grayscale opacity-50">
-            <div className="w-8 h-8 border-3 border-sky-500/30 border-t-sky-500 rounded-full animate-spin mb-4" />
+            <div className="w-8 h-8 border-3 border-line border-t-sky-500 rounded-full animate-spin mb-4" />
             <p className="text-xs font-bold uppercase tracking-widest animate-pulse">Retrieving Audit logs...</p>
           </div>
         ) : error ? (

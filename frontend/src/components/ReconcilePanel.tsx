@@ -59,7 +59,7 @@ export default function ReconcilePanel({ id, initiallyOpen = false }: ReconcileP
         className="flex w-full items-center justify-between text-left"
       >
         <div className="flex items-start gap-3">
-          <div className="mt-0.5 rounded-lg bg-sky-50 p-2 text-sky-600 dark:bg-sky-950/30 dark:text-sky-300">
+          <div className="mt-0.5 rounded-lg bg-panel-muted p-2 text-muted">
             <ClipboardCheck className="h-4 w-4" />
           </div>
           <div>
@@ -115,7 +115,7 @@ export default function ReconcilePanel({ id, initiallyOpen = false }: ReconcileP
                   {result.in_sync ? "Compared values match" : discrepancyCount ? `${discrepancyCount} ${discrepancyCount === 1 ? "discrepancy" : "discrepancies"}` : "Comparison incomplete"}
                 </span>
                 {queued ? (
-                  <span className="rounded-none bg-sky-50 px-3 py-1 text-sky-700 dark:bg-sky-950/30 dark:text-sky-300">
+                  <span className="rounded-none bg-panel-muted px-3 py-1 text-muted">
                     {result.review_items_created} new review items
                   </span>
                 ) : null}

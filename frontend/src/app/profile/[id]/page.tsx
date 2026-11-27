@@ -87,7 +87,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
           <div className="space-y-2">
             <div className="flex items-center gap-3">
-              <span className="px-2.5 py-0.5 text-xs font-bold uppercase tracking-widest text-sky-600 bg-sky-50 border border-sky-200 rounded dark:bg-sky-950/40 dark:text-sky-400 dark:border-sky-800/50">
+              <span className="px-2.5 py-0.5 text-xs font-bold uppercase tracking-widest text-muted bg-panel-muted border border-line rounded">
                 {profile.subject_type} PROFILE
               </span>
             </div>
@@ -147,7 +147,7 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
                             <h3 className="font-semibold text-foreground">{readableName(metric.metric_name)}</h3>
-                            <span className="rounded bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
+                            <span className="rounded bg-panel-muted px-2 py-0.5 text-xs font-medium text-muted">
                               {metric.metric_family.replaceAll("_", " ")}
                             </span>
                           </div>
