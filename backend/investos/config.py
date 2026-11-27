@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     URL_FETCH_MAX_RESPONSE_MB: int = 2
     URL_FETCH_ALLOWED_PORTS: str = "80,443"
     BACKUP_ENABLED: bool = True
+    BUSINESS_MAP_ENABLED: bool = True
+    BUSINESS_MAP_BATCH_SIZE: int = 12
     BACKUP_DIR: str = str(PROJECT_ROOT / "backups")
     BACKUP_KEEP_COUNT: int = 7
     BACKUP_MAX_TOTAL_MB: int = 1024

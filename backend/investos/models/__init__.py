@@ -1,6 +1,7 @@
 from .attachment import ChatAttachment
 from .base import Base, TimestampMixin, utcnow
 from .benchmark import Benchmark, BenchmarkConstituent
+from .business_map import BusinessDriver
 from .catalog import (
     HistoricalEpisode,
     SourceClaimRecord,
@@ -86,6 +87,7 @@ from .verification import VerificationRun
 from .watcher import ActiveWatcher, WatcherEvidenceEvaluation
 
 __all__ = [
+    "BusinessDriver",
     "ChatAttachment",
     "PublisherFeed",
     "EvidenceTranslation",
