@@ -9,6 +9,7 @@ import { apiFetch, ProfileDetail } from "@/lib/api";
 import { researchHref } from "@/lib/workflows";
 import WorkspaceState from "@/components/WorkspaceState";
 import { readableName } from "@/lib/readable-name";
+import BusinessMapSummary from "@/components/BusinessMapSummary";
 
 function compactDate(value?: string | null) {
   if (!value) return "date unavailable";
@@ -122,6 +123,10 @@ function ProfileWorkspace({ profileId }: { profileId: string }) {
               {profile.current_thesis_summary ?? profile.executive_summary ?? "No current conclusion state yet."}
             </p>
           </section>
+
+          {profile.subject_type === "entity" ? (
+            <BusinessMapSummary entityId={profile.subject_id} className="border border-line bg-panel p-6" />
+          ) : null}
 
           {(profile.fundamental_metrics?.length || profile.market_setup_signals?.length) ? (
             <section className="border-y border-slate-200 bg-white dark:border-slate-800 dark:bg-[#111]">

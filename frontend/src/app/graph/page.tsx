@@ -11,6 +11,7 @@ import { GraphEdgeGlyph, GraphNodeGlyph, getNodeStyle } from "@/components/Graph
 import { GraphConnectionSelect } from "@/components/GraphConnectionSelect";
 import RecordFields from "@/components/RecordFields";
 import GraphNodeNavigator from "@/components/GraphNodeNavigator";
+import BusinessMapSummary from "@/components/BusinessMapSummary";
 import GraphMetricSummary from "@/components/GraphMetricSummary";
 import HintMarker from "@/components/HintMarker";
 import { graphLabelCandidates } from "@/lib/graph-labels";
@@ -1472,6 +1473,7 @@ export default function GraphPage() {
                       )}
                     </div>
                   )}
+                  {selectedDetail.node_type === "entity" ? <BusinessMapSummary entityId={selectedDetail.id} /> : null}
                   {selectedDetail.node_type === "fundamental_metric" ? <GraphMetricSummary properties={selectedDetail.properties} /> : selectedDetail.body && selectedDetail.body.trim() !== selectedDetail.label.trim() ? (
                     <div className="mt-3 bg-white px-4 py-3 dark:bg-[#1e1e1e] border-l-4 border-sky-500 rounded-r-lg">
                       <div className="mb-2 text-xs font-bold uppercase tracking-widest text-sky-500/80 dark:text-sky-400/80">Evidence summary</div>
