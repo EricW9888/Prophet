@@ -251,6 +251,9 @@ class _CoverageFallbackSession:
             )
         return _CoverageRowsResult([])
 
+    async def scalar(self, statement):
+        return None
+
     def add(self, item):
         self.added.append(item)
 
