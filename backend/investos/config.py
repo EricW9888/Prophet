@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     URL_FETCH_ALLOWED_PORTS: str = "80,443"
     BACKUP_ENABLED: bool = True
     BUSINESS_MAP_ENABLED: bool = True
+    INDUSTRY_REFRESH_ENABLED: bool = True
     INSIDER_FILINGS_ENABLED: bool = True
     MARKET_INSIDER_BUYING_ENABLED: bool = True
     MARKET_INSIDER_BUYING_MIN_VALUE: float = 100_000
