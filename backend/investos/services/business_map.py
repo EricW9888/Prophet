@@ -37,6 +37,8 @@ SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
 ARCHIVE_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{accession}"
 TICKER_MAP_MAX_AGE = timedelta(days=7)
 RECHECK_AFTER = timedelta(days=30)
+# Raise when parsing changes, so every stored map is recomputed on the next run.
+PARSER_VERSION = 2
 # SEC fair access: well under ten requests a second.
 REQUEST_SPACING_SECONDS = 0.25
 
@@ -108,9 +110,14 @@ def member_label(member: str, labels: dict[str, str] | None = None) -> str:
     ):
         return generic
     if labels and member in labels:
-        return _readable(labels[member])
+        label = labels[member].strip()
+        if " " in label or not re.search(r"[a-z][A-Z]", label):
+            return _readable(label)
+        # Some filers' labels are the element name itself ("OtherRegionsMember").
+        member = label
     name = member.split(":")[-1]
-    name = name[: -len("Member")] if name.endswith("Member") else name
+    while name.endswith("Member") and len(name) > len("Member"):
+        name = name[: -len("Member")]
     words = re.sub(
         r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ", name
     ).split()
@@ -201,6 +208,37 @@ def _rollups(members: dict[tuple[str, str], float]) -> set[tuple[str, str]]:
     return found
 
 
+def _one_breakdown(
+    members: dict[tuple[str, str], float], total: float
+) -> set[tuple[str, str]] | None:
+    """The members of one axis to keep, or None to drop the axis.
+
+    A filer may tag two complete breakdowns on one axis, for example revenue
+    by region and by country. Mixed together they count revenue twice. When
+    the members add up to more than the total, keep the finest set that adds
+    up to the total within 0.05%; if none does, the axis cannot be trusted.
+    """
+    if sum(members.values()) <= total * 1.01:
+        return set(members)
+    unit = max(total * 0.0005, 1.0)
+    target = round(total / unit)
+    best: dict[int, tuple[int, tuple[tuple[str, str], ...]]] = {0: (0, ())}
+    for key, value in sorted(members.items(), key=lambda item: -item[1]):
+        step = round(value / unit)
+        for units, (count, chosen) in list(best.items()):
+            reached = units + step
+            if reached <= target + 1 and best.get(reached, (-1, ()))[0] < count + 1:
+                best[reached] = (count + 1, (*chosen, key))
+    complete = [
+        best[units]
+        for units in (target - 1, target, target + 1)
+        if units in best and best[units][0] >= 2
+    ]
+    if not complete:
+        return None
+    return set(max(complete, key=lambda item: item[0])[1])
+
+
 def parse_business_map(
     document: str, labels: dict[str, str] | None = None
 ) -> BusinessMap | None:
@@ -243,6 +281,11 @@ def parse_business_map(
     total = totals[period]
     members = {k: v for k, v in (by_member.get(period) or {}).items() if v > 0}
     rollups = _rollups(members)
+    members = {key: value for key, value in members.items() if key not in rollups}
+    keep: set[tuple[str, str]] = set()
+    for axis in {axis for axis, _ in members}:
+        on_axis = {key: value for key, value in members.items() if key[0] == axis}
+        keep |= _one_breakdown(on_axis, total) or set()
     drivers = [
         Driver(
             kind=AXES[axis],
@@ -252,7 +295,7 @@ def parse_business_map(
             share=value / total,
         )
         for (axis, member), value in members.items()
-        if (axis, member) not in rollups
+        if (axis, member) in keep
     ]
     drivers.sort(key=lambda driver: (driver.kind, -driver.revenue))
     return BusinessMap(
@@ -421,6 +464,7 @@ class BusinessMapService:
             (entity, ticker)
             for entity, ticker in await self.candidates()
             if not checks.get(str(entity.id))
+            or checks[str(entity.id)].get("parser") != PARSER_VERSION
             or now - datetime.fromisoformat(checks[str(entity.id)]["checked_at"])
             >= RECHECK_AFTER
         ][:limit]
@@ -439,6 +483,7 @@ class BusinessMapService:
                 checks[str(entity.id)] = {
                     "checked_at": now.isoformat(),
                     "outcome": outcome,
+                    "parser": PARSER_VERSION,
                 }
         self._write_state("business_map_checks.json", checks)
         return outcomes
