@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     URL_FETCH_ALLOWED_PORTS: str = "80,443"
     BACKUP_ENABLED: bool = True
     BUSINESS_MAP_ENABLED: bool = True
+    INSIDER_FILINGS_ENABLED: bool = True
     BUSINESS_MAP_BATCH_SIZE: int = 12
     BACKUP_DIR: str = str(PROJECT_ROOT / "backups")
     BACKUP_KEEP_COUNT: int = 7
