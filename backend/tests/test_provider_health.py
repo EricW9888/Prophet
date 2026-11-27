@@ -540,7 +540,9 @@ async def test_extraction_worker_reports_capacity_deferral_separately_from_failu
     await coordinator._run_evidence_processing()
     assert coordinator.telemetry["evidence_processing"].last_status == status
     assert logged[-1]["status"] == status
-    assert ("deferred" in logged[-1]["summary"]) == (status == "deferred")
+    assert ("Waiting for the AI provider" in logged[-1]["summary"]) == (
+        status == "deferred"
+    )
 
 
 def test_corrupt_health_storage_defers_instead_of_claiming_healthy():
