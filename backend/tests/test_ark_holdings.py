@@ -138,3 +138,25 @@ async def test_a_new_position_goes_to_ideas_and_a_stalled_file_is_reported(
     # Weeks later the file still says Nov 25: the fund has stopped updating.
     counts = await service.refresh(today=date(2026, 12, 20))
     assert counts["stale"] == ["ARKK (last file Nov 25)"] and counts["trades"] == 0
+
+
+def test_fund_wide_flows_are_not_trades():
+    # Investors bought the ETF: every holding grew 3%. Only SYN6 was a decision.
+    names = [f"SYN{n}" for n in range(1, 8)]
+    day1 = HEADER + "".join(
+        f'11/24/2026,ARKG,SYNTH {t} INC,{t},00000000{n},"100,000","$1,000,000.00",1.00%\n'
+        for n, t in enumerate(names)
+    )
+    grown = {t: 103_000 for t in names}
+    grown["SYN6"] = 125_000
+    day2 = HEADER + "".join(
+        f'11/25/2026,ARKG,SYNTH {t} INC,{t},00000000{n},"{grown[t]:,}","$1,000,000.00",1.00%\n'
+        for n, t in enumerate(names)
+    )
+    previous, current = parse_holdings(day1, "ARKG"), parse_holdings(day2, "ARKG")
+    (trade,) = trades_between(previous, current)
+    assert trade.ticker == "SYN6"
+    assert round(trade.change) == 22_000  # 125,000 - 100,000 x 1.03
+    title, summary = describe(trade)
+    assert title == "ARK (ARKG) bought 22,000 SYN6 shares"
+    assert "whole fund grew 3.0% as investors bought its shares" in summary
