@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, type MouseEvent } from "react";
+import { useMemo, useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { CartesianGrid, getRelativeCoordinate, Line, LineChart, ReferenceDot, ResponsiveContainer, XAxis, YAxis, usePlotArea, useXAxisInverseScale, useXAxisScale, useYAxisScale } from "recharts";
 import { safeFormatCurrency } from "@/lib/formatting";
@@ -41,6 +41,8 @@ function PlotInteraction({ observations, markers, selected, bottom, readout, obs
   // Keep pointer state below the chart and activity list. Recharts' public
   // scales place annotations without registering hundreds of reference lines.
   const [hovered, setHovered] = useState<Observation | null>(null);
+  // A finger pressed on the plot scrubs; vertical swipes still scroll the page.
+  const scrubbing = useRef(false);
   const plot = usePlotArea();
   const invert = useXAxisInverseScale();
   const scaleX = useXAxisScale();
@@ -65,7 +67,20 @@ function PlotInteraction({ observations, markers, selected, bottom, readout, obs
       fill="var(--color-action)" stroke="var(--color-background)" strokeWidth={2} className="pointer-events-none" />}
     <rect x={x} y={y} width={width} height={height} fill="transparent" className="cursor-crosshair"
     data-chart-plot
-    onPointerMove={(event) => { if (event.pointerType !== "touch") setHovered(observationAt(event)); }}
+    onPointerDown={(event) => {
+      if (event.pointerType !== "touch") return;
+      scrubbing.current = true;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setHovered(observationAt(event));
+    }}
+    onPointerMove={(event) => { if (event.pointerType !== "touch" || scrubbing.current) setHovered(observationAt(event)); }}
+    onPointerUp={(event) => {
+      if (event.pointerType !== "touch" || !scrubbing.current) return;
+      scrubbing.current = false;
+      setHovered(null);
+      onSelect(observationAt(event).id);
+    }}
+    onPointerCancel={() => { scrubbing.current = false; setHovered(null); }}
     onClick={(event) => { setHovered(null); onSelect(observationAt(event).id); }} />
     {markers.map(marker => <circle key={marker.id} cx={scaleX(marker.time)} cy={scaleY(bottom)} r={marker.id === active.id ? 5 : 3.5}
       fill={eventKinds[marker.kind].color} stroke="var(--color-background)" className="cursor-pointer"
@@ -158,7 +173,8 @@ export default function CapturedValueChart({ label, points, events = noEvents, e
     {values.length > 0 ? <div className="min-w-0 border border-line bg-background px-2 pb-1 pt-3 focus-within:outline-2 focus-within:outline-action sm:px-3">
       <div ref={setReadout} className="mb-2 flex min-h-14 flex-wrap items-baseline gap-x-3 px-2" aria-hidden="true" />
       {timelineControl}
-      <div className="workspace-chart-plot" aria-hidden="true">
+      {/* Horizontal finger drags scrub the chart; vertical swipes scroll the page. */}
+      <div className="workspace-chart-plot touch-pan-y" aria-hidden="true">
         <ResponsiveContainer width="100%" height="100%" minWidth={0}>
           <LineChart data={marks} margin={{ top: 8, right: 22, bottom: 0, left: 0 }} accessibilityLayer={false}>
             <CartesianGrid vertical={false} stroke="var(--color-line)" />
