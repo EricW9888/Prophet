@@ -39,7 +39,15 @@ export default function ShadowPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [expandedZones, setExpandedZones] = useState<Set<string>>(new Set());
   const [loadingDetailIds, setLoadingDetailIds] = useState<Set<string>>(new Set());
+  // Which experiments have their checkpoints loaded. The ref serves the
+  // asynchronous merges; the state copy is what rendering reads.
   const detailedExperimentIds = useRef<Set<string>>(new Set());
+  const [detailedIds, setDetailedIds] = useState<ReadonlySet<string>>(new Set());
+  function markDetailed(id: string, detailed: boolean) {
+    if (detailed) detailedExperimentIds.current.add(id);
+    else detailedExperimentIds.current.delete(id);
+    setDetailedIds(new Set(detailedExperimentIds.current));
+  }
   const lastLinkedRunRef = useRef("");
 
   function toggleZone(key: string) {
@@ -115,7 +123,7 @@ export default function ShadowPage() {
     setLoadingDetailIds((previous) => new Set(previous).add(id));
     try {
       const detail = await apiFetch<ShadowExperiment>(`/shadow/experiments/${id}`);
-      detailedExperimentIds.current.add(id);
+      markDetailed(id, true);
       setExperiments((previous) =>
         previous.map((item) => (item.id === id ? detail : item)),
       );
@@ -202,7 +210,7 @@ export default function ShadowPage() {
     setNotice("Queueing shadow experiment re-run.");
     try {
       const queued = await runExperiment(id);
-      detailedExperimentIds.current.delete(id);
+      markDetailed(id, false);
       await loadState();
       setNotice(queued.id === id ? "Active experiment retained and scheduled." : "A new run was queued. The previous run and paper ledger remain available.");
     } catch (err) {
@@ -220,7 +228,7 @@ export default function ShadowPage() {
       const updated = await apiFetch<ShadowExperiment>(`/shadow/experiments/${experimentId}/orders/${orderId}/cancel`, {
         method: "POST",
       });
-      detailedExperimentIds.current.add(experimentId);
+      markDetailed(experimentId, true);
       setExperiments((previous) =>
         previous.map((item) => (item.id === experimentId ? updated : item)),
       );
@@ -255,7 +263,7 @@ export default function ShadowPage() {
             ? `Paper order accepted and waiting for a regular-session quote: ${latest.ticker}.`
             : `Paper order recorded as ${latest?.status ?? "unknown"}: ${latest?.rejection_reason?.replaceAll("_", " ") ?? "review the ledger"}.`,
       );
-      detailedExperimentIds.current.add(experimentId);
+      markDetailed(experimentId, true);
       setExperiments((previous) =>
         previous.map((item) => (item.id === experimentId ? updated : item)),
       );
@@ -377,10 +385,10 @@ export default function ShadowPage() {
 
                 <details className="mt-3 min-w-0 border border-line p-3" onToggle={(event) => { if (event.currentTarget.open) void loadExperimentDetails(experiment.id, true); }}>
                   <summary className="cursor-pointer text-sm font-semibold">Paper equity and actions</summary>
-                  {detailedExperimentIds.current.has(experiment.id) ? <ShadowEquityTimeline experiment={experiment} /> : null}
+                  {detailedIds.has(experiment.id) ? <ShadowEquityTimeline experiment={experiment} /> : null}
                   {loadingDetailIds.has(experiment.id) ? <p className="mt-2 text-xs text-muted" role="status">Loading retained checkpoints…</p> : (
                     <button type="button" className="workspace-control mt-3" onClick={() => void loadExperimentDetails(experiment.id, true)}>
-                      {detailedExperimentIds.current.has(experiment.id) ? "Reload checkpoints" : "Load checkpoints"}
+                      {detailedIds.has(experiment.id) ? "Reload checkpoints" : "Load checkpoints"}
                     </button>
                   )}
                 </details>
@@ -389,7 +397,7 @@ export default function ShadowPage() {
                 {experiment.execution_mode === "manual" ? (
                   <details className="mt-3 border border-line bg-panel p-3" onToggle={(event) => { if (event.currentTarget.open) void loadExperimentDetails(experiment.id); }}>
                     <summary className="cursor-pointer text-sm font-semibold">Paper order ticket and ledger</summary>
-                    {detailedExperimentIds.current.has(experiment.id) ? (
+                    {detailedIds.has(experiment.id) ? (
                       <PaperBrokerLedger
                         experiment={experiment}
                         cancelingOrderId={runningJob?.startsWith("order:") ? runningJob.slice(6) : null}

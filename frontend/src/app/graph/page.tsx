@@ -1,7 +1,8 @@
 "use client";
 
 import { labelText } from "@/lib/formatting";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type SetStateAction, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import * as d3 from "d3";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
@@ -226,19 +227,34 @@ function makeEdgeAskPrompt(edge: GraphWebEdge, nodeByKey: Record<string, Positio
 }
 
 export default function GraphPage() {
+  return <Suspense fallback={<><AppNav active="knowledge" /><main className="workspace-frame py-6"><WorkspaceSkeleton label="Loading knowledge" rows={4} /></main></>}><GraphWorkspace /></Suspense>;
+}
+
+function GraphWorkspace() {
+  // Deep link from other screens (for example a holding in Positions) opens
+  // that subject's neighborhood on the map instead of the full list.
+  const linkParams = useSearchParams();
+  const linkedType = linkParams.get("node_type");
+  const linkedId = linkParams.get("node_id");
+  const linkedFocus = linkedType && linkedId && /^[a-z_]+$/.test(linkedType) ? { nodeType: linkedType, nodeId: linkedId } : null;
   const [holdingSubjects, setHoldingSubjects] = useState<{ position_id: string; entity_id: string; ticker: string; name: string; has_profile: boolean }[] | null>(null);
   const [holdingsError, setHoldingsError] = useState(false);
   const [knowledgeQuery, setKnowledgeQuery] = useState("");
-  const [knowledgeResults, setKnowledgeResults] = useState<GraphSearchResult[]>([]);
-  const [knowledgeSearching, setKnowledgeSearching] = useState(false);
-  const [knowledgeSearchError, setKnowledgeSearchError] = useState<string | null>(null);
+  // The last search that finished. Results show only while it matches the
+  // query in the box; until then the search is in progress.
+  const [settledSearch, setSettledSearch] = useState<{ query: string; results: GraphSearchResult[]; error: string | null } | null>(null);
+  const searchQuery = knowledgeQuery.trim();
+  const currentSearch = settledSearch?.query === searchQuery ? settledSearch : null;
+  const knowledgeResults = currentSearch?.results ?? [];
+  const knowledgeSearchError = currentSearch?.error ?? null;
+  const knowledgeSearching = searchQuery.length >= 2 && !currentSearch;
   const [graphStats, setGraphStats] = useState<GraphStats | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<GraphNodeDetail | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [graph, setGraph] = useState<GraphNeighborhood | null>(null);
   const [graphMode, setGraphMode] = useState<GraphMode>("all");
-  const [showMap, setShowMap] = useState(false);
+  const [showMap, setShowMap] = useState(() => Boolean(linkedFocus));
   const [showSystemNodes, setShowSystemNodes] = useState(false);
   const [showUnconnectedNodes, setShowUnconnectedNodes] = useState(false);
   const [activeNodeTypes, setActiveNodeTypes] = useState<string[]>([]);
@@ -252,6 +268,9 @@ export default function GraphPage() {
   // Layout Stability: Persistent coordinate map to prevent 'rebuilding' jumps
   const nodePositionsRef = useRef<Map<string, { x: number; y: number; vx?: number; vy?: number }>>(new Map());
   const manualNodePositionsRef = useRef<Record<string, { x: number; y: number }>>({});
+  // Pinned positions as of the last finished drag or reset, for rendering.
+  // During a drag the node state itself moves the node.
+  const [manualPositions, setManualPositions] = useState<Record<string, { x: number; y: number }>>({});
   const selectionGenerationRef = useRef(0);
   const graphRequestRef = useRef<AbortController | null>(null);
   const inspector = useWorkspacePane("knowledge-inspector", INSPECTOR_DEFAULT_WIDTH);
@@ -264,6 +283,24 @@ export default function GraphPage() {
   const [graphAskContext, setGraphAskContext] = useState<"node" | "edge" | null>(null);
   const [graphAskUserPrompt, setGraphAskUserPrompt] = useState("");
   const [showSystemCitations, setShowSystemCitations] = useState(false);
+  // A new selection starts a fresh question and hides the previous subject's
+  // system citations (React: adjust state while rendering, not in an effect).
+  const selectionIdentity = `${selectedKey ?? ""}|${selectedEdgeId ?? ""}`;
+  const [askSelection, setAskSelection] = useState(selectionIdentity);
+  if (askSelection !== selectionIdentity) {
+    setAskSelection(selectionIdentity);
+    setGraphAskJob(null);
+    setGraphAskResult(null);
+    setGraphAskError(null);
+    setGraphAskTargetLabel(null);
+    setGraphAskContext(null);
+    setGraphAskUserPrompt("");
+  }
+  const [citationDetailId, setCitationDetailId] = useState(selectedDetail?.id);
+  if (citationDetailId !== selectedDetail?.id) {
+    setCitationDetailId(selectedDetail?.id);
+    setShowSystemCitations(false);
+  }
   const [nodes, setNodes] = useState<PositionedNode[]>([]);
   const [layoutGraph, setLayoutGraph] = useState<GraphNeighborhood | null>(null);
   const [layoutError, setLayoutError] = useState<{ graph: GraphNeighborhood; message: string } | null>(null);
@@ -296,6 +333,18 @@ export default function GraphPage() {
   const { transformRef: viewTransformRef, zoomRef, detailZoom } = useGraphCamera(
     svgRef, containerRef, hasGraphSurface && showMap, clearGraphHover,
   );
+  // The camera lives in a ref so panning does not re-render the map. A hover
+  // preview takes a snapshot of it when the hover starts; any camera movement
+  // clears the hover, so the snapshot stays accurate.
+  const [hoverCamera, setHoverCamera] = useState({ x: 0, y: 0, k: 1 });
+  const hoverNode = useCallback((action: SetStateAction<string | null>) => {
+    if (typeof action === "string") setHoverCamera({ ...viewTransformRef.current });
+    setHoveredNodeKey(action);
+  }, [viewTransformRef]);
+  const hoverEdge = useCallback((action: SetStateAction<string | null>) => {
+    if (typeof action === "string") setHoverCamera({ ...viewTransformRef.current });
+    setHoveredEdgeId(action);
+  }, [viewTransformRef]);
 
   const toSvgPoint = useCallback((clientX: number, clientY: number) => {
     if (!svgRef.current) return { x: CENTER_X, y: CENTER_Y };
@@ -459,10 +508,9 @@ export default function GraphPage() {
   );
 
   const loadInventory = useCallback(async (signal: AbortSignal) => {
-    setHoldingsError(false);
     await Promise.allSettled([
       apiFetch<NonNullable<typeof holdingSubjects>>("/graph/holding-subjects", { signal }).then((holdings) => {
-        if (!signal.aborted) setHoldingSubjects(holdings);
+        if (!signal.aborted) { setHoldingSubjects(holdings); setHoldingsError(false); }
       }, () => { if (!signal.aborted) setHoldingsError(true); }),
       apiFetch<GraphStats>("/graph/stats", { signal }).then((stats) => {
         if (!signal.aborted) setGraphStats(stats);
@@ -471,30 +519,22 @@ export default function GraphPage() {
   }, []);
 
   useEffect(() => {
-    const query = knowledgeQuery.trim();
-    setKnowledgeSearchError(null);
-    setKnowledgeResults([]);
-    if (query.length < 2) {
-      setKnowledgeResults([]);
-      setKnowledgeSearching(false);
-      return;
-    }
+    const query = searchQuery;
+    if (query.length < 2) return;
     const controller = new AbortController();
-    setKnowledgeSearching(true);
     const timeout = window.setTimeout(() => {
       void apiFetch<GraphSearchResult[]>(
         `/graph/search?query=${encodeURIComponent(query)}&limit=12`,
         { signal: controller.signal },
       )
-        .then((results) => { if (!controller.signal.aborted) setKnowledgeResults(results); })
-        .catch(() => { if (!controller.signal.aborted) setKnowledgeSearchError("Knowledge search could not finish. Change the query to retry; this is not an empty-result check."); })
-        .finally(() => { if (!controller.signal.aborted) setKnowledgeSearching(false); });
+        .then((results) => { if (!controller.signal.aborted) setSettledSearch({ query, results, error: null }); })
+        .catch(() => { if (!controller.signal.aborted) setSettledSearch({ query, results: [], error: "Knowledge search could not finish. Change the query to retry; this is not an empty-result check." }); });
     }, 250);
     return () => {
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [knowledgeQuery]);
+  }, [searchQuery]);
 
   const loadDetail = useCallback(async (nodeType: string, nodeId: string, generation: number) => {
     setDetailLoading(true);
@@ -510,23 +550,21 @@ export default function GraphPage() {
     }
   }, []);
 
-  const loadGraph = useCallback(async (
+  // Fetches a view and applies it when it arrives. The first view loads with
+  // the page already in its loading state; loadGraph below is for later views.
+  const fetchGraph = useCallback((
     mode: GraphMode,
     includeSystem: boolean,
     focus?: { nodeType: string; nodeId: string },
   ) => {
-    if (mode === "focused" && !focus) return;
+    if (mode === "focused" && !focus) return Promise.resolve();
     graphRequestRef.current?.abort();
     const request = new AbortController();
     graphRequestRef.current = request;
-    setLoading(true);
-    setError(null);
-    setGraphNotice(null);
     const path = focus
       ? `/graph/neighborhood/${focus.nodeType}/${focus.nodeId}?depth=${FOCUSED_NEIGHBORHOOD_DEPTH}&limit=${FOCUSED_NEIGHBORHOOD_LIMIT}&include_system=${includeSystem}`
       : `/graph/workspace?scope=${mode === "all" ? "expanded" : "portfolio"}&include_system=${includeSystem}`;
-    try {
-      const next = await apiFetch<GraphNeighborhood | null>(path, { signal: request.signal });
+    return apiFetch<GraphNeighborhood | null>(path, { signal: request.signal }).then((next) => {
       if (request.signal.aborted) return;
       graphRef.current = next;
       setGraph(next);
@@ -540,15 +578,27 @@ export default function GraphPage() {
       setDetailLoading(false);
       const root = next?.nodes.find((node) => node.key === next.root_key);
       if (root && mode !== "all") void loadDetail(root.node_type, root.id, generation);
-    } catch (err) {
+    }, (err) => {
       if (request.signal.aborted) return;
       const message = humanizeGraphError(err);
       if (graphRef.current) setGraphNotice(message);
       else setError(message);
-    } finally {
+    }).finally(() => {
       if (!request.signal.aborted) setLoading(false);
-    }
+    });
   }, [loadDetail]);
+
+  const loadGraph = useCallback((
+    mode: GraphMode,
+    includeSystem: boolean,
+    focus?: { nodeType: string; nodeId: string },
+  ) => {
+    if (mode === "focused" && !focus) return Promise.resolve();
+    setLoading(true);
+    setError(null);
+    setGraphNotice(null);
+    return fetchGraph(mode, includeSystem, focus);
+  }, [fetchGraph]);
 
   const openGraph = useCallback((nodeType: string, nodeId: string) => (
     loadGraph("focused", showSystemNodes, { nodeType, nodeId })
@@ -556,16 +606,10 @@ export default function GraphPage() {
 
   useEffect(() => {
     const inventory = new AbortController();
-    // Deep link from other screens (for example a holding in Positions): open that
-    // subject's neighborhood directly instead of the full list.
-    const params = new URLSearchParams(window.location.search);
-    const linkedType = params.get("node_type");
-    const linkedId = params.get("node_id");
     if (linkedType && linkedId && /^[a-z_]+$/.test(linkedType)) {
-      setShowMap(true);
-      void loadGraph("focused", false, { nodeType: linkedType, nodeId: linkedId });
+      void fetchGraph("focused", false, { nodeType: linkedType, nodeId: linkedId });
     } else {
-      void loadGraph("all", false);
+      void fetchGraph("all", false);
     }
     void loadInventory(inventory.signal);
     return () => {
@@ -573,7 +617,7 @@ export default function GraphPage() {
       inventory.abort();
       selectionGenerationRef.current += 1;
     };
-  }, [loadGraph, loadInventory]);
+  }, [fetchGraph, linkedId, linkedType, loadInventory]);
 
   useEffect(() => {
     if (!graphAskJob || !["queued", "running"].includes(graphAskJob.status)) {
@@ -596,18 +640,6 @@ export default function GraphPage() {
     return () => window.clearInterval(interval);
   }, [graphAskJob]);
 
-  useEffect(() => {
-    setGraphAskJob(null);
-    setGraphAskResult(null);
-    setGraphAskError(null);
-    setGraphAskTargetLabel(null);
-    setGraphAskContext(null);
-    setGraphAskUserPrompt("");
-  }, [selectedKey, selectedEdgeId]);
-
-  useEffect(() => {
-    setShowSystemCitations(false);
-  }, [selectedDetail?.id]);
 
   const activeGraph = graph;
   const activeRootKey = activeGraph?.root_key ?? null;
@@ -682,10 +714,10 @@ export default function GraphPage() {
   const displayedNodes = useMemo(
     () =>
       (layoutGraph === visibleGraph ? nodes : []).map((node) => {
-        const manual = manualNodePositionsRef.current[node.key];
+        const manual = manualPositions[node.key];
         return manual ? { ...node, x: manual.x, y: manual.y, fx: manual.x, fy: manual.y } : node;
       }),
-    [nodes, layoutGraph, visibleGraph],
+    [manualPositions, nodes, layoutGraph, visibleGraph],
   );
 
   const nodeByKey = useMemo(() => {
@@ -707,7 +739,7 @@ export default function GraphPage() {
   );
   const hoverPreview = useMemo(() => {
     const toViewportPercent = (x: number, y: number) => {
-      const camera = viewTransformRef.current;
+      const camera = hoverCamera;
       const transformedX = x * camera.k + camera.x;
       const transformedY = y * camera.k + camera.y;
       const horizontalPercent = ((transformedX - graphViewBox.x) / graphViewBox.width) * 100;
@@ -753,7 +785,7 @@ export default function GraphPage() {
     }
 
     return null;
-  }, [displayedEdges, graphViewBox, hoveredEdgeId, hoveredNodeKey, nodeByKey, viewTransformRef]);
+  }, [displayedEdges, graphViewBox, hoverCamera, hoveredEdgeId, hoveredNodeKey, nodeByKey]);
   const connectedKeys = useMemo(() => {
     if (!selectedKey) return new Set<string>();
     const keys = new Set<string>();
@@ -857,6 +889,8 @@ export default function GraphPage() {
       if (!isDraggingNodeRef.current) {
         // Simple click
         handleNodeClick({ key: drag.key, node_type: drag.nodeType, id: drag.nodeId });
+      } else {
+        setManualPositions(manualNodePositionsRef.current);
       }
       activeNodeDragRef.current = null;
       isDraggingNodeRef.current = false;
@@ -1080,6 +1114,7 @@ export default function GraphPage() {
 
                     nodePositionsRef.current.clear();
                     manualNodePositionsRef.current = {};
+                    setManualPositions({});
                     setLayoutNonce((current) => current + 1);
                   }}
                   className="rounded-none border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:text-slate-300"
@@ -1242,14 +1277,14 @@ export default function GraphPage() {
                       {edgeLayers.interactive.map(({ edge, edgeKey, source, target, highlighted }) => (
                         <GraphEdgeGlyph key={edgeKey} edgeKey={edgeKey} source={source} target={target}
                           description={describeEdge(edge)} sourceAttributed={Boolean(edge.supporting_claim_id)} selected={selectedEdgeId === edgeKey}
-                          highlighted={highlighted} onHover={setHoveredEdgeId} onSelect={selectGraphEdge} />
+                          highlighted={highlighted} onHover={hoverEdge} onSelect={selectGraphEdge} />
                       ))}
 
                       {displayedNodes.map((node) => <GraphNodeGlyph key={node.key}
                         node={node} isSelected={selectedKey === node.key} isHovered={hoveredNodeKey === node.key}
                         isConnected={selectedKey ? connectedKeys.has(node.key) : node.is_root} hasSelection={Boolean(selectedKey)}
                         zoom={detailZoom} labelCandidate={labelCandidates.has(node.key)} onSelect={handleNodeClick}
-                        onHover={setHoveredNodeKey} onPointerDown={handleNodePointerDown} />)}
+                        onHover={hoverNode} onPointerDown={handleNodePointerDown} />)}
                     </g>
                   </svg>
                   {hoverPreview ? (

@@ -65,23 +65,27 @@ type TrialState = {
 
 export default function AdvisoryTrialPanel() {
   const [state, setState] = useState<TrialState | null>(null);
-  const [busy, setBusy] = useState(false);
+  // Busy from the start: the trial loads as soon as the panel opens.
+  const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  async function request(endpoint: string, method: "GET" | "POST" = "GET") {
+  function settle(result: Promise<TrialState>) {
+    return result
+      .then(
+        (next) => { setState(next); setError(null); },
+        (err) => setError(err instanceof Error ? err.message : "Unable to load the paper trial."),
+      )
+      .finally(() => setBusy(false));
+  }
+
+  function request(endpoint: string, method: "GET" | "POST" = "GET") {
     setBusy(true);
     setError(null);
-    try {
-      setState(await apiFetch<TrialState>(endpoint, { method }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load the paper trial.");
-    } finally {
-      setBusy(false);
-    }
+    return settle(apiFetch<TrialState>(endpoint, { method }));
   }
 
   useEffect(() => {
-    void request(path);
+    void settle(apiFetch<TrialState>(path));
   }, []);
 
   const trial = state?.trial;

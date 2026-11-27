@@ -31,21 +31,22 @@ export default function DecisionsPage() {
   });
   const [showManualEntry, setShowManualEntry] = useState(false);
 
-  async function loadState() {
-    setLoading(true);
-    try {
-      const [decisionData, positionData] = await Promise.all([
-        apiFetch<DecisionJournal[]>("/decisions"),
-        apiFetch<Position[]>("/portfolio/positions?list_type=all"),
-      ]);
-      setDecisions(decisionData);
-      setPositions(positionData);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load decision journal.");
-    } finally {
-      setLoading(false);
-    }
+  // The journal stays on screen while it reloads after a save; only the first
+  // load shows the loading state.
+  function loadState() {
+    return Promise.all([
+      apiFetch<DecisionJournal[]>("/decisions"),
+      apiFetch<Position[]>("/portfolio/positions?list_type=all"),
+    ])
+      .then(
+        ([decisionData, positionData]) => {
+          setDecisions(decisionData);
+          setPositions(positionData);
+          setError(null);
+        },
+        (err) => setError(err instanceof Error ? err.message : "Unable to load decision journal."),
+      )
+      .finally(() => setLoading(false));
   }
 
   useEffect(() => {

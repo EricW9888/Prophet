@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import AppNav from "@/components/AppNav";
 import PageHeader from "@/components/PageHeader";
-import WorkspaceState from "@/components/WorkspaceState";
+import WorkspaceState, { WorkspaceSkeleton } from "@/components/WorkspaceState";
 import { AgentActionLogItem, apiFetch } from "@/lib/api";
 import { activityStatus, activityTrigger, groupRepeats, type Tone } from "@/lib/activity-feed";
 import { formatUserLabel, readableMachineText } from "@/lib/formatting";
@@ -116,18 +117,18 @@ function mergeRelatedActions(items: AgentActionLogItem[]): FeedItem[] {
 }
 
 export default function ActivityPage() {
+  return <Suspense fallback={<><AppNav active="activity" /><main className="workspace-frame py-8"><WorkspaceSkeleton label="Loading activity" rows={4} /></main></>}><ActivityWorkspace /></Suspense>;
+}
+
+function ActivityWorkspace() {
   const [items, setItems] = useState<AgentActionLogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [source, setSource] = useState<(typeof SOURCES)[number]>("all");
   const [status, setStatus] = useState<(typeof STATUSES)[number]>("all");
   const [includeRoutine, setIncludeRoutine] = useState(false);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const searchParams = new URLSearchParams(window.location.search);
-    setSessionId(searchParams.get("session_id"));
-  }, []);
+  // A link from a chat session narrows the feed to that session's actions.
+  const sessionId = useSearchParams().get("session_id");
 
   useEffect(() => {
     let cancelled = false;

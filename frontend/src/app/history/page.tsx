@@ -2,6 +2,7 @@
 
 import { labelText } from "@/lib/formatting";
 import { Fragment, useCallback, useEffect, useState } from "react";
+import { useNow } from "@/lib/use-now";
 import Link from "next/link";
 import { useWorkspaceReads } from "@/lib/workspace-reads";
 import WorkspaceState from "@/components/WorkspaceState";
@@ -21,6 +22,7 @@ type CorrectionFormState = {
 };
 
 export default function HistoryPage() {
+  const now = useNow();
   const [closedPositions, setClosedPositions] = useState<Position[]>([]);
   const [overview, setOverview] = useState<PortfolioOverview | null>(null);
   const [correctionHistory, setCorrectionHistory] = useState<TransactionCorrectionRecord[]>([]);
@@ -130,7 +132,7 @@ export default function HistoryPage() {
   const activeDaysTracked =
     earliestLedgerTimestamp == null
       ? 0
-      : Math.max(1, Math.ceil((Date.now() - earliestLedgerTimestamp) / (1000 * 60 * 60 * 24)));
+      : Math.max(1, Math.ceil((now - earliestLedgerTimestamp) / (1000 * 60 * 60 * 24)));
 
   return (
     <main className="min-h-screen bg-background text-foreground font-sans">
