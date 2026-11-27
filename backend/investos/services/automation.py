@@ -1653,7 +1653,8 @@ class AutomationCoordinator:
                 telemetry.last_status = "warning" if counts["stale"] else "ok"
                 telemetry.detail = (
                     f"Read {counts['funds']} ARK funds; {counts['trades']} trades "
-                    f"recorded; {counts['ideas']} new positions sent to Ideas."
+                    f"recorded; {counts['ideas']} new "
+                    f"{'position' if counts['ideas'] == 1 else 'positions'} sent to Ideas."
                     + (
                         " Not updating: " + ", ".join(counts["stale"]) + "."
                         if counts["stale"]
