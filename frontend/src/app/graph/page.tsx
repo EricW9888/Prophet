@@ -1202,7 +1202,7 @@ export default function GraphPage() {
                 <div
                   ref={graphViewportRef}
                   data-pull-refresh-ignore
-                  className="knowledge-canvas relative w-full touch-pan-y select-none overflow-hidden sm:touch-none"
+                  className="knowledge-canvas relative w-full touch-none select-none overflow-hidden"
                   style={{ overscrollBehavior: "contain" }}
                   onPointerDown={handleCanvasPointerDown}
                   onPointerMove={handleCanvasPointerMove}
@@ -1224,7 +1224,7 @@ export default function GraphPage() {
                   <svg
                     ref={svgRef}
                     viewBox={`${graphViewBox.x} ${graphViewBox.y} ${graphViewBox.width} ${graphViewBox.height}`}
-                    className="h-full w-full touch-pan-y sm:touch-none"
+                    className="h-full w-full touch-none"
                   >
                     <g ref={containerRef}>
                       {displayedEdges.map((edge) => {
