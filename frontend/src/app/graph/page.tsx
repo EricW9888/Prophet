@@ -772,6 +772,7 @@ export default function GraphPage() {
     const tName = target?.label ?? edge.target_key;
     if (edge.portfolio_peer_basis) return `Peer comparison · ${sName} and ${tName}`;
     if (edge.shared_industry) return `${sName} and ${tName} are both in ${edge.shared_industry}`;
+    if (edge.shared_sector) return `${sName} and ${tName} are both in the ${edge.shared_sector} sector (no closer industry peer on the map)`;
     if (edge.shared_evidence_count) return `${sName} and ${tName} are named together in ${edge.shared_evidence_count} stored facts, claims or events`;
     const attribution = edge.supporting_claim_id ? "Extracted relationship · " : "";
     return `${attribution}${sName} ${edge.relationship_type.replace(/_/g, " ")} ${tName}`;

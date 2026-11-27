@@ -207,3 +207,58 @@ def test_company_like_types_are_recognised_from_free_text():
         None,
     ):
         assert not is_company_like(value), value
+
+
+async def test_a_company_with_no_industry_peer_links_to_its_sector(workflow_session):
+    session = workflow_session
+    tag = uuid4().hex[:5].upper()
+    sector = f"Synthetic sector {tag}"
+    hub, lonely, other_sector = (
+        Entity(
+            name=f"Sec{tag} Hub",
+            entity_type="company",
+            industry=f"A{tag}",
+            sector=sector,
+        ),
+        Entity(
+            name=f"Sec{tag} Lonely",
+            entity_type="company",
+            industry=f"B{tag}",
+            sector=sector,
+        ),
+        Entity(
+            name=f"Sec{tag} Far",
+            entity_type="company",
+            industry=f"C{tag}",
+            sector=f"Other {tag}",
+        ),
+    )
+    session.add_all([hub, lonely, other_sector])
+    await session.commit()
+    nodes = {
+        f"entity:{e.id}": GraphWebNodeResponse(
+            key=f"entity:{e.id}", id=str(e.id), node_type="entity", label=e.name
+        )
+        for e in (hub, lonely, other_sector)
+    }
+    from investos.schemas.graph import GraphWebEdgeResponse
+
+    hub_key = f"entity:{hub.id}"
+    edges = {
+        uuid4(): GraphWebEdgeResponse(
+            id=uuid4(),
+            source_key=hub_key,
+            target_key="fact:x",
+            relationship_type="mentions",
+            confidence=1,
+        )
+    }
+    projected = await GraphService(session)._project_same_industry(nodes, edges)
+    # The lonely company links to its sector's best-connected company, once
+    # (the hub has no industry peer either, but the pair is not repeated). A
+    # company alone in its sector gets no link.
+    pairs = [(e.source_key, e.target_key) for e in projected]
+    assert pairs == [(hub_key, f"entity:{lonely.id}")]
+    assert all(f"entity:{other_sector.id}" not in pair for pair in pairs)
+    assert all(e.relationship_type == "same_sector" for e in projected)
+    assert all(e.shared_sector == sector for e in projected)

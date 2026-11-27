@@ -1199,8 +1199,11 @@ class GraphService:
         """Link companies on the map that share an industry.
 
         Each industry's members link to its best-connected member (the hub),
-        which usually already sits in the main web. Projected like shared
-        evidence: nothing is stored.
+        which usually already sits in the main web. A company whose industry
+        has no other member on the map falls back one level, to its sector
+        (the SEC's broader grouping), and links to that sector's
+        best-connected company. Projected like shared evidence: nothing is
+        stored.
         """
         by_id = {
             str(node.id): key
@@ -1211,43 +1214,74 @@ class GraphService:
             return []
         rows = (
             await self.session.execute(
-                select(Entity.id, Entity.industry).where(
+                select(Entity.id, Entity.industry, Entity.sector).where(
                     Entity.id.in_([UUID(value) for value in by_id]),
-                    Entity.industry.is_not(None),
+                    or_(Entity.industry.is_not(None), Entity.sector.is_not(None)),
                 )
             )
         ).all()
         members: dict[str, list[str]] = {}
-        for entity_id, industry in rows:
-            members.setdefault(industry, []).append(by_id[str(entity_id)])
+        sector_of: dict[str, str] = {}
+        for entity_id, industry, sector in rows:
+            key = by_id[str(entity_id)]
+            if industry:
+                members.setdefault(industry, []).append(key)
+            if sector:
+                sector_of[key] = sector
         degree: dict[str, int] = {}
         for edge in edges.values():
             degree[edge.source_key] = degree.get(edge.source_key, 0) + 1
             degree[edge.target_key] = degree.get(edge.target_key, 0) + 1
+
+        def rank(keys: list[str]) -> list[str]:
+            return sorted(keys, key=lambda key: (-degree.get(key, 0), key))
+
         projected = []
+        linked: set[frozenset[str]] = set()
+
+        def link(hub: str, key: str, kind: str, **shared: str) -> None:
+            if frozenset((hub, key)) in linked:
+                return
+            linked.add(frozenset((hub, key)))
+            edge_id = self._synthetic_edge_id(
+                source_type="entity",
+                source_id=UUID(str(nodes[hub].id)),
+                target_type="entity",
+                target_id=UUID(str(nodes[key].id)),
+                relationship_type=kind,
+            )
+            edge = GraphWebEdgeResponse(
+                id=edge_id,
+                source_key=hub,
+                target_key=key,
+                relationship_type=kind,
+                confidence=0.5 if kind == "same_industry" else 0.3,
+                **shared,
+            )
+            edges[edge_id] = edge
+            projected.append(edge)
+
+        without_peer: list[str] = []
         for industry, keys in members.items():
             if len(keys) < 2:
+                without_peer.extend(keys)
                 continue
-            keys = sorted(keys, key=lambda key: (-degree.get(key, 0), key))
-            hub = keys[0]
+            keys = rank(keys)
             for key in keys[1:SAME_INDUSTRY_MAX_MEMBERS]:
-                edge_id = self._synthetic_edge_id(
-                    source_type="entity",
-                    source_id=UUID(str(nodes[hub].id)),
-                    target_type="entity",
-                    target_id=UUID(str(nodes[key].id)),
-                    relationship_type="same_industry",
-                )
-                edge = GraphWebEdgeResponse(
-                    id=edge_id,
-                    source_key=hub,
-                    target_key=key,
-                    relationship_type="same_industry",
-                    confidence=0.5,
-                    shared_industry=industry,
-                )
-                edges[edge_id] = edge
-                projected.append(edge)
+                link(keys[0], key, "same_industry", shared_industry=industry)
+        # A company with a sector but no recorded industry has no peer either.
+        with_industry = {key for keys in members.values() for key in keys}
+        without_peer.extend(key for key in sector_of if key not in with_industry)
+        sector_members: dict[str, list[str]] = {}
+        for key, sector in sector_of.items():
+            sector_members.setdefault(sector, []).append(key)
+        # Least-connected first, so each attaches to its sector's hub.
+        for key in reversed(rank(without_peer)):
+            sector = sector_of.get(key)
+            others = [k for k in sector_members.get(sector, []) if k != key]
+            if not others:
+                continue
+            link(rank(others)[0], key, "same_sector", shared_sector=sector)
         return projected
 
     async def _project_source_relationships(
