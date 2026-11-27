@@ -271,7 +271,7 @@ export const GraphEdgeGlyph = memo(function GraphEdgeGlyph({ edgeKey, sourceAttr
       <line
         className={[
           "graph-edge-visible",
-          selected ? "text-amber-400" : highlighted ? "text-sky-400" : "text-slate-500"
+          selected ? "text-amber-400" : highlighted ? "text-foreground" : "text-slate-500"
         ].join(" ")}
         x1={source.x ?? 0} y1={source.y ?? 0}
         x2={target.x ?? 0} y2={target.y ?? 0}
@@ -279,7 +279,7 @@ export const GraphEdgeGlyph = memo(function GraphEdgeGlyph({ edgeKey, sourceAttr
         vectorEffect="non-scaling-stroke"
         strokeDasharray={sourceAttributed ? "6 4" : undefined}
         strokeWidth={selected ? 2.5 : highlighted ? 1.8 : 1}
-        strokeOpacity={selected ? 1 : highlighted ? 0.9 : 0.5}
+        strokeOpacity={selected ? 1 : highlighted ? 0.55 : 0.5}
       />
       <line
         className="graph-edge-hit cursor-pointer"
