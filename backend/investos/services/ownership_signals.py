@@ -188,9 +188,13 @@ class OwnershipSignalService:
                     RawEvidence.source_item_type.in_(DISCLOSURE_ITEM_TYPES),
                 )
             )
+            # Newest first by when the disclosure became public. An undated
+            # record sorts last; in PostgreSQL it would otherwise sort first in
+            # descending order and hold the window permanently.
             .order_by(
-                desc(RawEvidence.public_time),
-                desc(RawEvidence.event_time),
+                desc(
+                    func.coalesce(RawEvidence.public_time, RawEvidence.event_time)
+                ).nullslast(),
                 desc(RawEvidence.created_at),
             )
             .limit(limit)

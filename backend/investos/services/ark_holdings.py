@@ -320,6 +320,8 @@ class ArkHoldingsService:
                                 abs(trade.change) * trade.price if trade.price else None
                             ),
                             "transaction_date": trade.day.isoformat(),
+                            # ARK publishes each day's file that evening.
+                            "disclosure_date": trade.day.isoformat(),
                             "previous_holdings_date": trade.previous_day.isoformat(),
                         },
                         summary=summary,
