@@ -328,3 +328,27 @@ async def test_market_wide_disclosures_cannot_crowd_out_a_followed_company(
         select(ReviewQueueItem).where(ReviewQueueItem.item_id == followed.id)
     )
     assert queued is not None
+
+
+def test_a_buy_filed_in_small_rows_counts_as_one_purchase():
+    from investos.services.insider_filings import combine, parse_form4
+    from investos.services.market_insider_buying import is_notable_buy
+
+    rows = "".join(
+        filing("SYNB", "Roe Alex", "P", 1000, 50.0, "2026-11-24")
+        .split("<nonDerivativeTable>")[1]
+        .split("</nonDerivativeTable>")[0]
+        for _ in range(3)
+    )
+    xml = (
+        filing("SYNB", "Roe Alex", "P", 1000, 50.0, "2026-11-24").split(
+            "<nonDerivativeTable>"
+        )[0]
+        + f"<nonDerivativeTable>{rows}</nonDerivativeTable></ownershipDocument>"
+    )
+    single_rows = parse_form4(xml)
+    # Each $50,000 row is under the threshold; the purchase is $150,000.
+    assert len(single_rows) == 3
+    assert not any(is_notable_buy(row, 100_000) for row in single_rows)
+    (purchase,) = combine(single_rows)
+    assert purchase.value == 150_000 and is_notable_buy(purchase, 100_000)
