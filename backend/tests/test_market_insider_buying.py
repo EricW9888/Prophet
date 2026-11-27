@@ -403,3 +403,41 @@ async def test_many_trades_in_one_company_are_one_review_item(workflow_session):
     assert len(queued) == 1
     assert "2 other" in queued[0].trigger_reason
     assert f"BI{tag}" in queued[0].trigger_reason
+
+
+async def test_undated_disclosures_do_not_hold_the_review_window(workflow_session):
+    session = workflow_session
+    tag = uuid4().hex[:5].upper()
+    signals = OwnershipSignalService(session)
+    undated = await signals.ingest_disclosure(
+        source_name=f"Synthetic undated feed {tag}",
+        source_type="filing",
+        source_item_type="insider_disclosure",
+        title=f"Officer sold UD{tag} shares",
+        external_id=f"undated-{tag}",
+        metadata={"ticker": f"UD{tag}", "transaction_type": "sold"},
+    )
+    assert undated.public_time is None and undated.event_time is None
+    for n in range(3):
+        await signals.ingest_disclosure(
+            source_name=f"Synthetic dated feed {tag}",
+            source_type="filing",
+            source_item_type="insider_disclosure",
+            title=f"Officer sold DT{tag}{n} shares",
+            external_id=f"dated-{tag}-{n}",
+            metadata={
+                "ticker": f"DT{tag}{n}",
+                "transaction_type": "sold",
+                "filing_date": f"2099-02-0{n + 1}",
+            },
+        )
+    disclosures_seen = []
+    original = OwnershipSignalService.analyze_signal
+
+    def spy(evidence, source, **kwargs):
+        disclosures_seen.append(evidence.id)
+        return original(evidence, source, **kwargs)
+
+    signals.analyze_signal = spy
+    await signals.queue_review_items(limit=3)
+    assert undated.id not in disclosures_seen
