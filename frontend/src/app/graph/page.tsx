@@ -33,6 +33,7 @@ import {
 } from "@/lib/api";
 import { formatUserLabel } from "@/lib/formatting";
 import { CENTER_X, CENTER_Y, HEIGHT, WIDTH, nodeVisualRadius, type PositionedNode } from "@/lib/graph-layout-geometry";
+import { graphEdgeLayers } from "@/lib/graph-edge-layers";
 import type { GraphLayoutRequest } from "@/lib/graph-layout";
 import { useGraphCamera } from "@/lib/use-graph-camera";
 
@@ -694,6 +695,10 @@ export default function GraphPage() {
   }, [displayedNodes]);
   const selectedNode = selectedKey ? nodeByKey[selectedKey] ?? null : null;
   const displayedEdges = useMemo(() => visibleGraph?.edges ?? [], [visibleGraph]);
+  const edgeLayers = useMemo(
+    () => graphEdgeLayers(displayedEdges, nodeByKey, graphEdgeIdentity, { selectedKey, selectedEdgeId, hoveredEdgeId }),
+    [displayedEdges, nodeByKey, selectedKey, selectedEdgeId, hoveredEdgeId],
+  );
   const activeEdge = useMemo(
     () => displayedEdges.find((edge) => graphEdgeIdentity(edge) === selectedEdgeId) ?? null,
     [displayedEdges, selectedEdgeId],
@@ -1227,16 +1232,13 @@ export default function GraphPage() {
                     className="h-full w-full touch-none"
                   >
                     <g ref={containerRef}>
-                      {displayedEdges.map((edge) => {
-                        const source = nodeByKey[edge.source_key];
-                        const target = nodeByKey[edge.target_key];
-                        if (!source || !target) return null;
-                        const edgeKey = graphEdgeIdentity(edge);
-                        return <GraphEdgeGlyph key={edgeKey} edgeKey={edgeKey} source={source} target={target}
+                      {edgeLayers.solid ? <path d={edgeLayers.solid} className="text-muted" fill="none" stroke="currentColor" strokeWidth={1} strokeOpacity={0.5} vectorEffect="non-scaling-stroke" pointerEvents="none" /> : null}
+                      {edgeLayers.dashed ? <path d={edgeLayers.dashed} className="text-muted" fill="none" stroke="currentColor" strokeWidth={1} strokeOpacity={0.5} strokeDasharray="6 4" vectorEffect="non-scaling-stroke" pointerEvents="none" /> : null}
+                      {edgeLayers.interactive.map(({ edge, edgeKey, source, target, highlighted }) => (
+                        <GraphEdgeGlyph key={edgeKey} edgeKey={edgeKey} source={source} target={target}
                           description={describeEdge(edge)} sourceAttributed={Boolean(edge.supporting_claim_id)} selected={selectedEdgeId === edgeKey}
-                          highlighted={hoveredEdgeId === edgeKey || Boolean(selectedKey && (edge.source_key === selectedKey || edge.target_key === selectedKey))}
-                          onHover={setHoveredEdgeId} onSelect={selectGraphEdge} />;
-                      })}
+                          highlighted={highlighted} onHover={setHoveredEdgeId} onSelect={selectGraphEdge} />
+                      ))}
 
                       {displayedNodes.map((node) => <GraphNodeGlyph key={node.key}
                         node={node} isSelected={selectedKey === node.key} isHovered={hoveredNodeKey === node.key}
