@@ -175,4 +175,4 @@ def test_review_copy_for_ownership_signal_is_concrete_and_cautious():
     assert "roughly 25% weight" in summary
     assert "source, timing, mechanism, and later outcome" in summary
     assert "map the signal to demand" in next_action
-    assert tags == ["political disclosure", "MEMA", "buy", "14d lag"]
+    assert tags == ["political disclosure", "MEMA", "buy", "reported 14 days later"]
