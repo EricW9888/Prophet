@@ -166,7 +166,7 @@ export default function HistoryPage() {
             {status.ledger?.ready && (overview?.recent_transactions ?? []).length === 0 ? (
               <p className="mt-4 border border-dashed border-line px-4 py-6 text-sm text-muted">No recent transactions are in the ledger yet.</p>
             ) : (
-              <div className="mt-4 max-w-full overflow-x-auto">
+              <div className="relative mt-4 max-w-full overflow-x-auto">
                 <table className="w-full min-w-[760px] text-sm">
                   <thead className="border-b border-line text-xs text-muted">
                     <tr>
