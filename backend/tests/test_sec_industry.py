@@ -184,3 +184,26 @@ async def test_a_company_without_a_ticker_gets_its_industry_by_exact_registered_
     assert (
         await session.scalar(sa_select(Security).where(Security.entity_id == named.id))
     ) is None
+
+
+def test_company_like_types_are_recognised_from_free_text():
+    from investos.services.sec_industry import is_company_like
+
+    for value in (
+        "company",
+        "public_company",
+        "Company",
+        "investment_bank",
+        "subsidiary",
+        "organization",
+    ):
+        assert is_company_like(value), value
+    for value in (
+        "person",
+        "product",
+        "corporate_event",
+        "corporate_action",
+        "company_category",
+        None,
+    ):
+        assert not is_company_like(value), value
