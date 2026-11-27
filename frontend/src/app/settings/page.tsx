@@ -1258,6 +1258,7 @@ const AUTOMATION_JOB_COPY: Record<string, { label: string; description: string }
   owner_notifications: { label: "Owner notifications", description: "Delivers opt-in private alerts when a durable monitor changes state." },
   entity_hygiene: { label: "Entity reconciliation", description: "Reconciles duplicate entities and reclassifies non-investable artifacts while preserving audit history." },
   theme_hygiene: { label: "Theme reconciliation", description: "Reconciles duplicate or placeholder themes while preserving useful evidence and progression." },
+  insider_filings_refresh: { label: "Insider trades", description: "Reads SEC Form 4 filings for the companies you hold or watch and records each trade by an officer, director or 10% owner: who, bought or sold, shares, price and date." },
   business_map_refresh: { label: "Company revenue maps", description: "Reads each company's latest annual report and records where its revenue comes from: segments, products, regions and major customers. Holdings first; each company is re-checked monthly." },
   media_cleanup: { label: "Temporary media cleanup", description: "Removes expired temporary media files while preserving extracted evidence and provenance." },
   youtube_channel_review: { label: "YouTube source review", description: "Checks operator-trusted channels for new uploads, records provisional discovery, and runs a bounded number through caption-first investigation." },

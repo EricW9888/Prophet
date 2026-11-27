@@ -44,6 +44,7 @@ from investos.services.database_backup import DatabaseBackupService
 from investos.services.entity_hygiene import EntityHygieneService
 from investos.services.evidence_processing import EvidenceProcessingService
 from investos.services.fundamentals import FundamentalMetricService
+from investos.services.insider_filings import InsiderFilingService
 from investos.services.integrity import IntegrityService
 from investos.services.investment_object_backfill import InvestmentObjectBackfillService
 from investos.services.listing_directory import ListingDirectoryService
@@ -323,6 +324,12 @@ class AutomationCoordinator:
             "database_backup", self._run_database_backup, 86400, settings.BACKUP_ENABLED
         )
         self._register_job("integrity_audit", self._run_integrity_audit, 3600, True)
+        self._register_job(
+            "insider_filings_refresh",
+            self._run_insider_filings_refresh,
+            21600,
+            settings.INSIDER_FILINGS_ENABLED,
+        )
         self._register_job(
             "business_map_refresh",
             self._run_business_map_refresh,
@@ -1621,6 +1628,24 @@ class AutomationCoordinator:
                     error=exc,
                     summary=f"Theme hygiene failed: {exc}",
                 )
+
+    async def _run_insider_filings_refresh(self) -> None:
+        """Record insider trades (SEC Form 4) for held and watched companies."""
+        telemetry = self.telemetry["insider_filings_refresh"]
+        telemetry.last_run_at = datetime.now(UTC)
+        async with async_session_maker() as session:
+            try:
+                counts = await InsiderFilingService(session).refresh()
+                telemetry.last_status = "ok"
+                telemetry.detail = (
+                    f"Checked {counts['companies']} companies; "
+                    f"{counts['filings']} new filings with "
+                    f"{counts['transactions']} trades recorded."
+                )
+            except Exception as exc:
+                await session.rollback()
+                telemetry.last_status = "error"
+                telemetry.detail = compact_exception_message(exc)
 
     async def _run_business_map_refresh(self) -> None:
         """Map companies' revenue drivers from their latest annual reports."""
