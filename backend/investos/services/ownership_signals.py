@@ -211,7 +211,10 @@ class OwnershipSignalService:
                 if evidence.id not in seen:
                     rows.append((evidence, source))
 
-        queued = 0
+        # One item per company and kind of disclosure: a busy insider can file
+        # dozens of trades, and each on its own would flood Review. The most
+        # important (then newest) leads; its reason says how many others exist.
+        groups: dict[tuple[str, str], list[tuple[RawEvidence, OwnershipSignal]]] = {}
         for evidence, source in rows:
             signal = self.analyze_signal(
                 evidence,
@@ -220,6 +223,29 @@ class OwnershipSignalService:
             )
             if signal is None or not signal.should_surface:
                 continue
+            key = (
+                (signal.ticker or signal.issuer or str(evidence.id)),
+                signal.source_kind,
+            )
+            groups.setdefault(key, []).append((evidence, signal))
+
+        queued = 0
+        for (subject, kind), members in groups.items():
+            members.sort(
+                key=lambda pair: (
+                    pair[1].review_priority,
+                    pair[0].public_time or pair[0].created_at,
+                ),
+                reverse=True,
+            )
+            evidence, signal = members[0]
+            others = len(members) - 1
+            reason = signal.review_trigger_reason
+            if others:
+                reason += (
+                    f" {others} other {kind}{'s' if others != 1 else ''} about "
+                    f"{subject} {'are' if others != 1 else 'is'} recorded as evidence."
+                )
             self.session.add(
                 ReviewQueueItem(
                     queue_owner="review_refresh",
@@ -232,7 +258,7 @@ class OwnershipSignalService:
                     thesis_drift=0.0,
                     catalyst_proximity=signal.timeliness_score,
                     coverage_weakness=0.0,
-                    trigger_reason=signal.review_trigger_reason,
+                    trigger_reason=reason,
                 )
             )
             queued += 1
@@ -821,13 +847,13 @@ class OwnershipSignalService:
         amount = f" around ${transaction_value:,.0f}" if transaction_value else ""
         lag = cls._lag_phrase(disclosure_lag_days)
         portfolio = (
-            f" Portfolio-linked at roughly {portfolio_weight_pct:.0f}% weight."
+            f" You hold or follow {subject} (about {portfolio_weight_pct:.0f}% of the portfolio)."
             if is_portfolio_linked and portfolio_weight_pct
-            else " Portfolio-linked." if is_portfolio_linked else ""
+            else f" You hold or follow {subject}." if is_portfolio_linked else ""
         )
         return (
-            f"{source_kind.title()} signal for {subject}: {direction}{amount}{actor}, {lag}. "
-            f"Verify the disclosure and test whether it changes the thesis mechanism. {title}.{portfolio}"
+            f"{title.rstrip('.')}: a {source_kind}, {lag}.{portfolio} "
+            f"Check whether it changes the reasons you hold or watch {subject}."
         )
 
     @classmethod
@@ -843,9 +869,9 @@ class OwnershipSignalService:
         subject = ticker or issuer or "the security"
         lag = cls._lag_phrase(disclosure_lag_days)
         return (
-            f"Check the original {source_kind}, normalize the trade date versus disclosure date ({lag}), "
-            f"then map the {direction} signal for {subject} to a concrete driver: demand, supply, margins, "
-            "financing, regulation, valuation, or timing. Do not treat it as a trade instruction until a later outcome is scored."
+            f"Read the filing ({lag}) and judge whether this {direction} says something about "
+            f"{subject}'s business, such as demand, margins or financing, or is routine. "
+            "Treat it as a hint, not a reason to trade, until later results show whether such trades mattered."
         )
 
     @classmethod

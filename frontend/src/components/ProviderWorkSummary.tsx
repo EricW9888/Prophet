@@ -4,6 +4,14 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch, DashboardSummary, ProviderHealth } from "@/lib/api";
 
+/** "Recent responses took about 48s (fastest tenth 31s), over the last 50 successful requests." */
+export function responseTimes(seconds: number[]): string {
+  const sorted = [...seconds].sort((a, b) => a - b);
+  const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))];
+  const n = sorted.length;
+  return `Recent responses took about ${Math.round(at(0.5))}s (fastest tenth ${Math.round(at(0.1))}s), over the last ${n} successful request${n === 1 ? "" : "s"}.`;
+}
+
 export default function ProviderWorkSummary({ usage, operations }: { usage: DashboardSummary["llm_usage"]; operations: DashboardSummary["recent_research_actions"] }) {
   const [health, setHealth] = useState<ProviderHealth | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +41,8 @@ export default function ProviderWorkSummary({ usage, operations }: { usage: Dash
       {health.last_admission_timeout_at ? <p className="mt-1">Latest at {new Date(health.last_admission_timeout_at).toLocaleString()}.</p> : null}
     </details> : null}
     {health?.caller_timeout_count ? <details className="mt-2"><summary className="cursor-pointer">Requests that reached shorter time limits</summary><p className="mt-2">{health.caller_timeout_count} recorded across retained history. These requests failed at their own time limit; their errors remain in Activity.</p>{health.last_caller_timeout_at ? <p className="mt-1">Latest: {new Date(health.last_caller_timeout_at).toLocaleString()}{health.last_caller_timeout_seconds != null ? ` · ${health.last_caller_timeout_seconds}s request limit` : ""}.</p> : null}</details> : null}
+    {health?.recent_latency_seconds?.length ? <p className="mt-2">{responseTimes(health.recent_latency_seconds)}</p> : null}
+    {health?.short_limit_skip_count ? <p className="mt-1 text-muted">{health.short_limit_skip_count} quick requests were not sent because the provider has recently been slower than their time limit; they used their fallback at once instead of waiting and failing.</p> : null}
     {health?.failure_code ? <p className="mt-1 text-caution">{health.failure_code.replaceAll("_", " ")}. Model-dependent jobs wait; ingestion, market data, paper maintenance and recovery continue.</p> : null}
     {health?.failure_detail && <details className="mt-2 text-slate-500"><summary className="cursor-pointer">Structured response diagnostic</summary><p className="mt-2">{health.failure_detail.kind?.replaceAll("_", " ")}{health.failure_detail.finish_reason ? ` · finish: ${health.failure_detail.finish_reason}` : ""}{health.failure_detail.content_chars != null ? ` · content: ${health.failure_detail.content_chars} characters` : ""}{health.failure_detail.completion_tokens != null ? ` · generated: ${health.failure_detail.completion_tokens} tokens` : ""}{health.failure_detail.max_tokens != null ? ` · limit: ${health.failure_detail.max_tokens} tokens` : ""}.</p></details>}
     {health?.next_probe_at ? <p className="mt-1">Next shared probe after {new Date(health.next_probe_at).toLocaleString()}.</p> : null}

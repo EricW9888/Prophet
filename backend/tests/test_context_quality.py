@@ -2590,7 +2590,7 @@ def test_shadow_review_tags_do_not_render_priced_in_analysis_as_a_tag():
     tags = service._signal_tags(item, context)
 
     assert tags == [
-        "shadow opportunity",
+        "simulated opportunity",
         "early inflection unconfirmed",
         "catalyst nearby",
     ]

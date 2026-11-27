@@ -1305,7 +1305,7 @@ class ExtractionWorker:
             subject_id=subject_id,
             subject_type=subject_type,
             subject_name=subject_name,
-            trigger_reason=f"new evidence ingested: {evidence.title or evidence.source_item_type}",
+            trigger_reason=f"new evidence arrived: {evidence.title or evidence.source_item_type}",
             raw_evidence_id=evidence.id,
             defer_on_provider_failure=defer_on_provider_failure,
         )

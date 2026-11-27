@@ -933,14 +933,15 @@ class ResearchService:
             self._log_research_action(
                 status="resolution_assessment_deferred",
                 summary=(
-                    f"Resolution assessment deferred for question {question.id}: "
-                    f"{compact_exception_message(exc)}"
+                    "Checking whether new evidence answers this question is waiting "
+                    "for the AI provider; it will retry on its own."
                 ),
                 query=question.question_text,
                 title=f"Question resolution: {self._title_fragment(question.question_text)}",
                 metadata_json={
                     "question_id": str(question.id),
                     "evidence_id": str(evidence_id),
+                    "detail": compact_exception_message(exc),
                 },
             )
             return False

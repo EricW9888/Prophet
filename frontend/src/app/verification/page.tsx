@@ -9,6 +9,7 @@ import WorkspaceState, { WorkspaceSkeleton } from "@/components/WorkspaceState";
 import Link from "next/link";
 import ReviewItemActions, { reviewFixLink } from "@/components/ReviewItemActions";
 import { groupReviewItems } from "@/lib/review-groups";
+import { reviewItemKind, reviewPriority, reviewTag } from "@/lib/review-labels";
 import ReviewDomainFilters, { reviewDomain, reviewDomainLabel, reviewPagePath, reviewSelectionKey } from "@/components/ReviewDomainFilters";
 import { isRecordId, reviewResearchQuestion, reviewSubject, selectReviewContext } from "@/lib/workflows";
 import { API_BASE, apiFetch, ProfileListItem, ReviewDomain, ReviewQueueCounts, ReviewQueueItem, ReviewQueuePage, VerificationResult } from "@/lib/api";
@@ -205,10 +206,10 @@ function VerificationWorkspace() {
                     <div className="flex items-center justify-between gap-4">
                       <div>
                         <p className="font-medium">{item.item_label}</p>
-                        <p className="mt-1 text-xs uppercase tracking-wider text-slate-400">{item.item_type.replaceAll("_", " ")}</p>
+                        <p className="mt-1 text-xs text-muted">{reviewItemKind(item.item_type)}</p>
                       </div>
-                      <span className="text-xs uppercase tracking-wider text-slate-400">
-                        priority {item.priority_score.toFixed(1)}
+                      <span className="shrink-0 text-xs text-muted">
+                        {reviewPriority(item.priority_score)}
                       </span>
                     </div>
                     <div className="mt-2 border border-line bg-panel-muted px-3 py-2 text-sm text-foreground">
@@ -218,9 +219,9 @@ function VerificationWorkspace() {
                       {item.signal_tags.map((tag) => (
                         <span
                           key={tag}
-                          className="rounded-none border border-slate-200 px-2.5 py-1 text-xs uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:text-slate-400"
+                          className="rounded-none border border-line px-2.5 py-1 text-xs text-muted"
                         >
-                          {tag}
+                          {reviewTag(tag)}
                         </span>
                       ))}
                     </div>
@@ -233,7 +234,7 @@ function VerificationWorkspace() {
                           [item.id]: !current[item.id],
                         }))
                       }
-                      className="mt-3 text-xs font-bold uppercase tracking-wider text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                      className="mt-3 text-xs font-medium text-action hover:underline"
                     >
                       {expandedSignals[item.id] ? "Hide rationale and signals" : "View rationale and signals"}
                     </button>
@@ -243,10 +244,10 @@ function VerificationWorkspace() {
                           {item.why_now_summary}
                         </p>
                         <div className="flex flex-wrap gap-2 text-xs text-slate-400">
-                          <span>priority {item.priority_score.toFixed(1)}</span>
-                          <span>contradiction {item.contradiction_pressure.toFixed(1)}</span>
-                          <span>coverage pressure {item.coverage_weakness.toFixed(1)}</span>
-                          <span>drift {item.thesis_drift.toFixed(1)}</span>
+                          <span>What raised it:</span>
+                          <span>contradicting evidence {item.contradiction_pressure.toFixed(1)}</span>
+                          <span>thin research {item.coverage_weakness.toFixed(1)}</span>
+                          <span>drift from the accepted view {item.thesis_drift.toFixed(1)}</span>
                         </div>
                       </div>
                     ) : null}
