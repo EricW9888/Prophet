@@ -352,3 +352,54 @@ def test_a_buy_filed_in_small_rows_counts_as_one_purchase():
     assert not any(is_notable_buy(row, 100_000) for row in single_rows)
     (purchase,) = combine(single_rows)
     assert purchase.value == 150_000 and is_notable_buy(purchase, 100_000)
+
+
+async def test_many_trades_in_one_company_are_one_review_item(workflow_session):
+    session = workflow_session
+    tag = uuid4().hex[:5].upper()
+    entity = Entity(name=f"Synthetic Busy Insider {tag}", entity_type="company")
+    session.add(entity)
+    await session.flush()
+    security = Security(
+        entity_id=entity.id,
+        ticker=f"BI{tag}",
+        asset_class="equity",
+        instrument_type="common_stock",
+    )
+    session.add(security)
+    await session.flush()
+    session.add(
+        Position(
+            security_id=security.id, direction="long", list_type="watchlist", quantity=0
+        )
+    )
+    await session.commit()
+
+    signals = OwnershipSignalService(session)
+    ids = []
+    for n, value in enumerate([40_000, 2_500_000, 90_000]):
+        row = await signals.ingest_disclosure(
+            source_name=f"Synthetic Form 4 feed {tag}",
+            source_type="filing",
+            source_item_type="insider_disclosure",
+            title=f"Officer {n} sold BI{tag} shares",
+            external_id=f"busy-{tag}-{n}",
+            metadata={
+                "ticker": f"BI{tag}",
+                "transaction_type": "sold",
+                "transaction_code": "S",
+                "transaction_value": value,
+                "filing_date": f"2026-11-2{n}",
+            },
+        )
+        ids.append(row.id)
+
+    await signals.queue_review_items()
+    queued = (
+        await session.scalars(
+            select(ReviewQueueItem).where(ReviewQueueItem.item_id.in_(ids))
+        )
+    ).all()
+    assert len(queued) == 1
+    assert "2 other" in queued[0].trigger_reason
+    assert f"BI{tag}" in queued[0].trigger_reason
