@@ -19,6 +19,44 @@ from investos.services.review import ReviewService
 from investos.services.shadow import ShadowService
 from investos.services.verification import VerificationRequest, VerificationService
 
+TRIGGER_WORDS = {
+    "accepted_state_changed": "Prophet's accepted view changed",
+    "high_confidence_state": "the view is now held with high confidence",
+    "contradiction_pressure": "contradicting evidence is building",
+}
+STANCE_WORDS = {
+    "bullish": "positive",
+    "bearish": "negative",
+    "neutral": "neutral",
+    "uncertain": "uncertain",
+    "no_view": "no view yet",
+}
+
+
+def run_reason(
+    event: str,
+    *,
+    triggers: list[str],
+    stance: str | None,
+    confidence: str | None,
+    coverage_score: float,
+    contradictions: float,
+) -> str:
+    """Why an operating-loop simulation started, as sentences a person reads."""
+    why = [TRIGGER_WORDS.get(name, name.replace("_", " ")) for name in triggers]
+    view = STANCE_WORDS.get(stance or "", (stance or "unknown").replace("_", " "))
+    certainty = (confidence or "unknown").replace("_", " ")
+    count = int(round(contradictions))
+    parts = [f"Started after {event.rstrip('.')}."]
+    if why:
+        parts.append("Why now: " + ", ".join(why) + ".")
+    parts.append(
+        f"Prophet's view: {view}, {certainty} confidence; "
+        f"{count} contradicting item{'s' if count != 1 else ''}; "
+        f"research coverage {coverage_score:.0f} of 100."
+    )
+    return " ".join(parts)
+
 
 class OperatingLoopService:
     def __init__(self, session: AsyncSession):
@@ -268,10 +306,13 @@ class OperatingLoopService:
                 name=f"Operating loop: {security.ticker}",
                 policy_description=policy,
                 trigger_type="operating_loop",
-                trigger_reason=(
-                    f"{trigger_reason}; triggers={','.join(triggers)}; "
-                    f"stance={current_state.current_stance}; confidence={current_state.confidence_band}; "
-                    f"coverage_score={coverage_score:.1f}; contradictions={contradiction_count:.0f}"
+                trigger_reason=run_reason(
+                    trigger_reason,
+                    triggers=triggers,
+                    stance=current_state.current_stance,
+                    confidence=current_state.confidence_band,
+                    coverage_score=coverage_score,
+                    contradictions=contradiction_count,
                 ),
                 horizon_label="adaptive",
                 initiated_by="system",
