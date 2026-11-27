@@ -265,7 +265,7 @@ class ProviderHealthStore:
         try:
             record = cls.read(provider, model)
             result = record.model_dump(mode="json", exclude={"revision", "probe_token"})
-            runtime = RuntimeSettingsStore.load().llm
+            runtime = hosted_runtime(RuntimeSettingsStore.load().llm)
             if record.provider == "nvidia_nim" and not runtime.api_key:
                 result["state"] = "waiting_for_config"
             return result
@@ -601,6 +601,54 @@ def guarded_provider_call(function):
                 _call_depth.reset(depth)
 
     return guarded
+
+
+def connection_statuses():
+    """Health of each enabled extra connection, read under its own identity."""
+    from investos.services.runtime_settings import RuntimeSettingsStore
+
+    statuses = []
+    for connection in RuntimeSettingsStore.load().llm.connections:
+        if not connection.enabled:
+            continue
+        token = active_connection.set(connection)
+        try:
+            status = ProviderHealthStore.public_status("nvidia_nim", connection.model)
+        finally:
+            active_connection.reset(token)
+        latencies = sorted(status.get("recent_latency_seconds") or [])
+        statuses.append(
+            {
+                "name": connection.name,
+                "model": connection.model,
+                "state": status.get("state"),
+                "failure_code": status.get("failure_code"),
+                "next_probe_at": status.get("next_probe_at"),
+                "last_success_at": status.get("last_success_at"),
+                "median_latency_seconds": (
+                    latencies[len(latencies) // 2] if latencies else None
+                ),
+            }
+        )
+    return statuses
+
+
+async def probe_connection(name):
+    """Probe one extra connection; returns its status, or None if unknown."""
+    from investos.services.runtime_settings import RuntimeSettingsStore
+
+    connection = next(
+        (c for c in RuntimeSettingsStore.load().llm.connections if c.name == name),
+        None,
+    )
+    if connection is None or not connection.enabled:
+        return None
+    token = active_connection.set(connection)
+    try:
+        await probe_llm_provider(provider="nvidia_nim", model=connection.model)
+    finally:
+        active_connection.reset(token)
+    return next((s for s in connection_statuses() if s["name"] == name), None)
 
 
 async def probe_llm_provider(*, provider=None, model=None):
