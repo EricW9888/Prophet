@@ -1731,6 +1731,16 @@ class AutomationCoordinator:
                     f"Read {counts['filings']} insider filings from "
                     f"{counts['days']} days; {counts['buys']} open-market buys; "
                     f"{counts['companies']} companies sent to Ideas."
+                    + (
+                        f" {counts['unread']} filings could not be fetched and will be retried."
+                        if counts["unread"]
+                        else ""
+                    )
+                    + (
+                        f" {counts['given_up']} filings were given up after repeated failures."
+                        if counts["given_up"]
+                        else ""
+                    )
                 )
             except Exception as exc:
                 await session.rollback()

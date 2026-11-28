@@ -47,6 +47,9 @@ DAILY_INDEX = (
 )
 ARCHIVES = "https://www.sec.gov/Archives/"
 STATE_FILE = "market_insider_buying.json"
+# A filing that cannot be fetched is retried on later runs, then given up
+# and counted, so one broken filing never holds back the days after it.
+MAX_FILING_ATTEMPTS = 5
 FIRST_RUN_LOOKBACK = timedelta(days=7)
 MAX_DAYS_PER_RUN = 5
 CLUSTER_WINDOW = timedelta(days=30)
@@ -160,9 +163,39 @@ class MarketInsiderBuyingService:
             else today - FIRST_RUN_LOOKBACK
         )
         days = (await self.published_days(after, today))[:MAX_DAYS_PER_RUN]
-        counts = {"days": 0, "filings": 0, "buys": 0, "companies": 0}
+        counts = {
+            "days": 0,
+            "filings": 0,
+            "buys": 0,
+            "companies": 0,
+            "unread": 0,
+            "given_up": 0,
+        }
         bought: set[str] = set()
         signals = OwnershipSignalService(self.session)
+        retry: dict[str, dict] = dict(state.get("retry") or {})
+
+        async def read(accession: str, path: str, day: date) -> None:
+            try:
+                full = await self.maps._get(ARCHIVES + path)
+            except Exception:
+                attempts = int(retry.get(accession, {}).get("attempts", 0)) + 1
+                if attempts >= MAX_FILING_ATTEMPTS:
+                    retry.pop(accession, None)
+                    counts["given_up"] += 1
+                else:
+                    retry[accession] = {
+                        "path": path,
+                        "day": day.isoformat(),
+                        "attempts": attempts,
+                    }
+                return
+            retry.pop(accession, None)
+            await self._read_filing(full, accession, path, day, signals, counts, bought)
+
+        # Filings that failed on an earlier run come first.
+        for accession, entry in list(retry.items()):
+            await read(accession, entry["path"], date.fromisoformat(entry["day"]))
         for day in days:
             index = await self.maps._get(
                 DAILY_INDEX.format(
@@ -172,69 +205,82 @@ class MarketInsiderBuyingService:
                 )
             )
             for accession, path in form4_filings(index):
-                try:
-                    full = await self.maps._get(ARCHIVES + path)
-                except Exception:
-                    continue
-                counts["filings"] += 1
-                document = _OWNERSHIP.search(full)
-                if not document:
-                    continue
-                xml = document.group(0)
-                ticker = (_first(xml, "issuerTradingSymbol") or "").upper().strip()
-                if not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", ticker):
-                    continue
-                issuer = _first(xml, "issuerName") or ticker
-                for transaction in combine(parse_form4(xml)):
-                    if not is_notable_buy(transaction, self.min_value):
-                        continue
-                    title, summary = describe(transaction, ticker, day)
-                    await signals.ingest_disclosure(
-                        source_name=SOURCE_NAME,
-                        source_type="filing",
-                        source_url="https://www.sec.gov/",
-                        source_description="Insider trades reported to the SEC on Form 4 by officers, directors and 10% owners.",
-                        source_item_type="insider_disclosure",
-                        title=title,
-                        url=ARCHIVES + path,
-                        external_id=f"{accession}:{transaction.code}",
-                        author=transaction.owner,
-                        metadata={
-                            "ticker": ticker,
-                            "issuer": issuer,
-                            "owner": transaction.owner,
-                            "role": transaction.role,
-                            "transaction_code": "P",
-                            "transaction_type": "bought",
-                            "shares": transaction.shares,
-                            "price": transaction.price,
-                            "transaction_value": transaction.value,
-                            "acquired": True,
-                            "shares_owned_after": transaction.owned_after,
-                            "under_10b5_1_plan": transaction.under_plan,
-                            "transaction_date": transaction.transaction_date.isoformat(),
-                            "last_transaction_date": (
-                                transaction.last_date.isoformat()
-                                if transaction.last_date
-                                else None
-                            ),
-                            "trades": transaction.trades,
-                            "filing_date": day.isoformat(),
-                            "accession": accession,
-                            "discovery_feed": True,
-                        },
-                        summary=summary,
-                    )
-                    counts["buys"] += 1
-                    bought.add(ticker)
+                await read(accession, path, day)
             counts["days"] += 1
             state["last_day"] = day.isoformat()
+            state["retry"] = retry
             self.maps._write_state(STATE_FILE, state)
+        if not days:
+            state["retry"] = retry
+            self.maps._write_state(STATE_FILE, state)
+        counts["unread"] = len(retry)
         for ticker in sorted(bought):
             buying = await self.recent_buying(ticker, today)
             if buying and await self._add_to_ideas(buying):
                 counts["companies"] += 1
         return counts
+
+    async def _read_filing(
+        self,
+        full: str,
+        accession: str,
+        path: str,
+        day: date,
+        signals: OwnershipSignalService,
+        counts: dict[str, int],
+        bought: set[str],
+    ) -> None:
+        counts["filings"] += 1
+        document = _OWNERSHIP.search(full)
+        if not document:
+            return
+        xml = document.group(0)
+        ticker = (_first(xml, "issuerTradingSymbol") or "").upper().strip()
+        if not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", ticker):
+            return
+        issuer = _first(xml, "issuerName") or ticker
+        for transaction in combine(parse_form4(xml)):
+            if not is_notable_buy(transaction, self.min_value):
+                continue
+            title, summary = describe(transaction, ticker, day)
+            await signals.ingest_disclosure(
+                source_name=SOURCE_NAME,
+                source_type="filing",
+                source_url="https://www.sec.gov/",
+                source_description="Insider trades reported to the SEC on Form 4 by officers, directors and 10% owners.",
+                source_item_type="insider_disclosure",
+                title=title,
+                url=ARCHIVES + path,
+                external_id=f"{accession}:{transaction.code}",
+                author=transaction.owner,
+                metadata={
+                    "ticker": ticker,
+                    "issuer": issuer,
+                    "owner": transaction.owner,
+                    "role": transaction.role,
+                    "transaction_code": "P",
+                    "transaction_type": "bought",
+                    "shares": transaction.shares,
+                    "price": transaction.price,
+                    "transaction_value": transaction.value,
+                    "acquired": True,
+                    "shares_owned_after": transaction.owned_after,
+                    "under_10b5_1_plan": transaction.under_plan,
+                    "transaction_date": transaction.transaction_date.isoformat(),
+                    "last_transaction_date": (
+                        transaction.last_date.isoformat()
+                        if transaction.last_date
+                        else None
+                    ),
+                    "trades": transaction.trades,
+                    "filing_date": day.isoformat(),
+                    "accession": accession,
+                    "discovery_feed": True,
+                },
+                summary=summary,
+            )
+            counts["buys"] += 1
+            bought.add(ticker)
 
     async def recent_buying(self, ticker: str, today: date) -> IssuerBuying | None:
         """Open-market buying in ``ticker`` over the last 30 days, from stored evidence.

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from investos.models.entity import Security
 from investos.models.evidence import RawEvidence, SourceItem
+from investos.models.market_setup import MarketSetupSignal
 from investos.models.portfolio import Position
 from investos.models.review import ReviewQueueItem
 from investos.models.source import Source
@@ -119,6 +120,15 @@ class OwnershipSignalService:
                 )
             ).scalar_one_or_none()
             if existing is not None:
+                # The evidence is committed before its signal is stored. If
+                # storing the signal failed, this later ingestion completes it.
+                has_signal = await self.session.scalar(
+                    select(MarketSetupSignal.id)
+                    .where(MarketSetupSignal.raw_evidence_id == existing.id)
+                    .limit(1)
+                )
+                if has_signal is None:
+                    await self._store_market_setup_signal(existing, source)
                 return existing
 
         metadata_payload = dict(metadata or {})

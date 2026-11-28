@@ -145,6 +145,20 @@ async def test_followed_companies_get_new_filings_once(
         "transactions": 0,
     }
 
+    # Later the same day the company files another Form 4: it is read once.
+    filings["form"].insert(0, "4")
+    filings["filingDate"].insert(0, "2026-11-14")
+    filings["accessionNumber"].insert(0, "0000000077-26-000010")
+    filings["primaryDocument"].insert(0, "xslF345X06/form4.xml")
+    pages[business_map.SUBMISSIONS_URL.format(cik=77)] = json.dumps(
+        {"filings": {"recent": filings}}
+    )
+    pages["https://www.sec.gov/Archives/edgar/data/77/000000007726000010/form4.xml"] = (
+        FORM4
+    )
+    assert (await service.refresh(now=now))["filings"] == 1
+    assert (await service.refresh(now=now))["filings"] == 0
+
 
 def test_one_decision_filed_as_many_rows_reads_as_one_trade():
     rows = "".join(

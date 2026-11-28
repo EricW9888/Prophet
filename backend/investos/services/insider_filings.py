@@ -233,20 +233,35 @@ class InsiderFilingService:
             if cik is None:
                 continue
             counts["companies"] += 1
-            since = (
-                state.get(str(entity.id)) or (now - FIRST_LOOKBACK).date().isoformat()
-            )
+            # The checkpoint is the newest filing day read plus the filings
+            # already read on that day: a company can file again later the
+            # same day. (Older checkpoints are just the day.)
+            checked = state.get(str(entity.id))
+            if isinstance(checked, dict):
+                since, read_on_since = checked["date"], set(checked["accessions"])
+            else:
+                since = checked or (now - FIRST_LOOKBACK).date().isoformat()
+                read_on_since = set() if not checked else None
             submissions = json.loads(
                 await self.maps._get(SUBMISSIONS_URL.format(cik=cik))
             )
             recent: dict[str, Any] = submissions.get("filings", {}).get("recent", {})
             newest = since
+            read_on_newest = set(read_on_since or ())
             for index, form in enumerate(recent.get("form", [])):
                 filed = recent["filingDate"][index]
-                if form != "4" or filed <= since:
-                    continue
-                newest = max(newest, filed)
                 accession = recent["accessionNumber"][index]
+                if form != "4" or filed < since:
+                    continue
+                if filed == since and (
+                    read_on_since is None or accession in read_on_since
+                ):
+                    # A day-only checkpoint cannot tell which filings were read.
+                    continue
+                if filed > newest:
+                    newest, read_on_newest = filed, set()
+                if filed == newest:
+                    read_on_newest.add(accession)
                 folder = ARCHIVE_URL.format(
                     cik=cik, accession=accession.replace("-", "")
                 )
@@ -298,6 +313,9 @@ class InsiderFilingService:
                         summary=summary,
                     )
                     counts["transactions"] += 1
-            state[str(entity.id)] = newest
+            state[str(entity.id)] = {
+                "date": newest,
+                "accessions": sorted(read_on_newest),
+            }
         self.maps._write_state("insider_filing_checks.json", state)
         return counts
