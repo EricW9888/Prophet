@@ -17,6 +17,7 @@ from investos.models.knowledge_mutation import KnowledgeMutation
 from investos.models.source import Source
 from investos.schemas.provenance import EvidenceSourceReferenceResponse
 from investos.services.evidence_provenance import build_evidence_source_reference
+from investos.services.followed_subjects import followed_companies
 from investos.services.knowledge_time import (
     KnowledgeTemporalContext,
     assess_knowledge_time,
@@ -136,6 +137,13 @@ class KnowledgeChangeSummaryResponse(BaseModel):
     deprecated_events: int
     changes: list[KnowledgeChangeResponse]
 
+
+# An item about a company the owner holds or watches outranks an equally
+# labelled item about one he does not follow. The model's own labels alone
+# saturate (most facts arrive "high" or "critical") and say nothing about him.
+# Measured 2026-11-28: 0.15 puts 14 of the top 20 on followed companies and
+# keeps 6 critical items about others; 0.2 or more pushed every other out.
+FOLLOWED_SUBJECT_BONUS = 0.15
 
 IMPORTANCE_SCORE = {
     "critical": 1.0,
@@ -508,15 +516,51 @@ async def get_timeline(
     if limit <= 0:
         return []
     candidates = []
+    followed = [entity.id for entity, _ in await followed_companies(session)]
     for kind, model in (("event", Event), ("fact", Fact), ("claim", Claim)):
         if item_type not in (None, kind):
             continue
-        rows = await session.scalars(
-            select(model)
-            .where(model.is_deprecated.is_(False))
-            .order_by(desc(model.created_at))
-            .limit(limit)
+        newest = select(model).where(model.is_deprecated.is_(False))
+        about_followed = (
+            select(Edge.source_id)
+            .where(
+                Edge.source_type == kind,
+                Edge.target_type == "entity",
+                Edge.target_id.in_(followed),
+            )
+            .distinct()
         )
+        followed_ids = set()
+        if followed:
+            # The newest items about followed companies are candidates even
+            # when general intake is busier.
+            followed_rows = list(
+                await session.scalars(
+                    newest.where(model.id.in_(about_followed))
+                    .order_by(desc(model.created_at))
+                    .limit(limit)
+                )
+            )
+            followed_ids = {node.id for node in followed_rows}
+        else:
+            followed_rows = []
+        general_rows = list(
+            await session.scalars(newest.order_by(desc(model.created_at)).limit(limit))
+        )
+        if followed:
+            followed_ids |= set(
+                await session.scalars(
+                    about_followed.where(
+                        Edge.source_id.in_([node.id for node in general_rows])
+                    )
+                )
+            )
+        seen_nodes: set = set()
+        rows = []
+        for node in followed_rows + general_rows:
+            if node.id not in seen_nodes:
+                seen_nodes.add(node.id)
+                rows.append(node)
         for node in rows:
             temporal = _temporal_context(node, item_type=kind)
             display_time, label = _display_time(node)
@@ -524,7 +568,7 @@ async def get_timeline(
                 _event_signal_score(node)
                 if isinstance(node, Event)
                 else _fact_signal_score(node, temporal)
-            )
+            ) + (FOLLOWED_SUBJECT_BONUS if node.id in followed_ids else 0.0)
             candidates.append((score, display_time, kind, node, label, temporal))
 
     # Rank before reading receipt and subject detail. Enrichment is still

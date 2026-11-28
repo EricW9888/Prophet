@@ -27,6 +27,7 @@ from investos.services.business_map import (
     BusinessMapService,
     Fetch,
 )
+from investos.services.followed_subjects import followed_companies
 from investos.services.ownership_signals import OwnershipSignalService
 
 FIRST_LOOKBACK = timedelta(days=90)
@@ -206,21 +207,7 @@ class InsiderFilingService:
 
     async def followed(self) -> list[tuple[Entity, str]]:
         """Companies held or watched, largest positions first."""
-        rows = (
-            await self.session.execute(
-                select(Entity, Security.ticker)
-                .join(Security, Security.entity_id == Entity.id)
-                .join(Position, Position.security_id == Security.id)
-                .where(Position.list_type.in_(["holding", "watchlist", "considering"]))
-                .order_by(desc(Position.market_value))
-            )
-        ).all()
-        seen, ordered = set(), []
-        for entity, ticker in rows:
-            if ticker and entity.id not in seen:
-                seen.add(entity.id)
-                ordered.append((entity, ticker))
-        return ordered
+        return await followed_companies(self.session)
 
     async def refresh(self, *, now: datetime | None = None) -> dict[str, int]:
         now = now or datetime.now(UTC)
