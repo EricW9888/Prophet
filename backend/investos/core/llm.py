@@ -667,6 +667,30 @@ def _worth_failing_over(exc: BaseException) -> bool:
     return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429
 
 
+async def _with_failover(call, *, role: str | None, public: bool, allowed: bool = True):
+    """Run ``call(None)`` on the main provider; if it is cooling down or
+    rate-limited, run ``call(connection)`` on each extra connection that takes
+    this kind of work, in order. Each connection has its own health circuit and
+    rate limiter. Every model entry point shares this one loop."""
+    try:
+        return await call(None)
+    except Exception as exc:
+        if not allowed or not _worth_failing_over(exc):
+            raise
+        last = exc
+    for connection in _failover_connections(role, public):
+        token = active_connection.set(connection)
+        try:
+            return await call(connection)
+        except Exception as exc:
+            if not _worth_failing_over(exc):
+                raise
+            last = exc
+        finally:
+            active_connection.reset(token)
+    raise last
+
+
 async def call_llm_json(
     system_prompt: str,
     user_prompt: str,
@@ -696,30 +720,24 @@ async def call_llm_json(
         on_chunk=on_chunk,
         images=images,
     )
-    try:
-        return await _call_llm_json_once(
-            **request, model=model, provider_override=provider_override, role=role
-        )
-    except Exception as exc:
-        if images or provider_override or not _worth_failing_over(exc):
-            raise
-        last = exc
-    for connection in _failover_connections(role, public):
-        token = active_connection.set(connection)
-        try:
+
+    async def call(connection):
+        if connection is None:
             return await _call_llm_json_once(
-                **request,
-                model=connection.model,
-                provider_override="nvidia_nim",
-                role=role,
+                **request, model=model, provider_override=provider_override, role=role
             )
-        except Exception as exc:
-            if not _worth_failing_over(exc):
-                raise
-            last = exc
-        finally:
-            active_connection.reset(token)
-    raise last
+        return await _call_llm_json_once(
+            **request,
+            model=connection.model,
+            provider_override="nvidia_nim",
+            role=role,
+        )
+
+    # A connection's model may not read images, and an explicit provider
+    # choice is not overridden.
+    return await _with_failover(
+        call, role=role, public=public, allowed=not images and not provider_override
+    )
 
 
 @guarded_provider_call
@@ -1193,8 +1211,32 @@ async def _call_nvidia_json(
                 raise StructuredGenerationError("schema_mismatch") from repair_exc
 
 
-@guarded_provider_call
 async def call_llm_tools(
+    system_prompt: str,
+    user_prompt: str,
+    tools: list[dict[str, Any]],
+    model: str | None = None,
+    timeout_seconds: int | None = None,
+    role: str | None = None,
+    public: bool = False,
+) -> dict[str, Any]:
+    """A tool-choosing model call, failing over like ``call_llm_json``."""
+
+    async def call(connection):
+        return await _call_llm_tools_once(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            tools=tools,
+            model=model if connection is None else connection.model,
+            timeout_seconds=timeout_seconds,
+            role=role,
+        )
+
+    return await _with_failover(call, role=role, public=public)
+
+
+@guarded_provider_call
+async def _call_llm_tools_once(
     system_prompt: str,
     user_prompt: str,
     tools: list[dict[str, Any]],

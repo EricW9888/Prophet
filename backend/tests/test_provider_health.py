@@ -1467,3 +1467,29 @@ async def test_extraction_is_public_only_for_public_sources_without_research_int
         except Exception:
             pass
     assert seen == [True, False]
+
+
+async def test_tool_calls_fail_over_like_structured_calls(monkeypatch, isolated_health):
+    """Chat's tool step used to give up on a rate-limited main provider."""
+    from investos.core.llm import call_llm_tools
+    from investos.core.provider_health import active_connection, hosted_runtime
+    from investos.services.runtime_settings import RuntimeSettingsStore
+
+    open_health()
+    isolated_health.llm.connections = [
+        synthetic_connection("public-only", private_context=False),
+        synthetic_connection("private-ok"),
+    ]
+    seen = []
+
+    async def request(**kwargs):
+        runtime = hosted_runtime(RuntimeSettingsStore.load().llm)
+        seen.append(runtime.hosted_base_url)
+        return {"role": "assistant", "tool_calls": []}
+
+    monkeypatch.setattr("investos.core.llm._call_nvidia_tools", request)
+    result = await call_llm_tools("system", "user", [], role="chat")
+    assert result == {"role": "assistant", "tool_calls": []}
+    # The chat prompt is private: only the connection allowed private context.
+    assert seen == ["https://private-ok.example.test/v1"]
+    assert active_connection.get() is None
