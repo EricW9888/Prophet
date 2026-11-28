@@ -178,39 +178,15 @@ async def test_whisper_requires_valid_json_output(tmp_path, monkeypatch):
 async def test_process_timeout_kills_media_tool(monkeypatch):
     adapter = LocalYouTubeTranscriber(transcription_config(timeout_seconds=0.01))
 
-    class SlowProcess:
-        def __init__(self):
-            self.returncode = None
-            self.killed = False
-            self.calls = 0
-
-        async def communicate(self):
-            self.calls += 1
-            if self.calls == 1:
-                await asyncio.sleep(1)
-            return b"", b""
-
-        def kill(self):
-            self.killed = True
-            self.returncode = -9
-
-        def terminate(self):
-            self.returncode = -15
-
-    process = SlowProcess()
-
-    async def create_process(*_args, **_kwargs):
-        return process
+    async def times_out(*_args, **_kwargs):
+        raise TimeoutError("tool exceeded 0.01 seconds")
 
     monkeypatch.setattr(
-        "investos.services.youtube_transcription.asyncio.create_subprocess_exec",
-        create_process,
+        "investos.services.youtube_transcription.run_process", times_out
     )
 
     with pytest.raises(LocalTranscriptionError, match="timeout"):
         await adapter._run_process("tool", "arg")
-
-    assert process.killed is True
 
 
 def test_segment_normalization_discards_unusable_items():

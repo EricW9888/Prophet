@@ -217,6 +217,10 @@ def backend_command() -> list[str]:
         "-m",
         "uvicorn",
         "investos.main:app",
+        # The selector loop on every platform. On Windows the default proactor
+        # loop crashed the backend natively after cancelled reads (2026-11-27).
+        "--loop",
+        "asyncio:SelectorEventLoop",
         "--host",
         "127.0.0.1",
         "--port",
