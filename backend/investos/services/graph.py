@@ -67,11 +67,13 @@ WEB_NEIGHBORHOOD_DEPTH = 2
 WEB_NEIGHBORHOOD_LIMIT = 20
 # Companies named together in at least this many stored facts, claims or events
 # are linked on the map, keeping each company's strongest links (six degrees).
-SHARED_EVIDENCE_MIN_ITEMS = 1
+# A link needs at least two items naming both subjects. An item naming more
+# than SHARED_EVIDENCE_MAX_SUBJECTS subjects is a list, not a relationship.
+SHARED_EVIDENCE_MIN_ITEMS = 2
+SHARED_EVIDENCE_MAX_SUBJECTS = 4
 SHARED_EVIDENCE_LINKS_PER_SUBJECT = 6
 # Companies on the map in the same industry link to that industry's
 # best-connected member, so an industry reads as one group (not a hairball).
-SAME_INDUSTRY_MAX_MEMBERS = 30
 EXPLICIT_NODE_EDGE_LIMIT = 40
 CLAIM_ENDPOINT_ROLES = ("relationship_subject", "relationship_object")
 
@@ -1107,7 +1109,6 @@ class GraphService:
         edge_projection = OrderedDict((edge.id, edge) for edge in edges.values())
         await self._project_source_relationships(nodes, edge_projection, reads=reads)
         await self._project_shared_evidence(nodes, edge_projection)
-        await self._project_same_industry(nodes, edge_projection)
         await self._attach_layouts(nodes)
         return GraphNeighborhoodResponse(
             root_key=root_key,
@@ -1123,8 +1124,9 @@ class GraphService:
     ) -> list[GraphWebEdgeResponse]:
         """Link companies on the map that stored evidence names together.
 
-        A fact, claim or event about two companies connects them. Pairs sharing
-        at least SHARED_EVIDENCE_MIN_ITEMS items are linked, each company
+        Facts, claims or events about both companies connect them. Pairs
+        sharing at least SHARED_EVIDENCE_MIN_ITEMS focused items (each naming
+        at most SHARED_EVIDENCE_MAX_SUBJECTS subjects) are linked, each company
         keeping its strongest SHARED_EVIDENCE_LINKS_PER_SUBJECT links. Like
         claim projections, nothing is stored: the link exists while the
         evidence does.
@@ -1139,6 +1141,19 @@ class GraphService:
         ids = [UUID(value) for value in by_id]
         first, second = aliased(Edge), aliased(Edge)
         evidence_types = ("fact", "claim", "event")
+        focused = (
+            select(Edge.source_type, Edge.source_id)
+            .where(
+                Edge.source_type.in_(evidence_types),
+                Edge.target_type == "entity",
+            )
+            .group_by(Edge.source_type, Edge.source_id)
+            .having(
+                func.count(func.distinct(Edge.target_id))
+                <= SHARED_EVIDENCE_MAX_SUBJECTS
+            )
+            .subquery()
+        )
         shared = func.count(func.distinct(first.source_id)).label("shared")
         rows = (
             await self.session.execute(
@@ -1147,6 +1162,11 @@ class GraphService:
                     second,
                     (second.source_type == first.source_type)
                     & (second.source_id == first.source_id),
+                )
+                .join(
+                    focused,
+                    (focused.c.source_type == first.source_type)
+                    & (focused.c.source_id == first.source_id),
                 )
                 .where(
                     first.source_type.in_(evidence_types),
@@ -1189,99 +1209,6 @@ class GraphService:
             )
             edges[edge_id] = edge
             projected.append(edge)
-        return projected
-
-    async def _project_same_industry(
-        self,
-        nodes: dict[str, GraphWebNodeResponse],
-        edges: dict[UUID, GraphWebEdgeResponse],
-    ) -> list[GraphWebEdgeResponse]:
-        """Link companies on the map that share an industry.
-
-        Each industry's members link to its best-connected member (the hub),
-        which usually already sits in the main web. A company whose industry
-        has no other member on the map falls back one level, to its sector
-        (the SEC's broader grouping), and links to that sector's
-        best-connected company. Projected like shared evidence: nothing is
-        stored.
-        """
-        by_id = {
-            str(node.id): key
-            for key, node in nodes.items()
-            if node.node_type == "entity"
-        }
-        if len(by_id) < 2:
-            return []
-        rows = (
-            await self.session.execute(
-                select(Entity.id, Entity.industry, Entity.sector).where(
-                    Entity.id.in_([UUID(value) for value in by_id]),
-                    or_(Entity.industry.is_not(None), Entity.sector.is_not(None)),
-                )
-            )
-        ).all()
-        members: dict[str, list[str]] = {}
-        sector_of: dict[str, str] = {}
-        for entity_id, industry, sector in rows:
-            key = by_id[str(entity_id)]
-            if industry:
-                members.setdefault(industry, []).append(key)
-            if sector:
-                sector_of[key] = sector
-        degree: dict[str, int] = {}
-        for edge in edges.values():
-            degree[edge.source_key] = degree.get(edge.source_key, 0) + 1
-            degree[edge.target_key] = degree.get(edge.target_key, 0) + 1
-
-        def rank(keys: list[str]) -> list[str]:
-            return sorted(keys, key=lambda key: (-degree.get(key, 0), key))
-
-        projected = []
-        linked: set[frozenset[str]] = set()
-
-        def link(hub: str, key: str, kind: str, **shared: str) -> None:
-            if frozenset((hub, key)) in linked:
-                return
-            linked.add(frozenset((hub, key)))
-            edge_id = self._synthetic_edge_id(
-                source_type="entity",
-                source_id=UUID(str(nodes[hub].id)),
-                target_type="entity",
-                target_id=UUID(str(nodes[key].id)),
-                relationship_type=kind,
-            )
-            edge = GraphWebEdgeResponse(
-                id=edge_id,
-                source_key=hub,
-                target_key=key,
-                relationship_type=kind,
-                confidence=0.5 if kind == "same_industry" else 0.3,
-                **shared,
-            )
-            edges[edge_id] = edge
-            projected.append(edge)
-
-        without_peer: list[str] = []
-        for industry, keys in members.items():
-            if len(keys) < 2:
-                without_peer.extend(keys)
-                continue
-            keys = rank(keys)
-            for key in keys[1:SAME_INDUSTRY_MAX_MEMBERS]:
-                link(keys[0], key, "same_industry", shared_industry=industry)
-        # A company with a sector but no recorded industry has no peer either.
-        with_industry = {key for keys in members.values() for key in keys}
-        without_peer.extend(key for key in sector_of if key not in with_industry)
-        sector_members: dict[str, list[str]] = {}
-        for key, sector in sector_of.items():
-            sector_members.setdefault(sector, []).append(key)
-        # Least-connected first, so each attaches to its sector's hub.
-        for key in reversed(rank(without_peer)):
-            sector = sector_of.get(key)
-            others = [k for k in sector_members.get(sector, []) if k != key]
-            if not others:
-                continue
-            link(rank(others)[0], key, "same_sector", shared_sector=sector)
         return projected
 
     async def _project_source_relationships(
