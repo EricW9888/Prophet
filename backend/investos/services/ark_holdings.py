@@ -6,6 +6,11 @@ removed per company, a public and timely view of a closely followed
 manager's moves. Each change is recorded as institutional-flow evidence
 through the ownership lane, in plain words. The first run stores a baseline;
 trades appear from the next published day.
+
+These are estimates, not ARK's reported trades. An opened or closed position
+is exact; an add or trim is the share change beyond the fund-wide investor
+flow, so it says "about". A split changes the share count without a trade and
+is not counted. Each day's holdings are kept so any figure can be recomputed.
 """
 
 from __future__ import annotations
@@ -58,6 +63,14 @@ STALE_AFTER = timedelta(days=7)
 # A new position by ARK is a discovery signal for Ideas; adds and trims are not.
 OPENING_PRIORITY = 0.7
 _PLAIN_TICKER = re.compile(r"[A-Z][A-Z0-9.\-]{0,9}")
+# A split or reverse split multiplies the share count by one of these while
+# the position's value barely moves; a real doubling doubles the value too.
+SPLIT_FACTORS = (1.5, 2, 3, 4, 5, 8, 10, 15, 20, 25, 30, 50)
+SPLIT_SHARE_TOLERANCE = 0.02
+SPLIT_VALUE_TOLERANCE = 0.3
+# More calendar days than a long weekend between files means days in between
+# were not read, so one change may combine several days of trading.
+WINDOW_GAP_DAYS = 4
 
 Fetch = Callable[[str], Awaitable[str]]
 
@@ -138,12 +151,41 @@ def flow_ratio(previous: FundDay, current: FundDay) -> float:
     return statistics.median(ratios) if len(ratios) >= FLOW_MIN_POSITIONS else 1.0
 
 
+def split_factor(before: Holding, after: Holding, ratio: float) -> float | None:
+    """The split factor when a position's share count changed like a split
+    (beyond the fund-wide flow) while its value did not; otherwise None."""
+    if min(before.shares, after.shares, before.market_value, after.market_value) <= 0:
+        return None
+    shares = after.shares / (before.shares * ratio)
+    value = after.market_value / (before.market_value * ratio)
+    if abs(value - 1) > SPLIT_VALUE_TOLERANCE:
+        return None
+    for factor in SPLIT_FACTORS:
+        for candidate in (factor, 1 / factor):
+            if abs(shares / candidate - 1) <= SPLIT_SHARE_TOLERANCE:
+                return candidate
+    return None
+
+
+def likely_splits(previous: FundDay, current: FundDay) -> list[str]:
+    """Positions whose share count changed by a split, not a trade."""
+    ratio = flow_ratio(previous, current)
+    return [
+        key
+        for key in sorted(set(previous.holdings) & set(current.holdings))
+        if split_factor(previous.holdings[key], current.holdings[key], ratio)
+    ]
+
+
 def trades_between(previous: FundDay, current: FundDay) -> list[Trade]:
     """Positions ARK added to, trimmed, opened or closed between two days,
-    beyond the fund-wide flow."""
+    beyond the fund-wide flow. Splits are not trades."""
     ratio = flow_ratio(previous, current)
+    splits = set(likely_splits(previous, current))
     trades = []
     for key in sorted(set(previous.holdings) | set(current.holdings)):
+        if key in splits:
+            continue
         before = previous.holdings.get(key)
         after = current.holdings.get(key)
         shares_before = before.shares if before else 0.0
@@ -191,16 +233,22 @@ def trades_between(previous: FundDay, current: FundDay) -> list[Trade]:
 def describe(trade: Trade) -> tuple[str, str]:
     name = trade.ticker or trade.company
     shares = f"{abs(trade.change):,.0f} {name} shares"
+    # An opened or closed position is exact; an add or trim is estimated.
     if trade.shares_before == 0:
         verb = f"opened a position: bought {shares}"
     elif trade.shares_after == 0:
         verb = f"closed its position: sold {shares}"
     elif trade.change > 0:
-        verb = f"bought {shares}"
+        verb = f"bought about {shares}"
     else:
-        verb = f"sold {shares}"
+        verb = f"sold about {shares}"
     title = f"ARK ({trade.fund}) {verb}"
     parts = [f"{title} between {trade.previous_day:%b %d} and {trade.day:%b %d, %Y}."]
+    if (trade.day - trade.previous_day).days > WINDOW_GAP_DAYS:
+        parts.append(
+            "The holdings files in between were not read, so this may combine "
+            "several days of trading."
+        )
     if trade.price:
         parts.append(
             f"Value about ${abs(trade.change) * trade.price:,.0f} at about ${trade.price:,.2f} a share."
@@ -219,7 +267,12 @@ def describe(trade: Trade) -> tuple[str, str]:
             f"{abs(trade.flow_ratio - 1):.1%} as investors {'bought' if grew else 'sold'} "
             "its shares; this counts only the change beyond that."
         )
-    parts.append("Derived by comparing ARK's published daily holdings files.")
+    parts.append(
+        "Estimated by comparing ARK's published daily holdings files; "
+        "ARK does not report this figure."
+        if trade.shares_before and trade.shares_after
+        else "Derived by comparing ARK's published daily holdings files."
+    )
     return title, " ".join(parts)
 
 
@@ -251,19 +304,21 @@ class ArkHoldingsService:
         )
 
     def _save(self, snapshot: FundDay) -> None:
+        text = json.dumps(
+            {
+                "day": snapshot.day.isoformat(),
+                "holdings": {
+                    key: vars(value) for key, value in snapshot.holdings.items()
+                },
+            }
+        )
         path = self._snapshot_path(snapshot.fund)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(
-                {
-                    "day": snapshot.day.isoformat(),
-                    "holdings": {
-                        key: vars(value) for key, value in snapshot.holdings.items()
-                    },
-                }
-            ),
-            encoding="utf-8",
-        )
+        path.write_text(text, encoding="utf-8")
+        # Each day is also kept, so any recorded change can be recomputed.
+        history = path.parent / snapshot.fund / f"{snapshot.day.isoformat()}.json"
+        history.parent.mkdir(parents=True, exist_ok=True)
+        history.write_text(text, encoding="utf-8")
 
     async def latest(self, fund: str) -> FundDay | None:
         best = None
@@ -280,7 +335,13 @@ class ArkHoldingsService:
 
     async def refresh(self, *, today: date | None = None) -> dict[str, Any]:
         today = today or datetime.now(UTC).date()
-        counts: dict[str, Any] = {"funds": 0, "trades": 0, "ideas": 0, "stale": []}
+        counts: dict[str, Any] = {
+            "funds": 0,
+            "trades": 0,
+            "ideas": 0,
+            "stale": [],
+            "splits": [],
+        }
         signals = OwnershipSignalService(self.session)
         ideas = OpportunityDiscoveryService(self.session)
         for fund in FUNDS:
@@ -293,6 +354,9 @@ class ArkHoldingsService:
                 counts["stale"].append(f"{fund} (last file {current.day:%b %d})")
             previous = self._load(fund)
             if previous is not None and current.day > previous.day:
+                counts["splits"] += [
+                    f"{fund} {key}" for key in likely_splits(previous, current)
+                ]
                 for trade in trades_between(previous, current):
                     title, summary = describe(trade)
                     await signals.ingest_disclosure(
@@ -323,6 +387,12 @@ class ArkHoldingsService:
                             # ARK publishes each day's file that evening.
                             "disclosure_date": trade.day.isoformat(),
                             "previous_holdings_date": trade.previous_day.isoformat(),
+                            # Not ARK's reported trade: the change between two
+                            # daily holdings files (kept under _system/ark/).
+                            "estimated": bool(
+                                trade.shares_before and trade.shares_after
+                            ),
+                            "method": "daily_holdings_difference",
                         },
                         summary=summary,
                     )

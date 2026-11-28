@@ -1693,6 +1693,13 @@ class AutomationCoordinator:
                         if counts["stale"]
                         else ""
                     )
+                    + (
+                        " Not counted as trades (share counts changed like a split): "
+                        + ", ".join(counts["splits"])
+                        + "."
+                        if counts["splits"]
+                        else ""
+                    )
                 )
             except Exception as exc:
                 await session.rollback()

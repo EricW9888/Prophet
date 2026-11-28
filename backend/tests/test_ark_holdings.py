@@ -45,7 +45,8 @@ def test_trades_read_as_sentences():
     previous, current = parse_holdings(DAY1, "ARKK"), parse_holdings(DAY2, "ARKK")
     trades = {trade.ticker: trade for trade in trades_between(previous, current)}
 
-    assert describe(trades["SYNR"])[0] == "ARK (ARKK) bought 100,000 SYNR shares"
+    assert describe(trades["SYNR"])[0] == "ARK (ARKK) bought about 100,000 SYNR shares"
+    assert "ARK does not report this figure" in describe(trades["SYNR"])[1]
     assert (
         describe(trades["SYNC"])[0]
         == "ARK (ARKK) closed its position: sold 200,000 SYNC shares"
@@ -71,7 +72,7 @@ async def test_first_run_is_a_baseline_and_the_next_day_records_trades(
 
     service = ArkHoldingsService(session, fetch=fake_fetch)
     today = date(2026, 11, 26)
-    nothing = {"funds": 1, "trades": 0, "ideas": 0, "stale": []}
+    nothing = {"funds": 1, "trades": 0, "ideas": 0, "stale": [], "splits": []}
     assert await service.refresh(today=today) == nothing
     assert await service.refresh(today=today) == nothing  # same day again
 
@@ -81,6 +82,7 @@ async def test_first_run_is_a_baseline_and_the_next_day_records_trades(
         "trades": 3,
         "ideas": 1,
         "stale": [],
+        "splits": [],
     }
     rows = (
         await session.scalars(
@@ -92,6 +94,13 @@ async def test_first_run_is_a_baseline_and_the_next_day_records_trades(
     ).all()
     assert len(rows) == 3
     assert {row.metadata_json["transaction_type"] for row in rows} == {"buy", "sell"}
+    # Only the add is an estimate; an opened or closed position is exact.
+    assert {
+        row.metadata_json["ticker"]: row.metadata_json["estimated"] for row in rows
+    } == {"SYNR": True, "SYNC": False, "SYNS": False}
+    # Both days' holdings are kept, so each change can be recomputed.
+    kept = sorted(p.name for p in (tmp_path / "_system" / "ark" / "ARKK").iterdir())
+    assert kept == ["2026-11-24.json", "2026-11-25.json"]
     assert parse_holdings(DAY2, "ARKK").day == date(2026, 11, 25)
 
 
@@ -158,5 +167,38 @@ def test_fund_wide_flows_are_not_trades():
     assert trade.ticker == "SYN6"
     assert round(trade.change) == 22_000  # 125,000 - 100,000 x 1.03
     title, summary = describe(trade)
-    assert title == "ARK (ARKG) bought 22,000 SYN6 shares"
+    assert title == "ARK (ARKG) bought about 22,000 SYN6 shares"
     assert "whole fund grew 3.0% as investors bought its shares" in summary
+
+
+def _fund_day(day: str, rows: dict[str, tuple[int, int]]) -> str:
+    return HEADER + "".join(
+        f'{day},ARKQ,SYNTH {t} INC,{t},00000000{n},"{shares:,}","${value:,}.00",1.00%\n'
+        for n, (t, (shares, value)) in enumerate(rows.items())
+    )
+
+
+def test_a_split_is_not_a_trade_but_a_real_doubling_is():
+    steady = {f"SYQ{n}": (100_000, 1_000_000) for n in range(1, 6)}
+    day1 = _fund_day(
+        "11/24/2026",
+        {**steady, "SPLT": (100_000, 5_000_000), "DBLE": (100_000, 5_000_000)},
+    )
+    # SPLT split 2-for-1: twice the shares, the same value. DBLE was doubled.
+    day2 = _fund_day(
+        "11/25/2026",
+        {**steady, "SPLT": (200_000, 5_100_000), "DBLE": (200_000, 10_100_000)},
+    )
+    previous, current = parse_holdings(day1, "ARKQ"), parse_holdings(day2, "ARKQ")
+    assert module.likely_splits(previous, current) == ["SPLT"]
+    assert [trade.ticker for trade in trades_between(previous, current)] == ["DBLE"]
+
+
+def test_a_change_across_unread_days_says_so():
+    steady = {f"SYQ{n}": (100_000, 1_000_000) for n in range(1, 6)}
+    day1 = _fund_day("11/16/2026", {**steady, "GAPS": (100_000, 1_000_000)})
+    day2 = _fund_day("11/25/2026", {**steady, "GAPS": (150_000, 1_500_000)})
+    (trade,) = trades_between(
+        parse_holdings(day1, "ARKQ"), parse_holdings(day2, "ARKQ")
+    )
+    assert "may combine several days of trading" in describe(trade)[1]
