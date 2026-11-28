@@ -125,9 +125,13 @@ export default function DashboardOverview({ children, history }: { children?: Re
             href="/verification?domain=portfolio_data"
           />
           <HeroMetric
-            label="Needs your review"
-            value={summary ? String((summary.review_queue_total ?? summary.review_queue?.length ?? 0) + (summary.portfolio_data_review_total ?? 0)) : undefined}
-            detail={summary ? `${summary.review_queue_total ?? summary.review_queue?.length ?? 0} investment items · ${summary.portfolio_data_review_total ?? 0} portfolio records` : undefined}
+            label="Investment reviews"
+            value={summary ? String(summary.review_queue_total ?? summary.review_queue?.length ?? 0) : undefined}
+            detail={summary
+              ? (summary.portfolio_data_review_total
+                ? `Also ${summary.portfolio_data_review_total.toLocaleString()} brokerage emails to match, one task in Review`
+                : "No brokerage emails waiting to be matched")
+              : undefined}
             href="/verification"
           />
       </section>

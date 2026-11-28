@@ -40,6 +40,7 @@ function VerificationWorkspace() {
   const [visibleQueueCount, setVisibleQueueCount] = useState(8);
   const [queueTotal, setQueueTotal] = useState(0);
   const [queueCounts, setQueueCounts] = useState<ReviewQueueCounts>({ investment: 0, portfolio_data: 0 });
+  const [typeCounts, setTypeCounts] = useState<Record<string, number>>({});
   const [loadedDomain, setLoadedDomain] = useState<ReviewDomain | null>(null);
   const [queueOffset, setQueueOffset] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -72,6 +73,7 @@ function VerificationWorkspace() {
       setQueue(queueItems);
       setQueueTotal(page.total);
       setQueueCounts(page.counts);
+      setTypeCounts(page.type_counts ?? {});
       setLoadedDomain(domain);
       setVisibleQueueCount(8);
       setQueueOffset(queueItems.length);
@@ -324,8 +326,8 @@ function VerificationWorkspace() {
                 shownEntries.map((entry) => entry.kind === "item" ? renderReviewItem(entry.item) : (
                   <details key={entry.key} className="border border-line p-4">
                     <summary className="cursor-pointer">
-                      <span className="font-medium">{entry.items.length} items: {entry.label}</span>
-                      <span className="mt-1 block text-sm text-muted">The same check for each. Next step: {entry.items[0].next_action}</span>
+                      <span className="font-medium">{(typeCounts[entry.items[0].item_type] && entry.key === entry.items[0].item_type ? typeCounts[entry.items[0].item_type] : entry.items.length).toLocaleString()} {entry.key === entry.items[0].item_type ? "" : "items: "}{entry.label}</span>
+                      <span className="mt-1 block text-sm text-muted">{entry.key === entry.items[0].item_type ? "One task, done on one screen." : "The same check for each."} Next step: {entry.items[0].next_action}</span>
                       {reviewFixLink(entry.items[0]) ? <Link href={reviewFixLink(entry.items[0])!.href} className="mt-3 inline-block border border-line px-3 py-2 text-xs font-medium text-action hover:border-line-strong">{reviewFixLink(entry.items[0])!.label}</Link> : null}
                     </summary>
                     <div className="mt-3 space-y-3">{entry.items.map((item) => renderReviewItem(item))}</div>

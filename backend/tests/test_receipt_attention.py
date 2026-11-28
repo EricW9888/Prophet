@@ -138,6 +138,8 @@ async def test_financial_identity_holds_outrank_correspondence_before_pagination
     queue = ReviewService(service.session)
     first = await queue.queue_page(domain="portfolio_data", limit=1)
     assert first.items[0].id == high.id
+    # A one-item page still counts the whole view by type.
+    assert first.type_counts.get("mailbox_identity", 0) >= 2
     assert high.priority_score > low.priority_score
     assert low.priority_score == 30
     assert "provisional" in high.trigger_reason and "unverified" in low.trigger_reason
