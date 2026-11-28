@@ -2,6 +2,7 @@
 
 import { labelText } from "@/lib/formatting";
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useInBrowser, useStoredPreference } from "@/lib/workspace-preference";
 import QuantityEvidence from "@/components/QuantityEvidence";
 import WorkspaceDivider, { useWorkspacePane } from "@/components/WorkspaceDivider";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -538,7 +539,34 @@ function RunningChats({
 }
 
 export default function ChatPage() {
-  return <Suspense fallback={<><AppNav active="research" /><main className="workspace-frame py-6"><WorkspaceSkeleton label="Opening Research" rows={4} /></main></>}><ChatWorkspace /></Suspense>;
+  return <Suspense fallback={<><AppNav active="research" /><main className="workspace-frame py-6"><WorkspaceSkeleton label="Opening Research" rows={4} /></main></>}><ChatForEntry /></Suspense>;
+}
+
+/** Each new research link opens a fresh workspace, started from that link.
+ * Leaving a link (choosing a saved chat clears the URL) keeps the workspace. */
+function ChatForEntry() {
+  const entryKey = useSearchParams().toString();
+  const hasEntry = readResearchEntry(new URLSearchParams(entryKey)).hasEntry;
+  const [seenEntryKey, setSeenEntryKey] = useState(entryKey);
+  const [generation, setGeneration] = useState(0);
+  if (seenEntryKey !== entryKey) {
+    setSeenEntryKey(entryKey);
+    if (hasEntry) setGeneration((current) => current + 1);
+  }
+  return <ChatWorkspace key={generation} />;
+}
+
+type SavedJob = { job_id: string; session_id?: string | null; request_message?: string | null };
+
+/** A question still running when the page was reloaded, if one was saved. */
+function readSavedJob(): SavedJob | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const saved = JSON.parse(window.sessionStorage.getItem(ACTIVE_JOB_STORAGE_KEY) ?? "null") as Partial<SavedJob> | null;
+    return saved?.job_id ? (saved as SavedJob) : null;
+  } catch {
+    return null;
+  }
 }
 
 function ChatWorkspace() {
@@ -546,22 +574,26 @@ function ChatWorkspace() {
   const searchParams = useSearchParams();
   const entryKey = searchParams.toString();
   const entry = useMemo(() => readResearchEntry(new URLSearchParams(entryKey)), [entryKey]);
-  const [pinnedSubject, setPinnedSubject] = useState<ResearchSubject | null>(null);
-  const conversationChosenRef = useRef(entry.hasEntry);
+  // The workspace starts from its research link, or else from a question saved
+  // before a reload. It renders only in the browser (it waits on the URL inside
+  // Suspense), so browser storage can be read once here.
+  const [savedJob] = useState(() => (entry.hasEntry ? null : readSavedJob()));
+  const [pinnedSubject, setPinnedSubject] = useState<ResearchSubject | null>(entry.hasEntry ? entry.subject : null);
+  const conversationChosenRef = useRef(entry.hasEntry || Boolean(savedJob));
   const selectionEpochRef = useRef(0);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draftMessagesBySession, setDraftMessagesBySession] = useState<Record<string, Message[]>>({});
-  const [input, setInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
+  const [input, setInput] = useState(entry.hasEntry ? entry.question : "");
+  const [isTyping, setIsTyping] = useState(Boolean(savedJob));
   const [conversations, setConversations] = useState<AgentConversationSummary[]>([]);
   const { read: readConversations, status: conversationReads } = useWorkspaceReads<"list">();
   const [autonomousReviews, setAutonomousReviews] = useState<AgentConversationSummary[]>([]);
   const [chatQuery, setChatQuery] = useState("");
   const [researchView, setResearchView] = useState<(typeof RESEARCH_VIEWS)[number]>("Chats");
   const [openReport, setOpenReport] = useState<AgentConversationSummary | null>(null);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [selectedSubjectName, setSelectedSubjectName] = useState("Portfolio");
-  const [error, setError] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(entry.hasEntry ? entry.sessionId : savedJob?.session_id ?? null);
+  const [selectedSubjectName, setSelectedSubjectName] = useState(entry.hasEntry ? entry.subject?.subject_name ?? "Portfolio" : "Portfolio");
+  const [error, setError] = useState<string | null>(entry.hasEntry && entry.invalid ? "This research link has an invalid subject or conversation. Choose a chat or describe the subject before sending." : null);
   const fileInputs = useChatAttachments();
   const attachments = fileInputs.attachments;
   const [useSessionAttachments, setUseSessionAttachments] = useState(true);
@@ -569,16 +601,23 @@ function ChatWorkspace() {
   const usingSessionFiles = useSessionAttachments && sessionAttachments.length > 0;
   const [focusedAnswer, setFocusedAnswer] = useState<Message | null>(null);
   const answerDialog = useRef<HTMLDialogElement>(null);
-  const [allowActions, setAllowActions] = useState(false);
-  const [allowActionsLoaded, setAllowActionsLoaded] = useState(false);
+  const allowActionsPreference = useStoredPreference(ALLOW_ACTIONS_STORAGE_KEY);
+  const allowActions = allowActionsPreference.value === "true";
+  const allowActionsLoaded = useInBrowser();
+  const setAllowActions = (next: boolean | ((current: boolean) => boolean)) =>
+    allowActionsPreference.write(String(typeof next === "function" ? next(allowActions) : next));
   const [openTraceRunId, setOpenTraceRunId] = useState<string | null>(null);
   const [traceCache, setTraceCache] = useState<Record<string, ReasoningTrace>>({});
-  const [loadingHistory, setLoadingHistory] = useState(false);
-  const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyAttempt, retryHistory] = useState(0);
+  // The last history load that finished, for which conversation and attempt.
+  // Loading means it is not the current one; its error shows only while it is.
+  const historyKey = activeSessionId ? `${activeSessionId}#${historyAttempt}` : null;
+  const [settledHistory, setSettledHistory] = useState<{ key: string; error: string | null } | null>(null);
+  const loadingHistory = historyKey !== null && settledHistory?.key !== historyKey;
+  const historyError = historyKey !== null && settledHistory?.key === historyKey ? settledHistory.error : null;
   const [activeJob, setActiveJob] = useState<AgentTurnJob | null>(null);
-  const [restoringJobId, setRestoringJobId] = useState<string | null>(null);
-  const [jobConnectionError, setJobConnectionError] = useState<string | null>(null);
+  const [restoringJobId, setRestoringJobId] = useState<string | null>(savedJob?.job_id ?? null);
+  const [jobConnectionError, setJobConnectionError] = useState<string | null>(savedJob ? "Restoring your saved question. Checking its current status." : null);
   const [failedJob, setFailedJob] = useState<AgentTurnJob | null>(null);
   const work = useChatWorkStatus();
   const activeJobs = work.jobs;
@@ -587,7 +626,13 @@ function ChatWorkspace() {
   const observeJob = work.observeJob;
   const [stoppingJobId, setStoppingJobId] = useState<string | null>(null);
   const [turnStopped, setTurnStopped] = useState(false);
-  const [activeJobRequestMessage, setActiveJobRequestMessage] = useState<string | null>(null);
+  // Another conversation has not been stopped (adjusted while rendering).
+  const [turnStoppedSession, setTurnStoppedSession] = useState(activeSessionId);
+  if (turnStoppedSession !== activeSessionId) {
+    setTurnStoppedSession(activeSessionId);
+    setTurnStopped(false);
+  }
+  const [activeJobRequestMessage, setActiveJobRequestMessage] = useState<string | null>(savedJob?.request_message ?? null);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
@@ -595,10 +640,9 @@ function ChatWorkspace() {
   const researchPane = useWorkspacePane("research-sidebar", RESEARCH_SIDEBAR_WIDTH);
   const endRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
-  const lastEntryRef = useRef<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const activeJobsRef = useRef<AgentTurnJob[]>([]);
-  const restorationRef = useRef<{ jobId: string } | null>(null);
+  const restorationRef = useRef<{ jobId: string } | null>(savedJob ? { jobId: savedJob.job_id } : null);
   const mobileWorkspacePanelRef = useRef<HTMLElement>(null);
   const mobileWorkspaceTriggerRef = useRef<HTMLButtonElement>(null);
 
@@ -829,68 +873,49 @@ function ChatWorkspace() {
   }, [closeMobileWorkspace, mobileWorkspaceOpen]);
 
   useEffect(() => {
-    if (entry.hasEntry || conversationChosenRef.current) return;
-    const raw = window.sessionStorage.getItem(ACTIVE_JOB_STORAGE_KEY);
-    if (!raw) return;
-    try {
-      const saved = JSON.parse(raw) as { job_id?: string; session_id?: string | null; request_message?: string | null };
-      if (!saved.job_id) { window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY); return; }
-      conversationChosenRef.current = true;
-      restorationRef.current = { jobId: saved.job_id };
-      setRestoringJobId(saved.job_id);
-      if (saved.session_id) setActiveSessionId(saved.session_id);
-      setActiveJobRequestMessage(saved.request_message ?? null);
-      setIsTyping(true);
-      setJobConnectionError("Restoring your saved question. Checking its current status.");
-    } catch { window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY); }
-  }, [entry.hasEntry]);
+    // A saved entry that cannot be read is discarded rather than retried.
+    if (entry.hasEntry || savedJob) return;
+    if (window.sessionStorage.getItem(ACTIVE_JOB_STORAGE_KEY) !== null) window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
+  }, [entry.hasEntry, savedJob]);
+
+
+  // Adopt the server's running job for this conversation, or drop a running
+  // job that belongs to another one, whenever the job list, the conversation
+  // or the job changes (adjusted while rendering, not in an effect).
+  const [jobSyncInputs, setJobSyncInputs] = useState<readonly unknown[] | null>(null);
+  const currentJobSyncInputs = [activeJob, activeJobs, activeSessionId, pinnedSubject] as const;
+  if (!jobSyncInputs || currentJobSyncInputs.some((value, index) => value !== jobSyncInputs[index])) {
+    setJobSyncInputs(currentJobSyncInputs);
+    (() => {
+        if (pinnedSubject && !activeSessionId) return;
+        const matchingJob = activeJobs.find((job) => {
+          if (!isActiveTurnJob(job)) return false;
+          if (job.session_id && activeSessionId) return job.session_id === activeSessionId;
+          return !job.session_id && !activeSessionId && job.job_id === activeJob?.job_id;
+        });
+        if (matchingJob) {
+          setActiveJob(matchingJob);
+          setActiveJobRequestMessage(matchingJob.request_message);
+          setIsTyping(true);
+          return;
+        }
+        if (activeJob && isActiveTurnJob(activeJob)) {
+          const stillCurrent =
+            (activeJob.session_id && activeSessionId && activeJob.session_id === activeSessionId) ||
+            (!activeJob.session_id && !activeSessionId);
+          if (!stillCurrent) {
+            setActiveJob(null);
+            setActiveJobRequestMessage(null);
+            setIsTyping(false);
+          }
+        }
+    })();
+  }
 
 
   useEffect(() => {
-    if (pinnedSubject && !activeSessionId) return;
-    const matchingJob = activeJobs.find((job) => {
-      if (!isActiveTurnJob(job)) return false;
-      if (job.session_id && activeSessionId) return job.session_id === activeSessionId;
-      return !job.session_id && !activeSessionId && job.job_id === activeJob?.job_id;
-    });
-    if (matchingJob) {
-      setActiveJob(matchingJob);
-      setActiveJobRequestMessage(matchingJob.request_message);
-      setIsTyping(true);
-      return;
-    }
-    if (activeJob && isActiveTurnJob(activeJob)) {
-      const stillCurrent =
-        (activeJob.session_id && activeSessionId && activeJob.session_id === activeSessionId) ||
-        (!activeJob.session_id && !activeSessionId);
-      if (!stillCurrent) {
-        setActiveJob(null);
-        setActiveJobRequestMessage(null);
-        setIsTyping(false);
-      }
-    }
-  }, [activeJob, activeJobs, activeSessionId, pinnedSubject]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    setAllowActions(window.localStorage.getItem(ALLOW_ACTIONS_STORAGE_KEY) === "true");
-    setAllowActionsLoaded(true);
-  }, []);
-
-  // Robust Persistence: Sync to localStorage whenever allowActions changes
-  useEffect(() => {
-    if (typeof window === "undefined" || !allowActionsLoaded) return;
-    window.localStorage.setItem(ALLOW_ACTIONS_STORAGE_KEY, allowActions.toString());
-  }, [allowActions, allowActionsLoaded]);
-
-  useEffect(() => {
-    setHistoryError(null);
-    if (!activeSessionId) {
-      setLoadingHistory(false);
-      return;
-    }
+    if (!activeSessionId || !historyKey) return;
     const request = new AbortController();
-    setLoadingHistory(true);
     void apiFetch<AgentConversationHistory>(`/agent/history?session_id=${activeSessionId}`, { signal: request.signal })
       .then((history) => {
         if (request.signal.aborted) return;
@@ -937,6 +962,7 @@ function ChatWorkspace() {
         setSelectedSubjectName(
           matchedConversation?.subject_name ?? history.subject_type ?? "Portfolio",
         );
+        setSettledHistory({ key: historyKey, error: null });
       })
       .catch((err) => {
         if (request.signal.aborted) return;
@@ -946,11 +972,10 @@ function ChatWorkspace() {
         } else {
           setMessages([]);
         }
-        setHistoryError(err instanceof Error ? err.message : "Unable to load this conversation.");
-      })
-      .finally(() => { if (!request.signal.aborted) setLoadingHistory(false); });
+        setSettledHistory({ key: historyKey, error: err instanceof Error ? err.message : "Unable to load this conversation." });
+      });
     return () => request.abort();
-  }, [activeSessionId, conversations, draftMessagesBySession, historyAttempt]);
+  }, [activeSessionId, conversations, draftMessagesBySession, historyKey]);
 
   useEffect(() => {
     const pendingRunIds = Array.from(
@@ -985,23 +1010,6 @@ function ChatWorkspace() {
     });
   }, [messages, traceCache]);
 
-  useEffect(() => {
-    if (lastEntryRef.current === entryKey) return;
-    lastEntryRef.current = entryKey;
-    if (!entry.hasEntry) return;
-    selectionEpochRef.current += 1;
-    restorationRef.current = null;
-    setRestoringJobId(null);
-    conversationChosenRef.current = true;
-    setActiveSessionId(entry.sessionId);
-    setPinnedSubject(entry.subject);
-    setSelectedSubjectName(entry.subject?.subject_name ?? "Portfolio");
-    setMessages([]);
-    setInput(entry.question);
-    setActiveJob(null);
-    setIsTyping(false);
-    setError(entry.invalid ? "This research link has an invalid subject or conversation. Choose a chat or describe the subject before sending." : null);
-  }, [entry, entryKey]);
 
   useEffect(() => {
     // Scroll the message list itself, never an ancestor — otherwise entering a
@@ -1078,7 +1086,6 @@ function ChatWorkspace() {
     return () => { cancelled = true; controller.abort(); window.clearTimeout(timer); };
   }, [activeJobId, activeJobPending, mergeAssistantTurn, entryKey, updateJob]);
 
-  useEffect(() => { setTurnStopped(false); }, [activeSessionId]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1419,8 +1426,6 @@ function ChatWorkspace() {
                             setActiveJobRequestMessage(null);
                             setIsTyping(false);
                             setMessages([]);
-                            setLoadingHistory(true);
-                            setHistoryError(null);
                             setError(null);
                             setActiveSessionId(conversation.session_id);
                             if (entryKey) router.replace("/chat", { scroll: false });
