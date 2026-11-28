@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import quote, unquote, urlparse
 
 from investos.config import settings
+from investos.core.processes import run_process
 
 
 class YouTubeChannelError(RuntimeError):
@@ -136,25 +137,13 @@ class YouTubeChannelEnumerator:
         raise YouTubeChannelError("The source URL is not hosted by YouTube.")
 
     async def _run_process(self, *args: str) -> str:
-        process = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
         try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=self.config.timeout_seconds
-            )
+            process = await run_process(*args, timeout=self.config.timeout_seconds)
         except TimeoutError as exc:
-            process.kill()
-            await process.communicate()
             raise YouTubeChannelError(
                 f"Channel review exceeded the {self.config.timeout_seconds}-second timeout."
             ) from exc
-        except asyncio.CancelledError:
-            process.kill()
-            await process.communicate()
-            raise
+        stdout, stderr = process.stdout, process.stderr
         if process.returncode != 0:
             detail = stderr.decode("utf-8", errors="replace").strip()
             if len(detail) > 1000:

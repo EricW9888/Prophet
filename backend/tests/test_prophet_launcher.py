@@ -500,3 +500,8 @@ def test_a_crashed_service_is_restarted_within_the_hourly_limit(tmp_path):
 def test_a_service_without_a_restart_recipe_still_stops_the_launcher(tmp_path):
     crashed = prophet.ChildProcess("Backend", _Exited(), tmp_path / "b.log", _Log())
     assert not prophet.restart_child([crashed], crashed, {}, now=1.0)
+
+
+def test_backend_runs_on_the_selector_event_loop():
+    command = prophet.backend_command()
+    assert command[command.index("--loop") + 1] == "asyncio:SelectorEventLoop"

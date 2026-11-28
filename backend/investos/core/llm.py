@@ -15,6 +15,7 @@ import fastjsonschema
 import httpx
 
 from investos.config import settings
+from investos.core.processes import run_process
 from investos.core.provider_health import (
     LLMProviderCooldownError,
     ProviderHealthStore,
@@ -891,18 +892,12 @@ async def verify_llm_provider_readiness(provider: str) -> tuple[bool, str]:
                 and shutil.which(settings.CODEX_BIN) is None
             ):
                 return False, f"Codex CLI executable not found: {settings.CODEX_BIN}"
-            cmd = [executable, "--help"]
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5)
+            process = await run_process(executable, "--help", timeout=5)
             if process.returncode == 0:
                 return True, "Codex CLI is ready."
             return False, (
                 f"Codex CLI returned {process.returncode}: "
-                f"{_summarize_process_stderr(stderr.decode(errors='ignore'))}"
+                f"{_summarize_process_stderr(process.stderr.decode(errors='ignore'))}"
             )
 
         if provider == "ollama":
@@ -986,17 +981,13 @@ async def _call_codex_json(
         ["--output-schema", schema_path, "--output-last-message", output_path, "-"]
     )
 
-    process = await asyncio.create_subprocess_exec(
+    process = await run_process(
         *cmd,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        input=prompt.encode("utf-8"),
+        timeout=timeout_seconds,
         cwd=str(REPO_ROOT),
     )
-    stdout_bytes, stderr_bytes = await asyncio.wait_for(
-        process.communicate(prompt.encode("utf-8")),
-        timeout=timeout_seconds,
-    )
+    stdout_bytes, stderr_bytes = process.stdout, process.stderr
     stdout_text = stdout_bytes.decode("utf-8", errors="ignore")
     stderr_text = stderr_bytes.decode("utf-8", errors="ignore")
 
