@@ -49,9 +49,6 @@
     },
     "@typescript-eslint/typescript-estree@8.72.1": {
       "minimatch": "11.0.5"
-    },
-    "eslint-config-next@16.4.5": {
-      "eslint-plugin-react-hooks": "7.0.1"
     }
   }
 }
