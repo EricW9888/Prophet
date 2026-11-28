@@ -4,11 +4,12 @@ import json
 from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from investos.config import settings
 from investos.models.entity import Entity, Security
 from investos.models.evidence import RawEvidence
+from investos.models.market_setup import MarketSetupSignal
 from investos.models.opportunity import OpportunityUniverseMember
 from investos.models.portfolio import Position
 from investos.models.review import ReviewQueueItem
@@ -139,7 +140,14 @@ async def test_open_market_buys_are_recorded_and_put_first_in_line_for_ideas(
     # A first run reads the published days of the past week.
     service = MarketInsiderBuyingService(session, fetch=fake_fetch)
     counts = await service.refresh(today=date(2026, 11, 26))
-    assert counts == {"days": 2, "filings": 4, "buys": 2, "companies": 1}
+    assert counts == {
+        "days": 2,
+        "filings": 4,
+        "buys": 2,
+        "companies": 1,
+        "unread": 0,
+        "given_up": 0,
+    }
 
     rows = (
         await session.scalars(
@@ -175,6 +183,8 @@ async def test_open_market_buys_are_recorded_and_put_first_in_line_for_ideas(
         "filings": 0,
         "buys": 0,
         "companies": 0,
+        "unread": 0,
+        "given_up": 0,
     }
     assert fetched == [daily + "index.json"]
 
@@ -441,3 +451,140 @@ async def test_undated_disclosures_do_not_hold_the_review_window(workflow_sessio
     signals.analyze_signal = spy
     await signals.queue_review_items(limit=3)
     assert undated.id not in disclosures_seen
+
+
+def _one_day(paths: list[str]) -> dict[str, str]:
+    daily = "https://www.sec.gov/Archives/edgar/daily-index/2026/QTR4/"
+    return {
+        daily
+        + "index.json": json.dumps(
+            {"directory": {"item": [{"name": "form.20261124.idx"}]}}
+        ),
+        daily + "form.20261124.idx": index_file(paths),
+    }
+
+
+async def test_a_filing_that_fails_to_fetch_is_retried_on_later_runs(
+    workflow_session, monkeypatch, tmp_path
+):
+    """The day's checkpoint moves on; the failed filing is not lost with it."""
+    session = workflow_session
+    monkeypatch.setattr(settings, "STORAGE_DIR", str(tmp_path))
+    monkeypatch.setattr(business_map, "REQUEST_SPACING_SECONDS", 0)
+    tag = uuid4().hex[:5].upper()
+    ticker = f"R{tag}"
+    base = "https://www.sec.gov/Archives/"
+    paths = [f"edgar/data/88/0000099{tag}-26-00000{n}.txt" for n in (1, 2)]
+    pages = _one_day(paths)
+    pages[base + paths[0]] = filing(ticker, "Roe Alex", "P", 5000, 50.0, "2026-11-24")
+    pages[base + paths[1]] = filing(ticker, "Doe Lee", "P", 4000, 50.0, "2026-11-24")
+    failing = {base + paths[1]}
+
+    async def fake_fetch(url):
+        if url in failing:
+            raise OSError("temporary failure")
+        return pages[url]
+
+    service = MarketInsiderBuyingService(session, fetch=fake_fetch)
+    first = await service.refresh(today=date(2026, 11, 26))
+    assert (first["days"], first["buys"], first["unread"]) == (1, 1, 1)
+
+    # The source recovers: the next run reads the filing it missed.
+    failing.clear()
+    second = await service.refresh(today=date(2026, 11, 26))
+    assert (second["days"], second["buys"], second["unread"]) == (0, 1, 0)
+    owners = (
+        await session.scalars(
+            select(RawEvidence.metadata_json["owner"].astext).where(
+                RawEvidence.metadata_json["ticker"].astext == ticker
+            )
+        )
+    ).all()
+    assert sorted(owners) == ["Doe Lee", "Roe Alex"]
+
+
+async def test_a_filing_that_keeps_failing_is_given_up_and_counted(
+    workflow_session, monkeypatch, tmp_path
+):
+    session = workflow_session
+    monkeypatch.setattr(settings, "STORAGE_DIR", str(tmp_path))
+    monkeypatch.setattr(business_map, "REQUEST_SPACING_SECONDS", 0)
+    tag = uuid4().hex[:5].upper()
+    pages = _one_day([f"edgar/data/88/0000077{tag}-26-000001.txt"])
+
+    async def fake_fetch(url):
+        if url in pages:
+            return pages[url]
+        raise OSError("gone")
+
+    service = MarketInsiderBuyingService(session, fetch=fake_fetch)
+    results = [await service.refresh(today=date(2026, 11, 26)) for _ in range(5)]
+    assert [r["unread"] for r in results] == [1, 1, 1, 1, 0]
+    assert [r["given_up"] for r in results] == [0, 0, 0, 0, 1]
+
+
+async def test_a_disclosure_whose_signal_failed_gets_it_on_the_next_ingestion(
+    workflow_session, monkeypatch
+):
+    """Evidence is committed before its signal; a failure in between is repaired."""
+    session = workflow_session
+    tag = uuid4().hex[:5].upper()
+    service = OwnershipSignalService(session)
+    disclosure = dict(
+        source_name="Synthetic insider feed",
+        source_type="filing",
+        source_url="https://www.sec.gov/",
+        source_description="Synthetic Form 4 feed.",
+        source_item_type="insider_disclosure",
+        title=f"Roe Alex (Director) bought 5,000 Q{tag} shares",
+        url=f"https://www.sec.gov/Archives/edgar/data/88/{tag}.txt",
+        external_id=f"{tag}:P",
+        author="Roe Alex",
+        metadata={
+            "ticker": f"Q{tag}",
+            "issuer": "Synthetic Buyers Inc",
+            "owner": "Roe Alex",
+            "role": "Director",
+            "transaction_code": "P",
+            "transaction_type": "bought",
+            "shares": 5000,
+            "price": 50.0,
+            "transaction_value": 250000.0,
+            "acquired": True,
+            "transaction_date": "2026-11-24",
+            "filing_date": "2026-11-24",
+        },
+        summary="Roe Alex bought 5,000 shares.",
+    )
+    real_store = OwnershipSignalService._store_market_setup_signal
+
+    async def failing_store(self, evidence, source):
+        raise RuntimeError("interrupted before the signal was stored")
+
+    monkeypatch.setattr(
+        OwnershipSignalService, "_store_market_setup_signal", failing_store
+    )
+    try:
+        await service.ingest_disclosure(**disclosure)
+    except RuntimeError:
+        pass
+    evidence = await session.scalar(
+        select(RawEvidence).where(RawEvidence.external_id == f"{tag}:P")
+    )
+    assert evidence is not None
+    count = (
+        select(func.count())
+        .select_from(MarketSetupSignal)
+        .where(MarketSetupSignal.raw_evidence_id == evidence.id)
+    )
+    assert await session.scalar(count) == 0
+
+    monkeypatch.setattr(
+        OwnershipSignalService, "_store_market_setup_signal", real_store
+    )
+    again = await service.ingest_disclosure(**disclosure)
+    assert again.id == evidence.id
+    assert await session.scalar(count) == 1
+    # A third ingestion neither duplicates the evidence nor the signal.
+    await service.ingest_disclosure(**disclosure)
+    assert await session.scalar(count) == 1
