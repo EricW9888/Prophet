@@ -886,9 +886,8 @@ class OwnershipSignalService:
         subject = ticker or issuer or "the security"
         lag = cls._lag_phrase(disclosure_lag_days)
         return (
-            f"Read the filing ({lag}) and judge whether this {direction} says something about "
-            f"{subject}'s business, such as demand, margins or financing, or is routine. "
-            "Treat it as a hint, not a reason to trade, until later results show whether such trades mattered."
+            f"Read the filing ({lag}): does this {direction} say anything about "
+            f"{subject}'s business, or is it routine? A hint, not a reason to trade."
         )
 
     @classmethod

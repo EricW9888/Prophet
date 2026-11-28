@@ -1125,7 +1125,12 @@ class ReviewService:
                 tags.append(str(signal["direction"]))
             lag = signal.get("disclosure_lag_days")
             if lag is not None:
-                tags.append(f"reported {float(lag):.0f} days later")
+                days = round(float(lag))
+                tags.append(
+                    "reported the same day"
+                    if days <= 0
+                    else f"reported {days} day{'' if days == 1 else 's'} later"
+                )
             return tags[:4]
         if item.item_type == "position":
             weight = ctx.get("weight_pct")

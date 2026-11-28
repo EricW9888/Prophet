@@ -180,6 +180,11 @@ def test_review_copy_for_ownership_signal_is_concrete_and_cautious():
     assert "map the signal to demand" in next_action
     assert tags == ["political disclosure", "MEMA", "buy", "reported 14 days later"]
 
+    # One day reads as one day, and no lag as the same day.
+    for lag, words in ((1.0, "reported 1 day later"), (0.2, "reported the same day")):
+        ctx["ownership_signal"]["disclosure_lag_days"] = lag
+        assert service._signal_tags(item, ctx)[-1] == words
+
 
 def test_discovery_feeds_reach_review_only_for_followed_companies():
     from types import SimpleNamespace
