@@ -60,12 +60,15 @@ function NavigationIcon({ icon: Icon }: { icon: NavIcon }) {
   return pending ? <><ActivityIndicator state="working" /><span className="sr-only">Loading destination</span></> : <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />;
 }
 
-function NavLink({ href, label, icon, selected, compact = false, onNavigate }: {
+function NavLink({ href, label, icon, selected, compact = false, scrolls = false, onNavigate }: {
   href: string;
   label: string;
   icon?: NavIcon;
   selected: boolean;
   compact?: boolean;
+  // In a row that scrolls sideways, a link keeps its full label instead of
+  // shrinking to "Overv…".
+  scrolls?: boolean;
   onNavigate?: () => void;
 }) {
   return (
@@ -73,7 +76,7 @@ function NavLink({ href, label, icon, selected, compact = false, onNavigate }: {
       href={href}
       onClick={onNavigate}
       aria-current={selected ? "page" : undefined}
-      className={`flex min-w-0 items-center gap-2 px-3 py-2 text-sm font-medium transition-colors ${
+      className={`flex ${scrolls ? "shrink-0" : "min-w-0"} items-center gap-2 px-3 py-2 text-sm font-medium transition-colors ${
         selected ? "bg-panel-muted text-action-strong" : "text-muted hover:bg-panel-muted hover:text-foreground"
       } ${compact ? "justify-center px-2" : ""}`}
       title={compact ? label : undefined}
@@ -168,6 +171,7 @@ export default function AppNav({ active }: { active?: NavKey }) {
                 href={page.href}
                 label={t(page.label)}
                 selected={located.page?.href === page.href}
+                scrolls
               />
             ))}
           </div>
