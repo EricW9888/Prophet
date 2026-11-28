@@ -564,6 +564,9 @@ class OwnershipSignalService:
             portfolio_weight_pct=portfolio_weight,
             is_portfolio_linked=is_portfolio_linked,
             ticker=ticker,
+            information_score=cls._information_score(
+                source_kind=source_kind, direction=direction, metadata=metadata
+            ),
         )
         # Discovery feeds (ARK's trades, market-wide insider buying) send
         # companies you do not follow to Ideas; only followed ones reach Review.
@@ -811,6 +814,36 @@ class OwnershipSignalService:
         return 1.0
 
     @staticmethod
+    def _information_score(
+        *, source_kind: str, direction: str, metadata: dict[str, Any]
+    ) -> float:
+        """How much the disclosure itself says, 0 to 30.
+
+        An insider buying in the open market is the classic informative
+        signal; a sale is often diversification or tax, and a sale under a
+        pre-arranged 10b5-1 plan was decided earlier. A fund's daily holdings
+        difference is an estimate that mixes investor flows with decisions.
+        """
+        # A change between two holdings files (ARK's daily files) carries the
+        # files' dates and share counts; it was never reported as a trade.
+        estimated = metadata.get("estimated") is True or (
+            "previous_holdings_date" in metadata
+            and "shares_before" in metadata
+            and "shares_after" in metadata
+        )
+        if estimated:
+            return 6.0
+        if source_kind == "corporate insider disclosure":
+            if direction == "buy":
+                return 30.0
+            if metadata.get("under_10b5_1_plan") is True:
+                return 8.0
+            return 16.0
+        if source_kind == "political disclosure":
+            return 20.0
+        return 12.0
+
+    @staticmethod
     def _priority(
         *,
         source_kind: str,
@@ -820,22 +853,19 @@ class OwnershipSignalService:
         portfolio_weight_pct: float | None,
         is_portfolio_linked: bool,
         ticker: str | None,
+        information_score: float = 12.0,
     ) -> float:
-        source_weight = {
-            "corporate insider disclosure": 10.0,
-            "political disclosure": 7.0,
-            "institutional flow disclosure": 6.0,
-            "ownership disclosure": 5.0,
-            "filing disclosure": 5.0,
-        }.get(source_kind, 4.0)
+        # Relevance to the owner is up to 35 points; it no longer reaches the
+        # cap on its own, so what the disclosure says decides the order among
+        # disclosures about the same holding.
         direction_weight = 4.0 if direction in {"buy", "sell"} else 1.0
-        portfolio_weight = min(34.0, float(portfolio_weight_pct or 0.0) * 1.35)
-        linked_weight = 16.0 if is_portfolio_linked else 0.0
+        portfolio_weight = min(25.0, float(portfolio_weight_pct or 0.0))
+        linked_weight = 10.0 if is_portfolio_linked else 0.0
         ticker_weight = 4.0 if ticker else -4.0
         return min(
             100.0,
             18.0
-            + source_weight
+            + information_score
             + value_score
             + timeliness_score
             + direction_weight
