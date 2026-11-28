@@ -2248,7 +2248,7 @@ export type ReviewQueueItem = {
   created_at: string;
 };
 
-export type ReviewQueuePage = { items: ReviewQueueItem[]; total: number; counts: ReviewQueueCounts };
+export type ReviewQueuePage = { items: ReviewQueueItem[]; total: number; counts: ReviewQueueCounts; type_counts?: Record<string, number> };
 
 export type Lesson = {
   id: string;

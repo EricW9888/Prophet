@@ -19,7 +19,18 @@ test("the same task repeated collapses into one group at its first position", ()
   assert.deepEqual(entries.map((e: { kind: string }) => e.kind), ["item", "group", "item"]);
   const group = entries[1] as { kind: "group"; items: { id: string }[]; label: string };
   assert.deepEqual(group.items.map((i) => i.id), ["r1", "r2", "r3"]);
-  assert.equal(group.label, "Your order has been executed");
+  assert.equal(group.label, "Brokerage emails to match with your records");
+});
+
+test("receipt checks are one task whatever each email is called, even one", () => {
+  const entries = groupReviewItems([
+    item("r1", "mailbox_identity", "Compare receipts", "Your order has been executed"),
+    item("r2", "mailbox_identity", "Compare receipts", "Your deposit is complete"),
+    item("x", "source_claim_record", "Assess"),
+  ]);
+  assert.deepEqual(entries.map((e: { kind: string }) => e.kind), ["group", "item"]);
+  const lone = groupReviewItems([item("r9", "mailbox_identity", "Compare receipts", "Deposit")]);
+  assert.deepEqual(lone.map((e: { kind: string }) => e.kind), ["group"]);
 });
 
 test("fewer than the threshold stay as separate items", () => {

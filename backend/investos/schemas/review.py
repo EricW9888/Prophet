@@ -38,3 +38,6 @@ class ReviewQueuePageResponse(BaseModel):
     items: list[ReviewQueueItemResponse]
     total: int
     counts: dict[ReviewDomain, int]
+    # Pending items by type across the whole view, not only this page, so a
+    # task handled on one screen can say how many it covers.
+    type_counts: dict[str, int] = {}

@@ -97,10 +97,20 @@ class ReviewService:
         self, *, limit: int = 100, offset: int = 0, domain: ReviewDomain | None = None
     ) -> ReviewQueuePageResponse:
         counts = await self.queue_counts()
+        type_counts = dict(
+            (
+                await self.session.execute(
+                    select(ReviewQueueItem.item_type, func.count())
+                    .where(*self._queue_conditions(domain))
+                    .group_by(ReviewQueueItem.item_type)
+                )
+            ).all()
+        )
         return ReviewQueuePageResponse(
             items=await self.list_queue(limit=limit, offset=offset, domain=domain),
             total=counts[domain] if domain else sum(counts.values()),
             counts=counts,
+            type_counts=type_counts,
         )
 
     @staticmethod
