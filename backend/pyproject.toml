@@ -14,7 +14,7 @@ packages = [{include = "investos"}]
 python = ">=3.11,<3.15"
 fastapi = "^0.165.0"
 uvicorn = "^0.54.0"
-sqlalchemy = {extras = ["asyncio"], version = "^2.1.9"}
+sqlalchemy = {extras = ["asyncio"], version = "2.1.8"}
 alembic = "^1.20.1"
 asyncpg = "^0.32.0"
 pydantic = {extras = ["email"], version = "^2.14.4"}
