@@ -154,3 +154,26 @@ async def test_every_registered_job_can_be_run_now(monkeypatch, tmp_path):
 
     with pytest.raises(ValueError):
         await coordinator.run_job("not_a_job")
+
+
+async def test_status_after_a_restart_shows_what_the_last_run_found(
+    monkeypatch, tmp_path
+):
+    first = _coordinator(monkeypatch, tmp_path)
+    first._register_job("industry_refresh", Mock(), 86400, True)
+
+    async def succeed():
+        first.telemetry["industry_refresh"].last_status = "ok"
+        first.telemetry["industry_refresh"].detail = "Checked 500 companies."
+
+    await first._dispatch_job("industry_refresh", succeed, trigger="interval")
+
+    restarted = _coordinator(monkeypatch, tmp_path)
+    restarted._completed_runs = restarted._load_completed_runs()
+    restarted._register_job("industry_refresh", Mock(), 86400, True)
+    restarted._register_job("integrity_audit", Mock(), 3600, True)
+
+    # Before the fix Status showed a blank "idle" beside the last run time.
+    job = restarted.telemetry["industry_refresh"]
+    assert (job.last_status, job.detail) == ("ok", "Checked 500 companies.")
+    assert restarted.telemetry["integrity_audit"].last_status == "idle"
