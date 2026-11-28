@@ -259,6 +259,20 @@ function VisibleNodeProperties({ node }: { node: GraphNodeDetail }) {
   );
 }
 
+// How new an item is, and how close its source is, in plain words.
+const NOVELTY_WORDS: Record<string, string> = {
+  breaking: "new information",
+  confirming: "confirms earlier reports",
+  redundant: "repeats what is known",
+  stale: "old news",
+  historical: "background",
+};
+const DIRECTNESS_WORDS: Record<string, string> = {
+  primary: "from the original source",
+  secondary: "reported by others",
+  tertiary: "third-hand",
+};
+
 export default function TimelinePage() {
   const [items, setItems] = useState<TimelineItem[]>([]);
   const [feedMode, setFeedMode] = useState<"attention" | "history" | "all">("attention");
@@ -370,8 +384,8 @@ export default function TimelinePage() {
   const describeWhyItMatters = (item: TimelineItem) => {
     const parts = [
       item.importance ? `${item.importance} importance` : null,
-      item.novelty ? `${item.novelty} signal` : null,
-      item.directness ? `${item.directness} source distance` : null,
+      item.novelty ? NOVELTY_WORDS[item.novelty] ?? item.novelty : null,
+      item.directness ? DIRECTNESS_WORDS[item.directness] ?? item.directness : null,
       item.contradiction_role && item.contradiction_role !== "neutral"
         ? item.contradiction_role.replaceAll("_", " ")
         : null,
@@ -671,7 +685,7 @@ export default function TimelinePage() {
           <section className="rounded-lg border border-line bg-panel p-6">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-sm font-bold text-muted">Information node</h2>
+                <h2 className="text-sm font-bold text-muted">Selected item</h2>
                 <p className="mt-1 text-sm text-muted">Inspect how one fact, claim, event, or subject links to the rest of the system.</p>
               </div>
               {selectedNode ? (

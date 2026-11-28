@@ -388,7 +388,7 @@ export default function OpportunitiesPage() {
               className="inline-flex h-9 items-center gap-2 rounded-md bg-slate-900 px-3 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white"
             >
               {busy === "run" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              Run bounded scan
+              Check due companies now
             </button>
             </>
           )}
@@ -404,10 +404,10 @@ export default function OpportunitiesPage() {
 
         <section className="grid grid-cols-2 gap-px border-b border-slate-200 bg-slate-200 sm:grid-cols-4 dark:border-slate-800 dark:bg-slate-800">
           {[
-            ["Prepared frontier", status.universe?.ready ? `${universe.filter((item) => item.enabled).length} enabled / ${universe.length} total` : "Unavailable"],
-            ["Due now", status.universe?.ready ? String(dueCount) : "—"],
-            ["Last run", latestRun ? `${latestRun.inspected_count}/${latestRun.universe_size} inspected` : status.runs?.ready ? "No runs" : "—"],
-            ["Provider cost", latestRun ? `${latestRun.estimated_credits} estimated credits` : "Not recorded"],
+            ["Companies queued for research", status.universe?.ready ? `${universe.filter((item) => item.enabled).length} active of ${universe.length}` : "Unavailable"],
+            ["Due for a check", status.universe?.ready ? String(dueCount) : "—"],
+            ["Last check", latestRun ? `${latestRun.inspected_count} of ${latestRun.universe_size} companies checked` : status.runs?.ready ? "None yet" : "—"],
+            ["Model cost of last check", latestRun ? `${latestRun.estimated_credits} estimated credits` : "Not recorded"],
           ].map(([label, value]) => (
             <div key={label} className="bg-panel-muted px-4 py-4">
               <p className="text-xs font-semibold text-slate-400">{labelText(label)}</p>

@@ -49,18 +49,18 @@ export default function ListingUniversePanel({ onCoverage }: { onCoverage: (valu
   return <section aria-label="Research scope" className="mb-5 border border-line bg-panel p-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex items-center gap-2"><h2 className="font-semibold">Research scope</h2>
-        <HintMarker label="About the research universe">The exchange list sets which companies Prophet may research next. Being on it is not a recommendation, and it does not mean a company has been researched. Common shares and depositary shares join a few at a time; ETFs, test listings and listings of unclear type are left out of automatic company research. The list&apos;s own descriptions are not a full classification. Discovery favors recently researched companies and keeps some capacity for ones not yet looked at. “Current frontier only” stops adding companies but keeps the ones already prepared and anything you paused.</HintMarker>
+        <HintMarker label="About the research universe">The exchange list sets which companies Prophet may research next. Being on it is not a recommendation, and it does not mean a company has been researched. Common shares and depositary shares join a few at a time; ETFs, test listings and listings of unclear type are left out of automatic company research. The list&apos;s own descriptions are not a full classification. Discovery favors recently researched companies and keeps some capacity for ones not yet looked at. “Only companies already queued” stops adding companies but keeps the ones already queued and anything you paused.</HintMarker>
       </div>
       <div className="flex flex-wrap gap-2">
         <select aria-label="Research scope" className="workspace-control" value={data?.scope ?? "manual"} disabled={busy || !data} onChange={e => void setScope(e.target.value as "manual" | "us_listed")}>
-          <option value="manual">Current frontier only</option><option value="us_listed">Broad U.S.-listed companies</option>
+          <option value="manual">Only companies already queued</option><option value="us_listed">Broad U.S.-listed companies</option>
         </select>
         <button className="workspace-control" onClick={() => void load()}>Refresh</button>
       </div>
     </div>
     <WorkspaceRead name="listing directory" state={status.directory} retry={() => void load()}>
       {data && <>
-        <p className="mt-3 text-sm text-muted">{data.total.toLocaleString()} directory listings · {data.eligible.toLocaleString()} eligible for company research · {data.materialized.toLocaleString()} prepared frontier links. Preparation is separate from completed investigation.</p>
+        <p className="mt-3 text-sm text-muted">{data.total.toLocaleString()} directory listings · {data.eligible.toLocaleString()} eligible for company research · {data.materialized.toLocaleString()} queued for research. Preparation is separate from completed investigation.</p>
         {data.scope === "us_listed" && !data.total && <p className="mt-2 text-sm text-muted">The approved broad scope is waiting for its first directory check. Feed status below shows acquisition progress.</p>}
         <details className="mt-3 border-t border-line pt-3">
           <summary className="cursor-pointer text-sm">Browse directory and coverage</summary>
@@ -76,7 +76,7 @@ export default function ListingUniversePanel({ onCoverage }: { onCoverage: (valu
           <ul className="divide-y divide-line">{data.items.map(listing => <li key={listing.id} className="py-3">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0 flex-1"><p className="break-words font-medium">{listing.symbol} · {listing.name}</p>
-                <p className="mt-1 text-xs text-muted">{listing.exchange} · {listing.instrument_type.replaceAll("_", " ")} · {listing.operator_excluded ? "Excluded by you" : listing.member_id ? "Prepared for research" : listing.research_eligible ? "Awaiting frontier capacity" : "Outside automatic company research"}</p>
+                <p className="mt-1 text-xs text-muted">{listing.exchange} · {listing.instrument_type.replaceAll("_", " ")} · {listing.operator_excluded ? "Excluded by you" : listing.member_id ? "Queued for research" : listing.research_eligible ? "Waiting for room in the research queue" : "Outside automatic company research"}</p>
                 {listing.error && <p className="mt-1 text-sm text-negative">{listing.error}</p>}
               </div>
               {listing.research_eligible && <button className="workspace-control" disabled={busy} onClick={() => void review(listing)}>{listing.operator_excluded ? "Allow research" : "Exclude"}</button>}
