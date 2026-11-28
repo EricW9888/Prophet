@@ -173,6 +173,8 @@ class AutomationCoordinator:
         # whose interval exceeds typical uptime would never run. The last
         # completed run is kept on disk and each schedule resumes from it.
         self._completed_runs: dict[str, datetime] = {}
+        # What each job found on its last completed run, shown after a restart.
+        self._completed_results: dict[str, dict[str, str | None]] = {}
         self._overdue_jobs_scheduled = 0
 
     @staticmethod
@@ -197,16 +199,30 @@ class AutomationCoordinator:
             except ValueError:
                 continue
             completed[str(name)] = stamp if stamp.tzinfo else stamp.replace(tzinfo=UTC)
+        self._completed_results = {
+            str(name): {"status": result.get("status"), "detail": result.get("detail")}
+            for name, result in (raw.get("last_results") or {}).items()
+            if isinstance(result, dict) and str(name) in completed
+        }
         return completed
 
-    def _record_completed_run(self, name: str, finished_at: datetime) -> None:
+    def _record_completed_run(
+        self,
+        name: str,
+        finished_at: datetime,
+        status: str | None = None,
+        detail: str | None = None,
+    ) -> None:
         self._completed_runs[name] = finished_at
+        if status is not None:
+            self._completed_results[name] = {"status": status, "detail": detail}
         path = self._schedule_state_path()
         payload = {
             "completed_runs": {
                 job: stamp.isoformat()
                 for job, stamp in sorted(self._completed_runs.items())
-            }
+            },
+            "last_results": dict(sorted(self._completed_results.items())),
         }
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -659,7 +675,9 @@ class AutomationCoordinator:
             if hasattr(result, "__await__"):
                 await result
             if telemetry is not None and telemetry.last_status in {"ok", "warning"}:
-                self._record_completed_run(name, datetime.now(UTC))
+                self._record_completed_run(
+                    name, datetime.now(UTC), telemetry.last_status, telemetry.detail
+                )
         finally:
             self._active_jobs.discard(name)
             self._expedite_pending_job(name)
@@ -681,6 +699,12 @@ class AutomationCoordinator:
             last_run_at=self._completed_runs.get(name),
             last_status="disabled" if not enabled else "idle",
         )
+        # After a restart, show what the job found last time rather than a
+        # blank "idle" beside its last run time.
+        previous = self._completed_results.get(name)
+        if enabled and previous and previous.get("status"):
+            self.telemetry[name].last_status = str(previous["status"])
+            self.telemetry[name].detail = previous.get("detail")
         if enabled:
             self._add_interval_job(name, func, interval_seconds)
 
