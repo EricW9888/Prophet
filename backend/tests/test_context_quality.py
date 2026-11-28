@@ -2628,3 +2628,17 @@ def test_holdings_earning_revenue_from_the_same_driver_are_peers():
 
     assert {"allproducts", "allservices", "other"} <= GENERIC_DRIVERS
     assert PortfolioPeerContextService.score_descriptors([generic, generic_peer]) == []
+
+
+def test_extraction_defines_each_importance_level_and_expects_few_critical():
+    # Without definitions, 69% of stored facts arrived "high" or "critical"
+    # (measured 2026-11-28), so the label no longer told items apart.
+    prompt = ExtractionWorker._structured_extraction_system_prompt().lower()
+    for anchor in (
+        "critical = would change a view or force action now",
+        "high = a material input",
+        "medium = relevant context",
+        "low = background",
+        "reserve critical for the few",
+    ):
+        assert anchor in prompt
