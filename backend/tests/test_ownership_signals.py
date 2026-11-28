@@ -215,3 +215,32 @@ def test_discovery_feeds_reach_review_only_for_followed_companies():
     )
     assert unfollowed is not None and not unfollowed.should_surface
     assert followed is not None and followed.should_surface
+
+
+def test_what_a_disclosure_says_orders_disclosures_about_the_same_holding():
+    def priority(source_kind, direction, metadata):
+        return OwnershipSignalService._priority(
+            source_kind=source_kind,
+            direction=direction,
+            value_score=11.0,
+            timeliness_score=10.0,
+            portfolio_weight_pct=25.0,
+            is_portfolio_linked=True,
+            ticker="SYNQ",
+            information_score=OwnershipSignalService._information_score(
+                source_kind=source_kind, direction=direction, metadata=metadata
+            ),
+        )
+
+    insider = "corporate insider disclosure"
+    open_market_buy = priority(insider, "buy", {"transaction_code": "P"})
+    sale = priority(insider, "sell", {"transaction_code": "S"})
+    planned_sale = priority(insider, "sell", {"under_10b5_1_plan": True})
+    fund_estimate = priority(
+        "institutional flow disclosure",
+        "sell",
+        {"previous_holdings_date": "2026-11-24", "shares_before": 9, "shares_after": 7},
+    )
+    assert open_market_buy > sale > planned_sale > fund_estimate
+    # Being about the largest holding no longer pins every disclosure at 100.
+    assert fund_estimate < 90
