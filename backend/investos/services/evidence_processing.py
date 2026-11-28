@@ -18,9 +18,15 @@ from investos.models.evidence import (
     SourceItem,
 )
 from investos.services.edgar_intake import (
+    edgar_items_administrative,
+    edgar_items_material,
     is_edgar_current_report,
     is_edgar_routine_filing,
 )
+
+# A current report announcing a material event (results, an acquisition, a
+# leadership change) is read this much ahead of same-age work.
+MATERIAL_8K_ADVANCE = timedelta(hours=24)
 from investos.services.source_text import source_text_coverage
 
 MEDIA_EVIDENCE_TYPES = {
@@ -304,6 +310,14 @@ class EvidenceProcessingService:
                         RawEvidence.source_item_type, RawEvidence.title
                     ),
                     literal(routine_delay, Interval()),
+                ),
+                (
+                    edgar_items_administrative(RawEvidence.metadata_json),
+                    literal(routine_delay, Interval()),
+                ),
+                (
+                    edgar_items_material(RawEvidence.metadata_json),
+                    literal(-MATERIAL_8K_ADVANCE, Interval()),
                 ),
                 else_=literal(timedelta(0), Interval()),
             )

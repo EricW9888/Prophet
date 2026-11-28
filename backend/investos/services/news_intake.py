@@ -26,7 +26,7 @@ from investos.core.url_security import UrlFetchNetworkError, fetch_public_text
 from investos.models.evidence import RawEvidence, ResearchDiscoveryObservation
 from investos.models.news import PublisherFeed
 from investos.schemas.evidence import RawEvidenceCreate
-from investos.services.edgar_intake import is_edgar_current_report
+from investos.services.edgar_intake import is_edgar_current_report, record_edgar_items
 from investos.services.ingestion import (
     FetchedUrlDocument,
     IngestionService,
@@ -205,11 +205,14 @@ class NewsIntakeService:
                 feed.last_error = None
                 feed.last_success_at = feed.last_checked_at
             await self.session.commit()
+        # Current reports' item codes decide how soon they are read.
+        classified = await record_edgar_items(self.session)
         return {
             "status": "warning" if failures else "ok" if feeds else "idle",
             "feeds_checked": len(feeds),
             "feeds_failed": failures,
             "new_observations": observed,
+            "current_reports_classified": classified,
         }
 
     @staticmethod

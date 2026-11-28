@@ -746,3 +746,96 @@ async def test_missing_stored_content_is_blocked_not_processed() -> None:
                 )
                 await session.execute(delete(Source).where(Source.id == source_id))
                 await session.commit()
+
+
+def test_8k_item_codes_are_read_from_the_filing_text():
+    from investos.services.edgar_intake import edgar_items
+
+    text = "Item 2.02: Results of Operations ... Item 9.01: Financial Statements. ITEM 2.02 again"
+    assert edgar_items(text) == ["2.02", "9.01"]
+    assert edgar_items(None) == []
+
+
+async def test_material_8ks_are_read_first_and_administrative_ones_wait(
+    monkeypatch,
+) -> None:
+    from investos.services.edgar_intake import record_edgar_items
+
+    monkeypatch.setattr(settings, "EXTRACTION_ROUTINE_FILING_DELAY_HOURS", 72)
+    source_id: UUID | None = None
+    evidence_ids: list[UUID] = []
+    try:
+        async with async_session_maker() as session:
+            source = Source(name=f"8-K items {uuid4().hex}", source_type="official")
+            session.add(source)
+            await session.flush()
+            source_id = source.id
+            service = EvidenceProcessingService(session)
+
+            def current(title: str, created_at: datetime) -> RawEvidence:
+                return RawEvidence(
+                    source_id=source.id,
+                    source_item_type="filing",
+                    title=title,
+                    raw_content_ref=f"unused/{uuid4().hex}.txt",
+                    created_at=created_at,
+                )
+
+            other = current(
+                "8-K - Synthetic Other Inc (0000000011) (Filer)",
+                datetime(1999, 1, 1, tzinfo=UTC),
+            )
+            # Older than the ordinary 8-K: only its delay keeps it behind.
+            admin = current(
+                "8-K - Synthetic Admin Inc (0000000012) (Filer)",
+                datetime(1998, 12, 31, tzinfo=UTC),
+            )
+            material = current(
+                "8-K - Synthetic Results Inc (0000000013) (Filer)",
+                datetime(1999, 1, 1, 12, tzinfo=UTC),
+            )
+            session.add_all([other, admin, material])
+            await session.flush()
+            evidence_ids = [other.id, admin.id, material.id]
+            texts = {
+                other.id: "Item 8.01 Other Events. Item 9.01 Exhibits.",
+                admin.id: "Item 7.01 Regulation FD Disclosure. Item 9.01 Exhibits.",
+                material.id: "Item 2.02 Results of Operations. Item 9.01 Exhibits.",
+            }
+            for evidence in (other, admin, material):
+                session.add(
+                    SourceItem(
+                        raw_evidence_id=evidence.id,
+                        source_id=source.id,
+                        extracted_text=texts[evidence.id],
+                        processing_status="extraction_pending",
+                    )
+                )
+                await service.ensure_for_evidence(evidence)
+            await session.commit()
+
+            assert await record_edgar_items(session) >= 3
+            await session.refresh(material)
+            assert material.metadata_json["edgar_items"] == ["2.02", "9.01"]
+
+            # Results announced half a day later are read before the older 8-K.
+            assert (await service.next_due_evidence()).id == material.id
+
+            # Without a material item, age decides, and the administrative-only
+            # 8-K waits like a routine form.
+            material.created_at = datetime(1999, 1, 4, tzinfo=UTC)
+            await session.commit()
+            assert (await service.next_due_evidence()).id == other.id
+    finally:
+        if source_id is not None:
+            async with async_session_maker() as session:
+                await session.execute(
+                    delete(SourceItem).where(
+                        SourceItem.raw_evidence_id.in_(evidence_ids)
+                    )
+                )
+                await session.execute(
+                    delete(RawEvidence).where(RawEvidence.id.in_(evidence_ids))
+                )
+                await session.execute(delete(Source).where(Source.id == source_id))
+                await session.commit()
