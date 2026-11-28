@@ -184,7 +184,10 @@ def _fact_signal_score(
         (IMPORTANCE_SCORE.get(item.importance, 0.35) * 0.45)
         + (DIRECTNESS_SCORE.get(item.directness, 0.35) * 0.25)
         + (NOVELTY_SCORE.get(novelty, 0.2) * 0.2)
+        # Disagreement matters while the news is new: an old or background
+        # item that contradicts consensus no longer leads the Feed.
         + CONTRADICTION_BONUS.get(item.contradiction_role, 0.0)
+        * NOVELTY_SCORE.get(novelty, 0.2)
         + (0.1 if item.tier in {"hard_fact", "strong_derived"} else 0.0),
         3,
     )

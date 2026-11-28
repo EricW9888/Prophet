@@ -95,3 +95,24 @@ async def test_an_item_about_a_followed_company_outranks_an_equal_one_elsewhere(
     items = await get_timeline(limit=50, item_type="fact", session=session)
     order = [item.id for item in items]
     assert order.index(about_held.id) < order.index(elsewhere.id)
+
+
+def test_a_contradiction_counts_fully_only_while_the_news_is_new():
+    from types import SimpleNamespace
+
+    from investos.api.routes.timeline import _fact_signal_score
+
+    def fact(novelty):
+        return SimpleNamespace(
+            importance="high",
+            directness="secondary",
+            novelty=novelty,
+            contradiction_role="contradicts_consensus",
+            tier="hard_fact",
+        )
+
+    fresh, old = _fact_signal_score(fact("breaking")), _fact_signal_score(
+        fact("historical")
+    )
+    # The gap is the novelty term plus most of the contradiction bonus.
+    assert fresh - old > 0.25
