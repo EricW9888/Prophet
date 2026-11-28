@@ -803,8 +803,6 @@ function GraphWorkspace() {
     const sName = source?.label ?? edge.source_key;
     const tName = target?.label ?? edge.target_key;
     if (edge.portfolio_peer_basis) return `Peer comparison · ${sName} and ${tName}`;
-    if (edge.shared_industry) return `${sName} and ${tName} are both in ${edge.shared_industry}`;
-    if (edge.shared_sector) return `${sName} and ${tName} are both in the ${edge.shared_sector} sector (no closer industry peer on the map)`;
     if (edge.shared_evidence_count) return `${sName} and ${tName} are named together in ${edge.shared_evidence_count} stored facts, claims or events`;
     const attribution = edge.supporting_claim_id ? "Extracted relationship · " : "";
     return `${attribution}${sName} ${edge.relationship_type.replace(/_/g, " ")} ${tName}`;
@@ -1470,6 +1468,11 @@ function GraphWorkspace() {
                         ? formatUserLabel(String(selectedDetail.properties.entity_type))
                         : nodeTypeLabel(selectedDetail.node_type)}
                     </span>
+                    {selectedDetail.node_type === "entity" && propertyText(selectedDetail.properties?.industry) ? (
+                      <span className="rounded-md border border-line bg-panel px-2 py-0.5 text-xs text-muted" title="The SEC's industry classification for this company">
+                        {propertyText(selectedDetail.properties.industry)}
+                      </span>
+                    ) : null}
                     {selectedDetail.tier || ["fact", "claim"].includes(selectedDetail.node_type) ? (
                       <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-400">
                         {labelText(["fact", "claim"].includes(selectedDetail.node_type) && selectedDetail.properties.is_verified !== true ? "Unverified" : selectedDetail.tier?.replaceAll("_", " "))}

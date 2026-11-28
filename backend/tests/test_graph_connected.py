@@ -60,9 +60,19 @@ async def test_companies_named_together_in_evidence_are_linked_with_a_count(
 
     session = workflow_session
     tag = uuid4().hex[:6].upper()
-    a, b, c = [await _company(session, f"Link{tag} {n}") for n in "ABC"]
-    # Two facts name A and B; one names B and C.
-    for members in ([a, b], [a, b], [b, c]):
+    a, b, c, d, e, f = [await _company(session, f"Link{tag} {n}") for n in "ABCDEF"]
+    # Three facts name A and B; two name B and C; one names C and D. Two list
+    # items name all six, which links nobody: a list is not a relationship.
+    for members in (
+        [a, b],
+        [a, b],
+        [a, b],
+        [b, c],
+        [b, c],
+        [c, d],
+        [a, b, c, d, e, f],
+        [a, b, c, d, e, f],
+    ):
         fact_id = uuid4()
         for entity in members:
             session.add(
@@ -75,23 +85,24 @@ async def test_companies_named_together_in_evidence_are_linked_with_a_count(
                 )
             )
     await session.commit()
-    nodes = {f"entity:{e.id}": _node(e) for e in (a, b, c)}
+    nodes = {f"entity:{x.id}": _node(x) for x in (a, b, c, d, e, f)}
     edges = {}
     projected = await GraphService(session)._project_shared_evidence(nodes, edges)
     counts = {
         frozenset((e.source_key, e.target_key)): e.shared_evidence_count
         for e in projected
     }
+    # C and D share one focused item: not enough to link them.
     assert counts == {
-        frozenset((f"entity:{a.id}", f"entity:{b.id}")): 2,
-        frozenset((f"entity:{b.id}", f"entity:{c.id}")): 1,
+        frozenset((f"entity:{a.id}", f"entity:{b.id}")): 3,
+        frozenset((f"entity:{b.id}", f"entity:{c.id}")): 2,
     }
     assert all(e.relationship_type == "mentioned_together" for e in projected)
 
     # Each company keeps only its strongest links.
     monkeypatch.setattr(module, "SHARED_EVIDENCE_LINKS_PER_SUBJECT", 1)
     capped = await GraphService(session)._project_shared_evidence(nodes, {})
-    assert [e.shared_evidence_count for e in capped] == [2]
+    assert [e.shared_evidence_count for e in capped] == [3]
 
 
 async def test_a_company_name_without_its_legal_suffix_is_an_exact_match(

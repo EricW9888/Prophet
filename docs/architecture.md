@@ -610,15 +610,13 @@ does not silently reclassify or consolidate existing issuer identities.
 The portfolio attachment check excludes relationship subject and object edges.
 Those edges locate a claim's named parties and remain visible in Knowledge.
 
-Subjects also connect through three projected links. Like assertion
-projections, they are computed on each read and never stored:
-- **Named together.** Subjects linked to the same stored facts, claims or
-  events are linked to each other, with the number of shared items. Each
-  subject keeps its strongest few such links.
-- **Same industry.** Companies on the map that share an industry link to
-  that industry's best-connected member.
-- **Same sector.** A company with no industry peer on the map links to the
-  best-connected company in its sector.
+Subjects named together in stored evidence are linked, with the number of
+shared items. Like assertion projections, the link is computed on each read
+and never stored. A link needs at least two focused items, each naming at most
+four subjects; an item that names more is a list, not a relationship. Each
+subject keeps its strongest few such links. A shared classification is not a
+link: industry is shown on the company itself, not drawn between companies
+that happen to share it.
 
 Industry and sector come from the SEC's own classification. The industry is
 the filer's SIC description; the sector is the SEC office that reviews it.

@@ -94,15 +94,6 @@ class GraphWebEdgeResponse(BaseModel):
     shared_evidence_count: Optional[int] = Field(
         default=None, exclude_if=lambda value: value is None
     )
-    # For a projected "same industry" link: the industry both companies share.
-    shared_industry: Optional[str] = Field(
-        default=None, exclude_if=lambda value: value is None
-    )
-    # For a projected "same sector" link: the broader SEC sector both share,
-    # used only when a company has no same-industry peer on the map.
-    shared_sector: Optional[str] = Field(
-        default=None, exclude_if=lambda value: value is None
-    )
     id: UUID
     source_key: str
     target_key: str
