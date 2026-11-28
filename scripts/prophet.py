@@ -83,6 +83,14 @@ class ChildProcess:
     process: subprocess.Popen[bytes]
     log_path: Path
     log_handle: object
+    # Starts a replacement with the same command and environment.
+    restart: Callable[[], "ChildProcess"] | None = None
+
+
+# A service that exits on its own is restarted, at most this many times an
+# hour; beyond that the launcher stops, as before, so a crash loop is visible.
+RESTART_LIMIT = 3
+RESTART_WINDOW_SECONDS = 3600
 
 
 PREREQUISITES = (
@@ -835,15 +843,50 @@ def request_owned_stop() -> None:
     )
 
 
+def restart_child(
+    children: list[ChildProcess],
+    failed: ChildProcess,
+    restarts: dict[str, list[float]],
+    now: float,
+) -> bool:
+    """Replace a service that exited on its own, within the hourly limit."""
+    recent = [
+        moment
+        for moment in restarts.get(failed.name, [])
+        if now - moment < RESTART_WINDOW_SECONDS
+    ]
+    if failed.restart is None or len(recent) >= RESTART_LIMIT:
+        return False
+    code = failed.process.returncode
+    note = (
+        f"\n[launcher] {failed.name} exited unexpectedly (code {code}); "
+        f"restarting ({len(recent) + 1} of {RESTART_LIMIT} this hour).\n"
+    )
+    print(note.strip())
+    try:
+        failed.log_handle.write(note.encode())
+    except (OSError, ValueError):
+        pass
+    failed.log_handle.close()
+    replacement = failed.restart()
+    replacement.restart = failed.restart
+    children[children.index(failed)] = replacement
+    restarts[failed.name] = recent + [now]
+    return True
+
+
 def supervise(
-    children: Sequence[ChildProcess], control: LauncherControl | None = None
+    children: list[ChildProcess], control: LauncherControl | None = None
 ) -> None:
     print("Prophet is running. Press Ctrl+C in this launcher to stop it.")
+    restarts: dict[str, list[float]] = {}
     try:
         while True:
             failed = next(
                 (child for child in children if child.process.poll() is not None), None
             )
+            if failed and restart_child(children, failed, restarts, time.monotonic()):
+                continue
             if failed:
                 raise StartupError(
                     f"{failed.name} stopped unexpectedly.\n\n{log_tail(failed.log_path)}"
@@ -881,19 +924,26 @@ def start(*, development: bool, open_browser: bool) -> None:
     try:
         if probes[0].state is ServiceState.DOWN:
             print("Starting backend...")
-            children.append(
-                child_process(
+            backend_environment = {
+                **os.environ,
+                "PROPHET_BACKEND_BUILD": backend_build_digest(),
+                "PROPHET_LAUNCH_INSTANCE": instance,
+                # A native crash writes every thread's Python stack to the log.
+                "PYTHONFAULTHANDLER": "1",
+            }
+
+            def start_backend() -> ChildProcess:
+                return child_process(
                     "Backend",
                     backend_command(),
                     cwd=BACKEND_DIR,
                     log_path=BACKEND_LOG,
-                    environment={
-                        **os.environ,
-                        "PROPHET_BACKEND_BUILD": backend_build_digest(),
-                        "PROPHET_LAUNCH_INSTANCE": instance,
-                    },
+                    environment=backend_environment,
                 )
-            )
+
+            backend = start_backend()
+            backend.restart = start_backend
+            children.append(backend)
         if probes[1].state is ServiceState.DOWN:
             print("Starting frontend...")
             frontend_command = [
@@ -905,18 +955,23 @@ def start(*, development: bool, open_browser: bool) -> None:
                 "--port",
                 str(FRONTEND_PORT),
             ]
-            children.append(
-                child_process(
+            frontend_environment = {
+                **frontend_process_environment(),
+                "PROPHET_LAUNCH_INSTANCE": instance,
+            }
+
+            def start_frontend() -> ChildProcess:
+                return child_process(
                     "Frontend",
                     frontend_command,
                     cwd=FRONTEND_DIR,
                     log_path=FRONTEND_LOG,
-                    environment={
-                        **frontend_process_environment(),
-                        "PROPHET_LAUNCH_INSTANCE": instance,
-                    },
+                    environment=frontend_environment,
                 )
-            )
+
+            frontend = start_frontend()
+            frontend.restart = start_frontend
+            children.append(frontend)
         owned_stack = len(children) == 2
         wait_for_services(children, expected_instance=instance if owned_stack else None)
         if owned_stack:

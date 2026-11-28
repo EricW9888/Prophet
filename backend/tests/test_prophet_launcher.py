@@ -443,3 +443,60 @@ def test_bootstrap_verifies_existing_environment_against_lock(
         cached != "current-lock"
     )
     assert cache["backend_dependencies"] == "current-lock"
+
+
+class _Exited:
+    returncode = 3221225477  # 0xC0000005, an access violation
+
+    def poll(self):
+        return self.returncode
+
+
+class _Running:
+    returncode = None
+
+    def poll(self):
+        return None
+
+
+class _Log:
+    def __init__(self):
+        self.written = b""
+
+    def write(self, data):
+        self.written += data
+
+    def close(self):
+        pass
+
+
+def test_a_crashed_service_is_restarted_within_the_hourly_limit(tmp_path):
+    started = []
+
+    def start_again():
+        started.append(True)
+        return prophet.ChildProcess("Backend", _Running(), tmp_path / "b.log", _Log())
+
+    crashed = prophet.ChildProcess(
+        "Backend", _Exited(), tmp_path / "b.log", _Log(), restart=start_again
+    )
+    children = [crashed]
+    restarts: dict[str, list[float]] = {}
+    assert prophet.restart_child(children, crashed, restarts, now=100.0)
+    assert started == [True] and children[0] is not crashed
+    assert children[0].restart is start_again
+    assert b"restarting (1 of 3 this hour)" in crashed.log_handle.written
+
+    # A crash loop is not hidden: past the limit the launcher stops as before.
+    restarts["Backend"] = [101.0, 102.0, 103.0]
+    again = prophet.ChildProcess(
+        "Backend", _Exited(), tmp_path / "b.log", _Log(), restart=start_again
+    )
+    assert not prophet.restart_child([again], again, restarts, now=104.0)
+    # An hour later the budget is available again.
+    assert prophet.restart_child([again], again, restarts, now=104.0 + 3600)
+
+
+def test_a_service_without_a_restart_recipe_still_stops_the_launcher(tmp_path):
+    crashed = prophet.ChildProcess("Backend", _Exited(), tmp_path / "b.log", _Log())
+    assert not prophet.restart_child([crashed], crashed, {}, now=1.0)
