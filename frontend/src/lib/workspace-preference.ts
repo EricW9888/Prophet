@@ -2,8 +2,7 @@
 
 import { useMemo, useSyncExternalStore } from "react";
 
-function preferenceStore(key: string) {
-  const storageKey = `prophet:workspace:${key}`;
+function preferenceStore(storageKey: string) {
   let fallback = "";
   return {
     read() {
@@ -29,6 +28,18 @@ function preferenceStore(key: string) {
 }
 
 export function useWorkspacePreference(key: string) {
-  const store = useMemo(() => preferenceStore(key), [key]);
+  return useStoredPreference(`prophet:workspace:${key}`);
+}
+
+/** A browser-stored preference under an exact key; "" until it is read. */
+export function useStoredPreference(storageKey: string) {
+  const store = useMemo(() => preferenceStore(storageKey), [storageKey]);
   return { value: useSyncExternalStore(store.subscribe, store.read, () => ""), ...store };
+}
+
+const noSubscription = () => () => {};
+
+/** False while rendering on the server and hydrating; true once in the browser. */
+export function useInBrowser() {
+  return useSyncExternalStore(noSubscription, () => true, () => false);
 }
